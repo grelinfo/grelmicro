@@ -2,15 +2,18 @@
 
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from types import TracebackType
 from typing import Self
 
 import pytest
+from pytest_mock import MockerFixture
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import (
     Coordination,
     LockAcquireError,
+    LockExtendError,
     LockNotOwnedError,
     LockOwnedCheckError,
     LockReentrantError,
@@ -39,7 +42,7 @@ pytestmark = [pytest.mark.timeout(10, func_only=True)]
 _READERS = 3
 _RETAKEN_FENCE = 2
 _ENV_LEASE_DURATION = 12
-_RECONFIGURED_LEASE_DURATION = 30
+_RECONFIGURED_LEASE_DURATION = timedelta(seconds=30)
 
 
 @pytest.fixture
@@ -74,12 +77,12 @@ class _FailingBackend:
         return None
 
     async def acquire_read(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise RuntimeError(name or token or duration)
 
     async def acquire_write(
-        self, *, name: str, token: str, duration: float, intent: bool = True
+        self, *, name: str, token: str, duration: timedelta, intent: bool = True
     ) -> WriteGrant | None:
         raise RuntimeError(name or token or duration or intent)
 
@@ -93,7 +96,7 @@ class _FailingBackend:
         raise RuntimeError(name or token)
 
     async def downgrade(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise RuntimeError(name or token or duration)
 
@@ -147,16 +150,16 @@ async def test_readers_run_together(lock: ReadWriteLock) -> None:
 
 async def test_writer_waits_for_the_reader(lock: ReadWriteLock) -> None:
     """A writer retries until the reader releases."""
-    released = asyncio.Event()
+    leaving = asyncio.Event()
 
     async def reader() -> None:
         async with lock.read:
             await asyncio.sleep(0.05)
-        released.set()
+            leaving.set()
 
     async def writer() -> int:
         async with lock.write as writing:
-            assert released.is_set()
+            assert leaving.is_set()
             return writing.fencing_token
 
     reader_task = asyncio.create_task(reader())
@@ -188,7 +191,9 @@ async def test_waiting_writer_holds_new_readers_out(
     assert (await lock.state()).waiting_writers == 1
     assert (
         await backend.acquire_read(
-            name="rwlock:catalog", token="latecomer", duration=5
+            name="rwlock:catalog",
+            token="latecomer",
+            duration=timedelta(seconds=5),
         )
         is None
     )
@@ -328,7 +333,9 @@ async def test_extend_reports_a_lost_read_lease(
     reading = await lock.read.acquire()
     await backend.release_read(name="rwlock:catalog", token=reading.token)
     await backend.acquire_write(
-        name="rwlock:catalog", token="someone-else", duration=5
+        name="rwlock:catalog",
+        token="someone-else",
+        duration=timedelta(seconds=5),
     )
 
     with pytest.raises(LockNotOwnedError):
@@ -358,12 +365,79 @@ async def test_extend_after_the_write_lease_moved(
     writing = await lock.write.acquire()
     await backend.release_write(name="rwlock:catalog", token=writing.token)
     await backend.acquire_write(
-        name="rwlock:catalog", token="someone-else", duration=5
+        name="rwlock:catalog",
+        token="someone-else",
+        duration=timedelta(seconds=5),
     )
 
     with pytest.raises(LockNotOwnedError):
         await writing.extend()
     assert not writing.valid
+
+
+@pytest.mark.parametrize("mode", ["read", "write"])
+async def test_readwritelock_extend_backend_failure_raises_lock_extend_error(
+    lock: ReadWriteLock,
+    backend: MemoryReadWriteLockAdapter,
+    mocker: MockerFixture,
+    mode: str,
+) -> None:
+    """Extending a lease raises LockExtendError when the backend call fails."""
+    # Arrange
+    side = getattr(lock, mode)
+    await side.acquire()
+    mocker.patch.object(
+        backend, f"acquire_{mode}", side_effect=RuntimeError("down")
+    )
+
+    # Act & Assert
+    with pytest.raises(LockExtendError):
+        await side.extend()
+
+
+@pytest.mark.parametrize("mode", ["read", "write"])
+async def test_readwritelock_guard_extend_backend_failure_raises_lock_extend_error(
+    lock: ReadWriteLock,
+    backend: MemoryReadWriteLockAdapter,
+    mocker: MockerFixture,
+    mode: str,
+) -> None:
+    """Extending a guard raises LockExtendError when the backend call fails."""
+    # Arrange
+    guard = await getattr(lock, mode).acquire()
+    mocker.patch.object(
+        backend, f"acquire_{mode}", side_effect=RuntimeError("down")
+    )
+
+    # Act & Assert
+    with pytest.raises(LockExtendError):
+        await guard.extend()
+
+
+@pytest.mark.parametrize("mode", ["read", "write"])
+async def test_readwritelock_from_thread_extend_backend_failure_raises_lock_extend_error(
+    lock: ReadWriteLock,
+    backend: MemoryReadWriteLockAdapter,
+    mocker: MockerFixture,
+    mode: str,
+) -> None:
+    """A thread extend raises LockExtendError when the backend call fails."""
+    # Arrange
+    side = getattr(lock, mode)
+
+    # Act & Assert: acquire, extend and release run on one thread.
+    def body() -> None:
+        side.from_thread.acquire()
+        mocker.patch.object(
+            backend,
+            f"acquire_{mode}",
+            mocker.AsyncMock(side_effect=RuntimeError("down")),
+        )
+        with pytest.raises(LockExtendError):
+            side.from_thread.extend()
+        side.from_thread.release()
+
+    await asyncio.to_thread(body)
 
 
 async def test_release_without_holding(lock: ReadWriteLock) -> None:
@@ -451,7 +525,9 @@ async def test_backend_resolves_from_the_app(
     backend: MemoryReadWriteLockAdapter,
 ) -> None:
     """A lock with no backend resolves through the active app."""
-    micro = Grelmicro(uses=[Coordination(rwlock=backend, name="default")])
+    micro = Grelmicro(
+        uses=[Coordination(readwritelock=backend, name="default")]
+    )
     lock = ReadWriteLock("catalog", lease_duration=5)
 
     async with micro, lock.write as writing:
@@ -470,15 +546,15 @@ async def test_component_without_a_backend() -> None:
     """A component with no read-write lock backend says so."""
     component = Coordination()
 
-    with pytest.raises(CoordinationBackendError, match="rwlock"):
-        _ = component.rwlock_backend
+    with pytest.raises(CoordinationBackendError, match="readwritelock"):
+        _ = component.readwritelock_backend
 
 
 async def test_component_builds_the_lock(
     backend: MemoryReadWriteLockAdapter,
 ) -> None:
     """The component hands back a lock bound to its backend."""
-    component = Coordination(rwlock=backend)
+    component = Coordination(readwritelock=backend)
 
     lock = component.readwritelock("catalog", lease_duration=5)
 
@@ -507,7 +583,7 @@ async def test_environment_configuration(
 
     lock = ReadWriteLock("catalog", backend=backend)
 
-    assert lock.config.lease_duration == _ENV_LEASE_DURATION
+    assert lock.config.lease_duration == timedelta(seconds=_ENV_LEASE_DURATION)
 
 
 async def test_reconfigure_keeps_the_worker(
@@ -665,8 +741,12 @@ async def test_expired_intent_is_reaped(
     backend: MemoryReadWriteLockAdapter,
 ) -> None:
     """An intent left by a writer that died stops holding readers out."""
-    await backend.acquire_read(name="catalog", token="reader", duration=10)
-    await backend.acquire_write(name="catalog", token="dead", duration=0.05)
+    await backend.acquire_read(
+        name="catalog", token="reader", duration=timedelta(seconds=10)
+    )
+    await backend.acquire_write(
+        name="catalog", token="dead", duration=timedelta(milliseconds=50)
+    )
     await asyncio.sleep(0.1)
 
     state = await backend.state(name="catalog")
@@ -674,7 +754,7 @@ async def test_expired_intent_is_reaped(
     assert state.waiting_writers == 0
     assert (
         await backend.acquire_read(
-            name="catalog", token="latecomer", duration=10
+            name="catalog", token="latecomer", duration=timedelta(seconds=10)
         )
         is not None
     )

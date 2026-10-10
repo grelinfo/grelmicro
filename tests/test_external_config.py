@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Self
 
 import pytest
@@ -46,7 +47,7 @@ pytestmark = [pytest.mark.timeout(5)]
 _RELOADED_TIMEOUT = 9.5
 """Value patched into `GREL_HEALTH_TIMEOUT` by the reload test."""
 
-_RELOADED_CACHE_TTL = 2.0
+_RELOADED_CACHE_TTL = timedelta(seconds=2)
 """Value patched into `GREL_HEALTH_CACHE_TTL` by the reload test."""
 
 
@@ -85,7 +86,7 @@ def test_every_resilience_pattern_registers_from_constructor() -> None:
         Timeout("db", seconds=5, env_load=False),
         Bulkhead("io", max_concurrent=3, env_load=False),
         Fallback("cache", when=ValueError, default=None, env_load=False),
-        Shield.api("svc"),
+        Shield.api("svc", when=TimeoutError),
     ]
     prefixes = _prefixes()
     expected = {
@@ -110,7 +111,9 @@ def test_from_config_instances_stay_unregistered() -> None:
             "decl_rl", TokenBucketConfig(capacity=2, refill_rate=1.0)
         ),
         Timeout.from_config("decl_to", Timeout("seed", seconds=1).config),
-        Shield.from_config("decl_sh", Shield.api("seed").config),
+        Shield.from_config(
+            "decl_sh", Shield.api("seed", when=TimeoutError).config
+        ),
     ]
     added = [i for i in reconfigurable_instances() if id(i) not in before]
     added_prefixes = {i._env_prefix for i in added}
@@ -145,7 +148,7 @@ async def test_reconfigure_all_applies_mutable_beside_immutable_worker() -> (
         backend=MemoryLockAdapter(),
         name="cart",
         worker="w1",
-        lease_duration=15.0,
+        lease_duration=15,
     )
 
     # Act
@@ -157,7 +160,7 @@ async def test_reconfigure_all_applies_mutable_beside_immutable_worker() -> (
     )
 
     # Assert: lease applied, worker left unchanged.
-    assert lock.config.lease_duration == 30.0  # noqa: PLR2004
+    assert lock.config.lease_duration == timedelta(seconds=30)
     assert str(lock.config.worker) == "w1"
 
 

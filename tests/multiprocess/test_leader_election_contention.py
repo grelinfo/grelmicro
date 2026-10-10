@@ -13,6 +13,7 @@ import asyncio
 import os
 import sys
 import time
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -37,9 +38,9 @@ pytestmark = [
     pytest.mark.filterwarnings("ignore::DeprecationWarning"),
 ]
 
-pytest.importorskip("testcontainers.redis")
+pytest.importorskip("testcontainers.community.redis")
 
-from testcontainers.redis import RedisContainer  # noqa: E402
+from testcontainers.community.redis import RedisContainer  # noqa: E402
 
 WORKERS = 4
 ELECTION_NAME = "multiprocess-election"
@@ -80,8 +81,8 @@ async def _stand_for_election(
         ELECTION_NAME,
         backend=RedisLeaderElectionAdapter(),
         worker=PRELOADED_WORKER,
-        lease_duration=LEASE_DURATION,
-        renew_deadline=LEASE_DURATION * 0.66,
+        lease_duration=timedelta(seconds=LEASE_DURATION),
+        renew_deadline=timedelta(seconds=LEASE_DURATION * 0.66),
         retry_interval=LEASE_DURATION * 0.2,
         backend_timeout=LEASE_DURATION * 0.5,
     )

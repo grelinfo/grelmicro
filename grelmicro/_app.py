@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import itertools
+import logging
+import warnings
+import weakref
 from collections import Counter
 from contextlib import (
     AbstractAsyncContextManager,
@@ -35,8 +39,10 @@ from grelmicro._component import (
     answering_middleware,
     instantiate_if_class,
 )
+from grelmicro._config import defer_report
 from grelmicro._diagnostics import (
     AMBIENT_BINDING,
+    HEALTH_NOT_SERVED,
     PROVIDER_ORDER,
     diagnostic,
 )
@@ -47,7 +53,10 @@ from grelmicro._discovery import (
     load_integration,
 )
 from grelmicro._environment import (
+    _PACKAGE_DIR,
+    QUIET_ENVIRONMENTS,
     answer_for,
+    label,
     recorded_bindings,
     report_unmet_requirements,
     resolve_environment,
@@ -60,11 +69,15 @@ from grelmicro.errors import (
     AmbientBindingWarning,
     BackendScopeError,
     GrelmicroError,
+    HealthNotServedWarning,
     MultipleActiveAppsError,
     OutOfContextError,
     _AmbientMissError,
 )
+from grelmicro.health._served import unserved
 from grelmicro.providers._base import Provider
+
+_logger = logging.getLogger("grelmicro")
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -81,6 +94,7 @@ if TYPE_CHECKING:
     from grelmicro.cache._component import Cache
     from grelmicro.coordination._component import Coordination
     from grelmicro.health._checks import HealthChecks
+    from grelmicro.health._served import HealthEndpoint
     from grelmicro.log._component import Log
     from grelmicro.metrics._component import Metrics
     from grelmicro.outbox._component import Outbox
@@ -297,7 +311,7 @@ class Grelmicro:
         tasks,
     ])
 
-    @tasks.every(seconds=5)
+    @tasks.every(interval=5)
     async def cleanup(): ...
 
     async with micro:
@@ -387,6 +401,8 @@ class Grelmicro:
         """Apps with no `state` this app already wired, see `_install_marks`."""
         self._frameworks: set[str] = set()
         """The frameworks of the apps `install` wired, whose requests it records."""
+        self._health_readers: list[_HealthReader] = []
+        """How to list the health endpoints of each app `install` wired."""
         self._by_key: dict[tuple[str, str], Component] = {}
         self._resolved: dict[tuple[str, str], Component] = {}
         """`_by_key` plus `(kind, "default")` for the sole entry of a kind
@@ -1072,10 +1088,87 @@ class Grelmicro:
         from grelmicro._describe import build_report  # noqa: PLC0415
 
         report = build_report(self, app)
+        health = self._health_check()
+        extra = () if health is None else (health,)
         if app is None:
-            return report
+            return replace(report, checks=(*report.checks, *extra))
         return replace(
-            report, checks=(*report.checks, self._ambient_check(app))
+            report,
+            checks=(*report.checks, self._ambient_check(app), *extra),
+        )
+
+    def _unserved_health(self) -> _UnservedHealth | None:
+        """Return the registered `HealthChecks` nothing serves.
+
+        Returns `None` when no installed app serves HTTP, since a probe
+        then has no route to miss.
+        """
+        listings = [
+            listing
+            for read in self._health_readers
+            if (listing := read()) is not None
+        ]
+        if not listings:
+            return None
+        try:
+            default = self.get("health", "default")
+        except ComponentNotRegisteredError:
+            default = None
+        ops_server = any(
+            getattr(component, "kind", None) == "ops"
+            for component in self.components
+        )
+        missing = unserved(
+            (
+                component
+                for component in self.components
+                if getattr(component, "kind", None) == "health"
+            ),
+            default,
+            itertools.chain.from_iterable(listings),
+            ops_server=(
+                self._by_key.get(("health", "default")) if ops_server else None
+            ),
+        )
+        return _UnservedHealth(missing, default)
+
+    def _report_unserved_health(self) -> None:
+        """Warn and log about each registered `HealthChecks` nothing serves.
+
+        Quiet in `development` and `test`.
+        """
+        if self._environment in QUIET_ENVIRONMENTS:
+            return
+        found = self._unserved_health()
+        if found is None or not found.missing:
+            return
+        message = diagnostic(HEALTH_NOT_SERVED, found.message())
+        warnings.warn(
+            message, HealthNotServedWarning, skip_file_prefixes=(_PACKAGE_DIR,)
+        )
+        defer_report(
+            functools.partial(
+                _logger.warning,
+                message,
+                extra={"diagnostic": HEALTH_NOT_SERVED},
+            )
+        )
+
+    def _health_check(self) -> CheckReport | None:
+        """Return the served-health check, or `None` with no HTTP app installed."""
+        from grelmicro._describe import CheckReport  # noqa: PLC0415
+
+        found = self._unserved_health()
+        if found is None:
+            return None
+        if found.missing:
+            return CheckReport(
+                name=HEALTH_NOT_SERVED, status="warn", detail=found.message()
+            )
+        return CheckReport(
+            name=HEALTH_NOT_SERVED,
+            status="ok",
+            detail="every registered HealthChecks has its endpoints served",
         )
 
     def _ambient_check(self, app: object) -> CheckReport:
@@ -1335,6 +1428,9 @@ class Grelmicro:
             if wire_middleware is not None:
                 wire_middleware(app, middleware)
         self._install_route_gate(app, integration, errors)
+        endpoints = getattr(integration, "health_endpoints", None)
+        if endpoints is not None:
+            self._health_readers.append(_HealthReader.of(app, endpoints))
         # Marked once the wiring holds, so a retry after a failure wires.
         marks, key = self._install_marks(app)
         marks.add(key)
@@ -1626,6 +1722,7 @@ class Grelmicro:
                     self._app_opened.add(_opened_key(item))
             self._instrument_providers()
             self._opened = True
+            self._report_unserved_health()
         except BaseException:
             self._closing = True
             self._opened = False
@@ -1725,9 +1822,9 @@ class Grelmicro:
         micro = Grelmicro(uses=[Coordination(redis), Cache(redis)])  # adopted
         ```
 
-        A `Coordination` holds three backends (a lock backend, an election
-        backend, and a schedule backend), each able to borrow its own Provider,
-        so all are walked and each borrowed Provider is adopted.
+        A `Coordination` holds four backends (lock, read-write lock, leader
+        election and schedule), each able to borrow its own Provider, so all
+        are walked and each borrowed Provider is adopted.
 
         Providers the user already listed are left untouched, so their declared
         order still applies and the ordering check in
@@ -2163,15 +2260,15 @@ def _default_components_for_provider(provider: Provider) -> list[Component]:
     if any(backend is not None for backend in coordination.values()):
         components.append(Coordination(**coordination))
 
-    cache = _provider_backend_or_none(provider.cache)
+    cache = _provider_backend_or_none(provider.cache_backend)
     if cache is not None:
         components.append(Cache(cache))
 
-    ratelimiter = _provider_backend_or_none(provider.ratelimiter)
+    ratelimiter = _provider_backend_or_none(provider.ratelimiter_backend)
     if ratelimiter is not None:
         components.append(RateLimiterComponent(ratelimiter))
 
-    circuitbreaker = _provider_backend_or_none(provider.circuitbreaker)
+    circuitbreaker = _provider_backend_or_none(provider.circuitbreaker_backend)
     if circuitbreaker is not None:
         components.append(CircuitBreakerComponent(circuitbreaker))
 
@@ -2268,3 +2365,69 @@ class AmbiguousBackendError(GrelmicroError, ValueError):
     only the caller knows which kind was meant, so wrap the backend in the
     component explicitly.
     """
+
+
+@dataclass(frozen=True, slots=True)
+class _HealthReader:
+    """Lists the health endpoints of one app `install` wired.
+
+    The app is held weakly when it can be. A Litestar app cannot, so it is
+    held for as long as this `Grelmicro` is.
+    """
+
+    app: Callable[[], object | None]
+    list_endpoints: Callable[[Any], Iterable[HealthEndpoint] | None]
+
+    @classmethod
+    def of(
+        cls,
+        app: object,
+        list_endpoints: Callable[[Any], Iterable[HealthEndpoint] | None],
+    ) -> _HealthReader:
+        """Read `app` through `list_endpoints`."""
+        try:
+            held: Callable[[], object | None] = weakref.ref(app)
+        except TypeError:
+            held = functools.partial(_same, app)
+        return cls(held, list_endpoints)
+
+    def __call__(self) -> Iterable[HealthEndpoint] | None:
+        """Return the app's health endpoints, `None` when it serves no HTTP."""
+        app = self.app()
+        return None if app is None else self.list_endpoints(app)
+
+
+def _same(value: object) -> object:
+    """Return `value`."""
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class _UnservedHealth:
+    """The registered `HealthChecks` nothing serves."""
+
+    missing: list[object]
+    default: object | None
+    """The checks an endpoint built with no argument serves."""
+
+    def message(self) -> str:
+        """Say which checks nothing serves, and how to serve each."""
+        sentences = []
+        for checks in self.missing:
+            if checks is self.default:
+                ways = "Include health_router() in the app, mount health_asgi()"
+                if getattr(checks, "name", None) == "default":
+                    ways += ", or register OpsServer"
+                sentences.append(
+                    f"{label(checks)} is registered, but nothing serves its "
+                    "endpoints, so a probe to /livez or /readyz gets 404. "
+                    f"{ways}."
+                )
+            else:
+                sentences.append(
+                    f"{label(checks)} is registered, but nothing serves its "
+                    "endpoints, so a probe to them gets 404. Include "
+                    "health_router(health) in the app or mount "
+                    "health_asgi(health)."
+                )
+        return " ".join(sentences)

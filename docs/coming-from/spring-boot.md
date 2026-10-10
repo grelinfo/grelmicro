@@ -8,13 +8,14 @@ Most of what Spring Boot, Actuator, ShedLock and Resilience4j give a service has
 |---|---|---|
 | Actuator liveness and readiness probes | `HealthChecks` with `/livez`, `/readyz` and `/healthz` | [Health](../health.md) |
 | A health indicator left out of readiness | `@health.check(..., critical=False)` | [Health](../health.md) |
+| A health indicator added to the liveness group | `@health.check(..., liveness=True)` with `HealthChecks(liveness=Liveness(...))` | [Catch a stuck worker](../health.md#catch-a-stuck-worker) |
 | `management.server.port` | `OpsServer`, for a process that serves no HTTP | [Ops server](../http/server.md) |
 | Micrometer, `/actuator/prometheus` | `Metrics()` and `metrics_router()` | [Metrics](../metrics.md) |
 | `@Timed` | `@measure` | [Metrics](../metrics.md) |
-| `@Scheduled(fixedDelay = ...)`, `@Scheduled(cron = ...)` | `@tasks.every(seconds=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
+| `@Scheduled(fixedDelay = ...)`, `@Scheduled(cron = ...)` | `@tasks.every(interval=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
 | ShedLock `@SchedulerLock` | `gate="claim"` on a task | [Task Scheduler](../task.md#claim) |
 | `@Cacheable`, `@CacheEvict` | `@cached(cache, tags=[...])`, `cache.delete_tags(...)` | [@cached](../cache/cached.md) |
-| `@Cacheable(sync = true)` | `@cached(...)`, whose default `lock="local"` folds misses in one process. `lock=True` folds them across replicas | [Stampede protection](../cache/cached.md#stampede-protection) |
+| `@Cacheable(sync = true)` | `@cached(...)`, whose default `lock="process"` folds misses in one process. `lock="cluster"` folds them across replicas | [Stampede protection](../cache/cached.md#stampede-protection) |
 | Resilience4j CircuitBreaker, Retry, RateLimiter, Bulkhead, TimeLimiter | `CircuitBreaker`, `@retry`, `RateLimiter`, `Bulkhead`, `Timeout` | [Resilience](../resilience/index.md) |
 | SLF4J MDC | `add_context()` in a handler, `@instrument` and `span()` | [Tracing](../tracing.md) |
 | OAuth2 resource server with JWT | `AuthenticatedRequests` with a `JWTVerifier` | [Authentication](../http/authentication.md) |
@@ -33,11 +34,11 @@ A claimed cron task takes no lock at all. It records each fire it claims, and a 
 
 ### An interval waits for the previous run
 
-`@tasks.every(seconds=60)` counts from the end of one run to the start of the next, like `fixedDelay`. There is no `fixedRate` equivalent: a run that takes 20 seconds starts the next one 80 seconds after it started.
+`@tasks.every(interval=60)` counts from the end of one run to the start of the next, like `fixedDelay`. There is no `fixedRate` equivalent: a run that takes 20 seconds starts the next one 80 seconds after it started.
 
 ### Health has three fixed endpoints, not groups
 
-Actuator groups are named sets you define. grelmicro has three endpoints: `/livez` runs no check, `/readyz` runs the critical checks, `/healthz` runs them all. A check with `critical=False` stays out of readiness, and its failure keeps the answer at `200`. There is no custom group.
+Actuator groups are named sets you define. grelmicro has three endpoints: `/livez` reflects the liveness checks, `/readyz` runs the critical checks, `/healthz` runs the rest. A check with `critical=False` stays out of readiness, and its failure keeps the answer at `200`. There is no custom group.
 
 ### Retry needs to know what to retry
 

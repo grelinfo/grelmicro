@@ -59,59 +59,43 @@ def test_slow_profile_constants() -> None:
     assert SlowShieldConfig.profile_name == "slow"
 
 
-def test_default_timeout_errors_includes_timeout_error() -> None:
-    """The default tuple covers `TimeoutError`."""
-    config = ApiShieldConfig()
-    assert TimeoutError in config.timeout_errors
+def test_shield_config_without_when_raises_validation_error() -> None:
+    """A Shield config has no default `when`, it names the field."""
+    # Act / Assert
+    with pytest.raises(ValidationError, match="when"):
+        ApiShieldConfig()  # ty: ignore[missing-argument]
 
 
-def test_effective_timeout_errors_appends_timeout_error() -> None:
-    """A user-supplied tuple gets `TimeoutError` appended."""
-    config = ApiShieldConfig(timeout_errors=(ValueError,))
-    assert TimeoutError in config.effective_timeout_errors()
-    assert ValueError in config.effective_timeout_errors()
-
-
-def test_effective_tuple_skips_duplicate_when_already_covered() -> None:
-    """Passing `BaseException`-style ancestors does not duplicate the entry."""
-
-    class MyTimeout(TimeoutError):  # noqa: N818
-        pass
-
-    config = ApiShieldConfig(timeout_errors=(MyTimeout, TimeoutError))
-    effective = config.effective_timeout_errors()
-    assert effective.count(TimeoutError) == 1
+def test_shield_config_timeout_errors_field_is_refused() -> None:
+    """The removed `timeout_errors` field is refused by the config."""
+    # Act / Assert
+    with pytest.raises(ValidationError, match="timeout_errors"):
+        ApiShieldConfig(when=ValueError, timeout_errors=(ValueError,))  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
 
 
 def test_config_kind_discriminator() -> None:
     """The `kind` field tags each subclass for the union."""
-    assert ApiShieldConfig().kind == "api"
-    assert InternalShieldConfig().kind == "internal"
-    assert SlowShieldConfig().kind == "slow"
+    assert ApiShieldConfig(when=TimeoutError).kind == "api"
+    assert InternalShieldConfig(when=TimeoutError).kind == "internal"
+    assert SlowShieldConfig(when=TimeoutError).kind == "slow"
 
 
 def test_config_extra_forbidden() -> None:
     """Unknown fields are rejected."""
     with pytest.raises(ValidationError):
-        ApiShieldConfig(unknown_field="x")  # ty: ignore[unknown-argument]
-
-
-def test_timeout_errors_rejects_base_exception_class() -> None:
-    """`BaseException`-only types cannot be passed as `timeout_errors`."""
-    with pytest.raises(ValueError, match="not an Exception subclass"):
-        ApiShieldConfig(timeout_errors=KeyboardInterrupt)
+        ApiShieldConfig(when=TimeoutError, unknown_field="x")  # ty: ignore[unknown-argument]
 
 
 def test_config_frozen() -> None:
     """Configs are frozen after construction."""
-    config = ApiShieldConfig()
+    config = ApiShieldConfig(when=TimeoutError)
     with pytest.raises(ValidationError):
         config.max_rate = 5  # ty: ignore[invalid-assignment]
 
 
 def test_model_dump_roundtrip() -> None:
     """`model_dump` round-trips through `model_validate`."""
-    config = ApiShieldConfig(max_rate=2.5)
+    config = ApiShieldConfig(when=TimeoutError, max_rate=2.5)
     data = config.model_dump()
     rebuilt = ApiShieldConfig.model_validate(data)
     assert rebuilt == config
@@ -134,7 +118,9 @@ class _LazyProxy:
         pytest.param((ValueError, _LazyProxy()), id="proxy-inside-a-tuple"),
     ],
 )
-def test_timeout_errors_rejects_an_unreadable_value(value: object) -> None:
+def test_shield_config_when_unreadable_value_raises_validation_error(
+    value: object,
+) -> None:
     """A value that cannot be classified is refused, not a crash.
 
     `isinstance` reads `__class__`, and a lazy proxy raises from it while
@@ -142,7 +128,7 @@ def test_timeout_errors_rejects_an_unreadable_value(value: object) -> None:
     raised escaped the documented error entirely.
     """
     with pytest.raises(ValidationError):
-        ApiShieldConfig(timeout_errors=value)
+        ApiShieldConfig(when=value)
 
 
 @pytest.mark.parametrize(
@@ -155,7 +141,7 @@ def test_timeout_errors_rejects_an_unreadable_value(value: object) -> None:
         pytest.param("builtins.KeyboardInterrupt", id="by-name"),
     ],
 )
-def test_timeout_errors_refuses_a_base_exception_by_every_route(
+def test_shield_config_when_base_exception_raises_validation_error(
     value: object,
 ) -> None:
     """A `BaseException`-only type is never retried, so it is never accepted.
@@ -163,8 +149,8 @@ def test_timeout_errors_refuses_a_base_exception_by_every_route(
     Passed alone or by name it was refused, passed inside a tuple it was
     accepted, and the entry then sat in the config doing nothing.
     """
-    with pytest.raises(ValidationError, match="Exception subclass"):
-        ApiShieldConfig(timeout_errors=value)
+    with pytest.raises(ValidationError, match=r"xception (subclass|class)"):
+        ApiShieldConfig(when=value)
 
 
 class _UnwalkableTuple(tuple):  # type: ignore[type-arg]  # noqa: SLOT001
@@ -194,9 +180,9 @@ class _UnwalkableList(list):  # type: ignore[type-arg]
         pytest.param(_UnwalkableList([ValueError]), id="list"),
     ],
 )
-def test_timeout_errors_rejects_a_container_that_refuses_to_be_walked(
+def test_shield_config_when_unwalkable_container_raises_validation_error(
     value: object,
 ) -> None:
     """Normalizing the entries walks the container, which is caller code."""
     with pytest.raises(ValidationError):
-        ApiShieldConfig(timeout_errors=value)
+        ApiShieldConfig(when=value)

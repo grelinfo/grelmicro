@@ -67,11 +67,11 @@ Decorate a function and every call consumes tokens before it runs:
 --8<-- "resilience/ratelimiter_decorator.py"
 ```
 
-`@limiter` on its own meters the whole function under the `default` bucket. Call it to meter per argument instead, with the same key vocabulary [`@cached`](../cache/cached.md) uses: `key="user:{user_id}"` renders the bucket key from the call's arguments, and `key_maker=(func, args, kwargs)` computes it however you need. A `key` with no placeholder is used as it is written.
+`@limiter` on its own meters the whole function under the `default` bucket. Call it to meter per argument instead, with the same key vocabulary [`@cached`](../cache/cached.md) uses: `key_template="user:{user_id}"` renders the bucket key from the call's arguments, and a `key=` function receiving `(func, args, kwargs)` computes it however you need. A `key_template` with no placeholder is used as it is written.
 
 A throttled call raises `RateLimitExceededError` as soon as the budget is spent. Pass `max_wait` to wait for tokens instead, up to that many seconds. The decorator never waits without a budget, because a wait with no bound sits above the deadline of everything below it. Call `wait` yourself when that is what you want.
 
-The decorator is async only, and a `key` template that names a parameter the function does not take is refused where it is written.
+The decorator is async only, and a `key_template` that names a parameter the function does not take is refused where it is written.
 
 Calling `limiter(...)` returns a `RateLimiterBinding`, which decorates and which [`Stack(patterns=[...])`](composition.md#stack) accepts.
 
@@ -128,10 +128,10 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 
     ### Worked scenarios
 
-    - **"Limit each user to 100 API calls per minute."** Use `SlidingWindowConfig(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into the `t=` parameter of `RateLimit`.
+    - **"Limit each user to 100 API calls per minute."** Use `RateLimiter.sliding_window("api", limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into the `t=` parameter of `RateLimit`.
     - **"Allow a burst of 20 uploads, then 2 per second."** Use `TokenBucketConfig(capacity=20, refill_rate=2)`. Each word in the sentence maps to one parameter.
     - **"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."** Use `TokenBucketConfig(capacity=5, refill_rate=0.1)`.
-    - **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `SlidingWindowConfig(limit=10, window=60)`.
+    - **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `RateLimiter.sliding_window("webhooks", limit=10, window=60)`.
 
     There is no separate `LeakyBucket` algorithm. `SlidingWindowConfig` is the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use `SlidingWindowConfig`.
 
@@ -173,6 +173,8 @@ List a provider on the app before using `RateLimiter`. It registers the rate lim
 | **Use case** | Production | Production (when Postgres is already deployed) | Single host that needs durability | Testing / single-process |
 | **Multi-node** | Yes | Yes | No | No |
 | **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | Yes (file-backed) | No |
+
+SQLite is host-scoped: it shares state with the processes on one host only. `RateLimiterComponent` requires `process`, so it accepts SQLite. Pass `requires="cluster"` and a SQLite backend is refused at startup in `staging` and `production`, and warns once when `GREL_ENVIRONMENT` is unset. See [The backend check](../deployment.md#the-backend-check).
 
 ### Choosing a backend
 
@@ -218,7 +220,7 @@ RateLimit-Policy: "api";q=100;w=60
 RateLimit: "api";r=50;t=30
 ```
 
-`RateLimit-Policy` describes the policy rather than the request, so its window (`w=`) is not on the result. Read it from the config you built the limiter with, such as `SlidingWindowConfig.window`. The policy line is the same on every response, so render it once.
+`RateLimit-Policy` describes the policy rather than the request, so its window (`w=`) is not on the result. Read it from the config you built the limiter with. `SlidingWindowConfig.window` is a `timedelta` and `w=` takes whole seconds, so render it as `math.ceil(config.window.total_seconds())`. A window under a second reads `w=1`. The policy line is the same on every response, so render it once.
 
 ### Weighted requests
 

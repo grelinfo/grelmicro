@@ -219,9 +219,9 @@ server one fetch, and a request cancelled while it waits does not cancel the
 fetch the others are waiting on.
 
 A server that says when to refresh, with `refresh_in`, is followed. Otherwise
-the token refreshes `refresh_before` seconds ahead, at most half its lifetime,
-at a slightly random point so replicas started together do not all ask in the
-same second.
+the token refreshes at least `refresh_before` before it expires, capped at half
+its lifetime, and at random up to half of `refresh_before` earlier than that, so
+replicas started together do not all ask in the same second.
 
 ## When the authorization server fails
 
@@ -292,7 +292,7 @@ leaked credential.
 
 | Setting | On | Default | What it bounds |
 | --- | --- | ---: | --- |
-| `refresh_before` | `OAuthClient` | `60` | Seconds before expiry a token is refreshed, at most half its lifetime |
+| `refresh_before` | `OAuthClient` | `60` | A token is refreshed at least this long before it expires, at most half its lifetime |
 | `default_lifetime` | `OAuthClient` | `300` | Lifetime of a token sent without `expires_in` |
 | `timeout` | `OAuthClient` | `5` | Wait on the authorization server |
 | `retry_interval` | `OAuthClient` | `5` | How long a failure is remembered |

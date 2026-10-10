@@ -93,7 +93,7 @@ from grelmicro.testing import record
 
 
 async def test_login_takes_the_lock() -> None:
-    backend = MemoryProvider().lock()
+    backend = MemoryProvider().lock_backend()
     log = record(backend)
     micro = Grelmicro(uses=[Coordination(lock=backend)])
 
@@ -118,6 +118,12 @@ A token the verifier does not know is refused the way a bad one is in
 production, so the `401` and its challenge are tested too. To test the verifier
 itself, sign a real token as
 [Test with a real token](security/jwt.md#test-with-a-real-token) shows.
+
+`app.dependency_overrides` changes what a dependency returns, never what a
+route declares, so the response cache still answers a route declaring
+`CachedResponse()`. To reach the handler on every request, leave
+`CachedResponses()` out of the test's `uses`, or name the path in its
+`exclude=`.
 
 ## Going deeper
 

@@ -51,7 +51,7 @@ An Adapter that declares no `scope` is not reported. A third-party Adapter is th
 
 ## Grouping
 
-`Coordination` groups the coordination backends (lock, leader election, schedule) under one Component because they belong to one domain, though you can still wire each to a different backend (`Coordination(lock=..., election=..., schedule=...)`). Resilience instead exposes one Component per shared Pattern, because each carries an independent sharing decision.
+`Coordination` groups the coordination backends (lock, leader election, schedule) under one Component because they belong to one domain, though you can still wire each to a different backend (`Coordination(lock=..., leaderelection=..., schedule=...)`). Resilience instead exposes one Component per shared Pattern, because each carries an independent sharing decision.
 
 ## Construction vs registration
 
@@ -76,7 +76,7 @@ async with micro:
 # every item is closed on exit (LIFO)
 ```
 
-`Coordination(provider)` calls `provider.lock()` to obtain the matching `LockBackend` and `provider.leaderelection()` for the `LeaderElectionBackend`. `Cache(provider)` calls `provider.cache()`. Memory backends bypass the Provider step: pass the adapter directly (`Coordination(lock=MemoryLockAdapter())`).
+`Coordination(provider)` calls `provider.lock_backend()` to obtain the matching `LockBackend` and `provider.leaderelection_backend()` for the `LeaderElectionBackend`. `Cache(provider)` calls `provider.cache_backend()`. Memory backends bypass the Provider step: pass the adapter directly (`Coordination(lock=MemoryLockAdapter())`).
 
 ## Forgiving uses lists
 
@@ -203,7 +203,7 @@ Skip the app entirely for one-off usage:
 
 ```python title="fragment"
 async with RedisProvider() as redis:
-    lock = Lock(name="my-lock", backend=redis.lock())
+    lock = Lock(name="my-lock", backend=redis.lock_backend())
     async with lock:
         ...
 ```

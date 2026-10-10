@@ -17,7 +17,7 @@ class Report(BaseModel):
 cache = TTLCache[Report](ttl=300)
 
 
-@cached(cache, key="report:{user_id}")
+@cached(cache, key_template="report:{user_id}")
 async def get_report(user_id: int) -> Report:
     return Report(user_id=user_id)
 

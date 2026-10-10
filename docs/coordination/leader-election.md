@@ -85,8 +85,8 @@ Pick the backend that matches your deployment.
 | `KubernetesLeaderElectionAdapter` | A Kubernetes-native deployment. | A `coordination.k8s.io` Lease, metadata in its annotations. |
 
 A `Provider` builds the matching backend for you: `Coordination(redis)` calls
-`redis.leaderelection()`. Pass a backend instance directly when it has no
-provider, like the Kubernetes Lease.
+`redis.leaderelection_backend()`. Pass a backend instance directly when it has
+no provider, like the Kubernetes Lease.
 
 ## Running without a component
 
@@ -110,6 +110,8 @@ Build `LeaderElection` with keyword arguments. The lease timing fields
 `backend_timeout`, `error_interval`) tune in deployment from
 `GREL_LEADERELECTION_{NAME_UPPER}_*` environment variables. See
 [Configuration](../config.md) for the deployment story.
+
+--8<-- "env_gate.md"
 
 !!! tip "Advanced"
     For the `from_config` declarative path and `pydantic-settings` composition,

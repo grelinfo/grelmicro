@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     ClassVar,
+    Final,
     Generic,
     Self,
     TypeVar,
@@ -52,6 +54,9 @@ _SENTINEL = object()
 # The `\x1f` separator stays out of band (no real key uses it) and, unlike
 # `\x00`, is valid in a Postgres text key.
 _FINGERPRINT_SUFFIX = "\x1ffp"
+
+_FINGERPRINT_MARGIN = timedelta(seconds=1)
+"""How much longer the fingerprint is kept than the response it guards."""
 
 
 class Operation(Generic[T]):
@@ -126,13 +131,13 @@ class _Block(Generic[T]):
         idempotency: Idempotency[T],
         key: str,
         fingerprint: str | None,
-        wait_timeout: float | None = None,
+        max_wait: float | None = None,
     ) -> None:
         """Initialize the block."""
         self._idempotency = idempotency
         self._key = key
         self._fingerprint = fingerprint
-        self._wait_timeout = wait_timeout
+        self._max_wait = max_wait
         self._operation: Operation[T] | None = None
         self._local_lock: Any = None
         self._distributed_lock: Lock | None = None
@@ -163,7 +168,7 @@ class _Block(Generic[T]):
                 covers request and message handlers, and not a lifespan of
                 your own. Also raised, with its own fix, when the cache
                 backend is not open.
-            IdempotencyWaitTimeoutError: `wait_timeout` elapsed while an
+            IdempotencyWaitTimeoutError: `max_wait` elapsed while an
                 execution already in flight held the single-flight lock.
         """
         try:
@@ -189,7 +194,7 @@ class _Block(Generic[T]):
 
         guard = self._idempotency._guard  # noqa: SLF001
         try:
-            async with asyncio.timeout(self._wait_timeout) as scope:
+            async with asyncio.timeout(self._max_wait) as scope:
                 self._local_lock = await guard.get_lock(self._key)
                 await self._local_lock.acquire()
                 try:
@@ -248,7 +253,7 @@ class _Block(Generic[T]):
                 raise IdempotencyWaitTimeoutError(
                     name=self._idempotency._name,  # noqa: SLF001
                     key=self._key,
-                    timeout=cast("float", self._wait_timeout),
+                    timeout=cast("float", self._max_wait),
                 ) from None
             raise
 
@@ -289,8 +294,8 @@ class _Block(Generic[T]):
     async def _release(self) -> None:
         """Release the distributed and in-process locks, in that order.
 
-        The in-process release runs even when the distributed release is
-        cancelled mid-flight, so a key never stays locked for the life of
+        The in-process release runs even when the distributed release
+        fails or is cancelled, so a key never stays locked for the life of
         the process.
         """
         try:
@@ -303,11 +308,29 @@ class _Block(Generic[T]):
                 self._local_lock = None
 
 
+class InProcessLock:
+    """The lock a duplicate waits on when the app has no lock backend.
+
+    It holds in this process only, so a duplicate sent to another replica
+    runs the operation again.
+    """
+
+    scope: ClassVar[BackendScope] = "process"
+
+
+_IN_PROCESS_LOCK: Final = InProcessLock()
+"""What the scope check sees when no `Coordination` holds a lock backend."""
+
+
+class _LockRequirement:
+    """Stands for the lock an `Idempotency` needs, in the scope check."""
+
+
 class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
     """Idempotency keys for safe retries of an operation.
 
     Each named `Idempotency` stores a response under a caller-supplied
-    key for `ttl` seconds. A repeated key within that window replays the
+    key for `ttl`. A repeated key within that window replays the
     stored response without running the operation again. A duplicate
     arriving while the first execution is in flight waits and receives
     the stored response, across replicas when a lock backend is
@@ -351,12 +374,13 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         ],
         *,
         ttl: Annotated[
-            float | None,
+            int | timedelta | None,
             Doc(
                 """
-                Lifetime in seconds of a stored response.
+                Lifetime of a stored response, in whole seconds or as a
+                `timedelta`. A float is refused.
 
-                Default: 86400. When unset and env reads are enabled (see
+                Default: one day. When unset and env reads are enabled (see
                 `env_load` and `GREL_ENV_LOAD`), resolves from the
                 environment variable
                 `GREL_IDEMPOTENCY_TTL` for the default instance
@@ -534,36 +558,49 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         )
         self._cache: TTLCache[T] | None = cache
         self._requires: BackendScope = requires or self.default_requires
-        binding = self._scope_binding()
+        binding, lock = self._scope_bindings()
         if binding.backend is None or falls_short(
             binding.backend, self._requires
         ):
             record(self, binding)
+        self._lock_requirement = _LockRequirement()
+        record(self._lock_requirement, lock)
 
     @property
     def requires(self) -> BackendScope:
-        """The smallest scope the cache backend must reach."""
+        """The smallest scope the cache and lock backends must reach."""
         return self._requires
 
-    def _scope_binding(self) -> Binding:
-        """Describe the backend this stores through, for the scope check.
+    def _scope_bindings(self) -> tuple[Binding, Binding]:
+        """Describe the store and the lock this runs through, for the scope check.
 
         A `TTLCache` holding a backend of its own is checked on it. Any
         other rides the app's `Cache('default')`, or its sole `Cache` when
-        none is named `"default"`, which is where it reads.
+        none is named `"default"`, which is where it reads. The lock rides
+        the app's `Coordination`, and without one it is an `InProcessLock`,
+        which reaches the process only.
         """
         cache = self._cache
         backend = cache._backend if cache is not None else None  # noqa: SLF001
-        if backend is not None:
-            return Binding(
-                label(self), self._requires, backend=backend, kind="cache"
+        store = (
+            Binding(label(self), self._requires, backend=backend, kind="cache")
+            if backend is not None
+            else Binding(
+                label(self),
+                self._requires,
+                rides=("cache", "default"),
+                kind="cache",
             )
-        return Binding(
+        )
+        lock = Binding(
             label(self),
             self._requires,
-            rides=("cache", "default"),
-            kind="cache",
+            rides=("coordination", "default"),
+            attribute="_lock_backend",
+            absent=_IN_PROCESS_LOCK,
+            kind="coordination",
         )
+        return store, lock
 
     def _get_cache(self) -> TTLCache[T]:
         """Return the response store, composing it on first use.
@@ -622,7 +659,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 """,
             ),
         ] = None,
-        wait_timeout: Annotated[
+        max_wait: Annotated[
             float | None,
             Doc(
                 """
@@ -646,7 +683,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             self,
             key,
             fingerprint if fingerprint is not None else self._fingerprint,
-            wait_timeout,
+            max_wait,
         )
 
     async def run(
@@ -675,7 +712,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 """,
             ),
         ] = None,
-        wait_timeout: Annotated[
+        max_wait: Annotated[
             float | None,
             Doc(
                 """
@@ -698,7 +735,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         import inspect  # noqa: PLC0415
 
         async with self(
-            key, fingerprint=fingerprint, wait_timeout=wait_timeout
+            key, fingerprint=fingerprint, max_wait=max_wait
         ) as operation:
             if operation.replayed:
                 return operation.result()
@@ -746,6 +783,6 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             await cache._get_backend().set(  # noqa: SLF001
                 key=f"{_CACHE_PREFIX}:{scoped}{_FINGERPRINT_SUFFIX}",
                 value=fingerprint.encode(),
-                ttl=ttl + 1,
+                ttl=ttl + _FINGERPRINT_MARGIN,
             )
         await cache.set(scoped, response, ttl)

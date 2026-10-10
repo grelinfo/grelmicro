@@ -7,8 +7,8 @@ class IdempotencyError(GrelmicroError):
     """Base idempotency error."""
 
 
-class IdempotencyKeyMakerError(IdempotencyError, ValueError):
-    """Raised when a `key_maker` returns a key that cannot separate callers.
+class IdempotencyKeyFunctionError(IdempotencyError, ValueError):
+    """Raised when a `key=` function returns a key that cannot separate callers.
 
     A key that is partly missing does not fail, it merges. Callers whose key
     lost the same component share one entry and can replay each other's
@@ -27,7 +27,7 @@ class IdempotencyStateError(IdempotencyError, RuntimeError):
 
 
 class IdempotencyWaitTimeoutError(IdempotencyError, TimeoutError):
-    """Raised when a duplicate waits past `wait_timeout` for the first execution.
+    """Raised when a duplicate waits past `max_wait` for the first execution.
 
     Subclasses `TimeoutError`, so an `except TimeoutError` around the
     block catches it. Catch this instead to tell a single-flight wait

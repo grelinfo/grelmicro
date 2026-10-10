@@ -6,14 +6,16 @@ grows, a waiting writer keeps new readers out, and an expired holder never
 blocks anyone.
 """
 
+import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator, Generator
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 from testcontainers.core.container import DockerContainer
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
 
 from grelmicro.coordination._protocol import ReadWriteLockBackend
 from grelmicro.coordination.kubernetes import KubernetesReadWriteLockAdapter
@@ -26,6 +28,8 @@ from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
+
+LEASE = timedelta(seconds=10)
 
 _READERS = 3
 
@@ -88,24 +92,24 @@ def container(
 
 
 @pytest.fixture(scope="module")
-def expire_duration(backend_name: str) -> float:
+def expire_duration(backend_name: str) -> timedelta:
     """Lease duration for expiration tests, scaled per backend.
 
-    SQLite and Kubernetes round the duration up to whole seconds, and the
-    networked backends need enough margin to survive container-side clock
-    drift. Only the in-process Memory backend can use a sub-second value.
+    Kubernetes rounds the duration up to whole seconds, and the networked
+    backends need enough margin to survive container-side clock drift.
+    The in-process Memory and SQLite backends can use a sub-second value.
     """
-    if backend_name == "memory":
-        return 0.2
-    return 1.0
+    if backend_name in ("memory", "sqlite"):
+        return timedelta(milliseconds=200)
+    return timedelta(seconds=1)
 
 
 @pytest.fixture(scope="module")
-def expire_wait(backend_name: str, expire_duration: float) -> float:
+def expire_wait(backend_name: str, expire_duration: timedelta) -> float:
     """Sleep duration to wait past lease expiration."""
-    if backend_name in ("sqlite", "kubernetes"):
-        return expire_duration + 1.0
-    return expire_duration + 0.3
+    if backend_name == "kubernetes":
+        return expire_duration.total_seconds() + 1.0
+    return expire_duration.total_seconds() + 0.3
 
 
 @pytest.fixture(scope="module")
@@ -153,7 +157,7 @@ async def test_readers_share(backend: ReadWriteLockBackend) -> None:
     tokens = [uuid4().hex for _ in range(_READERS)]
 
     granted = [
-        await backend.acquire_read(name=name, token=token, duration=10)
+        await backend.acquire_read(name=name, token=token, duration=LEASE)
         for token in tokens
     ]
 
@@ -168,8 +172,10 @@ async def test_writer_excludes_readers(backend: ReadWriteLockBackend) -> None:
     name = "test_writer_excludes_readers"
     writer, reader = uuid4().hex, uuid4().hex
 
-    grant = await backend.acquire_write(name=name, token=writer, duration=10)
-    refused = await backend.acquire_read(name=name, token=reader, duration=10)
+    grant = await backend.acquire_write(name=name, token=writer, duration=LEASE)
+    refused = await backend.acquire_read(
+        name=name, token=reader, duration=LEASE
+    )
 
     assert grant is not None
     assert refused is None
@@ -180,8 +186,10 @@ async def test_readers_exclude_writer(backend: ReadWriteLockBackend) -> None:
     name = "test_readers_exclude_writer"
     reader, writer = uuid4().hex, uuid4().hex
 
-    await backend.acquire_read(name=name, token=reader, duration=10)
-    refused = await backend.acquire_write(name=name, token=writer, duration=10)
+    await backend.acquire_read(name=name, token=reader, duration=LEASE)
+    refused = await backend.acquire_write(
+        name=name, token=writer, duration=LEASE
+    )
 
     assert refused is None
     assert (await backend.state(name=name)).waiting_writers == 1
@@ -194,15 +202,15 @@ async def test_waiting_writer_blocks_new_readers(
     name = "test_waiting_writer_blocks_new_readers"
     reader, writer, latecomer = uuid4().hex, uuid4().hex, uuid4().hex
 
-    await backend.acquire_read(name=name, token=reader, duration=10)
-    await backend.acquire_write(name=name, token=writer, duration=10)
+    await backend.acquire_read(name=name, token=reader, duration=LEASE)
+    await backend.acquire_write(name=name, token=writer, duration=LEASE)
 
     assert (
-        await backend.acquire_read(name=name, token=latecomer, duration=10)
+        await backend.acquire_read(name=name, token=latecomer, duration=LEASE)
         is None
     )
     assert (
-        await backend.acquire_read(name=name, token=reader, duration=10)
+        await backend.acquire_read(name=name, token=reader, duration=LEASE)
         is not None
     )
 
@@ -214,11 +222,11 @@ async def test_writer_enters_after_last_reader_leaves(
     name = "test_writer_enters_after_last_reader_leaves"
     reader, writer = uuid4().hex, uuid4().hex
 
-    await backend.acquire_read(name=name, token=reader, duration=10)
-    await backend.acquire_write(name=name, token=writer, duration=10)
+    await backend.acquire_read(name=name, token=reader, duration=LEASE)
+    await backend.acquire_write(name=name, token=writer, duration=LEASE)
     assert await backend.release_read(name=name, token=reader)
 
-    grant = await backend.acquire_write(name=name, token=writer, duration=10)
+    grant = await backend.acquire_write(name=name, token=writer, duration=LEASE)
 
     assert grant is not None
     assert not grant.poisoned
@@ -232,15 +240,15 @@ async def test_nowait_writer_records_no_intent(
     name = "test_nowait_writer_records_no_intent"
     reader, writer, latecomer = uuid4().hex, uuid4().hex, uuid4().hex
 
-    await backend.acquire_read(name=name, token=reader, duration=10)
+    await backend.acquire_read(name=name, token=reader, duration=LEASE)
     refused = await backend.acquire_write(
-        name=name, token=writer, duration=10, intent=False
+        name=name, token=writer, duration=LEASE, intent=False
     )
 
     assert refused is None
     assert (await backend.state(name=name)).waiting_writers == 0
     assert (
-        await backend.acquire_read(name=name, token=latecomer, duration=10)
+        await backend.acquire_read(name=name, token=latecomer, duration=LEASE)
         is not None
     )
 
@@ -252,13 +260,13 @@ async def test_cancel_intent_lets_readers_in(
     name = "test_cancel_intent_lets_readers_in"
     reader, writer, latecomer = uuid4().hex, uuid4().hex, uuid4().hex
 
-    await backend.acquire_read(name=name, token=reader, duration=10)
-    await backend.acquire_write(name=name, token=writer, duration=10)
+    await backend.acquire_read(name=name, token=reader, duration=LEASE)
+    await backend.acquire_write(name=name, token=writer, duration=LEASE)
     assert await backend.cancel_intent(name=name, token=writer)
     assert not await backend.cancel_intent(name=name, token=writer)
 
     assert (
-        await backend.acquire_read(name=name, token=latecomer, duration=10)
+        await backend.acquire_read(name=name, token=latecomer, duration=LEASE)
         is not None
     )
 
@@ -271,12 +279,12 @@ async def test_generation_grows_per_write(
     first, second = uuid4().hex, uuid4().hex
 
     grant_first = await backend.acquire_write(
-        name=name, token=first, duration=10
+        name=name, token=first, duration=LEASE
     )
     assert grant_first is not None
     await backend.release_write(name=name, token=first)
     grant_second = await backend.acquire_write(
-        name=name, token=second, duration=10
+        name=name, token=second, duration=LEASE
     )
 
     assert grant_second is not None
@@ -290,8 +298,10 @@ async def test_same_writer_extend_keeps_generation(
     name = "test_same_writer_extend_keeps_generation"
     writer = uuid4().hex
 
-    first = await backend.acquire_write(name=name, token=writer, duration=10)
-    second = await backend.acquire_write(name=name, token=writer, duration=10)
+    first = await backend.acquire_write(name=name, token=writer, duration=LEASE)
+    second = await backend.acquire_write(
+        name=name, token=writer, duration=LEASE
+    )
 
     assert first is not None
     assert second is not None
@@ -305,11 +315,11 @@ async def test_reader_sees_write_generation(
     name = "test_reader_sees_write_generation"
     writer, reader = uuid4().hex, uuid4().hex
 
-    grant = await backend.acquire_write(name=name, token=writer, duration=10)
+    grant = await backend.acquire_write(name=name, token=writer, duration=LEASE)
     assert grant is not None
     await backend.release_write(name=name, token=writer)
     generation = await backend.acquire_read(
-        name=name, token=reader, duration=10
+        name=name, token=reader, duration=LEASE
     )
 
     assert generation == grant.fencing_token
@@ -317,7 +327,7 @@ async def test_reader_sees_write_generation(
 
 async def test_expired_reader_does_not_block_writer(
     backend: ReadWriteLockBackend,
-    expire_duration: float,
+    expire_duration: timedelta,
     expire_wait: float,
 ) -> None:
     """A reader that died is reaped by the writer's own acquire."""
@@ -328,14 +338,14 @@ async def test_expired_reader_does_not_block_writer(
         name=name, token=reader, duration=expire_duration
     )
     await sleep(expire_wait)
-    grant = await backend.acquire_write(name=name, token=writer, duration=10)
+    grant = await backend.acquire_write(name=name, token=writer, duration=LEASE)
 
     assert grant is not None
 
 
 async def test_expired_writer_poisons_the_next(
     backend: ReadWriteLockBackend,
-    expire_duration: float,
+    expire_duration: timedelta,
     expire_wait: float,
 ) -> None:
     """A writer that died without releasing is reported to its successor."""
@@ -345,7 +355,7 @@ async def test_expired_writer_poisons_the_next(
     await backend.acquire_write(name=name, token=dead, duration=expire_duration)
     await sleep(expire_wait)
     grant = await backend.acquire_write(
-        name=name, token=next_writer, duration=10
+        name=name, token=next_writer, duration=LEASE
     )
 
     assert grant is not None
@@ -359,9 +369,9 @@ async def test_clean_release_does_not_poison(
     name = "test_clean_release_does_not_poison"
     first, second = uuid4().hex, uuid4().hex
 
-    await backend.acquire_write(name=name, token=first, duration=10)
+    await backend.acquire_write(name=name, token=first, duration=LEASE)
     assert await backend.release_write(name=name, token=first)
-    grant = await backend.acquire_write(name=name, token=second, duration=10)
+    grant = await backend.acquire_write(name=name, token=second, duration=LEASE)
 
     assert grant is not None
     assert not grant.poisoned
@@ -374,16 +384,18 @@ async def test_downgrade_hands_no_gap_to_another_writer(
     name = "test_downgrade_hands_no_gap"
     writer, other = uuid4().hex, uuid4().hex
 
-    grant = await backend.acquire_write(name=name, token=writer, duration=10)
+    grant = await backend.acquire_write(name=name, token=writer, duration=LEASE)
     assert grant is not None
-    generation = await backend.downgrade(name=name, token=writer, duration=10)
+    generation = await backend.downgrade(
+        name=name, token=writer, duration=LEASE
+    )
 
     assert generation == grant.fencing_token
     assert await backend.owned_read(name=name, token=writer)
     assert not await backend.owned_write(name=name, token=writer)
     assert (
         await backend.acquire_write(
-            name=name, token=other, duration=10, intent=False
+            name=name, token=other, duration=LEASE, intent=False
         )
         is None
     )
@@ -396,7 +408,7 @@ async def test_downgrade_without_the_lock(
     name = "test_downgrade_without_the_lock"
 
     assert (
-        await backend.downgrade(name=name, token=uuid4().hex, duration=10)
+        await backend.downgrade(name=name, token=uuid4().hex, duration=LEASE)
         is None
     )
 
@@ -410,7 +422,7 @@ async def test_release_reports_what_it_did(
 
     assert not await backend.release_read(name=name, token=token)
     assert not await backend.release_write(name=name, token=token)
-    await backend.acquire_read(name=name, token=token, duration=10)
+    await backend.acquire_read(name=name, token=token, duration=LEASE)
     assert await backend.release_read(name=name, token=token)
 
 
@@ -434,11 +446,59 @@ async def test_owned_tracks_the_holder(backend: ReadWriteLockBackend) -> None:
     name = "test_owned_tracks_the_holder"
     reader, writer = uuid4().hex, uuid4().hex
 
-    await backend.acquire_read(name=name, token=reader, duration=10)
+    await backend.acquire_read(name=name, token=reader, duration=LEASE)
     assert await backend.owned_read(name=name, token=reader)
     assert not await backend.owned_write(name=name, token=reader)
     await backend.release_read(name=name, token=reader)
 
-    await backend.acquire_write(name=name, token=writer, duration=10)
+    await backend.acquire_write(name=name, token=writer, duration=LEASE)
     assert await backend.owned_write(name=name, token=writer)
     assert not await backend.owned_read(name=name, token=writer)
+
+
+@pytest.mark.parametrize("kind", ["read", "write", "intent", "downgrade"])
+async def test_a_lease_is_rounded_up_never_down(
+    backend: ReadWriteLockBackend, backend_name: str, kind: str
+) -> None:
+    """A lease of 1001 ms is held, and gone before a whole extra second.
+
+    A Kubernetes writer lease is rounded up to two whole seconds, so it is
+    still held past one second. Every other lease is held to the
+    millisecond. Each check keeps a wide margin from the expiry.
+    """
+    name = "rounding" + uuid4().hex
+    token = uuid4().hex
+    lease = timedelta(milliseconds=1001)
+    whole_seconds = backend_name == "kubernetes" and kind == "write"
+    held_at, gone_at = (1.3, 2.7) if whole_seconds else (0.5, 1.6)
+    before = time.monotonic()
+    if kind == "read":
+        await backend.acquire_read(name=name, token=token, duration=lease)
+    elif kind == "write":
+        await backend.acquire_write(name=name, token=token, duration=lease)
+    elif kind == "intent":
+        await backend.acquire_read(name=name, token=uuid4().hex, duration=LEASE)
+        await backend.acquire_write(name=name, token=token, duration=lease)
+        before = time.monotonic()
+        await backend.acquire_write(name=name, token=token, duration=lease)
+    else:
+        await backend.acquire_write(name=name, token=token, duration=LEASE)
+        before = time.monotonic()
+        await backend.downgrade(name=name, token=token, duration=lease)
+    after = time.monotonic()
+
+    await sleep(held_at - (time.monotonic() - before))
+    held = await backend.state(name=name)
+    await sleep(gone_at - (time.monotonic() - after))
+    gone = await backend.state(name=name)
+
+    count = {
+        "read": lambda state: state.readers,
+        "write": lambda state: int(state.writing),
+        "intent": lambda state: state.waiting_writers,
+        "downgrade": lambda state: state.readers,
+    }[kind]
+    reader_left = 1 if kind == "intent" else 0
+    assert count(held) == 1
+    assert count(gone) == 0
+    assert gone.readers == reader_left

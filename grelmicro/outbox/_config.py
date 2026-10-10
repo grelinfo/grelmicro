@@ -8,6 +8,23 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field, field_validator
 from typing_extensions import Doc
 
+from grelmicro._duration import (
+    NO_LIMIT,
+    Duration,
+    Retention,
+    no_limit_from_text,
+)
+
+_BOOL_WORDS = frozenset(
+    {"t", "f", "y", "n", "true", "false", "yes", "no", "on", "off"}
+)
+"""Bool spellings `keep_delivered` refuses, `"1"` and `"0"` aside."""
+
+_NOT_A_BOOL = (
+    "keep_delivered takes a duration, 0 to delete on delivery, or None "
+    f"({NO_LIMIT!r} from text) to keep forever, not a bool"
+)
+
 
 class OutboxConfig(BaseModel, frozen=True, extra="forbid"):
     """Outbox settings.
@@ -37,12 +54,18 @@ class OutboxConfig(BaseModel, frozen=True, extra="forbid"):
         Field(gt=0),
     ] = 100
     lease_duration: Annotated[
-        float,
+        Duration,
         Doc(
-            "Seconds a claimed message stays invisible. Handlers must finish within it."
+            """
+            How long a claimed message stays invisible, in whole seconds or
+            as a `timedelta`. Handlers must finish within it.
+
+            A float is refused. From text, such as an environment
+            variable, it reads whole seconds (`"60"`) or an ISO 8601
+            duration (`"PT0.5S"`).
+            """,
         ),
-        Field(gt=0),
-    ] = 30
+    ] = timedelta(seconds=30)
     max_attempts: Annotated[
         int,
         Doc("Attempts before a message is dead-lettered."),
@@ -76,13 +99,19 @@ class OutboxConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = True
     keep_delivered: Annotated[
-        bool | timedelta,
+        Retention | None,
         Doc(
-            "Keep delivered rows instead of deleting them. Pass a `timedelta` "
-            "to keep them for that long, then the relay purges them."
+            """
+            How long delivered rows are kept, in whole seconds or as a
+            `timedelta`. The relay purges a row once it is that old. `0`
+            deletes a row on delivery, and `None` keeps it for good.
+
+            A float or a bool is refused. From text, such as an environment
+            variable, it reads whole seconds (`"60"`, `"0"`), an ISO 8601
+            duration (`"PT0.5S"`), or `"none"` to keep rows for good.
+            """,
         ),
-        Field(union_mode="left_to_right"),
-    ] = False
+    ] = timedelta(0)
     auto_migrate: Annotated[
         bool,
         Doc("Create the table on first connect."),
@@ -96,26 +125,10 @@ class OutboxConfig(BaseModel, frozen=True, extra="forbid"):
 
     @field_validator("keep_delivered", mode="before")
     @classmethod
-    def _coerce_keep_delivered(cls, value: Any) -> Any:  # noqa: ANN401
-        """Read a plain seconds count (from the environment) as a duration.
-
-        A numeric string other than 0 or 1 is a seconds count, so it becomes
-        a `timedelta`. 0, 1, and the usual bool spellings stay booleans.
-        """
-        if isinstance(value, str):
-            try:
-                seconds = float(value.strip())
-            except ValueError:
-                return value
-            if seconds not in (0.0, 1.0):
-                return timedelta(seconds=seconds)
-        return value
-
-    @field_validator("keep_delivered")
-    @classmethod
-    def _check_keep_delivered(cls, value: Any) -> bool | timedelta:  # noqa: ANN401
-        """Reject a non-positive retention window."""
-        if isinstance(value, timedelta) and value <= timedelta(0):
-            msg = "keep_delivered duration must be positive"
-            raise ValueError(msg)
+    def _read_keep_delivered(cls, value: Any) -> Any:  # noqa: ANN401
+        """Read `"none"` as `None`, and refuse a bool or its spelling in text."""
+        value = no_limit_from_text(value)
+        text = value.strip().lower() if isinstance(value, str) else None
+        if isinstance(value, bool) or text in _BOOL_WORDS:
+            raise ValueError(_NOT_A_BOOL)
         return value

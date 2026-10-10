@@ -48,7 +48,7 @@ async def test_two_retries_refund_matches_consumed() -> None:
     """Two consumed retries then success refunds exactly two tokens."""
     s = Shield(
         "refund-two",
-        timeout_errors=(_SignalError,),
+        when=_SignalError,
         random_source=lambda: 0.0,  # zero backoff, no real sleep
     )
     capacity = s._state.retry_budget.capacity
@@ -80,7 +80,7 @@ async def test_sub_second_backoff_still_sleeps(
     # random 0.5 and a small scale keep the delay strictly between 0 and 1.
     s = Shield(
         "subsec-backoff",
-        timeout_errors=(_SignalError,),
+        when=_SignalError,
         random_source=lambda: 0.5,
     )
     attempts = {"count": 0}
@@ -101,7 +101,7 @@ async def test_recorded_latency_is_call_duration() -> None:
     clock = _Clock(start=100.0)
     s = Shield(
         "latency",
-        timeout_errors=(_SignalError,),
+        when=_SignalError,
         time_source=clock,
         random_source=lambda: 0.0,
     )
@@ -129,7 +129,7 @@ async def test_cache_key_depends_on_arguments() -> None:
 
     s = Shield(
         "cache-key",
-        timeout_errors=(_SignalError,),
+        when=_SignalError,
         cache=_Cache(),
         random_source=lambda: 0.0,
     )
@@ -152,7 +152,7 @@ async def test_cache_key_depends_on_arguments() -> None:
 
 async def test_run_accepts_partial_coroutine() -> None:
     """`Shield.run` accepts a functools.partial wrapping a coroutine."""
-    s = Shield("partial", timeout_errors=(_SignalError,))
+    s = Shield("partial", when=_SignalError)
 
     async def add(a: int, b: int) -> int:
         return a + b
@@ -163,7 +163,7 @@ async def test_run_accepts_partial_coroutine() -> None:
 
 async def test_run_forwards_keyword_arguments() -> None:
     """`Shield.run` forwards keyword arguments to the wrapped call."""
-    s = Shield("kwargs", timeout_errors=(_SignalError,))
+    s = Shield("kwargs", when=_SignalError)
 
     async def echo(a: int, *, b: int) -> int:
         return a + b
@@ -189,7 +189,7 @@ async def test_custom_cache_key_receives_keyword_arguments() -> None:
 
     s = Shield(
         "custom-key",
-        timeout_errors=(_SignalError,),
+        when=_SignalError,
         cache=_Cache(),
         cache_key=key_for,
         random_source=lambda: 0.0,
@@ -207,11 +207,9 @@ async def test_custom_cache_key_receives_keyword_arguments() -> None:
 
 async def test_run_works_after_reconfigure() -> None:
     """Reconfigure rebuilds a usable state so the next call still runs."""
-    s = Shield("reconf-run", timeout_errors=(_SignalError,))
+    s = Shield("reconf-run", when=_SignalError)
     # A different config forces `_apply_reconfigure` to actually rebuild.
-    await s.reconfigure(
-        ApiShieldConfig(timeout_errors=(_SignalError,), max_rate=_CAP)
-    )
+    await s.reconfigure(ApiShieldConfig(when=_SignalError, max_rate=_CAP))
 
     async def ok() -> str:
         return "ok"
@@ -223,14 +221,14 @@ async def test_run_works_after_reconfigure() -> None:
 
 def test_max_rate_caps_the_adaptive_gate() -> None:
     """A configured `max_rate` becomes the adaptive gate's rate ceiling."""
-    s = Shield("capped", timeout_errors=(_SignalError,), max_rate=_CAP)
+    s = Shield("capped", when=_SignalError, max_rate=_CAP)
 
     assert s._state.adaptive_gate._max_rate_cap == _CAP
 
 
 def test_no_max_rate_leaves_gate_uncapped() -> None:
     """Without `max_rate`, the gate cap falls back to the profile default."""
-    s = Shield("uncapped", timeout_errors=(_SignalError,))
+    s = Shield("uncapped", when=_SignalError)
 
     # The api profile default cap is None (uncapped).
     assert s._state.adaptive_gate._max_rate_cap is None
@@ -248,7 +246,7 @@ async def test_zero_backoff_delay_does_not_sleep(
     mocker.patch.object(shield_module, "sleep", side_effect=_spy)
     s = Shield(
         "zero-backoff",
-        timeout_errors=(_SignalError,),
+        when=_SignalError,
         random_source=lambda: 0.0,  # delay = 0 * ceiling = 0
     )
     attempts = {"count": 0}

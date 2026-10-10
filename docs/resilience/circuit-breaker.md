@@ -19,6 +19,24 @@ Wrap the protected call with `async with cb:` or decorate an async function with
 !!! warning "Thread safety"
     The Circuit Breaker is not thread-safe. The async API (`async with cb:` or `@cb` on `async def`) is the default. From a synchronous handler running in a worker thread (for example a sync route in your web framework), use `with cb.from_thread:` or apply `@cb` to a sync function. The adapter dispatches state changes onto the parent event loop captured by the backend, so calls stay serialized. See [Sync from thread](../architecture/sync-from-thread.md).
 
+## Which errors count
+
+`when=` names the errors that count as failures. It takes the same forms as [`Retry`](retry.md): an exception class, a tuple of classes, a predicate on the exception, or a [`Match`](retry.md#filtering-outcomes-with-match). By default every `Exception` counts.
+
+Any other outcome counts as a success. To leave out errors that say nothing about the dependency, such as a validation error, exclude them:
+
+```python
+breaker = CircuitBreaker.consecutive_count(
+    "payments", when=Match.not_exception(ValidationError)
+)
+```
+
+The breaker sees raised errors only. A returned value always counts as a success, so a `Match.result(...)` arm never matches. A `when=` predicate that raises reads as no match, so that error counts as a success. A `BaseException` outside `Exception`, such as a cancellation, records no outcome.
+
+From the environment, `GREL_CIRCUITBREAKER_{NAME_UPPER}_WHEN` takes a CSV or JSON list of fully-qualified class names, such as `httpx.HTTPError`.
+
+--8<-- "env_gate.md"
+
 ## Lifecycle
 
 Declare a breaker once at module level and reuse it across requests:
@@ -171,6 +189,8 @@ Build the breaker with the factory classmethod.
 ```python
 --8<-- "resilience/circuitbreaker_programmatic.py"
 ```
+
+`reset_timeout` takes whole seconds or a `timedelta`. A float is refused. Write `reset_timeout=timedelta(milliseconds=500)` for a cool-down under a second. `cb.config.reset_timeout` reads it back as a `timedelta`. From an environment variable it reads whole seconds (`"30"`) or an ISO 8601 duration (`"PT0.5S"`). Every backend keeps a circuit open at least that long, to the microsecond.
 
 !!! tip "Advanced"
     For the `from_config` declarative path and `pydantic-settings` composition, see [Declarative configuration](../advanced/config.md).

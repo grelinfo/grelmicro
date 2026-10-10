@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from pydantic import BaseModel, ConfigDict, PositiveFloat, ValidationError
 
@@ -17,16 +19,16 @@ from grelmicro._config import (
 from grelmicro.coordination import Lock
 from grelmicro.errors import SettingsValidationError
 
-_KIND_DEFAULT = 42.0
+_KIND_DEFAULT = 42
 """Value of `GREL_LOCK_LEASE_DURATION`, the kind-wide fallback."""
 
-_INSTANCE_OVERRIDE = 7.0
+_INSTANCE_OVERRIDE = 7
 """Value of `GREL_LOCK_CART_LEASE_DURATION`, the instance variable."""
 
-_KEYWORD = 99.0
+_KEYWORD = 99
 """Value passed as a keyword argument, which beats both env layers."""
 
-_CONFIG_DEFAULT = 60.0
+_CONFIG_DEFAULT = 60
 """`LockConfig.lease_duration` default, reached when no variable matches."""
 
 
@@ -365,8 +367,12 @@ def test_named_instance_falls_back_to_the_kind_prefix(
     monkeypatch.setenv("GREL_ENV_LOAD", "1")
     monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", "42")
 
-    assert Lock("cart").config.lease_duration == _KIND_DEFAULT
-    assert Lock("checkout").config.lease_duration == _KIND_DEFAULT
+    assert Lock("cart").config.lease_duration == timedelta(
+        seconds=_KIND_DEFAULT
+    )
+    assert Lock("checkout").config.lease_duration == timedelta(
+        seconds=_KIND_DEFAULT
+    )
 
 
 def test_instance_variable_beats_the_kind_prefix(
@@ -377,8 +383,12 @@ def test_instance_variable_beats_the_kind_prefix(
     monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", "42")
     monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", "7")
 
-    assert Lock("cart").config.lease_duration == _INSTANCE_OVERRIDE
-    assert Lock("checkout").config.lease_duration == _KIND_DEFAULT
+    assert Lock("cart").config.lease_duration == timedelta(
+        seconds=_INSTANCE_OVERRIDE
+    )
+    assert Lock("checkout").config.lease_duration == timedelta(
+        seconds=_KIND_DEFAULT
+    )
 
 
 def test_keyword_beats_every_variable(
@@ -389,7 +399,9 @@ def test_keyword_beats_every_variable(
     monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", "42")
     monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", "7")
 
-    assert Lock("cart", lease_duration=99).config.lease_duration == _KEYWORD
+    assert Lock("cart", lease_duration=99).config.lease_duration == timedelta(
+        seconds=_KEYWORD
+    )
 
 
 def test_custom_env_prefix_does_not_fall_back(
@@ -405,7 +417,7 @@ def test_custom_env_prefix_does_not_fall_back(
 
     lock = Lock("cart", env_prefix="MYAPP_LOCK_")
 
-    assert lock.config.lease_duration == _CONFIG_DEFAULT
+    assert lock.config.lease_duration == timedelta(seconds=_CONFIG_DEFAULT)
 
 
 def test_env_prefixes_helper() -> None:

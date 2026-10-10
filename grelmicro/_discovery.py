@@ -7,7 +7,8 @@ is no special case.
 
 - `grelmicro.providers` maps a vendor short name to a `Provider` class.
 - `grelmicro.{kind}.adapters` maps a short name to an Adapter class for one
-  component kind (`coordination`, `coordination.election`, `cache`,
+  component kind (`coordination`, `coordination.readwritelock`,
+  `coordination.leaderelection`, `coordination.schedule`, `cache`,
   `ratelimiter`, `circuitbreaker`).
 
 Listing entry points does not import anything. The target module loads only
@@ -41,7 +42,8 @@ from loading every framework grelmicro knows about.
 
 An integration module exposes `install(app, micro, *, ambient)` and
 `is_bound(app)`, and may expose `install_error_responses`,
-`install_middleware`, `install_route_gate` and `route_declarations`.
+`install_middleware`, `install_route_gate`, `route_declarations` and
+`health_endpoints`.
 """
 
 
@@ -80,7 +82,14 @@ class Integration(Protocol):
     second lists the same `RouteDeclaration`s, and a listed route that
     carries no gate stops the app from starting. An integration without
     them declares nothing, so every route stays authenticated and is
-    decided before routing.
+    decided before routing. A first-party integration may carry
+    `_lists_routes(obj)` too, saying whether `route_declarations` reads
+    `obj`. One without it is asked about every object of its framework.
+
+    `health_endpoints(app)` yields the health endpoints the app serves, or
+    returns `None` for an app that serves no HTTP. Once the app opens, a
+    registered `HealthChecks` none of them serves is reported. An
+    integration without it is never checked.
     """
 
     def install(

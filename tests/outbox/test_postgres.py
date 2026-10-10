@@ -31,6 +31,9 @@ pytestmark = [pytest.mark.timeout(60)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 
+LEASE = timedelta(milliseconds=300)
+"""A lease short enough to lapse within a test."""
+
 
 def _adapter() -> PostgresOutboxAdapter:
     """Return an adapter bound to an unopened provider (no I/O)."""
@@ -169,7 +172,7 @@ def test_provider_without_outbox_adapter_raises() -> None:
     from grelmicro.providers.sqlite import SQLiteProvider  # noqa: PLC0415
 
     with pytest.raises(NotImplementedError, match="no outbox adapter"):
-        SQLiteProvider(":memory:").outbox()
+        SQLiteProvider(":memory:").outbox_backend()
 
 
 def test_rebind_provider_swaps_the_pool() -> None:
@@ -182,7 +185,10 @@ def test_rebind_provider_swaps_the_pool() -> None:
 
 async def test_claim_empty_topics_returns_empty() -> None:
     """Claiming with no registered topics touches no database."""
-    assert await _adapter().claim(topics=[], limit=1, lease=1) == []
+    assert (
+        await _adapter().claim(topics=[], limit=1, lease=timedelta(seconds=1))
+        == []
+    )
 
 
 async def test_aenter_skips_migrate_and_listener_when_disabled() -> None:
@@ -255,7 +261,9 @@ async def test_claim_maps_rows_to_records() -> None:
             }
         ]
     )
-    (record,) = await adapter.claim(topics=["job"], limit=10, lease=30)
+    (record,) = await adapter.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=30)
+    )
     assert record.id == message_id
     assert record.payload == {"n": 1}
     assert record.attempts == 1
@@ -428,7 +436,7 @@ async def test_enqueue_dedup_returns_false() -> None:
 
 # --- Integration ---------------------------------------------------------
 
-pg_container = pytest.importorskip("testcontainers.postgres")
+pg_container = pytest.importorskip("testcontainers.community.postgres")
 
 
 class Job(BaseModel):
@@ -447,7 +455,9 @@ async def _wait(predicate: Callable[[], object], timeout: float = 10.0) -> None:
 @pytest.mark.integration
 async def test_postgres_full_cycle() -> None:
     """Migrate, publish in a transaction, and let the relay deliver."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)
@@ -478,7 +488,9 @@ async def test_postgres_full_cycle() -> None:
 @pytest.mark.integration
 async def test_postgres_dead_letter_and_redrive() -> None:
     """A failing handler dead-letters, and redrive replays it."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)
@@ -523,7 +535,9 @@ async def test_adapter_owns_env_built_provider(
     Exercises the owned-provider lifecycle and the listener open/close that
     the other tests bypass by passing a shared provider.
     """
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)
@@ -537,14 +551,18 @@ async def test_adapter_owns_env_built_provider(
                 conn.transaction(),
             ):
                 assert await backend.enqueue(conn, record) is True
-            (claimed,) = await backend.claim(topics=["job"], limit=10, lease=30)
+            (claimed,) = await backend.claim(
+                topics=["job"], limit=10, lease=timedelta(seconds=30)
+            )
             assert claimed.id == record.id
 
 
 @pytest.mark.integration
 async def test_postgres_lease_reclaim() -> None:
     """A claimed-but-unsettled message is reclaimed after its lease lapses."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)
@@ -561,14 +579,18 @@ async def test_postgres_lease_reclaim() -> None:
             ):
                 await backend.enqueue(conn, record)
 
-            (first,) = await backend.claim(topics=["job"], limit=10, lease=0.3)
+            (first,) = await backend.claim(
+                topics=["job"], limit=10, lease=LEASE
+            )
             assert first.attempts == 1
             # Before the lease lapses the row stays invisible.
             assert (
-                await backend.claim(topics=["job"], limit=10, lease=0.3) == []
+                await backend.claim(topics=["job"], limit=10, lease=LEASE) == []
             )
             await asyncio.sleep(0.4)
-            (second,) = await backend.claim(topics=["job"], limit=10, lease=5)
+            (second,) = await backend.claim(
+                topics=["job"], limit=10, lease=timedelta(seconds=5)
+            )
             assert second.id == record.id
             assert second.attempts == 2  # noqa: PLR2004
 
@@ -583,7 +605,9 @@ async def test_postgres_lease_reclaim() -> None:
             )
             assert await backend.redrive() == 1
             # Dead-letter again and purge removes the terminal row.
-            (third,) = await backend.claim(topics=["job"], limit=10, lease=5)
+            (third,) = await backend.claim(
+                topics=["job"], limit=10, lease=timedelta(seconds=5)
+            )
             await backend.reschedule(
                 message_id=third.id,
                 attempts=third.attempts,
@@ -592,13 +616,20 @@ async def test_postgres_lease_reclaim() -> None:
                 dead=True,
             )
             assert await backend.purge() == 1
-            assert await backend.claim(topics=["job"], limit=10, lease=1) == []
+            assert (
+                await backend.claim(
+                    topics=["job"], limit=10, lease=timedelta(seconds=1)
+                )
+                == []
+            )
 
 
 @pytest.mark.integration
 async def test_postgres_purge_states_filter() -> None:
     """`purge(states=("delivered",))` removes delivered rows, keeps dead ones."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)
@@ -621,14 +652,16 @@ async def test_postgres_purge_states_filter() -> None:
 
             await _stage()
             (delivered,) = await backend.claim(
-                topics=["job"], limit=10, lease=30
+                topics=["job"], limit=10, lease=timedelta(seconds=30)
             )
             await backend.complete(
                 message_id=delivered.id, attempts=delivered.attempts, keep=True
             )
 
             await _stage()
-            (dead,) = await backend.claim(topics=["job"], limit=10, lease=30)
+            (dead,) = await backend.claim(
+                topics=["job"], limit=10, lease=timedelta(seconds=30)
+            )
             await backend.reschedule(
                 message_id=dead.id,
                 attempts=dead.attempts,
@@ -650,7 +683,9 @@ async def test_postgres_enqueue_via_sqlalchemy() -> None:
         AsyncSession,
         create_async_engine,
     )
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)
@@ -694,7 +729,9 @@ async def test_postgres_enqueue_via_sqlmodel() -> None:
     from sqlalchemy.ext.asyncio import create_async_engine  # noqa: PLC0415
     from sqlmodel import Field, SQLModel  # noqa: PLC0415
     from sqlmodel.ext.asyncio.session import AsyncSession  # noqa: PLC0415
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     class Hero(SQLModel, table=True):
         id: int | None = Field(default=None, primary_key=True)

@@ -4,9 +4,10 @@ import asyncio
 import logging
 import sys
 import threading
+from abc import ABCMeta
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Any, ClassVar, Literal, Self
 
@@ -16,7 +17,7 @@ from freezegun import freeze_time
 
 from grelmicro import Grelmicro
 from grelmicro.errors import EventLoopDeadlockError
-from grelmicro.resilience import CircuitBreakerComponent
+from grelmicro.resilience import CircuitBreakerComponent, Match
 from grelmicro.resilience._protocol import (
     CircuitBreakerSnapshot,
     CircuitBreakerStrategy,
@@ -74,23 +75,23 @@ async def transition(cb: CircuitBreaker, state: CircuitBreakerState) -> None:
 async def create_circuit(
     state: CircuitBreakerState,
     *,
-    ignore_exceptions: type[Exception] | tuple[type[Exception], ...] = (),
+    when: Match | None = None,
     error_threshold: int | None = None,
     success_threshold: int | None = None,
-    reset_timeout: float | None = None,
+    reset_timeout: int | timedelta | None = None,
     half_open_capacity: int | None = None,
 ) -> CircuitBreaker:
     """Create a circuit breaker in the specified state."""
     kwargs: dict[str, Any] = {
         k: v
         for k, v in {
-            "ignore_exceptions": ignore_exceptions,
+            "when": when,
             "error_threshold": error_threshold,
             "success_threshold": success_threshold,
             "reset_timeout": reset_timeout,
             "half_open_capacity": half_open_capacity,
         }.items()
-        if v is not None and v != ()
+        if v is not None
     }
     cb = CircuitBreaker.consecutive_count("test", **kwargs)
     await transition(cb, state)
@@ -477,9 +478,9 @@ async def test_circuit_transition_to_half_open_after_timeout(
     assert cb.state is CircuitBreakerState.HALF_OPEN
 
 
-@pytest.mark.parametrize("reset_timeout", [0.5, 1, 30])
+@pytest.mark.parametrize("reset_timeout", [timedelta(milliseconds=500), 1, 30])
 async def test_circuit_not_transition_to_half_open_before_timeout(
-    reset_timeout: float,
+    reset_timeout: int | timedelta,
 ) -> None:
     """Test circuit breaker does not transition to half-open before reset timeout."""
     # Arrange
@@ -541,30 +542,31 @@ async def test_circuit_transition_from_half_open_to_open(
     ],
 )
 @pytest.mark.parametrize(
-    ("ignore_exceptions", "error"),
+    ("when", "error"),
     [
-        (SentinelError, SentinelError),
-        ((SentinelError, RuntimeError), SentinelError),
-        ((ValueError, RuntimeError), RuntimeError),
+        (Match.not_exception(SentinelError), SentinelError),
+        (Match.not_exception(SentinelError, RuntimeError), SentinelError),
+        (Match.exception(ValueError), RuntimeError),
     ],
 )
-async def test_circuit_with_ignore_exceptions(
-    ignore_exceptions: type[Exception] | tuple[type[Exception], ...],
+async def test_circuit_breaker_unmatched_error_keeps_state(
+    when: Match,
     error: type[Exception],
     state: CircuitBreakerState,
 ) -> None:
-    """Test circuit breaker transitions to closed state when ignoring errors."""
+    """An error `when=` does not match leaves the circuit where it was."""
     # Arrange
-    cb = await create_circuit(
-        state,
-        ignore_exceptions=ignore_exceptions,
-        success_threshold=1,
-    )  # success_threshold=1 avoids immediate closure
+    cb = await create_circuit(state, when=when, success_threshold=2)
 
-    # Act & Assert
+    # Act
     with pytest.raises(error):
         async with cb:
             raise error()
+
+    # Assert
+    assert cb.state == state
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 1
 
 
 @pytest.mark.parametrize(
@@ -576,33 +578,212 @@ async def test_circuit_with_ignore_exceptions(
     ],
 )
 @pytest.mark.parametrize(
-    ("ignore_exceptions", "error"),
+    ("when", "error"),
     [
-        (SentinelError, SentinelError),
-        ((SentinelError, RuntimeError), SentinelError),
-        ((ValueError, RuntimeError), RuntimeError),
+        (Match.not_exception(SentinelError), SentinelError),
+        (Match.not_exception(SentinelError, RuntimeError), SentinelError),
+        (Match.exception(ValueError), RuntimeError),
     ],
 )
-async def test_circuit_from_thread_with_ignore_exceptions(
-    ignore_exceptions: type[Exception] | tuple[type[Exception], ...],
+async def test_circuit_breaker_from_thread_unmatched_error_keeps_state(
+    when: Match,
     error: type[Exception],
     state: CircuitBreakerState,
 ) -> None:
-    """Test from_thread protect ignores specified error in various states."""
+    """From a thread, an error `when=` does not match leaves the circuit as is."""
     # Arrange
-    cb = await create_circuit(
-        state,
-        ignore_exceptions=ignore_exceptions,
-        success_threshold=1,
-    )  # success_threshold=1 avoids immediate closure
+    cb = await create_circuit(state, when=when, success_threshold=2)
 
     def sync() -> None:
         with cb.from_thread:
             raise error()
 
-    # Act & Assert
+    # Act
     with pytest.raises(error):
         await asyncio.to_thread(sync)
+
+    # Assert
+    assert cb.state == state
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 1
+
+
+async def test_circuit_breaker_matched_error_counts_as_failure() -> None:
+    """An error `when=` matches is recorded as a failure."""
+    # Arrange
+    cb = CircuitBreaker.consecutive_count("test", when=SentinelError)
+
+    # Act
+    with suppress(SentinelError):
+        async with cb:
+            raise sentinel_error
+
+    # Assert
+    assert cb.metrics().total_error_count == 1
+    assert cb.metrics().total_success_count == 0
+
+
+async def test_circuit_breaker_raising_predicate_counts_as_success() -> None:
+    """A `when=` predicate that raises reads as no match, so a success."""
+
+    # Arrange
+    def broken(_error: Exception) -> bool:
+        msg = "predicate exploded"
+        raise RuntimeError(msg)
+
+    cb = CircuitBreaker.consecutive_count("test", when=broken)
+
+    # Act
+    with suppress(SentinelError):
+        async with cb:
+            raise sentinel_error
+
+    # Assert
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 1
+
+
+@pytest.mark.parametrize(
+    ("when", "successes"),
+    [(None, 0), (Match.exception(KeyError), 1)],
+    ids=["matched-records-nothing", "unmatched-counts-as-success"],
+)
+async def test_circuit_breaker_exit_with_type_only_is_classified_by_type(
+    when: Match | None, successes: int
+) -> None:
+    """An exit given an exception type without an instance reads the type."""
+    # Arrange
+    cb = (
+        CircuitBreaker.consecutive_count("test")
+        if when is None
+        else CircuitBreaker.consecutive_count("test", when=when)
+    )
+    await cb.__aenter__()
+
+    # Act
+    await cb.__aexit__(ValueError, None, None)
+
+    # Assert
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == successes
+
+
+@pytest.mark.parametrize(
+    ("when", "successes"),
+    [(None, 0), (Match.exception(KeyError), 1)],
+    ids=["matched-records-nothing", "unmatched-counts-as-success"],
+)
+async def test_circuit_breaker_from_thread_exit_with_type_only_is_classified_by_type(
+    when: Match | None, successes: int
+) -> None:
+    """From a thread, an exit given a type without an instance reads the type."""
+    # Arrange
+    cb = (
+        CircuitBreaker.consecutive_count("test")
+        if when is None
+        else CircuitBreaker.consecutive_count("test", when=when)
+    )
+
+    def sync() -> None:
+        cb.from_thread.__enter__()
+        cb.from_thread.__exit__(ValueError, None, None)
+
+    # Act
+    await asyncio.to_thread(sync)
+
+    # Assert
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == successes
+
+
+async def test_circuit_breaker_exit_with_type_only_and_predicate_records_nothing() -> (
+    None
+):
+    """A predicate cannot read a type alone, so the exit records no outcome."""
+    # Arrange
+    cb = CircuitBreaker.consecutive_count(
+        "test", when=lambda error: isinstance(error, KeyError)
+    )
+    await cb.__aenter__()
+
+    # Act
+    await cb.__aexit__(ValueError, None, None)
+
+    # Assert
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 0
+
+
+class _TransientError(Exception, metaclass=ABCMeta):
+    """An abstract exception class that `ValueError` is registered under."""
+
+
+_TransientError.register(ValueError)
+
+
+class _BrokenSubclassCheckMeta(type):
+    """A metaclass whose subclass check raises."""
+
+    def __subclasscheck__(cls, subclass: type) -> bool:
+        msg = "subclass check exploded"
+        raise RuntimeError(msg)
+
+
+class _BrokenSubclassCheckError(Exception, metaclass=_BrokenSubclassCheckMeta):
+    """An exception class whose subclass check raises."""
+
+
+async def test_circuit_breaker_exit_with_type_only_reads_an_abstract_class() -> (
+    None
+):
+    """An exit given a type alone honors a class registered on an ABC."""
+    # Arrange
+    cb = CircuitBreaker.consecutive_count(
+        "test", when=Match.not_exception(_TransientError)
+    )
+    await cb.__aenter__()
+
+    # Act
+    await cb.__aexit__(ValueError, None, None)
+
+    # Assert
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 1
+
+
+async def test_circuit_breaker_exit_with_type_only_and_broken_check_records_nothing() -> (
+    None
+):
+    """A type check that raises records no outcome."""
+    # Arrange
+    cb = CircuitBreaker.consecutive_count(
+        "test", when=_BrokenSubclassCheckError
+    )
+    await cb.__aenter__()
+
+    # Act
+    await cb.__aexit__(ValueError, None, None)
+
+    # Assert
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 0
+
+
+async def test_circuit_breaker_returned_value_counts_as_success() -> None:
+    """A returned value counts as a success even when `when=` names it."""
+    # Arrange
+    cb = CircuitBreaker.consecutive_count("test", when=Match.result(None))
+
+    @cb
+    async def call() -> None:
+        return None
+
+    # Act
+    await call()
+
+    # Assert
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 1
 
 
 @freeze_time()
@@ -722,14 +903,14 @@ async def test_circuit_metrics_with_errors(
     ],
 )
 @pytest.mark.parametrize("success_count", [0, 1, 3, 5])
-async def test_circuit_metrics_counters_with_ignore_exceptions(
+async def test_circuit_breaker_unmatched_error_counts_as_success(
     state: CircuitBreakerState, success_count: int
 ) -> None:
-    """Test metrics when errors are ignored."""
+    """An error `when=` does not match is recorded as a success."""
     # Arrange
     cb = await create_circuit(
         state,
-        ignore_exceptions=SentinelError,
+        when=Match.not_exception(SentinelError),
         success_threshold=success_count + 1,
     )  # success_threshold=count+1 avoids immediate closure
     for _ in range(success_count):
@@ -989,14 +1170,13 @@ async def test_reconfigure_changes_error_threshold_for_next_call() -> None:
 async def test_reconfigure_during_inflight_call_uses_admission_config() -> None:
     """An in-flight call classifies its result against the admission config.
 
-    The call enters with `ignore_exceptions=(RuntimeError,)`, then a
-    concurrent reconfigure swaps to `ignore_exceptions=()`. The exit
-    must still treat the `RuntimeError` as ignored, leaving counters
-    unchanged: this is the documented "in-flight operations complete
-    on the previous config" guarantee.
+    The call enters with `when=Match.not_exception(RuntimeError)`, then
+    a concurrent reconfigure swaps to the default `when`. The exit must
+    still count the `RuntimeError` as a success: this is the documented
+    "in-flight operations complete on the previous config" guarantee.
     """
     cb = CircuitBreaker.consecutive_count(
-        "rc", ignore_exceptions=RuntimeError, error_threshold=1
+        "rc", when=Match.not_exception(RuntimeError), error_threshold=1
     )
     boom = RuntimeError("boom")
     enter_event = asyncio.Event()
@@ -1016,13 +1196,13 @@ async def test_reconfigure_during_inflight_call_uses_admission_config() -> None:
         tg.create_task(call())
         await enter_event.wait()
         await cb.reconfigure(
-            cb.config.model_copy(update={"ignore_exceptions": ()})
+            cb.config.model_copy(update={"when": Match.exception(Exception)})
         )
         can_exit.set()
 
-    # The call entered under the old `ignore_exceptions=(RuntimeError,)`
-    # so the exit must classify the RuntimeError as ignored: no error
-    # count, breaker stays CLOSED.
+    # The call entered under `when=Match.not_exception(RuntimeError)`, so
+    # the exit counts the RuntimeError as a success: no error count,
+    # breaker stays CLOSED.
     assert cb.state == CircuitBreakerState.CLOSED
     assert cb.metrics().total_error_count == 0
     assert cb.metrics().total_success_count == 1
@@ -1033,7 +1213,7 @@ async def test_reconfigure_during_inflight_thread_call_uses_admission_config() -
 ):
     """The thread adapter preserves the admission snapshot across `__exit__`."""
     cb = CircuitBreaker.consecutive_count(
-        "rc", ignore_exceptions=RuntimeError, error_threshold=1
+        "rc", when=Match.not_exception(RuntimeError), error_threshold=1
     )
     boom = RuntimeError("boom")
     entered = threading.Event()
@@ -1054,7 +1234,7 @@ async def test_reconfigure_during_inflight_thread_call_uses_admission_config() -
         # Wait for the thread to enter the context manager.
         await asyncio.to_thread(entered.wait)
         await cb.reconfigure(
-            cb.config.model_copy(update={"ignore_exceptions": ()})
+            cb.config.model_copy(update={"when": Match.exception(Exception)})
         )
         can_exit.set()
 
@@ -1155,7 +1335,7 @@ class _FakeSharedStrategy(CircuitBreakerStrategy):
         self,
         *,
         desired: CircuitBreakerState,
-        cool_down: float | None = None,
+        cool_down: timedelta | None = None,
     ) -> None:
         self._backend.transition_calls.append(
             {"name": self._name, "desired": desired, "cool_down": cool_down}
@@ -1172,7 +1352,7 @@ class TestSharedBackendIntegration:
         """`__aenter__` binds the strategy on first entry and admits."""
         backend = _FakeSharedBackend()
         cap = 3
-        timeout = 42.0
+        timeout = timedelta(seconds=42)
         async with backend:
             cb = CircuitBreaker.consecutive_count(
                 "shared",
@@ -1227,7 +1407,7 @@ class TestSharedBackendIntegration:
                 "shared",
                 backend=backend,
                 error_threshold=7,
-                reset_timeout=12.5,
+                reset_timeout=timedelta(seconds=12, milliseconds=500),
             )
             with pytest.raises(SentinelError):
                 async with cb:
@@ -1242,7 +1422,7 @@ class TestSharedBackendIntegration:
         backend = _FakeSharedBackend()
         async with backend:
             cb = CircuitBreaker.consecutive_count(
-                "shared", backend=backend, reset_timeout=9.0
+                "shared", backend=backend, reset_timeout=timedelta(seconds=9)
             )
             await cb.isolate()
         assert backend.transition_calls == [
@@ -1313,7 +1493,10 @@ async def test_a_probe_that_records_no_outcome_gives_its_slot_back() -> None:
     """A half-open probe that never happened must not wedge the circuit."""
     async with MemoryCircuitBreakerAdapter() as backend:
         cb = CircuitBreaker.consecutive_count(
-            "probe", error_threshold=1, backend=backend, reset_timeout=0.01
+            "probe",
+            error_threshold=1,
+            backend=backend,
+            reset_timeout=timedelta(milliseconds=10),
         )
 
         with pytest.raises(RuntimeError):
@@ -1350,7 +1533,7 @@ async def test_a_probe_cancelled_from_a_thread_gives_its_slot_back() -> None:
             "probe-thread",
             error_threshold=1,
             backend=backend,
-            reset_timeout=0.01,
+            reset_timeout=timedelta(milliseconds=10),
         )
 
         def fail() -> None:

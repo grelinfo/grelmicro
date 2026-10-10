@@ -8,7 +8,7 @@ from grelmicro.resilience import shield
 
 @shield.api(
     "prices",
-    timeout_errors=(httpx.TimeoutException,),
+    when=httpx.TimeoutException,
     cache=TTLCache(ttl=300),
 )
 async def fetch_price(symbol: str) -> Decimal:

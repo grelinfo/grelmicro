@@ -50,7 +50,7 @@ Choose the entry point by the job:
     task decorator on top:
 
     ```python
-    @tasks.every(seconds=60)
+    @tasks.every(interval=60)
     @retry(when=Exception, attempts=3)
     async def refresh_catalog() -> None: ...
     ```
@@ -77,7 +77,7 @@ Start it standalone using the application lifespan:
 
 ## Interval Task
 
-Use the `every` decorator to run a task at a fixed interval:
+Use the `every` decorator to run a task at a fixed interval. `interval` takes whole seconds or a `timedelta`, so `interval=60` runs it every minute and `interval=timedelta(milliseconds=500)` twice a second. A float is refused.
 
 !!! note
     The interval specifies the waiting time between task executions. Ensure that the task execution duration is considered to meet deadlines effectively.
@@ -143,6 +143,8 @@ The default is `UTC`. A deployment sets it without touching code through
 `GREL_TIMEZONE`, the one variable that says what wall clock the whole service
 runs on. See [Configuration](config.md#one-timezone-for-the-whole-service).
 
+--8<-- "env_gate.md"
+
 A `TaskRouter` takes the timezone of the `Tasks` that includes it, whatever
 order the wiring happens in. Pass `TaskRouter(timezone=...)` to give one group
 of tasks a different clock. Nearest declaration wins: the task, then its
@@ -167,10 +169,10 @@ what a naive `datetime.now()` returns inside your task body. Prefer
 
 A claimed cron task (`gate="claim"` or a `LeaderElection`) stores its last fire on the schedule backend (Redis, Postgres, and SQLite all ship today). Because that state is durable, a fire missed while every worker was down replays once when a worker comes back. Only the most recent missed fire runs, never a backlog of skipped ones. Kubernetes is intentionally not provided: use a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/).
 
-Set `misfire_grace_seconds` to bound how late a missed fire may run:
+Set `misfire_grace` to bound how late a missed fire may run. It takes whole seconds or a `timedelta`:
 
 ```python
-@tasks.cron("0 * * * *", gate="claim", misfire_grace_seconds=600)
+@tasks.cron("0 * * * *", gate="claim", misfire_grace=600)
 async def hourly_rollup():
     ...
 ```
@@ -213,7 +215,7 @@ Each task logs its resolved gate once when it starts, for example `Task started 
 
 An interval claim is a [`TaskLock`](coordination/task-lock.md) named after the task. The worker that wins it holds it for the whole interval, so a replica whose timer fires a moment later finds it taken and skips. A cron claim advances the durable last-fire state instead, which also [replays a missed fire](#missed-fires).
 
-From the moment it holds the claim until the body ends, the task renews it every third of the lease, so a body, and a wait for a `sync` lock before it, may take as long as it needs. The lease (two intervals) only bounds how long a worker that crashed keeps the claim. If a renewal cannot reach the backend, it is retried for as long as the lease lasts. A claim lost that way logs a warning and the body finishes, since stopping it mid-write would be worse than a second run. Work that must never overlap takes a [`Lock`](coordination/lock.md) as `sync` too.
+From the moment it holds the claim until the body ends, the task extends it every third of the lease, so a body, and a wait for a `sync` lock before it, may take as long as it needs. The lease (two intervals) only bounds how long a worker that crashed keeps the claim. If an extension cannot reach the backend, it is retried for as long as the lease lasts. A claim lost that way logs a warning and the body finishes, since stopping it mid-write would be worse than a second run. Work that must never overlap takes a [`Lock`](coordination/lock.md) as `sync` too.
 
 ### Leader
 
@@ -249,7 +251,7 @@ For an interval task, pass a [`TaskLock`](coordination/task-lock.md) to set the 
 --8<-- "task/interval_lock_custom.py"
 ```
 
-`min_hold_duration` must be at least `seconds`, or a peer could claim the same interval once the body ends. A later `reconfigure` to a shorter one is refused too. `lease_duration` is how long a crashed worker keeps the claim, since the task renews it while the body runs. A lock still named `"default"` takes the task name, so you never repeat it, and an external config reload tunes it under `GREL_TASKLOCK_{TASK}_`. The task uses the lock you pass, so the handle you keep is the one it holds.
+`min_hold_duration` must be at least `interval`, or a peer could claim the same interval once the body ends. A later `reconfigure` to a shorter one is refused too. `lease_duration` is how long a crashed worker keeps the claim, since the task extends it while the body runs. A lock without a name takes the task name, so you never repeat it. A task named after its function in a script run directly (`__main__:job`) locks under `task-__main__:job`, and an explicit task `name=` cannot start with `task-`. An external config reload tunes the lock under `GREL_TASKLOCK_{TASK}_`. The task uses the lock you pass, so the handle you keep is the one it holds.
 
 Cron takes no `TaskLock`. Its claim is a compare-and-set on durable state, with nothing held while the body runs.
 
@@ -300,7 +302,7 @@ from grelmicro.task import FireInfo, Tasks
 
 tasks = Tasks()
 
-@tasks.every(seconds=60)
+@tasks.every(interval=60)
 async def cleanup() -> None:
     ...
 

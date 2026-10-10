@@ -5,9 +5,10 @@ They are marked `integration` and are not run in the unit-test suite.
 """
 
 from collections.abc import AsyncGenerator, Generator
+from datetime import timedelta
 
 import pytest
-from testcontainers.redis import RedisContainer
+from testcontainers.community.redis import RedisContainer
 
 from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.providers.valkey import ValkeyProvider
@@ -47,7 +48,7 @@ async def test_acquire_returns_fencing_token(
     """Acquiring a free lock returns a positive fencing token."""
     token = "tok-acquire"
     fence = await backend.acquire(
-        name="lock:acquire", token=token, duration=5.0
+        name="lock:acquire", token=token, duration=timedelta(seconds=5)
     )
     assert fence is not None
     assert fence >= 1
@@ -59,10 +60,10 @@ async def test_acquire_same_token_returns_same_fence(
     """The same holder re-acquiring its live lock gets the same fence token."""
     token = "tok-same"
     fence1 = await backend.acquire(
-        name="lock:same-fence", token=token, duration=5.0
+        name="lock:same-fence", token=token, duration=timedelta(seconds=5)
     )
     fence2 = await backend.acquire(
-        name="lock:same-fence", token=token, duration=5.0
+        name="lock:same-fence", token=token, duration=timedelta(seconds=5)
     )
     assert fence1 == fence2
 
@@ -72,8 +73,12 @@ async def test_acquire_other_token_blocked(
 ) -> None:
     """A different token cannot acquire a live lock."""
     name = "lock:blocked"
-    await backend.acquire(name=name, token="holder", duration=5.0)
-    fence = await backend.acquire(name=name, token="challenger", duration=5.0)
+    await backend.acquire(
+        name=name, token="holder", duration=timedelta(seconds=5)
+    )
+    fence = await backend.acquire(
+        name=name, token="challenger", duration=timedelta(seconds=5)
+    )
     assert fence is None
 
 
@@ -83,7 +88,7 @@ async def test_release_held_lock(
     """The holder can release its lock; a second release returns False."""
     name = "lock:release"
     token = "tok-release"
-    await backend.acquire(name=name, token=token, duration=5.0)
+    await backend.acquire(name=name, token=token, duration=timedelta(seconds=5))
     released = await backend.release(name=name, token=token)
     again = await backend.release(name=name, token=token)
     assert released is True
@@ -95,7 +100,9 @@ async def test_release_other_token_denied(
 ) -> None:
     """A non-holder cannot release the lock."""
     name = "lock:denied"
-    await backend.acquire(name=name, token="holder", duration=5.0)
+    await backend.acquire(
+        name=name, token="holder", duration=timedelta(seconds=5)
+    )
     released = await backend.release(name=name, token="other")
     assert released is False
 
@@ -105,7 +112,7 @@ async def test_locked_true_when_held(
 ) -> None:
     """`locked` returns True when the lock is held."""
     name = "lock:locked-true"
-    await backend.acquire(name=name, token="tok", duration=5.0)
+    await backend.acquire(name=name, token="tok", duration=timedelta(seconds=5))
     assert await backend.locked(name=name) is True
 
 
@@ -122,7 +129,7 @@ async def test_owned_true_for_holder(
     """`owned` returns True for the token that holds the lock."""
     name = "lock:owned-true"
     token = "tok-owned"
-    await backend.acquire(name=name, token=token, duration=5.0)
+    await backend.acquire(name=name, token=token, duration=timedelta(seconds=5))
     assert await backend.owned(name=name, token=token) is True
 
 
@@ -131,5 +138,7 @@ async def test_owned_false_for_other(
 ) -> None:
     """`owned` returns False for a token that does not hold the lock."""
     name = "lock:owned-false"
-    await backend.acquire(name=name, token="holder", duration=5.0)
+    await backend.acquire(
+        name=name, token="holder", duration=timedelta(seconds=5)
+    )
     assert await backend.owned(name=name, token="other") is False

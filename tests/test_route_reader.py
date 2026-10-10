@@ -1,0 +1,1832 @@
+"""The route reader of an installed Starlette or Litestar app.
+
+The request span, the access record and the security event of one request
+name the same route, read by the outermost installed app.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Any, NamedTuple, cast
+
+import httpx
+import pytest
+from fastapi import APIRouter, FastAPI
+from litestar import Litestar, Router, asgi, get, post, websocket
+from litestar import WebSocket as LitestarWebSocket
+from litestar.config.cors import CORSConfig
+from litestar.params import Parameter
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import SpanKind
+from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.testclient import TestClient
+from starlette.websockets import WebSocket
+
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache
+from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.http import (
+    AuthenticatedRequests,
+    AuthenticatedRequestsMiddleware,
+    CachedResponses,
+    ErrorResponses,
+    IdempotentRequests,
+    RateLimitedRequests,
+)
+from grelmicro.integrations.fastapi import (
+    Authenticated as FastAPIAuthenticated,
+)
+from grelmicro.integrations.litestar import (
+    Authenticated as LitestarAuthenticated,
+)
+from grelmicro.integrations.starlette import (
+    Authenticated as StarletteAuthenticated,
+)
+from grelmicro.log import AccessLog, AccessLogMiddleware
+from grelmicro.providers.memory import MemoryProvider
+from grelmicro.resilience import RateLimiter
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+from grelmicro.trace import Trace, TraceExporterType
+from tests.test_authentication import FORGER, bearer, token, verifier
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from starlette.requests import Request
+    from starlette.types import Receive, Scope, Send
+
+ACCESS = "grelmicro.access"
+SECURITY = "grelmicro.security.events"
+HTTP_200 = 200
+HTTP_204 = 204
+HTTP_307 = 307
+HTTP_401 = 401
+HTTP_403 = 403
+HTTP_404 = 404
+HTTP_405 = 405
+HTTP_429 = 429
+
+
+@pytest.fixture
+def records() -> Iterator[list[logging.LogRecord]]:
+    """Return the access records and the security events written meanwhile."""
+    kept: list[logging.LogRecord] = []
+
+    class Keep(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            kept.append(record)
+
+    handler = Keep()
+    loggers = [logging.getLogger(name) for name in (ACCESS, SECURITY)]
+    levels = [logger.level for logger in loggers]
+    for logger in loggers:
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+    try:
+        yield kept
+    finally:
+        for logger, level in zip(loggers, levels, strict=True):
+            logger.removeHandler(handler)
+            logger.setLevel(level)
+
+
+class Reading(NamedTuple):
+    """What one request recorded: the status and the route each record names."""
+
+    status: int
+    span: str | None
+    access: list[str | None]
+    security: list[str | None]
+
+
+def _read(
+    app: Any,  # noqa: ANN401
+    method: str,
+    path: str,
+    records: list[logging.LogRecord],
+    *,
+    credential: str = "valid",
+    root_path: str = "",
+) -> Reading:
+    """Install `app` with every consumer, send one request, return what it recorded.
+
+    The request carries a `valid` token, one a `forged` signer signed, or
+    one `unscoped` that a gated route refuses, since no token holds a scope.
+    """
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            Trace(exporter=TraceExporterType.NONE),
+            AccessLog(),
+            AuthenticatedRequests(verifier()),
+        ]
+    )
+    micro.install(app)
+    exporter = InMemorySpanExporter()
+    with TestClient(
+        app, raise_server_exceptions=False, root_path=root_path
+    ) as client:
+        micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
+        response = client.request(
+            method,
+            path,
+            headers=bearer(
+                token(FORGER) if credential == "forged" else token()
+            ),
+            follow_redirects=False,
+        )
+    [server] = [
+        span
+        for span in exporter.get_finished_spans()
+        if span.kind is SpanKind.SERVER
+    ]
+    attributes = server.attributes or {}
+    span_route = attributes.get("http.route")
+    return Reading(
+        response.status_code,
+        None if span_route is None else str(span_route),
+        [
+            record.__dict__.get("http.route")
+            for record in records
+            if record.name == ACCESS
+        ],
+        [
+            record.__dict__.get("http.route")
+            for record in records
+            if record.name == SECURITY
+        ],
+    )
+
+
+async def _item(request: Request) -> JSONResponse:
+    return JSONResponse({"n": int(request.path_params["n"])})
+
+
+async def _ok(_: Request) -> PlainTextResponse:
+    return PlainTextResponse("ok")
+
+
+async def _file(scope: Scope, receive: Receive, send: Send) -> None:
+    await PlainTextResponse("file")(scope, receive, send)
+
+
+def _items() -> list[Route]:
+    return [Route("/items/{n:int}", _item)]
+
+
+@StarletteAuthenticated(scopes=["items:write"])
+async def _gated(request: Request) -> JSONResponse:
+    return JSONResponse(
+        {"n": int(request.path_params["n"])}
+    )  # pragma: no cover
+
+
+def _gated_items() -> list[Route]:
+    return [Route("/items/{n:int}", _gated)]
+
+
+def _litestar_items() -> Litestar:
+    """Return a Litestar app serving `GET /items/{n}`."""
+
+    @get("/items/{n:int}")
+    async def item(n: Annotated[int, Parameter()]) -> int:
+        return n
+
+    return Litestar(route_handlers=[item], logging_config=None)
+
+
+def _fastapi_items() -> FastAPI:
+    """Return a FastAPI app serving `GET /items/{n}`."""
+    app = FastAPI()
+
+    @app.get("/items/{n}")
+    async def item(n: int) -> int:
+        return n
+
+    return app
+
+
+def _fastapi_router() -> FastAPI:
+    """Return a FastAPI app serving `GET /v1/items/{n}` from an included router."""
+    router = APIRouter(prefix="/v1")
+
+    @router.get("/items/{n}")
+    async def item(n: int) -> int:
+        return n
+
+    app = FastAPI()
+    app.include_router(router)
+    return app
+
+
+def _fastapi_plain() -> FastAPI:
+    """Return a FastAPI app holding the Starlette route `/plain/{n}`."""
+    app = FastAPI()
+    app.add_route("/plain/{n:int}", _item)
+    return app
+
+
+def _wrapped_docs() -> Any:  # noqa: ANN401
+    """Return a Starlette app serving `/docs/`, wrapped in a middleware."""
+    inner = Starlette(routes=[Route("/docs/", _ok)])
+    return CORSMiddleware(inner, allow_origins=["https://app.example"])
+
+
+STARLETTE_SHAPES: dict[str, Callable[[], Starlette]] = {
+    "route": lambda: Starlette(routes=_items()),
+    "mount": lambda: Starlette(routes=[Mount("/v1", routes=_items())]),
+    "parameterised-mount": lambda: Starlette(
+        routes=[Mount("/t/{tenant}", routes=_items())]
+    ),
+    "nested-mount": lambda: Starlette(
+        routes=[Mount("/t/{tenant}", routes=[Mount("/v/{v}", routes=_items())])]
+    ),
+    "asgi-mount": lambda: Starlette(
+        routes=[Mount("/files/{bucket}", app=_file)]
+    ),
+    "wrapped-app": lambda: Starlette(
+        routes=[Mount("/t/{tenant}", app=_wrapped_docs())]
+    ),
+    "slash-redirect": lambda: Starlette(
+        routes=[Mount("/t/{tenant}", routes=[Route("/docs/", _ok)])]
+    ),
+    "litestar-app": lambda: Starlette(
+        routes=[Mount("/shop", app=cast("Any", _litestar_items()))]
+    ),
+    "litestar-app-at-the-root": lambda: Starlette(
+        routes=[Mount("", app=cast("Any", _litestar_items()))]
+    ),
+    "litestar-asgi-mount": lambda: Starlette(
+        routes=[
+            Mount("/s", app=cast("Any", _litestar_routes(_litestar_files())))
+        ]
+    ),
+    "fastapi-app": lambda: Starlette(
+        routes=[Mount("/api", app=_fastapi_items())]
+    ),
+    "fastapi-router": lambda: Starlette(
+        routes=[Mount("/api", app=_fastapi_router())]
+    ),
+    "fastapi-plain-route": lambda: Starlette(
+        routes=[Mount("/api", app=_fastapi_plain())]
+    ),
+    "gated-route": lambda: Starlette(routes=_gated_items()),
+    "gated-mount": lambda: Starlette(
+        routes=[Mount("/t/{tenant}", routes=_gated_items())]
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("shape", "method", "path", "status", "route"),
+    [
+        ("route", "GET", "/items/3", HTTP_200, "/items/{n}"),
+        ("route", "GET", "/nowhere", HTTP_404, None),
+        ("mount", "GET", "/v1/items/3", HTTP_200, "/v1/items/{n}"),
+        (
+            "parameterised-mount",
+            "GET",
+            "/t/acme/items/3",
+            HTTP_200,
+            "/t/{tenant}/items/{n}",
+        ),
+        (
+            "parameterised-mount",
+            "POST",
+            "/t/acme/items/3",
+            HTTP_405,
+            "/t/{tenant}/items/{n}",
+        ),
+        (
+            "parameterised-mount",
+            "GET",
+            "/t/acme/nowhere",
+            HTTP_404,
+            "/t/{tenant}/{path}",
+        ),
+        (
+            "nested-mount",
+            "GET",
+            "/t/acme/v/2/items/3",
+            HTTP_200,
+            "/t/{tenant}/v/{v}/items/{n}",
+        ),
+        (
+            "asgi-mount",
+            "GET",
+            "/files/b1/a/b.txt",
+            HTTP_200,
+            "/files/{bucket}/{path}",
+        ),
+        ("wrapped-app", "GET", "/t/acme/docs", HTTP_307, "/t/{tenant}/docs/"),
+        (
+            "slash-redirect",
+            "GET",
+            "/t/acme/docs",
+            HTTP_307,
+            "/t/{tenant}/docs/",
+        ),
+        ("litestar-app", "GET", "/shop/items/3", HTTP_200, "/shop/items/{n}"),
+        (
+            "litestar-app-at-the-root",
+            "GET",
+            "/items/3",
+            HTTP_200,
+            "/items/{n}",
+        ),
+        (
+            "litestar-asgi-mount",
+            "GET",
+            "/s/files/a.txt",
+            HTTP_200,
+            "/s/files/{path}",
+        ),
+        ("fastapi-app", "GET", "/api/items/3", HTTP_200, "/api/items/{n}"),
+        (
+            "fastapi-router",
+            "GET",
+            "/api/v1/items/3",
+            HTTP_200,
+            "/api/v1/items/{n}",
+        ),
+        (
+            "fastapi-plain-route",
+            "GET",
+            "/api/plain/3",
+            HTTP_200,
+            "/api/plain/{n}",
+        ),
+    ],
+)
+def test_starlette_names_one_route_per_request(
+    records: list[logging.LogRecord],
+    *,
+    shape: str,
+    method: str,
+    path: str,
+    status: int,
+    route: str | None,
+) -> None:
+    """The request span and the access record name the route the reader reads."""
+    reading = _read(STARLETTE_SHAPES[shape](), method, path, records)
+
+    assert reading.status == status
+    assert reading.span == route
+    assert reading.access == [route]
+    assert reading.security == []
+
+
+REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
+"""What a refusal case sends, and the status it is refused with."""
+
+
+@pytest.mark.parametrize(
+    (*REFUSAL, "route", "span"),
+    [
+        (
+            "route",
+            "GET",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        (
+            "route",
+            "GET",
+            "/items/3",
+            "/proxy",
+            "forged",
+            HTTP_401,
+            "/proxy/items/{n}",
+            None,
+        ),
+        (
+            "route",
+            "POST",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        (
+            "mount",
+            "GET",
+            "/v1/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/v1/items/{n}",
+            None,
+        ),
+        (
+            "parameterised-mount",
+            "GET",
+            "/t/acme/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/t/{tenant}/items/{n}",
+            None,
+        ),
+        (
+            "parameterised-mount",
+            "POST",
+            "/t/acme/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/t/{tenant}/items/{n}",
+            None,
+        ),
+        (
+            "asgi-mount",
+            "GET",
+            "/files/b1/a/b.txt",
+            "",
+            "forged",
+            HTTP_401,
+            "/files/{bucket}/{path}",
+            None,
+        ),
+        (
+            "nested-mount",
+            "GET",
+            "/t/acme/v/2/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/t/{tenant}/v/{v}/items/{n}",
+            None,
+        ),
+        (
+            "mount",
+            "GET",
+            "/proxy/v1/items/3",
+            "/proxy",
+            "forged",
+            HTTP_401,
+            "/proxy/v1/items/{n}",
+            None,
+        ),
+        (
+            "mount",
+            "GET",
+            "/v1/nowhere",
+            "",
+            "forged",
+            HTTP_401,
+            "/v1/{path}",
+            None,
+        ),
+        ("route", "GET", "/nowhere", "", "forged", HTTP_401, None, None),
+        (
+            "slash-redirect",
+            "GET",
+            "/t/acme/docs",
+            "",
+            "forged",
+            HTTP_401,
+            "/t/{tenant}/{path}",
+            None,
+        ),
+        (
+            "litestar-app",
+            "GET",
+            "/shop/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/shop/items/{n}",
+            None,
+        ),
+        (
+            "litestar-app",
+            "POST",
+            "/shop/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/shop/items/{n}",
+            None,
+        ),
+        (
+            "litestar-app",
+            "GET",
+            "/shop/nowhere",
+            "",
+            "forged",
+            HTTP_401,
+            "/shop/{path}",
+            None,
+        ),
+        (
+            "litestar-app-at-the-root",
+            "GET",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        (
+            "litestar-asgi-mount",
+            "GET",
+            "/s/files/a.txt",
+            "",
+            "forged",
+            HTTP_401,
+            "/s/files/{path}",
+            None,
+        ),
+        (
+            "fastapi-app",
+            "GET",
+            "/api/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/api/items/{n}",
+            None,
+        ),
+        (
+            "fastapi-router",
+            "GET",
+            "/api/v1/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/api/v1/items/{n}",
+            None,
+        ),
+        (
+            "gated-route",
+            "GET",
+            "/items/3",
+            "",
+            "unscoped",
+            HTTP_403,
+            "/items/{n}",
+            "/items/{n}",
+        ),
+        (
+            "gated-route",
+            "GET",
+            "/items/3",
+            "/proxy",
+            "unscoped",
+            HTTP_403,
+            "/proxy/items/{n}",
+            "/proxy/items/{n}",
+        ),
+        (
+            "gated-mount",
+            "GET",
+            "/t/acme/items/3",
+            "",
+            "unscoped",
+            HTTP_403,
+            "/t/{tenant}/items/{n}",
+            "/t/{tenant}/items/{n}",
+        ),
+    ],
+)
+def test_starlette_names_one_route_for_a_refused_request(
+    records: list[logging.LogRecord],
+    *,
+    shape: str,
+    method: str,
+    path: str,
+    root_path: str,
+    credential: str,
+    status: int,
+    route: str,
+    span: str | None,
+) -> None:
+    """A refused request names one route in its access record and its security event.
+
+    A request refused before routing names the route it would reach, and
+    its request span names none. One a gate refused names its route in
+    the request span too.
+    """
+    reading = _read(
+        STARLETTE_SHAPES[shape](),
+        method,
+        path,
+        records,
+        credential=credential,
+        root_path=root_path,
+    )
+
+    assert reading.status == status
+    assert reading.span == span
+    assert reading.access == [route]
+    assert reading.security == [route]
+
+
+def _slashed_starlette() -> Starlette:
+    """Return a Starlette app serving `/items/{n}/`, the path a Litestar mount passes on."""
+    return Starlette(routes=[Route("/items/{n:int}/", _item)])
+
+
+def _litestar_mounting(inner: object, at: str = "/shop") -> Litestar:
+    """Return a Litestar app mounting `inner` at `at`, sharing its scope."""
+
+    @asgi(at, is_mount=True, copy_scope=False)
+    async def shop(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        await inner(scope, receive, send)  # type: ignore[operator]  # ty: ignore[call-non-callable]
+
+    return Litestar(route_handlers=[shop], logging_config=None)
+
+
+def _litestar_routes(*handlers: Any) -> Litestar:  # noqa: ANN401
+    return Litestar(route_handlers=list(handlers), logging_config=None)
+
+
+def _litestar_item() -> Any:  # noqa: ANN401
+    @get("/items/{n:int}")
+    async def item(n: Annotated[int, Parameter()]) -> int:
+        return n
+
+    return item
+
+
+def _litestar_gated() -> Any:  # noqa: ANN401
+    @get(
+        "/items/{n:int}", guards=[LitestarAuthenticated(scopes=["items:write"])]
+    )
+    async def item(n: Annotated[int, Parameter()]) -> int:
+        return n  # pragma: no cover
+
+    return item
+
+
+def _litestar_files() -> Any:  # noqa: ANN401
+    @asgi("/files", is_mount=True, copy_scope=True)
+    async def files(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        await _file(scope, receive, send)
+
+    return files
+
+
+LITESTAR_SHAPES: dict[str, Callable[[], Litestar]] = {
+    "route": lambda: _litestar_routes(_litestar_item()),
+    "router": lambda: _litestar_routes(
+        Router("/v1", route_handlers=[_litestar_item()])
+    ),
+    "parameterised-router": lambda: _litestar_routes(
+        Router("/t/{tenant:str}", route_handlers=[_litestar_item()])
+    ),
+    "asgi-mount": lambda: _litestar_routes(_litestar_files()),
+    "litestar-app": lambda: _litestar_mounting(_litestar_items()),
+    "starlette-app": lambda: _litestar_mounting(_slashed_starlette()),
+    "gated-route": lambda: _litestar_routes(_litestar_gated()),
+    "gated-router": lambda: _litestar_routes(
+        Router("/t/{tenant:str}", route_handlers=[_litestar_gated()])
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("shape", "method", "path", "status", "route"),
+    [
+        ("route", "GET", "/items/3", HTTP_200, "/items/{n}"),
+        ("route", "POST", "/items/3", HTTP_405, "/items/{n}"),
+        ("route", "GET", "/items/3/", HTTP_200, "/items/{n}"),
+        ("route", "GET", "/nowhere", HTTP_404, None),
+        ("router", "GET", "/v1/items/3", HTTP_200, "/v1/items/{n}"),
+        (
+            "parameterised-router",
+            "GET",
+            "/t/acme/items/3",
+            HTTP_200,
+            "/t/{tenant}/items/{n}",
+        ),
+        ("asgi-mount", "GET", "/files/a/b", HTTP_200, "/files/{path}"),
+        ("litestar-app", "GET", "/shop/items/3", HTTP_200, "/shop/items/{n}"),
+        ("litestar-app", "GET", "/shop/nowhere", HTTP_404, "/shop/{path}"),
+        ("starlette-app", "GET", "/shop/items/3", HTTP_200, "/shop/{path}"),
+    ],
+)
+def test_litestar_names_one_route_per_request(
+    records: list[logging.LogRecord],
+    *,
+    shape: str,
+    method: str,
+    path: str,
+    status: int,
+    route: str | None,
+) -> None:
+    """The request span and the access record name the route the reader reads.
+
+    Litestar takes a trailing slash off rather than redirecting.
+    """
+    reading = _read(LITESTAR_SHAPES[shape](), method, path, records)
+
+    assert reading.status == status
+    assert reading.span == route
+    assert reading.access == [route]
+    assert reading.security == []
+
+
+@pytest.mark.parametrize(
+    (*REFUSAL, "route", "span"),
+    [
+        (
+            "route",
+            "GET",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        (
+            "route",
+            "GET",
+            "/items/3",
+            "/proxy",
+            "forged",
+            HTTP_401,
+            "/proxy/items/{n}",
+            None,
+        ),
+        (
+            "route",
+            "POST",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        ("route", "GET", "/nowhere", "", "forged", HTTP_401, None, None),
+        (
+            "parameterised-router",
+            "GET",
+            "/t/acme/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/t/{tenant}/items/{n}",
+            None,
+        ),
+        (
+            "asgi-mount",
+            "GET",
+            "/files/a/b",
+            "",
+            "forged",
+            HTTP_401,
+            "/files/{path}",
+            None,
+        ),
+        (
+            "litestar-app",
+            "GET",
+            "/shop/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/shop/{path}",
+            None,
+        ),
+        (
+            "starlette-app",
+            "GET",
+            "/shop/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/shop/{path}",
+            None,
+        ),
+        (
+            "gated-route",
+            "GET",
+            "/items/3",
+            "",
+            "unscoped",
+            HTTP_403,
+            "/items/{n}",
+            "/items/{n}",
+        ),
+        (
+            "gated-route",
+            "GET",
+            "/items/3",
+            "/proxy",
+            "unscoped",
+            HTTP_403,
+            "/proxy/items/{n}",
+            "/proxy/items/{n}",
+        ),
+        (
+            "gated-router",
+            "GET",
+            "/t/acme/items/3",
+            "",
+            "unscoped",
+            HTTP_403,
+            "/t/{tenant}/items/{n}",
+            "/t/{tenant}/items/{n}",
+        ),
+    ],
+)
+def test_litestar_names_one_route_for_a_refused_request(
+    records: list[logging.LogRecord],
+    *,
+    shape: str,
+    method: str,
+    path: str,
+    root_path: str,
+    credential: str,
+    status: int,
+    route: str,
+    span: str | None,
+) -> None:
+    """A refused request names one route in its access record and its security event.
+
+    A request refused before routing names the route it would reach, and
+    its request span names none. One a gate refused names its route in
+    the request span too.
+    """
+    reading = _read(
+        LITESTAR_SHAPES[shape](),
+        method,
+        path,
+        records,
+        credential=credential,
+        root_path=root_path,
+    )
+
+    assert reading.status == status
+    assert reading.span == span
+    assert reading.access == [route]
+    assert reading.security == [route]
+
+
+def _fastapi_gated() -> FastAPI:
+    """Return a FastAPI app whose `GET /items/{n}` requires `items:write`."""
+    app = FastAPI()
+
+    @app.get(
+        "/items/{n}",
+        dependencies=[FastAPIAuthenticated(scopes=["items:write"])],
+    )
+    async def item(n: int) -> int:
+        return n  # pragma: no cover
+
+    return app
+
+
+def _fastapi_mounting(inner: object, at: str = "/s") -> FastAPI:
+    """Return a FastAPI app mounting `inner` at `at`."""
+    app = FastAPI()
+    app.mount(at, cast("Any", inner))
+    return app
+
+
+def _fastapi_gated_router() -> FastAPI:
+    """Return a FastAPI app whose `GET /v1/items/{n}` requires `items:write`."""
+    router = APIRouter(
+        prefix="/v1",
+        dependencies=[FastAPIAuthenticated(scopes=["items:write"])],
+    )
+
+    @router.get("/items/{n}")
+    async def item(n: int) -> int:
+        return n  # pragma: no cover
+
+    app = FastAPI()
+    app.include_router(router)
+    return app
+
+
+def _fastapi_nested_routers() -> FastAPI:
+    """Return a FastAPI app serving `GET /v1/v2/items/{n}` through two includes."""
+    inner = APIRouter(prefix="/v2")
+
+    @inner.get("/items/{n}")
+    async def item(n: int) -> int:
+        return n
+
+    outer = APIRouter(prefix="/v1")
+    outer.include_router(inner)
+    app = FastAPI()
+    app.include_router(outer)
+    return app
+
+
+def _fastapi_host() -> FastAPI:
+    """Return a FastAPI app serving `/h/{x}` from a Starlette app under a `Host` route."""
+    app = FastAPI()
+    app.host("testserver", Starlette(routes=[Route("/h/{x}", _ok)]))
+    return app
+
+
+def _fastapi_frontend() -> FastAPI:
+    """Return a FastAPI app serving a frontend at `/v1/app` from an included router."""
+    router = APIRouter(prefix="/v1")
+    router.frontend("/app", directory=Path(__file__).parent, check_dir=False)
+    app = FastAPI()
+    app.include_router(router)
+    return app
+
+
+FASTAPI_SHAPES: dict[str, Callable[[], FastAPI]] = {
+    "route": _fastapi_items,
+    "router": _fastapi_router,
+    "nested-routers": _fastapi_nested_routers,
+    "plain-route": _fastapi_plain,
+    "starlette-app": lambda: _fastapi_mounting(Starlette(routes=_items())),
+    "parameterised-mount": lambda: _fastapi_mounting(
+        Starlette(routes=_items()), at="/t/{tenant}"
+    ),
+    "litestar-app": lambda: _fastapi_mounting(_litestar_items()),
+    "fastapi-app": lambda: _fastapi_mounting(_fastapi_router()),
+    "fastapi-router": lambda: _fastapi_mounting(_fastapi_router().router),
+    "host": _fastapi_host,
+    "frontend": _fastapi_frontend,
+    "gated-route": _fastapi_gated,
+    "gated-router": _fastapi_gated_router,
+    "gated-starlette-app": lambda: _fastapi_mounting(
+        Starlette(routes=_gated_items())
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("shape", "method", "path", "root_path", "status", "route"),
+    [
+        ("route", "GET", "/items/3", "", HTTP_200, "/items/{n}"),
+        ("route", "POST", "/items/3", "", HTTP_405, "/items/{n}"),
+        ("route", "GET", "/nowhere", "", HTTP_404, None),
+        ("route", "GET", "/", "", HTTP_404, None),
+        ("route", "GET", "/items/3", "/proxy", HTTP_200, "/proxy/items/{n}"),
+        (
+            "route",
+            "GET",
+            "/proxy/items/3",
+            "/proxy",
+            HTTP_200,
+            "/proxy/items/{n}",
+        ),
+        ("router", "GET", "/v1/items/3", "", HTTP_200, "/v1/items/{n}"),
+        ("router", "GET", "/v1/items/3/", "", HTTP_307, "/v1/items/{n}"),
+        (
+            "nested-routers",
+            "GET",
+            "/v1/v2/items/3",
+            "",
+            HTTP_200,
+            "/v1/v2/items/{n}",
+        ),
+        ("plain-route", "GET", "/plain/3", "", HTTP_200, "/plain/{n}"),
+        ("starlette-app", "GET", "/s/items/3", "", HTTP_200, "/s/{path}"),
+        ("starlette-app", "GET", "/s/nowhere", "", HTTP_404, "/s/{path}"),
+        (
+            "parameterised-mount",
+            "GET",
+            "/t/acme/items/3",
+            "",
+            HTTP_200,
+            "/t/{tenant}/{path}",
+        ),
+        ("litestar-app", "GET", "/s/items/3", "", HTTP_200, "/s/{path}"),
+        (
+            "fastapi-app",
+            "GET",
+            "/s/v1/items/3",
+            "",
+            HTTP_200,
+            "/s/v1/items/{n}",
+        ),
+        (
+            "fastapi-app",
+            "GET",
+            "/s/v1/items/3/",
+            "",
+            HTTP_307,
+            "/s/v1/items/{n}",
+        ),
+        (
+            "fastapi-router",
+            "GET",
+            "/s/v1/items/3",
+            "",
+            HTTP_200,
+            "/s/v1/items/{n}",
+        ),
+        ("host", "GET", "/h/1", "", HTTP_200, None),
+        (
+            "frontend",
+            "GET",
+            "/v1/app/deep/link",
+            "",
+            HTTP_404,
+            "/v1/app/{path}",
+        ),
+    ],
+)
+def test_fastapi_names_the_route_its_request_span_names(
+    records: list[logging.LogRecord],
+    *,
+    shape: str,
+    method: str,
+    path: str,
+    root_path: str,
+    status: int,
+    route: str | None,
+) -> None:
+    """The access record names the route FastAPI's own request span names."""
+    # Act
+    reading = _read(
+        FASTAPI_SHAPES[shape](), method, path, records, root_path=root_path
+    )
+
+    # Assert
+    assert reading.status == status
+    assert reading.span == route
+    assert reading.access == [route]
+    assert reading.security == []
+
+
+@pytest.mark.parametrize(
+    (*REFUSAL, "route", "span"),
+    [
+        (
+            "route",
+            "GET",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        (
+            "route",
+            "POST",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        ("route", "GET", "/nowhere", "", "forged", HTTP_401, None, None),
+        (
+            "route",
+            "GET",
+            "/proxy/items/3",
+            "/proxy",
+            "forged",
+            HTTP_401,
+            "/proxy/items/{n}",
+            None,
+        ),
+        (
+            "router",
+            "GET",
+            "/v1/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/v1/items/{n}",
+            None,
+        ),
+        (
+            "route",
+            "GET",
+            "/items/3",
+            "/proxy",
+            "forged",
+            HTTP_401,
+            "/proxy/items/{n}",
+            None,
+        ),
+        (
+            "router",
+            "GET",
+            "/v1/items/3/",
+            "",
+            "forged",
+            HTTP_401,
+            "/v1/items/{n}",
+            None,
+        ),
+        (
+            "nested-routers",
+            "GET",
+            "/v1/v2/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/v1/v2/items/{n}",
+            None,
+        ),
+        (
+            "starlette-app",
+            "GET",
+            "/s/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/s/{path}",
+            None,
+        ),
+        (
+            "litestar-app",
+            "GET",
+            "/s/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/s/{path}",
+            None,
+        ),
+        (
+            "fastapi-app",
+            "GET",
+            "/s/v1/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/s/v1/items/{n}",
+            None,
+        ),
+        ("host", "GET", "/h/1", "", "forged", HTTP_401, None, None),
+        (
+            "frontend",
+            "GET",
+            "/v1/app/deep/link",
+            "",
+            "forged",
+            HTTP_401,
+            "/v1/app/{path}",
+            None,
+        ),
+        (
+            "gated-route",
+            "GET",
+            "/items/3",
+            "",
+            "unscoped",
+            HTTP_403,
+            "/items/{n}",
+            "/items/{n}",
+        ),
+        (
+            "gated-route",
+            "GET",
+            "/items/3",
+            "/proxy",
+            "unscoped",
+            HTTP_403,
+            "/proxy/items/{n}",
+            "/proxy/items/{n}",
+        ),
+        (
+            "gated-router",
+            "GET",
+            "/v1/items/3",
+            "",
+            "unscoped",
+            HTTP_403,
+            "/v1/items/{n}",
+            "/v1/items/{n}",
+        ),
+        (
+            "gated-starlette-app",
+            "GET",
+            "/s/items/3",
+            "",
+            "unscoped",
+            HTTP_403,
+            "/s/{path}",
+            "/s/{path}",
+        ),
+    ],
+)
+def test_fastapi_names_one_route_for_a_refused_request(
+    records: list[logging.LogRecord],
+    *,
+    shape: str,
+    method: str,
+    path: str,
+    root_path: str,
+    credential: str,
+    status: int,
+    route: str | None,
+    span: str | None,
+) -> None:
+    """A refused request names one route in its access record and its security event.
+
+    A request refused before routing names the route it would reach, and
+    FastAPI's request span names none. One a route refused names its
+    route in the request span too.
+    """
+    # Act
+    reading = _read(
+        FASTAPI_SHAPES[shape](),
+        method,
+        path,
+        records,
+        credential=credential,
+        root_path=root_path,
+    )
+
+    # Assert
+    assert reading.status == status
+    assert reading.span == span
+    assert reading.access == [route]
+    assert reading.security == [route]
+
+
+@pytest.mark.parametrize(
+    ("outer", "route"),
+    [
+        (
+            lambda inner: Starlette(routes=[Mount("/api", app=inner)]),
+            "/v1/items/{n}",
+        ),
+        (
+            lambda inner: _fastapi_mounting(inner, at="/api"),
+            "/api/v1/items/{n}",
+        ),
+    ],
+    ids=["under-starlette", "under-fastapi"],
+)
+def test_fastapi_under_an_app_nothing_installed_names_its_request_spans_route(
+    records: list[logging.LogRecord],
+    outer: Callable[[FastAPI], Any],
+    route: str,
+) -> None:
+    """The access record names the route of the request span, whichever app names it.
+
+    Under a FastAPI app, that app's request span names the route, mount
+    included. Under another app, the installed app's own span names it from
+    the root it was mounted under.
+    """
+    # Arrange
+    inner = _fastapi_router()
+    micro = Grelmicro(
+        uses=[Trace(exporter=TraceExporterType.NONE), AccessLog()]
+    )
+    micro.install(inner)
+    app = outer(inner)
+    exporter = InMemorySpanExporter()
+
+    # Act
+    with TestClient(inner), TestClient(app) as client:
+        micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
+        response = client.get("/api/v1/items/3")
+
+    # Assert
+    [server] = [
+        span
+        for span in exporter.get_finished_spans()
+        if span.kind is SpanKind.SERVER
+    ]
+    [access] = [record for record in records if record.name == ACCESS]
+    assert response.status_code == HTTP_200
+    assert (server.attributes or {}).get("http.route") == route
+    assert access.__dict__.get("http.route") == route
+
+
+@pytest.mark.parametrize(
+    ("build", "path"),
+    [
+        (STARLETTE_SHAPES["mount"], "/v1/items/3"),
+        (STARLETTE_SHAPES["parameterised-mount"], "/t/acme/items/3"),
+        (_fastapi_router, "/v1/items/3"),
+    ],
+    ids=["starlette-mount", "starlette-parameterised-mount", "fastapi-router"],
+)
+def test_a_middleware_added_by_hand_names_no_route_before_routing(
+    records: list[logging.LogRecord],
+    build: Callable[[], Starlette],
+    path: str,
+) -> None:
+    """Without `install`, no route reader names the route a refusal would reach."""
+    # Arrange
+    app = build()
+    app.add_middleware(AuthenticatedRequestsMiddleware, verifier=verifier())
+
+    # Act
+    with TestClient(app) as client:
+        response = client.get(path, headers=bearer(token(FORGER)))
+
+    # Assert
+    [security] = [record for record in records if record.name == SECURITY]
+    assert response.status_code == HTTP_401
+    assert security.__dict__.get("http.route") is None
+
+
+@pytest.mark.parametrize(
+    "build", [STARLETTE_SHAPES["route"], LITESTAR_SHAPES["route"]]
+)
+def test_a_prefix_a_proxy_stripped_stays_on_the_route(
+    records: list[logging.LogRecord], build: Callable[[], Any]
+) -> None:
+    """The root path goes on the route, whether the path carries it or not."""
+    reading = _read(build(), "GET", "/items/3", records, root_path="/proxy")
+
+    assert reading.status == HTTP_200
+    assert reading.span == "/proxy/items/{n}"
+    assert reading.access == ["/proxy/items/{n}"]
+
+
+def _starlette_mounting(inner: object) -> Starlette:
+    return Starlette(routes=[Mount("/shop", app=cast("Any", inner))])
+
+
+@pytest.mark.parametrize(
+    ("outer", "inner", "route"),
+    [
+        (_litestar_mounting, _litestar_items, "/shop/items/{n}"),
+        (_litestar_mounting, _slashed_starlette, "/shop/{path}"),
+        (
+            _starlette_mounting,
+            lambda: Starlette(routes=_items()),
+            "/shop/items/{n}",
+        ),
+        (_starlette_mounting, _litestar_items, "/shop/items/{n}"),
+    ],
+    ids=[
+        "litestar-in-litestar",
+        "starlette-in-litestar",
+        "starlette-in-starlette",
+        "litestar-in-starlette",
+    ],
+)
+async def test_a_request_through_two_installed_apps_writes_one_access_record(
+    records: list[logging.LogRecord],
+    *,
+    outer: Callable[[object], Any],
+    inner: Callable[[], Any],
+    route: str,
+) -> None:
+    """The outermost installed app writes it, naming the route it reads."""
+    mounted = inner()
+    inner_micro = Grelmicro(uses=[AccessLog()])
+    inner_micro.install(mounted)
+    app = outer(mounted)
+    outer_micro = Grelmicro(uses=[AccessLog()])
+    outer_micro.install(app)
+
+    async with (
+        inner_micro,
+        outer_micro,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client,
+    ):
+        response = await client.get("/shop/items/3")
+
+    [access] = [record for record in records if record.name == ACCESS]
+    assert response.status_code == HTTP_200
+    assert access.__dict__.get("http.route") == route
+
+
+async def _echo(socket: WebSocket) -> None:
+    await socket.accept()
+    await socket.send_text(await socket.receive_text())
+    await socket.close()
+
+
+@websocket("/ws")
+async def _litestar_echo(socket: LitestarWebSocket[Any, Any, Any]) -> None:
+    await socket.accept()
+    await socket.send_text(await socket.receive_text())
+    await socket.close()
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: Starlette(routes=[WebSocketRoute("/ws", _echo)]),
+        lambda: _litestar_routes(_litestar_echo),
+    ],
+    ids=["starlette", "litestar"],
+)
+def test_a_websocket_is_served_and_writes_no_access_record(
+    records: list[logging.LogRecord], build: Callable[[], Any]
+) -> None:
+    """The reader is left on a WebSocket too, and the access log leaves it alone."""
+    app = build()
+    micro = Grelmicro(
+        uses=[Trace(exporter=TraceExporterType.NONE), AccessLog()]
+    )
+    micro.install(app)
+
+    with TestClient(app) as client, client.websocket_connect("/ws") as socket:
+        socket.send_text("hello")
+        echoed = socket.receive_text()
+
+    assert echoed == "hello"
+    assert [record for record in records if record.name == ACCESS] == []
+
+
+def _flood(at: str) -> RateLimitedRequests:
+    """Meter every request before routing, through one token a minute."""
+    return RateLimitedRequests(
+        RateLimiter.sliding_window(
+            f"{at}-route",
+            limit=100,
+            window=60,
+            backend=MemoryRateLimiterAdapter(),
+        ),
+        flood=RateLimiter.sliding_window(
+            f"{at}-flood",
+            limit=1,
+            window=60,
+            backend=MemoryRateLimiterAdapter(),
+        ),
+        key=lambda _scope: "caller",
+    )
+
+
+@pytest.mark.parametrize(
+    ("build", "path", "route"),
+    [
+        (lambda: Starlette(routes=_items()), "/items/3", "/items/{n}"),
+        (
+            lambda: Starlette(routes=[Mount("/v1", routes=_items())]),
+            "/v1/items/3",
+            "/v1/items/{n}",
+        ),
+        (_litestar_items, "/items/3", "/items/{n}"),
+        (
+            lambda: _litestar_mounting(_litestar_items()),
+            "/shop/items/3",
+            "/shop/{path}",
+        ),
+        (_fastapi_items, "/items/3", "/items/{n}"),
+    ],
+    ids=[
+        "starlette",
+        "starlette-mount",
+        "litestar",
+        "litestar-mount",
+        "fastapi",
+    ],
+)
+def test_access_log_flood_refusal_names_the_route_it_would_reach(
+    records: list[logging.LogRecord],
+    *,
+    build: Callable[[], Any],
+    path: str,
+    route: str,
+) -> None:
+    """A request the flood limit refuses before routing names its route, its span none."""
+    # Arrange
+    app = build()
+    micro = Grelmicro(
+        uses=[Trace(exporter=TraceExporterType.NONE), AccessLog(), _flood(path)]
+    )
+    micro.install(app)
+    exporter = InMemorySpanExporter()
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
+        client.get(path)
+        refused = client.get(path)
+
+    # Assert
+    accesses = [
+        record.__dict__.get("http.route")
+        for record in records
+        if record.name == ACCESS
+    ]
+    spans = [
+        span
+        for span in exporter.get_finished_spans()
+        if span.kind is SpanKind.SERVER
+    ]
+    assert refused.status_code == HTTP_429
+    assert accesses[-1] == route
+    assert (spans[-1].attributes or {}).get("http.route") is None
+
+
+@pytest.mark.parametrize(
+    ("build", "path"),
+    [
+        (STARLETTE_SHAPES["route"], "/items/3"),
+        (STARLETTE_SHAPES["mount"], "/v1/items/3"),
+        (_fastapi_items, "/items/3"),
+        (_fastapi_router, "/v1/items/3"),
+        (_fastapi_items, "/nowhere"),
+    ],
+    ids=[
+        "starlette",
+        "starlette-mount",
+        "fastapi",
+        "fastapi-router",
+        "fastapi-nowhere",
+    ],
+)
+def test_access_log_by_hand_names_no_route(
+    records: list[logging.LogRecord],
+    build: Callable[[], Starlette],
+    path: str,
+) -> None:
+    """Without `micro.install(app)`, no route reader names the route."""
+    # Arrange
+    app = build()
+    app.add_middleware(cast("Any", AccessLogMiddleware))
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.get(path)
+
+    # Assert
+    [access] = [record for record in records if record.name == ACCESS]
+    assert access.__dict__.get("http.route") is None
+
+
+def _with_cors(app: Starlette) -> Starlette:
+    """Return `app` answering a CORS preflight before routing."""
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://app.example"],
+        allow_methods=["*"],
+    )
+    return app
+
+
+def _litestar_with_cors() -> Litestar:
+    """Return a Litestar app serving `GET /items/{n}` that answers a CORS preflight."""
+    return Litestar(
+        route_handlers=[_litestar_item()],
+        cors_config=CORSConfig(allow_origins=["https://app.example"]),
+        logging_config=None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("build", "path", "route"),
+    [
+        (
+            lambda: _with_cors(Starlette(routes=_items())),
+            "/items/3",
+            "/items/{n}",
+        ),
+        (
+            lambda: _with_cors(
+                Starlette(routes=[Mount("/v1", routes=_items())])
+            ),
+            "/v1/items/3",
+            "/v1/items/{n}",
+        ),
+        (_litestar_with_cors, "/items/3", "/items/{n}"),
+        (lambda: _with_cors(_fastapi_router()), "/v1/items/3", "/v1/items/{n}"),
+        (
+            lambda: _with_cors(_fastapi_mounting(Starlette(routes=_items()))),
+            "/s/items/3",
+            "/s/{path}",
+        ),
+    ],
+    ids=[
+        "starlette",
+        "starlette-mount",
+        "litestar",
+        "fastapi",
+        "fastapi-mount",
+    ],
+)
+def test_an_answer_before_routing_names_the_route_it_would_reach(
+    records: list[logging.LogRecord],
+    *,
+    build: Callable[[], Any],
+    path: str,
+    route: str,
+) -> None:
+    """A CORS preflight names its route in the access record, its span none."""
+    # Arrange
+    app = build()
+    micro = Grelmicro(
+        uses=[Trace(exporter=TraceExporterType.NONE), AccessLog()]
+    )
+    micro.install(app)
+    exporter = InMemorySpanExporter()
+
+    # Act
+    with TestClient(app) as client:
+        micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
+        response = client.options(
+            path,
+            headers={
+                "Origin": "https://app.example",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+    # Assert
+    [server] = [
+        span
+        for span in exporter.get_finished_spans()
+        if span.kind is SpanKind.SERVER
+    ]
+    [access] = [record for record in records if record.name == ACCESS]
+    assert response.status_code in {HTTP_200, HTTP_204}
+    assert (server.attributes or {}).get("http.route") is None
+    assert access.__dict__.get("http.route") == route
+
+
+@pytest.mark.parametrize(
+    ("build", "path", "route"),
+    [
+        (lambda: Starlette(routes=_items()), "/items/3", "/items/{n}"),
+        (_fastapi_router, "/v1/items/3", "/v1/items/{n}"),
+        (_litestar_items, "/items/3", "/items/{n}"),
+    ],
+    ids=["starlette", "fastapi", "litestar"],
+)
+def test_a_cached_response_names_the_route_it_would_reach(
+    records: list[logging.LogRecord],
+    *,
+    build: Callable[[], Any],
+    path: str,
+    route: str,
+) -> None:
+    """A response the cache answers before routing names its route, its span none."""
+    # Arrange
+    app = build()
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=(f"{path.rsplit('/', 1)[0]}/*",)),
+            Trace(exporter=TraceExporterType.NONE),
+            AccessLog(),
+        ]
+    )
+    micro.install(app)
+    exporter = InMemorySpanExporter()
+
+    # Act
+    with TestClient(app) as client:
+        micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
+        client.get(path)
+        hit = client.get(path)
+
+    # Assert
+    spans = [
+        span
+        for span in exporter.get_finished_spans()
+        if span.kind is SpanKind.SERVER
+    ]
+    accesses = [
+        record.__dict__.get("http.route")
+        for record in records
+        if record.name == ACCESS
+    ]
+    assert hit.status_code == HTTP_200
+    assert (spans[0].attributes or {}).get("http.route") == route
+    assert (spans[-1].attributes or {}).get("http.route") is None
+    assert accesses == [route, route]
+
+
+def _starlette_charges() -> Starlette:
+    """Return a Starlette app serving `POST /items/{n}`."""
+    return Starlette(routes=[Route("/items/{n:int}", _item, methods=["POST"])])
+
+
+def _fastapi_charges() -> FastAPI:
+    """Return a FastAPI app serving `POST /v1/items/{n}` from an included router."""
+    router = APIRouter(prefix="/v1")
+
+    @router.post("/items/{n}")
+    async def item(n: int) -> int:
+        return n
+
+    app = FastAPI()
+    app.include_router(router)
+    return app
+
+
+def _litestar_charges() -> Litestar:
+    """Return a Litestar app serving `POST /items/{n}`."""
+
+    @post("/items/{n:int}")
+    async def item(n: Annotated[int, Parameter()]) -> int:
+        return n
+
+    return Litestar(route_handlers=[item], logging_config=None)
+
+
+@pytest.mark.parametrize(
+    ("build", "path", "route"),
+    [
+        (_starlette_charges, "/items/3", "/items/{n}"),
+        (_fastapi_charges, "/v1/items/3", "/v1/items/{n}"),
+        (_litestar_charges, "/items/3", "/items/{n}"),
+    ],
+    ids=["starlette", "fastapi", "litestar"],
+)
+def test_an_idempotent_replay_names_the_route_it_would_reach(
+    records: list[logging.LogRecord],
+    *,
+    build: Callable[[], Any],
+    path: str,
+    route: str,
+) -> None:
+    """A response replayed before routing names its route, its span none."""
+    # Arrange
+    app = build()
+    micro = Grelmicro(
+        uses=[
+            MemoryProvider(),
+            IdempotentRequests(),
+            Trace(exporter=TraceExporterType.NONE),
+            AccessLog(),
+        ]
+    )
+    micro.install(app)
+    exporter = InMemorySpanExporter()
+
+    # Act
+    with TestClient(app) as client:
+        micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
+        client.post(path, headers={"Idempotency-Key": "abc"})
+        replay = client.post(path, headers={"Idempotency-Key": "abc"})
+
+    # Assert
+    spans = [
+        span
+        for span in exporter.get_finished_spans()
+        if span.kind is SpanKind.SERVER
+    ]
+    accesses = [
+        record.__dict__.get("http.route")
+        for record in records
+        if record.name == ACCESS
+    ]
+    assert replay.headers["idempotent-replayed"] == "true"
+    assert (spans[0].attributes or {}).get("http.route") == route
+    assert (spans[-1].attributes or {}).get("http.route") is None
+    assert accesses == [route, route]
+
+
+def test_fastapi_include_without_match_dispatches_nowhere(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A FastAPI that no longer matches an include this way names no route."""
+    # Arrange
+    from grelmicro.integrations._fastapi_internals import (  # noqa: PLC0415
+        dispatched,
+        is_included,
+    )
+
+    app = _fastapi_router()
+    [included] = [route for route in app.router.routes if is_included(route)]
+    monkeypatch.setattr(included, "_match", None, raising=False)
+
+    # Act
+    found, added = dispatched(included, {"type": "http", "path": "/"})
+
+    # Assert
+    assert found is None
+    assert added == {}
+
+
+@pytest.mark.parametrize(
+    ("reach", "route"), [(False, None), (True, "/items/{n}")]
+)
+def test_fastapi_reader_names_a_request_no_router_reached_when_asked(
+    *, reach: bool, route: str | None
+) -> None:
+    """Before routing, the FastAPI reader names the route only when `reach` asks."""
+    # Arrange
+    from grelmicro.integrations.fastapi import (  # noqa: PLC0415
+        _route_reader,
+    )
+
+    reader = _route_reader(_fastapi_items())
+    scope: dict[str, Any] = {
+        "type": "http",
+        "method": "GET",
+        "path": "/items/3",
+    }
+
+    # Act
+    found = reader(scope, "", "/items/3", None, reach=reach)
+
+    # Assert
+    assert found == route

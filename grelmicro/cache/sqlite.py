@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 import re
+from datetime import timedelta
 from logging import getLogger
-from time import time
+from time import time, time_ns
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._duration import SECOND, nanoseconds
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
@@ -23,6 +26,17 @@ _JANITOR_LIMIT = 1000
 
 _JANITOR_JITTER = 0.2
 """Interval jitter, so replicas do not sweep in lockstep."""
+
+
+def _expires_at(now_ns: int, ttl: timedelta) -> float:
+    """Return when an entry written at `now_ns` expires, in epoch seconds.
+
+    The sum is exact in whole nanoseconds. The float it returns is the
+    next one up from the nearest, so it is never before the TTL ends.
+    """
+    return math.nextafter(
+        (now_ns + nanoseconds(ttl)) / nanoseconds(SECOND), math.inf
+    )
 
 
 if TYPE_CHECKING:
@@ -293,15 +307,15 @@ class SQLiteCacheAdapter(CacheBackend):
         *,
         key: str,
         value: bytes,
-        ttl: float,
+        ttl: timedelta,
         tags: Sequence[str] = (),
     ) -> None:
-        """Store raw bytes with a TTL in seconds and optional tags.
+        """Store raw bytes with a TTL and optional tags.
 
         The value upsert and the tag rows commit in one transaction.
         """
         full_key = f"{self._key_prefix}{key}"
-        expires_at = time() + float(ttl)
+        expires_at = _expires_at(time_ns(), ttl)
         conn = self._provider.client
         async with self._provider.connection_lock:
             await conn.execute("BEGIN IMMEDIATE;")
@@ -339,7 +353,7 @@ class SQLiteCacheAdapter(CacheBackend):
         self,
         *,
         items: Mapping[str, bytes],
-        ttl: float,
+        ttl: timedelta,
         tags: Sequence[str] = (),
     ) -> None:
         """Store many keys with one TTL and optional tags.
@@ -348,7 +362,7 @@ class SQLiteCacheAdapter(CacheBackend):
         """
         if not items:
             return
-        expires_at = time() + float(ttl)
+        expires_at = _expires_at(time_ns(), ttl)
         conn = self._provider.client
         async with self._provider.connection_lock:
             await conn.execute("BEGIN IMMEDIATE;")

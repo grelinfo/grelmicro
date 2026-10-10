@@ -1,8 +1,9 @@
 """Tests for the Kubernetes leader election backend."""
 
+import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -27,8 +28,8 @@ TOKEN = "test-token"
 OTHER = "other-token"
 
 # Named values keep ruff's magic-value rule quiet in assertions.
-_DURATION_SECONDS = 10.0
-_MAPPED_DURATION_SECONDS = 15.0
+_DURATION_SECONDS = timedelta(seconds=10)
+_MAPPED_DURATION_SECONDS = timedelta(seconds=15)
 _MAPPED_TRANSITIONS = 3
 _RENEW_TRANSITIONS = 2
 _LIVE_OTHER_TRANSITIONS = 5
@@ -97,7 +98,9 @@ async def test_out_of_context_errors() -> None:
     backend = KubernetesLeaderElectionAdapter(namespace="default")
 
     with pytest.raises(OutOfContextError):
-        await backend.acquire_or_renew(name="election", token=TOKEN, duration=1)
+        await backend.acquire_or_renew(
+            name="election", token=TOKEN, duration=timedelta(seconds=1)
+        )
     with pytest.raises(OutOfContextError):
         await backend.release(name="election", token=TOKEN)
     with pytest.raises(OutOfContextError):
@@ -260,7 +263,7 @@ def test_lease_to_record_maps_fields() -> None:
         ),
         spec=LeaseSpec(
             holderIdentity="holder-a",
-            leaseDurationSeconds=int(_MAPPED_DURATION_SECONDS),
+            leaseDurationSeconds=_MAPPED_DURATION_SECONDS.seconds,
             acquireTime=acquired,
             renewTime=renewed,
             leaseTransitions=_MAPPED_TRANSITIONS,
@@ -322,6 +325,24 @@ async def test_acquire_creates_when_not_found() -> None:
     assert record.transitions == 0
     assert record.lease_duration == _DURATION_SECONDS
     assert record.metadata == {"pod": "w0"}
+
+
+@pytest.mark.timeout(1)
+async def test_acquire_rounds_the_lease_up_to_whole_seconds() -> None:
+    """A Lease stores whole seconds, so 1001 ms becomes two seconds."""
+    create = AsyncMock()
+    backend = _make_mocked_backend(
+        get=AsyncMock(side_effect=_make_api_error(404)),
+        create=create,
+    )
+
+    record = await backend.acquire_or_renew(
+        name="election", token=TOKEN, duration=timedelta(milliseconds=1001)
+    )
+
+    assert record.lease_duration == timedelta(seconds=2)
+    assert create.await_args is not None
+    assert create.await_args.args[0].spec.leaseDurationSeconds == 2  # noqa: PLR2004
 
 
 @pytest.mark.timeout(1)
@@ -455,7 +476,9 @@ async def test_acquire_raises_on_non_404_get() -> None:
     )
 
     with pytest.raises(ApiError):
-        await backend.acquire_or_renew(name="election", token=TOKEN, duration=1)
+        await backend.acquire_or_renew(
+            name="election", token=TOKEN, duration=timedelta(seconds=1)
+        )
 
 
 @pytest.mark.timeout(1)
@@ -467,7 +490,9 @@ async def test_acquire_raises_on_non_409_create() -> None:
     )
 
     with pytest.raises(ApiError):
-        await backend.acquire_or_renew(name="election", token=TOKEN, duration=1)
+        await backend.acquire_or_renew(
+            name="election", token=TOKEN, duration=timedelta(seconds=1)
+        )
 
 
 @pytest.mark.timeout(1)
@@ -480,7 +505,9 @@ async def test_acquire_raises_on_non_409_replace() -> None:
     )
 
     with pytest.raises(ApiError):
-        await backend.acquire_or_renew(name="election", token=TOKEN, duration=1)
+        await backend.acquire_or_renew(
+            name="election", token=TOKEN, duration=timedelta(seconds=1)
+        )
 
 
 @pytest.mark.timeout(1)
@@ -498,7 +525,7 @@ async def test_conflict_reread_returns_empty_when_vanished() -> None:
 
     assert record.holder == ""
     assert record.transitions == 0
-    assert record.lease_duration == 0.0
+    assert record.lease_duration == timedelta(0)
 
 
 @pytest.mark.timeout(1)
@@ -507,7 +534,7 @@ async def test_conflict_reread_returns_empty_when_partial() -> None:
     expired = _make_lease(holder=OTHER, expired=True)
     partial = Lease(
         metadata=ObjectMeta(name="test", namespace="default"),
-        spec=LeaseSpec(leaseDurationSeconds=int(_DURATION_SECONDS)),
+        spec=LeaseSpec(leaseDurationSeconds=_DURATION_SECONDS.seconds),
     )
     backend = _make_mocked_backend(
         get=AsyncMock(side_effect=[expired, partial]),
@@ -672,8 +699,8 @@ async def test_get_raises_on_non_404_get() -> None:
 
 # --- Integration tests ---
 
-_DURATION = 1.0
-_EXPIRE_WAIT = _DURATION + 2.0
+_DURATION = timedelta(seconds=1)
+_EXPIRE_WAIT = _DURATION.total_seconds() + 2.0
 
 
 @pytest.fixture
@@ -829,3 +856,45 @@ async def test_metadata_roundtrip(
     fetched = await backend.get(name=name)
     assert fetched is not None
     assert dict(fetched.metadata) == metadata
+
+
+@pytest.mark.integration
+@pytest.mark.timeout(60, func_only=True)
+@pytest.mark.xdist_group("k3s")
+async def test_a_lease_is_rounded_up_never_down(
+    backend: KubernetesLeaderElectionAdapter,
+) -> None:
+    """A lease of 1001 ms is held as two whole seconds, and gone after them."""
+    name = "rounding" + uuid4().hex
+    token = uuid4().hex
+    before = time.monotonic()
+
+    record = await backend.acquire_or_renew(
+        name=name, token=token, duration=timedelta(milliseconds=1001)
+    )
+    after = time.monotonic()
+    await sleep(1.3 - (time.monotonic() - before))
+    held = await backend.get(name=name)
+    await sleep(2.7 - (time.monotonic() - after))
+    gone = await backend.get(name=name)
+
+    assert record.lease_duration == timedelta(seconds=2)
+    assert held is not None
+    assert held.holder == token
+    assert gone is None
+
+
+@pytest.mark.timeout(1)
+async def test_kubernetes_leader_acquire_refused_when_lease_exceeds_int32() -> (
+    None
+):
+    """A lease past 2**31 - 1 seconds is refused before the API is called."""
+    get = AsyncMock()
+    backend = _make_mocked_backend(get=get)
+
+    with pytest.raises(ValueError, match="about 68 years"):
+        await backend.acquire_or_renew(
+            name="election", token=TOKEN, duration=timedelta(seconds=2**31)
+        )
+
+    get.assert_not_awaited()

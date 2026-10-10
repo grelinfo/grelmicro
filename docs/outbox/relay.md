@@ -38,9 +38,9 @@ The outbox does not guarantee ordering in this version. Messages are delivered a
 
 ## Retention and cleanup
 
-Delivered rows are deleted on success by default (`keep_delivered=False`), so the table stays small on its own.
+Delivered rows are deleted on success by default (`keep_delivered=0`), so the table stays small on its own.
 
-Set `keep_delivered` to a `timedelta` to keep delivered rows for a window and let the relay purge them once they age out:
+Set `keep_delivered` to whole seconds or a `timedelta` to keep delivered rows for a window and let the relay purge them once they age out. A row is never purged before its window ends:
 
 ```python
 from datetime import timedelta
@@ -51,7 +51,7 @@ from grelmicro.outbox import Outbox
 micro = Grelmicro(uses=[Outbox(postgres, keep_delivered=timedelta(days=30))])
 ```
 
-The window is measured from delivery time, not publish time, so a delayed or heavily retried message still gets its full retention. The relay purges expired delivered rows in the background, so retention needs no scheduled job. The purge runs on the relay, so a `relay=False` replica never purges. Set `keep_delivered=True` to keep delivered rows for good with no auto-purge.
+The window is measured from delivery time, not publish time, so a delayed or heavily retried message still gets its full retention. The relay purges expired delivered rows in the background, so retention needs no scheduled job. The purge runs on the relay, so a `relay=False` replica never purges. Set `keep_delivered=None` to keep delivered rows for good with no auto-purge. From an environment variable, write `GREL_OUTBOX_KEEP_DELIVERED=none`.
 
 Auto-purge only removes delivered rows. A dead-letter is a failure to inspect and redrive, so dead rows are never deleted automatically. Trim them yourself with `purge`, which deletes both delivered and dead rows, optionally only those past a window:
 
@@ -72,7 +72,7 @@ The default deletes a delivered row immediately, which is the safe end of the
 range. Do not rely on that. Pin the value you want:
 
 ```python
-micro = Grelmicro(uses=[Outbox(postgres, keep_delivered=False)])
+micro = Grelmicro(uses=[Outbox(postgres, keep_delivered=0)])
 ```
 
 Pinning it says the choice was made, and a later release cannot move it under
@@ -115,19 +115,21 @@ You can also set your own `headers` on `publish` and read them in the handler fo
 
 `OutboxConfig` is a plain Pydantic model. Component defaults read from the environment under `GREL_OUTBOX_` unless you set fields directly.
 
+--8<-- "env_gate.md"
+
 | field | default | description |
 |---|---|---|
 | `table` | `grelmicro_outbox` | table name |
 | `relay` | `True` | run the background relay on this replica |
 | `poll_interval` | `1.5` | seconds between fallback polls |
 | `batch_size` | `100` | claim ceiling per cycle, capped by free handler slots |
-| `lease_duration` | `30` | seconds a claimed message stays invisible |
+| `lease_duration` | `30` | how long a claimed message stays invisible, in whole seconds or a `timedelta` |
 | `max_attempts` | `10` | attempts before dead-lettering |
 | `retry_base` | `1` | base backoff in seconds |
 | `retry_max` | `300` | maximum backoff in seconds |
 | `retry_jitter` | `1` | jitter fraction applied to backoff |
 | `concurrency` | `50` | maximum handlers running at once |
 | `dead_letter` | `True` | move exhausted messages to the dead state |
-| `keep_delivered` | `False` | keep delivered rows instead of deleting them, or a `timedelta` to keep and auto-purge them after that window |
+| `keep_delivered` | `0` | how long delivered rows are kept, in whole seconds or a `timedelta`, before the relay purges them. `0` deletes them on delivery, `None` (`none` from text) keeps them for good |
 | `auto_migrate` | `True` | create the table on first connect |
 | `notify` | `True` | use `LISTEN`/`NOTIFY` for low-latency wakeups |

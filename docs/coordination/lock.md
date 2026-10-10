@@ -11,8 +11,8 @@ The lock supports the following features:
 - **Idempotent backend**: the backend lets the same token re-acquire the lock,
   which extends the lease. Call `extend()` if you need to extend the
   lease explicitly.
-- **Expiring**: the lock has a timeout that auto-releases the lock to prevent
-  deadlocks.
+- **Expiring**: each hold is a lease that ends on its own after
+  `lease_duration`, so a crashed holder never blocks the others for good.
 - **Non-blocking**: lock operations do not block the async event loop.
 - **Backend-agnostic**: several backends are supported, including Redis,
   PostgreSQL, SQLite, and the Kubernetes Lease API.
@@ -47,7 +47,7 @@ Prefix: `GREL_LOCK_{NAME_UPPER}_`. The default instance drops the name segment a
 | Env var                                      | Config field     | Type            | Default          |
 |----------------------------------------------|------------------|-----------------|------------------|
 | `GREL_LOCK_{NAME_UPPER}_WORKER`              | `worker`         | `str \| UUID`   | generated UUID   |
-| `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION`      | `lease_duration` | `float` (> 0)   | `60`             |
+| `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION`      | `lease_duration` | whole seconds or ISO 8601 | `60`   |
 | `GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL`      | `retry_interval` | `float` (>= 0.001) | `0.1`         |
 | `GREL_LOCK_{NAME_UPPER}_RETRY_JITTER`        | `retry_jitter`   | `float` [0, 1)     | `0.1`         |
 
@@ -94,11 +94,23 @@ This is the right pattern when locking by business identity (`order_id`,
 
 ## Bounded acquire
 
-Pass `timeout=` to `acquire()` to limit how long the call waits. When the
-deadline passes without winning the lock, `LockTimeoutError` is raised:
+`async with lock:` waits as long as it takes. Use `hold(timeout=)` to wait at
+most a few seconds, then keep the lock for the body:
 
 ```python title="fragment"
 # Wait up to 5 seconds, then raise LockTimeoutError.
+async with lock.hold(timeout=5) as held:
+    await save(fencing_token=held.fencing_token)
+```
+
+`timeout` bounds the wait, never the lease: once acquired, the lock is held
+until the body ends or `lease_duration` runs out. `timeout=0` makes one
+attempt. When the wait runs out, the body does not run. From a worker thread,
+write `with lock.from_thread.hold(timeout=5) as held:`.
+
+`acquire(timeout=)` waits the same way when you release the lock yourself:
+
+```python title="fragment"
 held = await lock.acquire(timeout=5.0)
 ```
 
@@ -113,13 +125,9 @@ you may already catch:
 Over HTTP it becomes a `503` [problem detail](../http/errors.md), the same
 one a non-blocking acquire produces.
 
-The context manager (`async with lock`) calls `acquire()` with no timeout and
-waits indefinitely. Use `acquire(timeout=...)` directly when you need a
-bounded wait and want to handle the failure yourself.
-
 ## Extending the lease
 
-Call `extend()` on a `Lock` to renew the TTL without releasing the lock. The
+Call `extend()` on a `Lock` to extend the lease without releasing the lock. The
 fencing token stays the same, only the expiry time advances:
 
 ```python title="fragment"
@@ -131,7 +139,32 @@ async with lock as held:
 ```
 
 `extend()` raises `LockNotOwnedError` when the lease was lost on the backend
-(expired or taken over by another holder).
+(expired or taken over by another holder), and `LockExtendError` when the
+backend call fails.
+
+## When the body outlives its lease
+
+The lease bounds how long the lock is yours. Once it expires, another holder
+can acquire the lock while your body still runs. Two bodies then run at once.
+Leaving `async with lock:` afterwards raises `LockNotOwnedError`, because the
+lock is no longer yours to release.
+
+Protect against it in two ways:
+
+- Pass `held.fencing_token` from `async with lock as held:` to every write, so
+  the resource rejects the old holder. See [Fencing tokens](#fencing-tokens).
+- Set a `lease_duration` longer than the work really takes, or call
+  `extend()` before the lease runs out.
+
+## Releasing
+
+A release that has started finishes on the backend even when the task is
+cancelled, by a client disconnect or a shutdown. The cancellation is raised
+once the release ends, so the lock is never left held until its lease expires.
+
+A release the backend never answers gives up once `lease_duration` has
+passed and raises `LockReleaseError`. By then the backend has freed the lock
+on its own.
 
 ## Fencing tokens
 
@@ -147,7 +180,7 @@ async with Lock("cart") as held:
 The token grows by one on every free-to-held transition: a new holder, or a
 takeover after the previous lease expired. It keeps climbing across release and
 re-acquire cycles, so a token is never reused for a name. The same holder
-renewing or extending its lease keeps the same token.
+extending its lease keeps the same token.
 
 `acquire()` and `acquire_nowait()` also return the `LockHandle`. The handle is
 per-acquisition, so a `Lock` shared by several tasks gives each holder its own
@@ -184,7 +217,7 @@ are told apart.
 |---|---|
 | `grelmicro.lock.attempts` with `grelmicro.outcome="error"` | the backend is unreachable, so nothing is running anywhere |
 | the same counter with `unavailable` | another worker holds it, which is contention rather than failure |
-| `grelmicro.lock.renewals` with `lost` | the lease expired while the work was still running, so a second worker may already hold it |
+| `grelmicro.lock.extensions` with `lost` | the lease expired while the work was still running, so a second worker may already hold it |
 | `grelmicro.lock.holders` | how many holders this worker has, which is 0 when it holds nothing and more than 1 only for a read lease |
 
 `grelmicro.lock.mode` separates an exclusive lock, a task lock, and a read

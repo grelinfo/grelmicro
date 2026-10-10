@@ -5,6 +5,6 @@ tasks = Tasks()
 resource_lock = Lock("shared-resource")
 
 
-@tasks.every(seconds=60, gate="claim", sync=resource_lock)
+@tasks.every(interval=60, gate="claim", sync=resource_lock)
 async def cleanup():
     print("Running cleanup...")

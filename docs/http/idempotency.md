@@ -228,32 +228,44 @@ query containing control characters cannot move a value across field
 boundaries. The default then stores a SHA-256 digest of that serialization as
 `v3:` followed by 64 hexadecimal characters. Its 67-byte size is fixed even
 for a large path or query, so it remains suitable for an indexed PostgreSQL
-text key. A custom `key_maker` is not hashed or rewritten: its output remains
+text key. A custom `key=` function is not hashed or rewritten: its output remains
 the exact stored key.
 
-Without a custom `key_maker`, a request carrying `Authorization` or `Cookie`
+Without a custom `key=` function, a request carrying `Authorization` or `Cookie`
 bypasses idempotency and runs the handler every time. This safe default keeps
 private responses out of a shared entry and ensures authentication inside the
-application still runs. On FastAPI, a route with any dependency also bypasses
-the default, including ordinary `Depends` authentication that reads an API key
-from a custom header. This applies when FastAPI is wrapped directly or mounted
-under another ASGI application. Dependency-free public requests continue to
-use the route-scoped default key. Required keys are validated before this
-bypass. The built-in key format is versioned, so an upgraded process cannot
-replay an unscoped entry written by an older release. Custom `key_maker` values
-remain unchanged.
+application still runs. A route that runs checks before its handler bypasses
+the default too, on every framework:
+
+| Framework | Checks before the handler |
+|---|---|
+| FastAPI | A dependency, such as `Depends` authentication that reads an API key from a custom header |
+| Starlette | Middleware on the route, on a router or on a mount around it, middleware of a mounted Starlette or FastAPI app, `AuthenticationMiddleware` on the app, and a mounted app of another framework |
+| Litestar | A guard, a dependency the handler asks for, a `before_request` hook, middleware on the handler, its controller or a router, and a mounted ASGI app |
+
+`Anonymous()`, `Authenticated`, `CachedResponse()`, a body limit and
+grelmicro's own middleware are not checks. Middleware on the app is not
+either, on Starlette or on Litestar, except Starlette's
+`AuthenticationMiddleware`. Middleware of a mounted Starlette or FastAPI app
+is a check for every route under it, because it runs before them. This
+applies when the app is wrapped directly or mounted under another ASGI
+application. A route running no check keeps the
+route-scoped default key. Required keys are validated before this bypass.
+The built-in key format is versioned, so an upgraded process cannot replay an
+unscoped entry written by an older release. Custom `key=` values remain
+unchanged.
 
 An authenticated Starlette scope bypasses the default too, including when
 `AuthenticationMiddleware` reads a custom header. Put authentication outside
 idempotency so it establishes `scope["user"]` first. A directly wrapped
-Starlette `AuthenticationMiddleware`, one configured lazily on the wrapped
-application, and one inside a mounted application are also detected and
-bypassed. Mounted detection follows the path, so authentication on one
-sub-application does not disable public idempotency on its siblings. An
-application-specific authentication middleware cannot be identified by class;
-keep it outside this middleware or configure an identity-aware `key_maker`.
+Starlette `AuthenticationMiddleware`, one configured on the wrapped
+application, and one inside a mounted application bypass it as well. A mount
+covers only the routes under it, so authentication on one sub-application
+leaves public idempotency on its siblings. Middleware of your own on the app
+is not read as a check. Keep it outside this middleware, or configure an
+identity-aware `key=` function.
 
-!!! warning "Set `key_maker` for authenticated replay"
+!!! warning "Set `key=` for authenticated replay"
     To make authenticated requests idempotent, fold the caller identity into
     the key. Without that identity, any client that learns another client's
     key could replay their response, body included.
@@ -277,7 +289,7 @@ keep it outside this middleware or configure an identity-aware `key_maker`.
         )
 
 
-    IdempotentRequests(key_maker=tenant_key)
+    IdempotentRequests(key=tenant_key)
     ```
 
     Three things carry the isolation here. The identity comes from
@@ -290,7 +302,7 @@ keep it outside this middleware or configure an identity-aware `key_maker`.
     `scope["user"]` is set by an authentication middleware, and reading it requires that middleware to run **outside** this one, which means adding it **after**. That ordering also ensures authentication runs before a replay is served. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
 
     ```python
-    micro = Grelmicro(uses=[redis, IdempotentRequests(key_maker=tenant_key)])
+    micro = Grelmicro(uses=[redis, IdempotentRequests(key=tenant_key)])
     micro.install(app)
     app.add_middleware(AuthenticationMiddleware, backend=...)
     ```
@@ -300,15 +312,15 @@ keep it outside this middleware or configure an identity-aware `key_maker`.
 !!! warning "A client address is not a tenant identity"
     `ClientAddressMiddleware` resolves who connected, not who they are. Carrier-grade NAT puts many subscribers behind one address, so they would share an idempotency entry, and a caller moving between networks changes address mid-retry and loses the replay. Use it to rate limit, not to separate tenants.
 
-`key_maker` receives the ASGI scope and the client's key, and returns the whole stored key. It mirrors [`key_maker` on `@cached`](../cache/cached.md#custom-keys).
+The `key=` function receives the ASGI scope and the client's key, and returns the whole stored key. It mirrors [`key` on `@cached`](../cache/cached.md#custom-keys).
 
 ## Duplicates in flight
 
 A duplicate that arrives while the first execution is still running waits for it, then replays its response.
 
-The wait folds duplicates across replicas when a `Coordination` lock backend is configured, and in-process otherwise. See [Single-flight duplicates](../idempotency/index.md#single-flight-duplicates).
+The wait folds duplicates across replicas through the app's `Coordination` lock backend. Without one, it folds in the process only, so the [backend check](../deployment.md#the-backend-check) refuses to start in `staging` and `production` until you register one or pass `requires="process"`. See [Single-flight duplicates](../idempotency/index.md#single-flight-duplicates).
 
-The wait is bounded by `wait_timeout`, ten seconds by default:
+The wait is bounded by `max_wait`, ten seconds by default:
 
 ```http
 HTTP/1.1 409 Conflict
@@ -351,34 +363,20 @@ The block form raises `IdempotencyConflictError` to your handler instead, which 
 
 ## OpenAPI
 
-The middleware runs outside the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists, and Swagger offers no field for it. `micro.install(app)` writes it there, so a registered component needs nothing else: every operation the middleware covers gains the `Idempotency-Key` field and the responses the middleware itself returns. Pass `openapi=False` to leave the schema alone:
+The middleware runs outside the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists, and Swagger offers no field for it. `micro.install(app)` writes it there on FastAPI and Litestar, so a registered component needs nothing else. Pass `openapi=False` to leave the schema alone:
 
 ```python
 IdempotentRequests(openapi=False)
 ```
 
-A middleware added by hand is documented with `document_idempotency`:
-
-```python
-from grelmicro.http import IdempotencyMiddleware
-from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import document_idempotency
-
-micro.install(app)
-app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
-document_idempotency(app)
-```
-
-Only FastAPI builds an OpenAPI schema, so every other framework ignores this.
-
-Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. Call it any time after `add_middleware`, and routes added afterwards are covered too.
+Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. The schema is described when it is built, so routes added after `install` are covered too.
 
 An operation that already declares the header keeps its own declaration. The `422` that FastAPI generates for request validation keeps its schema and gains the idempotency case in its description and the problem media type alongside it, so neither is lost.
 
 Each response the middleware adds points at a `ProblemDetail` component, so a generated client knows the body it will get.
 
 !!! note "Mounted sub-applications"
-    A mounted sub-application builds its own schema. Call `document_idempotency` on it as well.
+    A mounted sub-application builds its own schema. Install `micro` on it as well.
 
 ## Background tasks
 
@@ -390,21 +388,21 @@ A background task runs after the response is sent, so the response is stored and
 
 | Parameter | Default | Behaviour |
 |---|---|---|
-| `ttl` | one day | Seconds a stored response replays for. Component only. |
+| `ttl` | one day | How long a stored response replays for, in whole seconds or as a `timedelta`. Component only. |
 | `namespace` | `"http"` | Namespace the stored keys sit under. Component only. |
 | `cache` | the registered `Cache` | The `TTLCache` responses are stored in. Component only. |
 | `idempotency` | required on the middleware | The `Idempotency` it stores through. The component builds one from `ttl`, `namespace` and `cache`. |
 | `key_header` | `"Idempotency-Key"` | Request header carrying the key. Up to 255 printable ASCII characters, such as a UUID. |
 | `replay_header` | `"Idempotent-Replayed"` | Response header marking a replay. No standard names one, so pick what your clients read. |
 | `methods` | `("POST",)` | Methods that take a key. Every other method passes through. |
-| `key_maker` | `None` | Build the stored key from the scope and the client key. Required for authenticated replay and multi-tenant isolation. |
+| `key` | `None` | Build the stored key from the scope and the client key. Required for authenticated replay and multi-tenant isolation. |
 | `skip` | `None` | Predicate over the finished response. Return `True` to not store it. |
 | `require_key` | `False` | Answer `400` when a matched method arrives without the header. |
 | `fingerprint_body` | `False` | Hash the request body and answer `422` on a reused key with a different body. |
 | `max_body_size` | `1048576` | Largest body held in memory, in bytes. Caps the stored response, and the fingerprinted request. |
-| `wait_timeout` | `10.0` | Seconds a duplicate waits for an execution in flight before `409`. |
+| `max_wait` | `10.0` | Seconds a duplicate waits for an execution in flight before `409`. |
 | `include` | `()` | Paths the middleware acts on. Empty means every path. Exact match unless the pattern ends with `*`. |
 | `exclude` | `()` | Paths the middleware leaves alone, whatever `include` says. |
 | `reused_status` | `422` | Status for a key reused with a different payload. `400` matches Stripe. |
-| `openapi` | `True` | Describe both headers and the middleware responses in the OpenAPI schema. Only this component's rules, so a second set can stay unpublished. Component only, and only FastAPI builds one. |
+| `openapi` | `True` | Describe both headers and the middleware responses in the OpenAPI schema. Only this component's rules, so a second set can stay unpublished. Component only. |
 | `name` | `"default"` | Registration name, for a second set of rules on one app. Component only. |

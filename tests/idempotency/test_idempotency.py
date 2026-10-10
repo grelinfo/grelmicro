@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from time import monotonic
+from datetime import timedelta
+from time import monotonic_ns
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -99,15 +100,17 @@ class TestFirstExecutionAndReplay:
         """After ttl elapses, the same key executes fresh."""
         cache = TTLCache(ttl=5, backend=backend, serializer=JsonSerializer())
         idem = Idempotency("charge", ttl=5, cache=cache)
-        now = monotonic()
+        now = monotonic_ns()
         calls = 0
 
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             async with idem("key-1") as op:
                 calls += 1
                 op.store({"n": calls})
 
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 6):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 6 * 10**9
+        ):
             async with idem("key-1") as op:
                 assert op.replayed is False
                 calls += 1
@@ -272,7 +275,7 @@ class TestFingerprint:
                 *,
                 key: str,
                 value: bytes,
-                ttl: float,
+                ttl: timedelta,
                 tags: Sequence[str] = (),
             ) -> None:
                 if self.fail_fingerprint_writes and key.endswith("\x1ffp"):
@@ -556,7 +559,7 @@ class TestConfig:
         """Env vars under GREL_IDEMPOTENCY_{NAME}_ populate unset fields."""
         monkeypatch.setenv("GREL_IDEMPOTENCY_CHARGE_TTL", "120")
         idem = Idempotency("charge", cache=cache)
-        expected_ttl = 120
+        expected_ttl = timedelta(seconds=120)
         assert idem.config.ttl == expected_ttl
 
     def test_env_prefix_override(
@@ -565,7 +568,7 @@ class TestConfig:
         """env_prefix replaces the auto-derived prefix."""
         monkeypatch.setenv("MYAPP_IDEM_TTL", "200")
         idem = Idempotency("charge", cache=cache, env_prefix="MYAPP_IDEM_")
-        expected_ttl = 200
+        expected_ttl = timedelta(seconds=200)
         assert idem.config.ttl == expected_ttl
 
     def test_env_load_false_ignores_env(
@@ -574,7 +577,7 @@ class TestConfig:
         """env_load=False skips env reads entirely."""
         monkeypatch.setenv("GREL_IDEMPOTENCY_CHARGE_TTL", "120")
         idem = Idempotency("charge", cache=cache, env_load=False)
-        expected_ttl = 86400
+        expected_ttl = timedelta(seconds=86400)
         assert idem.config.ttl == expected_ttl
 
     def test_from_config_static(
@@ -584,7 +587,7 @@ class TestConfig:
         monkeypatch.setenv("GREL_IDEMPOTENCY_CHARGE_TTL", "120")
         config = IdempotencyConfig(ttl=30)
         idem = Idempotency.from_config("charge", config, cache=cache)
-        expected_ttl = 30
+        expected_ttl = timedelta(seconds=30)
         assert idem.config.ttl == expected_ttl
 
     def test_from_config_not_tracked(self, cache: TTLCache) -> None:
@@ -596,15 +599,17 @@ class TestConfig:
     async def test_live_reconfigure_ttl(self, cache: TTLCache) -> None:
         """Reconfigure swaps the ttl for later operations."""
         idem = Idempotency("charge", ttl=3600, cache=cache)
-        await idem.reconfigure(idem.config.model_copy(update={"ttl": 10}))
-        expected_ttl = 10
+        await idem.reconfigure(
+            idem.config.model_copy(update={"ttl": timedelta(seconds=10)})
+        )
+        expected_ttl = timedelta(seconds=10)
         assert idem.config.ttl == expected_ttl
 
     async def test_reconfigure_via_mapping(self, cache: TTLCache) -> None:
         """A ConfigMap-style mapping reconfigures the tracked instance."""
         idem = Idempotency("charge-reload", ttl=3600, cache=cache)
         await reconfigure_all({"GREL_IDEMPOTENCY_CHARGE_RELOAD_TTL": "42"})
-        expected_ttl = 42
+        expected_ttl = timedelta(seconds=42)
         assert idem.config.ttl == expected_ttl
 
 
@@ -696,9 +701,9 @@ def test_invalid_config_raises_settings_error() -> None:
 
 
 async def test_idempotency_block_waits_out_the_timeout() -> None:
-    """A duplicate past `wait_timeout` raises the wait error."""
+    """A duplicate past `max_wait` raises the wait error."""
     # Arrange
-    wait_timeout = 0.05
+    max_wait = 0.05
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     idem: Idempotency = Idempotency("charge", ttl=60)
     started = asyncio.Event()
@@ -715,13 +720,13 @@ async def test_idempotency_block_waits_out_the_timeout() -> None:
         task = asyncio.create_task(first())
         await started.wait()
         with pytest.raises(IdempotencyWaitTimeoutError) as exc_info:
-            async with idem("key-1", wait_timeout=wait_timeout):
+            async with idem("key-1", max_wait=max_wait):
                 pass  # pragma: no cover
         release.set()
         await task
 
     # Assert
-    assert exc_info.value.timeout == wait_timeout
+    assert exc_info.value.timeout == max_wait
     assert isinstance(exc_info.value, TimeoutError)
 
 
@@ -746,7 +751,7 @@ async def test_idempotency_block_propagates_a_backend_timeout() -> None:
             patch.object(idem, "_replay", flaky),
             pytest.raises(TimeoutError) as exc_info,
         ):
-            async with idem("key-1", wait_timeout=5):
+            async with idem("key-1", max_wait=5):
                 pass  # pragma: no cover
 
     # Assert
@@ -756,7 +761,7 @@ async def test_idempotency_block_propagates_a_backend_timeout() -> None:
 async def test_idempotency_run_waits_out_the_timeout() -> None:
     """`run` bounds the wait the same way the block does."""
     # Arrange
-    wait_timeout = 0.05
+    max_wait = 0.05
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     idem: Idempotency = Idempotency("charge", ttl=60)
     started = asyncio.Event()
@@ -772,7 +777,7 @@ async def test_idempotency_run_waits_out_the_timeout() -> None:
         task = asyncio.create_task(idem.run("key-1", slow))
         await started.wait()
         with pytest.raises(IdempotencyWaitTimeoutError):
-            await idem.run("key-1", slow, wait_timeout=wait_timeout)
+            await idem.run("key-1", slow, max_wait=max_wait)
         release.set()
         result = await task
 

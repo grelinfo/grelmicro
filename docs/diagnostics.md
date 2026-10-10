@@ -66,6 +66,7 @@ configuration it names. Each entry below says which.
 | `provider-order` | none | `LifecycleOrderError` | A Provider is listed after the Component that borrows it. |
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
 | `leader-not-running` | `LeaderNotRunningWarning` | none | A task is gated on a leader election that does not run, so it skips every fire. |
+| `health-not-served` | `HealthNotServedWarning` | none | A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404. |
 
 ### `env-load-off`
 
@@ -108,6 +109,10 @@ app = Litestar(
 micro.install(app)  # finds it already wired, and leaves it alone
 ```
 
+The OpenAPI schema describes the registered component, not the middleware
+passed by hand. Register the component with the same settings you pass, or
+the schema leaves the middleware out.
+
 FastAPI and Starlette never raise this: `install` puts grelmicro's middleware
 behind everything the app added itself.
 
@@ -138,3 +143,16 @@ it skips a lease duration after it started. Register the election beside the
 task with `tasks.add_task(election)`, or start it yourself. An election started
 later, by another `Tasks` or a lifespan, is fine as long as it runs within the
 lease duration. See [Leader Election](coordination/leader-election.md).
+
+### `health-not-served`
+
+`micro.install(app)` does not mount the health endpoints. Serve them with
+`health_router()` on FastAPI, `health_asgi()` on another ASGI framework, or
+`OpsServer` on a port of their own. A router or a mount built for a named
+`HealthChecks` serves that one, and one built with no argument, like
+`OpsServer`, serves the default. See [Health](health.md#without-a-web-framework).
+
+Reported once the app opens, only when it is installed on an app that serves
+HTTP, and quiet in `development` and `test`. `python -m grelmicro check` shows
+the same check. If you serve the checks some other way, filter
+`HealthNotServedWarning`.

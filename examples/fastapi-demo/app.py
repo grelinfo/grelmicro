@@ -90,7 +90,7 @@ catalog = TTLCache[Product](ttl=30)
 
 
 @app.get("/product/{product_id}")
-@cached(catalog, lock=True)
+@cached(catalog, lock="cluster")
 async def get_product(product_id: int) -> Product:
     # Cache Pattern: the second call within the TTL skips this body.
     return Product(id=product_id, name=f"Product {product_id}")
@@ -138,13 +138,13 @@ async def update_ledger(amount: int) -> int:
 
 
 # --- Leader-gated task: only the elected leader runs the sweep ---
-@tasks.every(seconds=10, gate=leader)
+@tasks.every(interval=10, gate=leader)
 def nightly_sweep() -> None:
     # Leader-election Pattern: runs on exactly one replica.
     logger.info("nightly sweep (leader only)")
 
 
 # --- Local interval task: runs on every replica ---
-@tasks.every(seconds=5)
+@tasks.every(interval=5)
 def heartbeat() -> None:
     logger.info("heartbeat")

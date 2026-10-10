@@ -80,7 +80,7 @@ class MemoryOutboxAdapter:
         return True
 
     async def claim(
-        self, *, topics: Sequence[str], limit: int, lease: float
+        self, *, topics: Sequence[str], limit: int, lease: timedelta
     ) -> list[OutboxRecord]:
         """Claim up to `limit` due messages for the given topics."""
         now = _now()
@@ -98,7 +98,7 @@ class MemoryOutboxAdapter:
         for row in due:
             row.state = "processing"
             row.attempts += 1
-            row.available_at = now + timedelta(seconds=lease)
+            row.available_at = now + lease
             claimed.append(replace(row.record, attempts=row.attempts))
         return claimed
 
@@ -155,18 +155,14 @@ class MemoryOutboxAdapter:
     async def purge(
         self,
         *,
-        before_seconds: float | None = None,
+        older_than: timedelta | None = None,
         states: tuple[Literal["delivered", "dead"], ...] = (
             "delivered",
             "dead",
         ),
     ) -> int:
         """Delete terminal rows in the given states. Returns the count removed."""
-        cutoff = (
-            _now() - timedelta(seconds=before_seconds)
-            if before_seconds is not None
-            else None
-        )
+        cutoff = _now() - older_than if older_than is not None else None
         doomed = [
             message_id
             for message_id, row in self._rows.items()

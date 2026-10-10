@@ -2,7 +2,7 @@ import httpx
 
 from grelmicro.resilience import Shield
 
-github = Shield.api("github", timeout_errors=(httpx.TimeoutException,))
+github = Shield.api("github", when=httpx.TimeoutException)
 
 
 async def parse_response(response: httpx.Response) -> bytes:

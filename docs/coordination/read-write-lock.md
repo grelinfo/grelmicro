@@ -10,8 +10,10 @@ routing table, a rendered report, a config blob in object storage.
 ```
 
 `catalog.read` and `catalog.write` are two views of one lock. Each is a full
-primitive with `acquire(timeout=...)`, `acquire_nowait()`, `extend()`,
-`release()`, and a `from_thread` adapter, exactly like `Lock`.
+primitive with `hold(timeout=...)`, `acquire(timeout=...)`,
+`acquire_nowait()`, `extend()`, `release()`, and a `from_thread` adapter,
+exactly like `Lock`. `async with catalog.read.hold(timeout=5) as reading:`
+waits at most 5 seconds for a read lease.
 
 ## Guards
 
@@ -42,6 +44,14 @@ forever.
 
 The intent carries its own lease. A writer that dies while waiting stops holding
 readers back as soon as that lease expires.
+
+## Releasing
+
+A release that has started finishes on the backend even when the task is
+cancelled, by a client disconnect or a shutdown. So does the withdrawal of a
+writer's intent when its wait is cancelled. A backend that never answers is
+given up on once `lease_duration` has passed, and a release then raises
+`LockReleaseError`. See [Releasing](lock.md#releasing) on the lock page.
 
 ## Poison
 
@@ -79,9 +89,14 @@ Every coordination backend implements it.
 |---|---|---|
 | Redis, Valkey | A sorted set of reader leases, updated in one server-side step | Fastest. On a cluster, the prefix needs a hash tag. |
 | PostgreSQL | Reader rows, updated under an advisory lock (a lock PostgreSQL holds by name) | Tables are created on first connect. Pass `auto_migrate=False` to manage them yourself. |
-| SQLite | Reader rows, updated in one write transaction | One host only. Lease durations round up to whole seconds. |
-| Kubernetes | Annotations on the Lease that holds the writer | Coarse-grained. Every reader renewal writes to etcd, and annotation size caps readers in the hundreds. |
+| SQLite | Reader rows, updated in one write transaction | One host only. Lease durations round up to the millisecond. |
+| Kubernetes | Annotations on the Lease that holds the writer | Coarse-grained. Every reader extension writes to etcd, and annotation size caps readers in the hundreds. A writer lease rounds up to whole seconds. |
 | Memory | A process-local dict | Tests and single-process apps. |
+
+SQLite is host-scoped: it shares state with the processes on one host only.
+`Coordination` requires `cluster`, so a SQLite backend is refused at startup
+in `staging` and `production`, and warns once when `GREL_ENVIRONMENT` is unset.
+See [The backend check](../deployment.md#the-backend-check).
 
 Every holder has its own lease, so a reader that died is dropped by the next
 writer's acquire rather than blocking it until a shared expiry fires.
@@ -97,7 +112,7 @@ and reads `GREL_READWRITELOCK_*`.
 | Env var | Config field | Type | Default |
 |---|---|---|---|
 | `GREL_READWRITELOCK_{NAME_UPPER}_WORKER` | `worker` | `str \| UUID` | generated UUID |
-| `GREL_READWRITELOCK_{NAME_UPPER}_LEASE_DURATION` | `lease_duration` | `float` (> 0) | `60` |
+| `GREL_READWRITELOCK_{NAME_UPPER}_LEASE_DURATION` | `lease_duration` | whole seconds or ISO 8601 | `60` |
 | `GREL_READWRITELOCK_{NAME_UPPER}_RETRY_INTERVAL` | `retry_interval` | `float` (>= 0.001) | `0.1` |
 | `GREL_READWRITELOCK_{NAME_UPPER}_RETRY_JITTER` | `retry_jitter` | `float` [0, 1) | `0.1` |
 

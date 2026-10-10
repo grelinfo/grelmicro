@@ -1,5 +1,7 @@
 """Tests for the three-paths TaskLock construction."""
 
+from datetime import timedelta
+
 import pytest
 from pytest_mock import MockerFixture
 
@@ -9,12 +11,12 @@ from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 
-MIN_KWARG = 5.0
-MAX_KWARG = 30.0
-MIN_ENV = 7.0
-MAX_ENV = 90.0
-DEFAULT_MIN = 1.0
-DEFAULT_MAX = 60.0
+MIN_KWARG = 5
+MAX_KWARG = 30
+MIN_ENV = 7
+MAX_ENV = 90
+DEFAULT_MIN = 1
+DEFAULT_MAX = 60
 
 
 @pytest.fixture
@@ -49,8 +51,8 @@ def test_programmatic_path_uses_kwargs(backend: LockBackend) -> None:
         lease_duration=MAX_KWARG,
     )
     assert task_lock.name == "cleanup"
-    assert task_lock.config.min_hold_duration == MIN_KWARG
-    assert task_lock.config.lease_duration == MAX_KWARG
+    assert task_lock.config.min_hold_duration == timedelta(seconds=MIN_KWARG)
+    assert task_lock.config.lease_duration == timedelta(seconds=MAX_KWARG)
 
 
 def test_declarative_path_uses_from_config(backend: LockBackend) -> None:
@@ -77,7 +79,7 @@ def test_from_config_bypasses_env(
         lease_duration=MAX_KWARG,
     )
     task_lock = TaskLock.from_config("cleanup", cfg, backend=backend)
-    assert task_lock.config.lease_duration == MAX_KWARG
+    assert task_lock.config.lease_duration == timedelta(seconds=MAX_KWARG)
 
 
 def test_environmental_path_reads_grel_prefixed_env(
@@ -88,8 +90,8 @@ def test_environmental_path_reads_grel_prefixed_env(
     monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_MIN_HOLD_DURATION", str(MIN_ENV))
     monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_LEASE_DURATION", str(MAX_ENV))
     task_lock = TaskLock("cleanup", backend=backend)
-    assert task_lock.config.min_hold_duration == MIN_ENV
-    assert task_lock.config.lease_duration == MAX_ENV
+    assert task_lock.config.min_hold_duration == timedelta(seconds=MIN_ENV)
+    assert task_lock.config.lease_duration == timedelta(seconds=MAX_ENV)
 
 
 def test_kwargs_override_env(
@@ -99,7 +101,7 @@ def test_kwargs_override_env(
     """Caller kwargs win over env vars."""
     monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_LEASE_DURATION", str(MAX_ENV))
     task_lock = TaskLock("cleanup", backend=backend, lease_duration=MAX_KWARG)
-    assert task_lock.config.lease_duration == MAX_KWARG
+    assert task_lock.config.lease_duration == timedelta(seconds=MAX_KWARG)
 
 
 def test_env_prefix_override(
@@ -113,7 +115,7 @@ def test_env_prefix_override(
         backend=backend,
         env_prefix="MYAPP_TASK_LOCK_CLEANUP_",
     )
-    assert task_lock.config.lease_duration == MAX_ENV
+    assert task_lock.config.lease_duration == timedelta(seconds=MAX_ENV)
 
 
 def test_env_load_false_ignores_env(
@@ -123,7 +125,7 @@ def test_env_load_false_ignores_env(
     """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_LEASE_DURATION", str(MAX_ENV))
     task_lock = TaskLock("cleanup", backend=backend, env_load=False)
-    assert task_lock.config.lease_duration == DEFAULT_MAX
+    assert task_lock.config.lease_duration == timedelta(seconds=DEFAULT_MAX)
 
 
 def test_zero_config_uses_taskconfig_defaults(
@@ -134,8 +136,8 @@ def test_zero_config_uses_taskconfig_defaults(
     monkeypatch.delenv("GREL_TASKLOCK_CLEANUP_MIN_HOLD_DURATION", raising=False)
     monkeypatch.delenv("GREL_TASKLOCK_CLEANUP_LEASE_DURATION", raising=False)
     task_lock = TaskLock("cleanup", backend=backend)
-    assert task_lock.config.min_hold_duration == DEFAULT_MIN
-    assert task_lock.config.lease_duration == DEFAULT_MAX
+    assert task_lock.config.min_hold_duration == timedelta(seconds=DEFAULT_MIN)
+    assert task_lock.config.lease_duration == timedelta(seconds=DEFAULT_MAX)
 
 
 def test_worker_default_factory_generates_uuid(backend: LockBackend) -> None:

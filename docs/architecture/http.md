@@ -96,7 +96,7 @@ reach of a mounted file:
 |---|---|
 | `CachedResponses` | `cache`, `key`, `skip`, `namespace` |
 | `ConditionalRequests` | `openapi`, read once when the schema is built |
-| `IdempotentRequests` | `cache`, `key_maker`, `skip`, `namespace`, `openapi` |
+| `IdempotentRequests` | `cache`, `key`, `skip`, `namespace`, `openapi` |
 | `RateLimitedRequests` | the limiters, `trusted`, `key` |
 | `AuthenticatedRequests` | the verifier, `bans`, `trusted`, `openapi` |
 
@@ -151,9 +151,10 @@ whichever paths are metered at the time. A rule that says what a client
 
 ### The route checks run again
 
-`micro.install(app)` refuses a cache pattern naming a route that answers
-something other than `GET`, or a read behind a security scheme, because a hit
-answers before the route's own dependencies run.
+`micro.install(app)` refuses a cache pattern naming a path that answers no
+`GET`, and leaves uncached a read whose route runs checks of its own, because
+a hit answers before they run. Both read what the integration's
+`route_declarations(app)` lists.
 
 Those checks run again in `CachedResponses._apply_reconfigure`, against the
 app's own routes. Without that, a pattern arriving from a ConfigMap would walk
@@ -193,8 +194,10 @@ taken out of the very sentence offering it.
 | Live reload tunes what a request costs, never what it is protected by | Editing a mounted file is a wider permission than shipping an image, and neither reviewed nor versioned with the code | A mounted source becomes as reviewed as a deploy |
 | The OpenAPI schema is built once, from the app as installed | It is a published contract, and each replica polls on its own clock, so a live one would have two pods publishing two documents | The schema stops being served per replica |
 | Authentication runs ahead of every other answering middleware of ours | A cached or replayed response must never reach a caller that was not authenticated | A component of ours has to answer before the caller is known |
+| The response cache reads the declaration the route's gate admitted the request with, and keys a stored response by the protection it declares | A hit runs after the gate, so it reaches only a caller the route admits, and an entry stored under one protection is never read under another | The cache has to answer before routing again |
 | Authentication takes `exclude` and no `include` | A mistyped `include` would leave an endpoint public without a word | Default deny stops being the contract |
 | A refused websocket is denied, never accepted and then closed | Accepting completes the handshake for a caller that never authenticated | No server supports the denial response extension any more |
+| `install` mounts no health route: `health_router()`, `health_asgi()` or `OpsServer` serves the endpoints | Probe paths are kept out of authentication and rate limiting by hand, `/healthz` can expose check details, and `OpsServer` serves them on a port of their own, so a route mounted by default would need a silent exemption | Probes stop needing an exemption from default deny |
 
 ## Related
 

@@ -28,22 +28,28 @@ Passing both `cache` and `ttl`, or neither, raises `TypeError`.
 
 ## Custom Keys
 
-By default `@cached` derives the key from the `repr()` of the arguments. Pass `key=` for a stable, readable key instead. The template fills in from the call's arguments, so `key="user:{user_id}"` keys the entry under `user:42` for a call with `user_id=42`:
+By default `@cached` derives the key from the `repr()` of the arguments. Pass `key_template=` for a stable, readable key instead. The template fills in from the call's arguments, so `key_template="user:{user_id}"` keys the entry under `user:42` for a call with `user_id=42`:
 
 ```python
-@cached(cache, key="user:{user_id}")
+@cached(cache, key_template="user:{user_id}")
 async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 ```
 
-Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. For a fully dynamic key, pass a `key_maker` callable instead. It receives `(func, args, kwargs)` and returns the key. Passing both `key` and `key_maker` raises `TypeError`. A custom key fully determines the lookup, so `typed=` has no effect when `key=` or `key_maker` is set.
+Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. For a fully dynamic key, pass a `key=` function instead. It receives `(func, args, kwargs)` and returns the key. A string passed to `key=` raises `TypeError`, and so does passing both `key` and `key_template`. A custom key fully determines the lookup, so `typed=` has no effect when `key=` or `key_template=` is set.
+
+```python title="fragment"
+@cached(cache, key=lambda func, args, kwargs: f"user:{args[0]}")
+async def get_user(user_id: int) -> User:
+    return await db.fetch_user(user_id)
+```
 
 ```python title="key.py"
 --8<-- "cache/key.py"
 ```
 
 !!! warning "Default keys are not stable across processes"
-    The default key is the `repr()` of the arguments. Keys are stable within a single process but may vary across Python versions. An object using the default `__repr__` carries a memory address, so its key changes on every restart and the entry is never found again. Pass `key=` or `key_maker=` for such objects.
+    The default key is the `repr()` of the arguments. Keys are stable within a single process but may vary across Python versions. An object using the default `__repr__` carries a memory address, so its key changes on every restart and the entry is never found again. Pass `key_template=` or `key=` for such objects.
 
 ## Tags
 
@@ -64,11 +70,11 @@ See [Tags and Invalidation](index.md#tags-and-invalidation) for how tags behave 
 
 ## On a method
 
-A method must name its key. Decorating one without `key=` or `key_maker=` raises `TypeError` at decoration time:
+A method must name its key. Decorating one without `key_template=` or `key=` raises `TypeError` at decoration time:
 
 ```python
 class Repo:
-    @cached(cache, key="repo:{user_id}")
+    @cached(cache, key_template="repo:{user_id}")
     async def load(self, user_id: int) -> User:
         return await self.db.fetch_user(user_id)
 ```
@@ -79,7 +85,7 @@ Only you know what identifies the entry, so the decorator asks rather than guess
 
 ```python
 class Repo:
-    @cached(cache, key="repo:{self.region}:{user_id}")
+    @cached(cache, key_template="repo:{self.region}:{user_id}")
     async def load(self, user_id: int) -> User: ...
 ```
 
@@ -111,7 +117,7 @@ async def report(user_id: int, cache_control: Annotated[str, Header()] = "") -> 
 
 Two things differ from a normal miss:
 
-- **Refreshes do not fold.** A miss folds concurrent callers into one execution, but every refresh runs the function itself. A refresh never returns a value computed before the call started, so writing to the database and then refreshing cannot hand you pre-write data. Under the default `lock`, refreshes for one key also serialize within the process, and with `lock=True` and a lock backend they serialize across replicas. Under `lock=False` they run in parallel and the last write wins.
+- **Refreshes do not fold.** A miss folds concurrent callers into one execution, but every refresh runs the function itself. A refresh never returns a value computed before the call started, so writing to the database and then refreshing cannot hand you pre-write data. Under the default `lock`, refreshes for one key also serialize within the process, and with `lock="cluster"` they serialize across replicas. Under `lock=None` they run in parallel and the last write wins.
 - **Errors propagate**, even under `stale_ttl`. Serving the stale value would return the exact entry the caller asked to bypass. Compose it yourself when you want that:
 
 ```python title="fragment"
@@ -151,7 +157,7 @@ async def whole(question_id: int) -> str:
 
 **Only a completed sequence is stored.** A reader that stops early, and a producer that raises part way, both leave the key untouched. A truncated sequence is never published, so the next reader gets the whole thing rather than the part the first one happened to read.
 
-**A second reader waits, then replays.** Under the default `lock`, a concurrent miss folds like any other: the second caller waits for the first to finish and then replays the stored entry, rather than running the producer again. It trades incremental output for not paying twice. Use `lock=False` to let both stream live at the cost of two executions.
+**A second reader waits, then replays.** Under the default `lock`, a concurrent miss folds like any other: the second caller waits for the first to finish and then replays the stored entry, rather than running the producer again. It trades incremental output for not paying twice. Use `lock=None` to let both stream live at the cost of two executions.
 
 **The stored form is a plain list**, so `await cache.get(key)` returns the items and anything else reading that key sees an ordinary cached value.
 
@@ -161,36 +167,44 @@ A sync generator is not supported and raises at decoration time. It yields its i
 
 ## Stampede Protection
 
-A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. By default `@cached` folds those misses in-process (`lock="local"`). Raise it to `lock=True` to fold across replicas, drop it to `lock=False` to opt out, and add `early=` to refresh hot keys before they expire:
+A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. `@cached` folds those misses: they share a single call of the function. `lock=` says how far the fold reaches, and `early=` refreshes hot keys before they expire:
 
 | Setting | What it does | Cost | Use when |
 |---|---|---|---|
-| `lock="local"` (default) | fold misses in-process only, never touches a backend | free, no I/O | the common case |
-| `lock=True` | fold concurrent misses, across replicas when a `Coordination` backend is configured | one backend acquire per cold miss | you need cross-replica dedup |
-| `lock=False` | no protection, every concurrent miss recomputes | none | misses are cheap or rare |
+| `lock="process"` (default) | fold misses in the process, never touches a backend | free, no I/O | the common case |
+| `lock="host"` | fold misses in the process, then across the processes on one host | one lock backend call per cold miss | several workers share one host |
+| `lock="cluster"` | fold misses in the process, then across every replica | one lock backend call per cold miss | each call is expensive enough to run once for the fleet |
+| `lock=None` | no folding, every concurrent miss calls the function | none | misses are cheap or rare |
 | `early=0.1` | probabilistic early refresh (XFetch) in the last 10% of the TTL | one background recompute per refresh | the hottest keys, where no caller should ever block |
 
-`lock=True` always dedups in-process first, so the backend is hit at most once per cold miss. `early=` works alongside any lock mode.
+`"process"` folds inside one process only, so each replica still calls the function once. `"host"` and `"cluster"` always fold in the process first, so the lock backend is called at most once per cold miss. `early=` works with any `lock`. An early refresh is decided by each reader, so each replica refreshes a hot key on its own.
 
 ```python
-@cached(cache)                  # default: in-process stampede folding
+@cached(cache)                     # default: fold misses in the process
 async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 
 
-@cached(cache, lock=True)       # fold misses, across replicas if a lock backend is set
+@cached(cache, lock="cluster")     # fold misses across replicas
 async def get_billing(user_id: int) -> Billing:
     return await billing.fetch(user_id)
 
 
-@cached(cache, early=0.1)       # refresh hot keys before they expire
+@cached(cache, early=0.1)          # refresh hot keys before they expire
 async def get_homepage_feed() -> Feed:
     return await build_feed()
 ```
 
 `lock` is **per-key**: concurrent misses on different keys run in parallel. Only callers that request the same key wait in turn, so one slow computation does not block unrelated keys.
 
-`lock=True` folds misses across replicas when the active `Grelmicro` app has a `Coordination` backend, and folds them in-process when it does not. Use `lock="local"` to force the in-process path even when a `Coordination` backend is configured.
+`"host"` and `"cluster"` fold through the lock backend of the app's [`Coordination`](../coordination/index.md):
+
+- **The backend must reach that far.** It goes through the same [backend check](../deployment.md#the-backend-check) as `requires=`. In `staging` and `production`, a lock backend whose scope falls short raises `BackendScopeError`. With no environment declared it logs a warning, and in `development` and `test` it stays quiet.
+- **No lock backend raises `OutOfContextError`.** Register a `Coordination` on the app, or keep `lock="process"`.
+- **A failing lock backend does not fail the call.** The error is logged and the misses fold in the process only.
+- **A lock lost before release is logged**, for example when the function runs past the lease. The value is still returned.
+
+`@cached(ttl=...)` keeps its entries in one process, so it accepts only `"process"` or `None`. `lock="host"` or `lock="cluster"` there raises `SettingsValidationError`. Pass a shared `TTLCache` to fold across processes.
 
 `early=` returns the cached value immediately and recomputes in the background, so a hot key refreshes before it expires and no caller ever waits on a cold miss. It costs one extra recompute per refresh and stores a small sidecar entry next to the value so replicas coordinate the refresh window.
 
@@ -198,7 +212,7 @@ async def get_homepage_feed() -> Feed:
 
 ## Serve Stale on Error
 
-Set `stale_ttl` to keep serving the last good value when a recompute fails. Each result is also kept as a fallback copy for `ttl + stale_ttl` seconds. After the TTL, the next miss recomputes as usual, but if that recompute raises, the most recent value is served instead of propagating the error, for up to `stale_ttl` seconds past the TTL.
+Set `stale_ttl` to keep serving the last good value when a recompute fails. Each result is also kept as a fallback copy for `ttl + stale_ttl`. After the TTL, the next miss recomputes as usual, but if that recompute raises, the most recent value is served instead of propagating the error, for up to `stale_ttl` past the TTL.
 
 ```python
 cache = TTLCache[Rates](ttl=60)
@@ -219,15 +233,15 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `cache` | `TTLCache` | `None` | The cache instance to store results in. Mutually exclusive with `ttl`. |
-| `ttl` | `float` | `None` | TTL in seconds for a private per-function cache. Mutually exclusive with `cache`. |
+| `ttl` | `int \| timedelta` | `None` | TTL for a private per-function cache, in whole seconds or as a `timedelta`. Mutually exclusive with `cache`. |
 | `maxsize` | `int` | `0` | Max entries in the private per-function cache, `0` means unlimited (used only when `ttl` is set). |
-| `key` | `str` | `None` | Key template rendered from the arguments, like `"user:{user_id}"`. Mutually exclusive with `key_maker`. |
-| `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. Mutually exclusive with `key`. |
+| `key` | `Callable` | `None` | Function deriving the key. Receives `(func, args, kwargs)`. Mutually exclusive with `key_template`. |
+| `key_template` | `str` | `None` | Key template rendered from the arguments, like `"user:{user_id}"`. Mutually exclusive with `key`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
-| `lock` | `True`, `False`, or `"local"` | `"local"` | Concurrent-miss (stampede) protection. |
+| `lock` | `"process"`, `"host"`, `"cluster"`, or `None` | `"process"` | How far concurrent misses on one key fold into one call. |
 | `early` | `float` in `[0, 1)` | `None` | Probabilistic early refresh in the late TTL window. |
-| `stale_ttl` | `float` | `None` | Serve-stale-on-error budget in seconds. Serve the last good value for this long past the TTL when a recompute fails. |
+| `stale_ttl` | `int \| timedelta` | `None` | Serve-stale-on-error budget, in whole seconds or as a `timedelta`. Serve the last good value for this long past the TTL when a recompute fails. |
 | `tags` | `Sequence[str]` | `()` | Tags to attach to each result. Templates like `"user:{user_id}"` fill in from the arguments. Invalidate with `cache.delete_tags(...)`. |
 
 ## Decorated Function Helpers

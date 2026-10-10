@@ -8,6 +8,8 @@ They drive the strategy directly through a `VirtualClock` so the cool-down
 timing is deterministic.
 """
 
+from datetime import timedelta
+
 import pytest
 
 from grelmicro.clock import VirtualClock
@@ -39,7 +41,9 @@ def strategy(
 
 async def test_error_threshold_opens_and_resets_counters() -> None:
     """Reaching the error threshold opens the breaker and stamps opened_at."""
-    config = ConsecutiveCountConfig(error_threshold=2, reset_timeout=30.0)
+    config = ConsecutiveCountConfig(
+        error_threshold=2, reset_timeout=timedelta(seconds=30)
+    )
     async with VirtualClock(start=CLOCK_START):
         cb = strategy(config)
 
@@ -58,7 +62,9 @@ async def test_error_threshold_opens_and_resets_counters() -> None:
 
 async def test_retry_after_counts_the_cool_down_down() -> None:
     """An OPEN circuit reports the seconds until it next admits a probe."""
-    config = ConsecutiveCountConfig(error_threshold=1, reset_timeout=COOL_DOWN)
+    config = ConsecutiveCountConfig(
+        error_threshold=1, reset_timeout=timedelta(seconds=COOL_DOWN)
+    )
     async with VirtualClock(start=CLOCK_START) as clock:
         cb = strategy(config)
 
@@ -75,7 +81,9 @@ async def test_retry_after_counts_the_cool_down_down() -> None:
 
 async def test_retry_after_is_zero_when_nothing_releases_the_circuit() -> None:
     """A CLOSED circuit waits for nothing, and a forced one for an operator."""
-    config = ConsecutiveCountConfig(error_threshold=1, reset_timeout=COOL_DOWN)
+    config = ConsecutiveCountConfig(
+        error_threshold=1, reset_timeout=timedelta(seconds=COOL_DOWN)
+    )
     async with VirtualClock(start=CLOCK_START):
         cb = strategy(config)
 
@@ -90,7 +98,7 @@ async def test_half_open_entry_and_close_reset_snapshot() -> None:
     config = ConsecutiveCountConfig(
         error_threshold=1,
         success_threshold=2,
-        reset_timeout=30.0,
+        reset_timeout=timedelta(seconds=30),
         half_open_capacity=5,
     )
     async with VirtualClock(start=CLOCK_START) as clock:
@@ -122,11 +130,15 @@ async def test_half_open_entry_and_close_reset_snapshot() -> None:
 
 async def test_open_cool_down_governs_half_open_timing() -> None:
     """The cool-down stamped on open decides when half-open is allowed."""
-    config = ConsecutiveCountConfig(error_threshold=1, reset_timeout=30.0)
+    config = ConsecutiveCountConfig(
+        error_threshold=1, reset_timeout=timedelta(seconds=30)
+    )
     async with VirtualClock(start=CLOCK_START) as clock:
         cb = strategy(config)
 
-        await cb.record_outcome(success=False)  # opens, cool_down=30
+        await cb.record_outcome(
+            success=False
+        )  # opens, cool_down=timedelta(seconds=30)
         await clock.advance(5.0)
         assert await cb.try_acquire() is False  # 5s < 30s, still open
 
@@ -136,7 +148,9 @@ async def test_open_cool_down_governs_half_open_timing() -> None:
 
 async def test_manual_transition_sets_and_clears_opened_at() -> None:
     """Manual open stamps opened_at, any other target clears it."""
-    config = ConsecutiveCountConfig(error_threshold=5, reset_timeout=30.0)
+    config = ConsecutiveCountConfig(
+        error_threshold=5, reset_timeout=timedelta(seconds=30)
+    )
     async with VirtualClock(start=CLOCK_START):
         cb = strategy(config)
 
@@ -153,7 +167,9 @@ async def test_manual_transition_sets_and_clears_opened_at() -> None:
 
 async def test_state_is_isolated_per_name() -> None:
     """Two breakers on one adapter keep independent state per name."""
-    config = ConsecutiveCountConfig(error_threshold=1, reset_timeout=30.0)
+    config = ConsecutiveCountConfig(
+        error_threshold=1, reset_timeout=timedelta(seconds=30)
+    )
     backend = MemoryCircuitBreakerAdapter()
     async with VirtualClock(start=CLOCK_START):
         first = backend.bind(name="first", config=config)
@@ -170,7 +186,7 @@ async def test_half_open_admission_capacity_and_release() -> None:
     config = ConsecutiveCountConfig(
         error_threshold=5,
         success_threshold=10,
-        reset_timeout=30.0,
+        reset_timeout=timedelta(seconds=30),
         half_open_capacity=2,
     )
     async with VirtualClock(start=CLOCK_START) as clock:
@@ -197,7 +213,9 @@ async def test_half_open_admission_capacity_and_release() -> None:
 
 async def test_admission_never_revives_a_stale_circuit() -> None:
     """Skipping expiry on admission does not leak the stale counters."""
-    config = ConsecutiveCountConfig(error_threshold=5, reset_timeout=30.0)
+    config = ConsecutiveCountConfig(
+        error_threshold=5, reset_timeout=timedelta(seconds=30)
+    )
     async with VirtualClock(start=CLOCK_START) as clock:
         cb = strategy(config)
         await cb.record_outcome(success=False)
@@ -234,3 +252,89 @@ async def test_closed_admission_reads_no_clock(
         assert await cb.try_acquire() is True
 
         assert reads == 0
+
+
+HALF_A_SECOND = timedelta(milliseconds=500)
+"""A cool-down under a second."""
+
+LAST_STEP = 2**-10
+"""The last stretch of `HALF_A_SECOND`, in seconds, exact on the clock."""
+
+JUST_UNDER_HALF = HALF_A_SECOND.total_seconds() - LAST_STEP
+"""Seconds just short of `HALF_A_SECOND`, exact on the monotonic clock."""
+
+
+async def test_memory_circuit_breaker_reset_timeout_refuses_a_probe_just_before_it_ends() -> (
+    None
+):
+    """A probe is refused just before the reset timeout ends."""
+    # Arrange
+    config = ConsecutiveCountConfig(
+        error_threshold=1, reset_timeout=HALF_A_SECOND
+    )
+    async with VirtualClock(start=CLOCK_START) as clock:
+        cb = strategy(config)
+        await cb.record_outcome(success=False)
+        await clock.advance(JUST_UNDER_HALF)
+
+        # Act
+        admitted = await cb.try_acquire()
+
+    # Assert
+    assert admitted is False
+
+
+async def test_memory_circuit_breaker_reset_timeout_admits_a_probe_when_it_ends() -> (
+    None
+):
+    """A probe is admitted the moment the reset timeout ends."""
+    # Arrange
+    config = ConsecutiveCountConfig(
+        error_threshold=1, reset_timeout=HALF_A_SECOND
+    )
+    async with VirtualClock(start=CLOCK_START) as clock:
+        cb = strategy(config)
+        await cb.record_outcome(success=False)
+        await clock.advance(HALF_A_SECOND.total_seconds())
+
+        # Act
+        admitted = await cb.try_acquire()
+
+    # Assert
+    assert admitted is True
+
+
+async def test_memory_circuit_breaker_cool_down_refuses_a_probe_just_before_it_ends() -> (
+    None
+):
+    """A manual cool-down refuses a probe just before it ends."""
+    # Arrange
+    config = ConsecutiveCountConfig(reset_timeout=timedelta(minutes=1))
+    async with VirtualClock(start=CLOCK_START) as clock:
+        cb = strategy(config)
+        await cb.transition(desired=OPEN, cool_down=HALF_A_SECOND)
+        await clock.advance(JUST_UNDER_HALF)
+
+        # Act
+        admitted = await cb.try_acquire()
+
+    # Assert
+    assert admitted is False
+
+
+async def test_memory_circuit_breaker_cool_down_admits_a_probe_when_it_ends() -> (
+    None
+):
+    """A manual cool-down admits a probe the moment it ends."""
+    # Arrange
+    config = ConsecutiveCountConfig(reset_timeout=timedelta(minutes=1))
+    async with VirtualClock(start=CLOCK_START) as clock:
+        cb = strategy(config)
+        await cb.transition(desired=OPEN, cool_down=HALF_A_SECOND)
+        await clock.advance(HALF_A_SECOND.total_seconds())
+
+        # Act
+        admitted = await cb.try_acquire()
+
+    # Assert
+    assert admitted is True

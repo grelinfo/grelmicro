@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-from testcontainers.redis import RedisContainer
+from testcontainers.community.redis import RedisContainer
 
 from grelmicro.coordination.redis import RedisScheduleAdapter
 from grelmicro.providers.redis import RedisProvider
@@ -51,10 +51,10 @@ def test_adapter_env_prefix_passed_to_implicit_provider(
 
 
 def test_provider_factory_returns_redis_adapter() -> None:
-    """`RedisProvider.schedule()` returns a bound adapter."""
+    """`RedisProvider.schedule_backend()` returns a bound adapter."""
     provider = RedisProvider(URL)
 
-    backend = provider.schedule()
+    backend = provider.schedule_backend()
 
     assert isinstance(backend, RedisScheduleAdapter)
     assert backend.provider is provider

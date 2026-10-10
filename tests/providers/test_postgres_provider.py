@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -461,60 +462,60 @@ class TestSafeUrl:
 
 
 class TestBuilders:
-    """Pure-sugar `.lock()` builders."""
+    """Pure-sugar `.lock_backend()` builders."""
 
     def test_lock_builder_binds_provider(self) -> None:
-        """`provider.lock()` returns an adapter borrowing the provider."""
+        """`provider.lock_backend()` returns an adapter borrowing the provider."""
         provider = PostgresProvider(URL)
 
-        adapter = provider.lock()
+        adapter = provider.lock_backend()
 
         assert isinstance(adapter, PostgresLockAdapter)
         assert adapter.provider is provider
         assert adapter._owns_provider is False
 
     def test_cache_factory_builds_postgres_adapter(self) -> None:
-        """`provider.cache()` builds a `PostgresCacheAdapter`."""
+        """`provider.cache_backend()` builds a `PostgresCacheAdapter`."""
         provider = PostgresProvider(URL)
-        adapter = provider.cache()
+        adapter = provider.cache_backend()
         assert isinstance(adapter, PostgresCacheAdapter)
         assert adapter.provider is provider
 
     def test_ratelimiter_factory_builds_postgres_adapter(self) -> None:
-        """`provider.ratelimiter()` builds a `PostgresRateLimiterAdapter`."""
+        """`provider.ratelimiter_backend()` builds a `PostgresRateLimiterAdapter`."""
         provider = PostgresProvider(URL)
-        adapter = provider.ratelimiter()
+        adapter = provider.ratelimiter_backend()
         assert isinstance(adapter, PostgresRateLimiterAdapter)
         assert adapter.provider is provider
 
     def test_base_ratelimiter_factory_raises_not_implemented(self) -> None:
-        """The base `Provider.ratelimiter` raises for providers that don't override it."""
+        """The base `Provider.ratelimiter_backend` raises for providers that don't override it."""
         provider = PostgresProvider(URL)
         with pytest.raises(
             NotImplementedError, match="no rate limiter adapter"
         ):
-            Provider.ratelimiter(provider)
+            Provider.ratelimiter_backend(provider)
 
     def test_base_cache_factory_raises_not_implemented(self) -> None:
-        """The base `Provider.cache` raises for providers that don't override it."""
+        """The base `Provider.cache_backend` raises for providers that don't override it."""
         provider = PostgresProvider(URL)
         with pytest.raises(NotImplementedError, match="no cache adapter"):
-            Provider.cache(provider)
+            Provider.cache_backend(provider)
 
     def test_circuitbreaker_factory_builds_postgres_adapter(self) -> None:
-        """`provider.circuitbreaker()` builds a `PostgresCircuitBreakerAdapter`."""
+        """`provider.circuitbreaker_backend()` builds a `PostgresCircuitBreakerAdapter`."""
         provider = PostgresProvider(URL)
-        adapter = provider.circuitbreaker()
+        adapter = provider.circuitbreaker_backend()
         assert isinstance(adapter, PostgresCircuitBreakerAdapter)
         assert adapter.provider is provider
 
     def test_base_circuitbreaker_factory_raises_not_implemented(self) -> None:
-        """The base `Provider.circuitbreaker` raises for providers that don't override it."""
+        """The base `Provider.circuitbreaker_backend` raises when not overridden."""
         provider = PostgresProvider(URL)
         with pytest.raises(
             NotImplementedError, match="no circuit breaker adapter"
         ):
-            Provider.circuitbreaker(provider)
+            Provider.circuitbreaker_backend(provider)
 
 
 class TestRebindProvider:
@@ -855,7 +856,9 @@ class TestFromEngineAgainstPostgres:
     @pytest.fixture
     async def engine(self) -> AsyncGenerator[AsyncEngine]:
         """Provide an app-owned async engine pointing at a container."""
-        from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+        from testcontainers.community.postgres import (  # noqa: PLC0415
+            PostgresContainer,
+        )
 
         with PostgresContainer() as container:
             port = container.get_exposed_port(5432)
@@ -876,7 +879,9 @@ class TestFromEngineAgainstPostgres:
             name = "engine-lock-" + uuid4().hex
             token = uuid4().hex
 
-            assert await backend.acquire(name=name, token=token, duration=30)
+            assert await backend.acquire(
+                name=name, token=token, duration=timedelta(seconds=30)
+            )
             assert await backend.owned(name=name, token=token)
             assert await backend.release(name=name, token=token)
             assert not await backend.locked(name=name)
@@ -934,11 +939,12 @@ class TestFromEngineAgainstPostgres:
 
         @event.listens_for(engine.sync_engine, "connect")
         def _set_search_path(dbapi_connection: Any, _record: object) -> None:  # noqa: ANN401
-            dbapi_connection.await_(
-                dbapi_connection.driver_connection.execute(
-                    "SET search_path TO grelmicro_probe, public"
-                )
-            )
+            autocommit = dbapi_connection.autocommit
+            dbapi_connection.autocommit = True
+            cursor = dbapi_connection.cursor()
+            cursor.execute("SET search_path TO grelmicro_probe, public")
+            cursor.close()
+            dbapi_connection.autocommit = autocommit
 
         provider = PostgresProvider.from_engine(engine)
 
@@ -983,7 +989,9 @@ class TestFromEngineAgainstPostgres:
             async with session_factory() as session, session.begin():
                 assert await outbox.enqueue(session, record)
 
-            claimed = await outbox.claim(topics=[topic], limit=10, lease=30)
+            claimed = await outbox.claim(
+                topics=[topic], limit=10, lease=timedelta(seconds=30)
+            )
 
         assert len(claimed) == 1
         assert claimed[0].payload == payload
@@ -1007,7 +1015,7 @@ class TestFromEngineAgainstPostgres:
             record = await backend.acquire_or_renew(
                 name="svc-" + uuid4().hex,
                 token=uuid4().hex,
-                duration=30,
+                duration=timedelta(seconds=30),
                 metadata=metadata,
             )
 
@@ -1071,7 +1079,7 @@ class TestFromEngineAgainstPostgres:
                 async with engine.begin() as connection:
                     await connection.execute(text("SELECT 1"))
                     assert await backend.acquire(
-                        name=name, token=token, duration=30
+                        name=name, token=token, duration=timedelta(seconds=30)
                     )
                     msg = "the caller transaction fails"
                     raise RuntimeError(msg)

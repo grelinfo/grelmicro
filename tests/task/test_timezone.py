@@ -345,7 +345,7 @@ def test_interval_tasks_are_left_alone_by_resolution() -> None:
     """An interval task carries no timezone, so resolution skips it."""
     # Arrange
     tasks = Tasks(auto_start=False, timezone="Europe/Zurich")
-    tasks.every(seconds=60)(test2)
+    tasks.every(interval=60)(test2)
     tasks.cron("0 2 * * *")(test3)
 
     # Act

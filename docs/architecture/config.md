@@ -68,15 +68,6 @@ once at construction, never on the hot path.
 backends, providers, serializers, and callables come from code. A `kind`
 variable that contradicts the code fails validation at startup.
 
-*Presets are values.* A variable may choose between config classes only when
-every class declares the identical field names and drives the same runtime
-code. Such a choice retunes constants and can never make a set variable start
-or stop applying. `GREL_SHIELD_{NAME}_PROFILE` qualifies: the three profiles
-share every field and feed one state machine, differing only in frozen
-constants. The moment two classes differ by a single field, the choice selects
-an algorithm and belongs to code. A test pins this, so preset status is earned
-by the field sets, never claimed.
-
 **R7 Never silently dropped.** A variable naming a field the pattern declares,
 in any of its algorithms, is always accounted for:
 
@@ -174,7 +165,6 @@ not.
 | The merge is per field, not all-or-nothing | A mounted file already patches per key at runtime, so an all-or-nothing rule at construction would delay the surprise rather than remove it | Live reload stops patching per key |
 | The kind address is a broadcast and stays silent | A fleet legitimately runs both algorithms and tunes one of them kind-wide | Kind-wide tuning stops being a real deployment shape |
 | `from_config` is the one door for a pre-built config | The environment-merging lane and the config-is-truth lane must be distinguishable at the call site | The environment lane is removed |
-| `GREL_SHIELD_PROFILE` selects a preset, not an algorithm | Every profile declares the identical field names, so no variable gains or loses meaning from the choice | A profile adds or removes a field |
 | A Provider reads its vendor namespace, not `GREL_*` | Connection settings belong to the deployment, and every vendor already defines those names | grelmicro starts owning connection settings |
 | One `SettingsValidationError` for every class, no per-module subclass | No caller reacts differently to a bad value by module, and the message names the variable | A caller needs to branch on the module a config error came from |
 | The rejected value is never echoed, with no closed-set exemption | The echoed string is one the domain rejected, so it is arbitrary input whatever the field accepts | A field's input is bounded before it reaches the message |

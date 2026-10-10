@@ -59,7 +59,7 @@ async def test_early_refresh_emits_both_outcomes(
         )
         fail = False
 
-        @cached(cache, key="k", early=0.5)
+        @cached(cache, key_template="k", early=0.5)
         async def compute() -> int:
             if fail:
                 msg = "upstream down"
@@ -96,11 +96,11 @@ async def test_each_cache_reports_under_its_own_name(
     same way the ones you build are.
     """
 
-    @cached(ttl=60, key="a:{value}")
+    @cached(ttl=60, key_template="a:{value}")
     async def first(value: int) -> int:
         return value
 
-    @cached(ttl=60, key="b:{value}")
+    @cached(ttl=60, key_template="b:{value}")
     async def second(value: int) -> int:
         return value
 

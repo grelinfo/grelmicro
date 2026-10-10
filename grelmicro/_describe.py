@@ -16,12 +16,15 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from typing_extensions import Doc
 
+from grelmicro._duration import SECOND, microseconds
 from grelmicro._environment import recorded_bindings, unmet_requirements
 from grelmicro._paths import matches, names_route, walk_routes
 from grelmicro._redact import redact_url
+from grelmicro.providers._base import PATTERNS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
+    from datetime import timedelta
     from re import Pattern
 
     from grelmicro._app import Grelmicro
@@ -39,23 +42,6 @@ __all__ = [
 
 CheckStatus = Literal["ok", "warn", "fail"]
 """How a single check came out. Only `fail` sets a non-zero exit code."""
-
-_PROVIDER_KINDS: tuple[str, ...] = (
-    "lock",
-    "readwritelock",
-    "leaderelection",
-    "schedule",
-    "cache",
-    "outbox",
-    "ratelimiter",
-    "circuitbreaker",
-)
-"""Every kind a `Provider` may serve, in the order the report lists them.
-
-A factory that raises `NotImplementedError` means the Provider does not serve
-that kind. That answer is invisible at runtime today, which is what makes
-`uses=[redis]` leaving the outbox unwired hard to diagnose.
-"""
 
 _SECRET_HINTS = frozenset({"password", "secret", "token", "key", "auth"})
 """Field-name fragments whose value is masked whatever its type."""
@@ -265,10 +251,8 @@ def describe_provider(provider: Provider) -> ProviderReport:
     """
     serves: list[str] = []
     declines: list[str] = []
-    for kind in _PROVIDER_KINDS:
-        factory = getattr(provider, kind, None)
-        if factory is None:  # pragma: no cover
-            continue
+    for kind in PATTERNS:
+        factory = getattr(provider, f"{kind}_backend")
         try:
             factory()
         except NotImplementedError:
@@ -346,6 +330,7 @@ class _Endpoint:
     regex: Any = None
     authenticated: bool = False
     public: bool = False
+    scopes: tuple[str, ...] = ()
 
 
 SOME_PATHS = " (some paths)"
@@ -428,6 +413,18 @@ def _selected(config: Any, endpoint: _Endpoint) -> str | None:  # noqa: ANN401
     return _reach(endpoint, tuple(config.include), tuple(config.exclude))
 
 
+def _seconds_text(duration: timedelta) -> str:
+    """Write `duration` in seconds, such as `60s` or `0.5s`.
+
+    Whole seconds are written without a fraction, and a fraction to the
+    microsecond, never in exponent form.
+    """
+    whole, fraction = divmod(microseconds(duration), microseconds(SECOND))
+    if not fraction:
+        return f"{whole}s"
+    return f"{whole}.{fraction:06d}".rstrip("0") + "s"
+
+
 def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what a `CachedResponses` does to one endpoint.
 
@@ -461,7 +458,7 @@ def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: 
             seconds = _pattern_seconds(state, config, endpoint, patterns)
         if reach is None or seconds is None:
             return None
-        return f"cache {seconds:g}s{reach}"
+        return f"cache {_seconds_text(seconds)}{reach}"
 
     return read
 
@@ -471,8 +468,8 @@ def _pattern_seconds(
     config: Any,  # noqa: ANN401
     endpoint: _Endpoint,
     patterns: tuple[str, ...],
-) -> float | None:
-    """Return the seconds a pattern keeps this route for, or `None`.
+) -> timedelta | None:
+    """Return how long a pattern keeps this route for, or `None`.
 
     The template first, which is the pattern written the way the route
     was. Then the URLs it serves, because a pattern may name one of
@@ -515,20 +512,19 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
         reach = _selected(config, endpoint)
         if endpoint.method not in methods or reach is None:
             return None
-        if component._key_maker is None and (  # noqa: SLF001
+        if component._key_function is None and (  # noqa: SLF001
             endpoint.authenticated
             or component.route_is_gated(endpoint.method, endpoint.path)
         ):
             return None
         window = component.idempotency.config.ttl
-        return f"idempotent {window:g}s{reach}"
+        return f"idempotent {_seconds_text(window)}{reach}"
 
     return read
 
 
 def _reads_authenticated(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what an `AuthenticatedRequests` does to one endpoint."""
-    from grelmicro.http._authentication import route_scopes  # noqa: PLC0415
 
     def read(endpoint: _Endpoint) -> str | None:
         reach = _reach(endpoint, (), tuple(component.config.exclude))
@@ -536,9 +532,7 @@ def _reads_authenticated(component: Any) -> Callable[[_Endpoint], str | None]:  
             return None
         if endpoint.public:
             return "anonymous"
-        scopes = " ".join(
-            route_scopes(endpoint.route, endpoint.method, endpoint.contexts)
-        )
+        scopes = " ".join(endpoint.scopes)
         return (
             f"authenticated {scopes}{reach}"
             if scopes
@@ -561,26 +555,35 @@ def _authenticated_by(components: Sequence[Any], endpoint: _Endpoint) -> bool:
     )
 
 
-def _served_publicly(app: object) -> Callable[[Any, str, str], bool]:
-    """Return what says whether a route is served without a credential.
+def _authentication_of(
+    app: object,
+) -> Callable[[Any, str, str], tuple[bool, tuple[str, ...]]]:
+    """Return what says how a route is authenticated, from its declaration.
 
-    Read off the app the report is about, never off the running middleware,
-    so a report on one app changes nothing another one serves. An
-    authentication the app added by hand serves no route publicly.
+    It answers whether the route is served without a credential, and the
+    scopes it requires. Read off the app the report is about, never off
+    the running middleware, so a report on one app changes nothing another
+    one serves. An authentication the app added by hand serves no route
+    publicly.
     """
     from grelmicro.http._authentication import (  # noqa: PLC0415
-        public_routes,
+        route_authentication,
         serves_anonymous_routes,
     )
 
-    if not serves_anonymous_routes(app):
-        return _served_by_no_route
-    return public_routes(app)
+    read = route_authentication(app)
+    if serves_anonymous_routes(app):
+        return read
 
+    def protected(
+        route: Any,  # noqa: ANN401
+        method: str,
+        prefix: str,
+    ) -> tuple[bool, tuple[str, ...]]:
+        _, scopes = read(route, method, prefix)
+        return False, scopes
 
-def _served_by_no_route(route: Any, method: str, prefix: str) -> bool:  # noqa: ANN401, ARG001
-    """Return that no route is served without a credential."""
-    return False
+    return protected
 
 
 def _reads_rate_limited(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
@@ -660,7 +663,7 @@ def _describe_endpoints(
         for component in components
         if getattr(component, "kind", None) == "authenticated_requests"
     ]
-    served = _served_publicly(app) if authenticating else None
+    authentication = _authentication_of(app) if authenticating else None
     if not rules:
         return ()
     compiled = dict(_declared_paths(app))
@@ -677,10 +680,9 @@ def _describe_endpoints(
                 contexts=contexts,
                 regex=compiled.get(path),
             )
-            endpoint = replace(
-                endpoint,
-                public=served is not None and served(route, method, prefix),
-            )
+            if authentication is not None:
+                public, scopes = authentication(route, method, prefix)
+                endpoint = replace(endpoint, public=public, scopes=scopes)
             endpoint = replace(
                 endpoint,
                 authenticated=_authenticated_by(authenticating, endpoint),

@@ -4,6 +4,7 @@ import asyncio
 import math
 from asyncio import Event, sleep
 from contextlib import suppress
+from datetime import timedelta
 
 import pytest
 from pydantic import ValidationError
@@ -19,6 +20,7 @@ from grelmicro.coordination.leaderelection import (
 from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.errors import WouldBlockError as WouldBlock
+from tests._logs import records_of
 from tests.task._helpers import cancel_group, start_task
 
 LEADER_NAME = "test_leader_election"
@@ -35,13 +37,13 @@ WORKER_2 = 1
 TEST_TIMEOUT = 15
 # Lease and renew deadline are sized for CPU-oversubscribed CI. `is_leader()`
 # lapses once `monotonic() - last_confirmation >= renew_deadline`, and the OS can
-# preempt the whole process (so the renew loop cannot refresh) between a
+# preempt the whole process (so the renew loop cannot renew) between a
 # `wait_for_leader()` return and the next `is_leader()` read. A 15 ms deadline
 # lapsed under that preemption and flaked; ~70 ms gives ample wall-clock slack
 # while the renew loop still runs every 5 ms and lapse-style tests still resolve
 # fast (well under the timeout).
-LEASE_DURATION = 0.1
-RENEW_DEADLINE = 0.07
+LEASE_DURATION = timedelta(milliseconds=100)
+RENEW_DEADLINE = timedelta(milliseconds=70)
 
 pytestmark = [pytest.mark.timeout(TEST_TIMEOUT)]
 
@@ -110,8 +112,8 @@ def test_leader_election_config() -> None:
     # Arrange
     config = LeaderElectionConfig(
         worker="worker_1",
-        lease_duration=0.01,
-        renew_deadline=0.008,
+        lease_duration=timedelta(milliseconds=10),
+        renew_deadline=timedelta(milliseconds=8),
         retry_interval=0.001,
         error_interval=0.01,
         backend_timeout=0.007,
@@ -120,8 +122,8 @@ def test_leader_election_config() -> None:
     # Assert
     assert config.model_dump() == {
         "worker": "worker_1",
-        "lease_duration": 0.01,
-        "renew_deadline": 0.008,
+        "lease_duration": timedelta(milliseconds=10),
+        "renew_deadline": timedelta(milliseconds=8),
         "retry_interval": 0.001,
         "error_interval": 0.01,
         "backend_timeout": 0.007,
@@ -137,8 +139,8 @@ def test_leader_election_config_defaults() -> None:
     # Assert
     assert config.model_dump() == {
         "worker": "worker_1",
-        "lease_duration": 15,
-        "renew_deadline": 10,
+        "lease_duration": timedelta(seconds=15),
+        "renew_deadline": timedelta(seconds=10),
         "retry_interval": 2,
         "error_interval": 30,
         "backend_timeout": 5,
@@ -461,7 +463,9 @@ async def test_only_one_leader(leader_elections: list[LeaderElection]) -> None:
         # worker that lost the lease has a confirmation at least one
         # `lease_duration` old, which `is_leader_confirmed_within` excludes.
         leaders_after_start = [
-            leader_election.is_leader_confirmed_within(RENEW_DEADLINE)
+            leader_election.is_leader_confirmed_within(
+                RENEW_DEADLINE.total_seconds()
+            )
             for leader_election in leader_elections
         ]
         cancel_group(tg)
@@ -545,8 +549,8 @@ async def test_error_interval(
         LEADER_NAME,
         LeaderElectionConfig(
             worker="worker_high",
-            lease_duration=0.02,
-            renew_deadline=0.015,
+            lease_duration=timedelta(milliseconds=20),
+            renew_deadline=timedelta(milliseconds=15),
             retry_interval=0.005,
             error_interval=1,
             backend_timeout=0.005,
@@ -557,8 +561,8 @@ async def test_error_interval(
         LEADER_NAME,
         LeaderElectionConfig(
             worker="worker_low",
-            lease_duration=0.02,
-            renew_deadline=0.015,
+            lease_duration=timedelta(milliseconds=20),
+            renew_deadline=timedelta(milliseconds=15),
             retry_interval=0.005,
             error_interval=0.001,
             backend_timeout=0.005,
@@ -577,7 +581,9 @@ async def test_error_interval(
         await sleep(0.01)
         cancel_group(tg)
     leader_election1_nb_errors = sum(
-        1 for record in caplog.records if record.levelname == "ERROR"
+        1
+        for record in records_of(caplog, "grelmicro.leader_election")
+        if record.levelname == "ERROR"
     )
     caplog.clear()
 
@@ -586,7 +592,9 @@ async def test_error_interval(
         await sleep(0.01)
         cancel_group(tg)
     leader_election2_nb_errors = sum(
-        1 for record in caplog.records if record.levelname == "ERROR"
+        1
+        for record in records_of(caplog, "grelmicro.leader_election")
+        if record.levelname == "ERROR"
     )
 
     # Assert
@@ -659,7 +667,10 @@ async def test_leader_reconfigure_swaps_config(
 ) -> None:
     """Reconfigure publishes the new config."""
     new_config = leader_election.config.model_copy(
-        update={"lease_duration": 0.04, "renew_deadline": 0.03},
+        update={
+            "lease_duration": timedelta(milliseconds=40),
+            "renew_deadline": timedelta(milliseconds=30),
+        },
     )
 
     await leader_election.reconfigure(new_config)
@@ -727,7 +738,7 @@ async def test_leader_election_stops_gracefully_on_stop_event(
     record = await backend.acquire_or_renew(
         name=leader_election._lock_name,
         token="other",
-        duration=1,
+        duration=timedelta(seconds=1),
     )
     assert record.holder == "other"
 
@@ -745,7 +756,7 @@ async def test_graceful_stop_releases_app_resolved_backend() -> None:
     # Arrange: an app-resolved election backend, no explicit backend= on the
     # LeaderElection.
     backend = MemoryLeaderElectionAdapter()
-    micro = Grelmicro(uses=[Coordination(election=backend)])
+    micro = Grelmicro(uses=[Coordination(leaderelection=backend)])
     leader_election = LeaderElection(
         LEADER_NAME,
         worker="worker_app",
@@ -770,7 +781,7 @@ async def test_graceful_stop_releases_app_resolved_backend() -> None:
         record = await backend.acquire_or_renew(
             name=leader_election._lock_name,
             token="other",
-            duration=1,
+            duration=timedelta(seconds=1),
         )
         assert record.holder == "other"
 
@@ -800,8 +811,8 @@ async def test_graceful_stop_awaits_release_before_returning(
         LEADER_NAME,
         LeaderElectionConfig(
             worker="worker_graceful",
-            lease_duration=0.7,
-            renew_deadline=0.6,
+            lease_duration=timedelta(milliseconds=700),
+            renew_deadline=timedelta(milliseconds=600),
             retry_interval=0.01,
             error_interval=0.01,
             backend_timeout=0.5,
@@ -851,9 +862,9 @@ async def test_leader_election_without_jitter(
         worker="worker_nj",
         lease_duration=LEASE_DURATION,
         renew_deadline=LEASE_DURATION * 0.66,
-        retry_interval=LEASE_DURATION * 0.33,
+        retry_interval=LEASE_DURATION.total_seconds() * 0.33,
         retry_jitter=0,
-        backend_timeout=LEASE_DURATION * 0.5,
+        backend_timeout=LEASE_DURATION.total_seconds() * 0.5,
     )
 
     # Act
@@ -905,7 +916,7 @@ async def test_renew_loop_no_jitter_exact_sleep(
 ) -> None:
     """With retry_jitter=0 the renew sleep equals retry_interval exactly."""
     # Arrange
-    retry_interval = LEASE_DURATION * 0.33
+    retry_interval = LEASE_DURATION.total_seconds() * 0.33
     election = LeaderElection(
         "test-no-jitter-exact",
         backend=backend,
@@ -914,7 +925,7 @@ async def test_renew_loop_no_jitter_exact_sleep(
         renew_deadline=LEASE_DURATION * 0.66,
         retry_interval=retry_interval,
         retry_jitter=0,
-        backend_timeout=LEASE_DURATION * 0.5,
+        backend_timeout=LEASE_DURATION.total_seconds() * 0.5,
     )
     recorded: list[float] = []
 
@@ -1114,3 +1125,32 @@ async def test_lead_repeat_reruns_after_reacquire(
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.parametrize(
+    "name", ["has space", "-leading-dash", ":leading-colon", "a" * 201]
+)
+def test_leader_election_unsafe_name_raises_settings_validation_error(
+    name: str,
+) -> None:
+    """A name that is not a valid lock name is refused at construction."""
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="Invalid lock name"):
+        LeaderElection(name, backend=MemoryLeaderElectionAdapter())
+
+
+@pytest.mark.parametrize(
+    "name", ["has space", "-leading-dash", ":leading-colon", "a" * 201]
+)
+def test_leader_election_from_config_unsafe_name_raises_settings_validation_error(
+    name: str,
+) -> None:
+    """`from_config` refuses a name that is not a valid lock name."""
+    # Arrange
+    config = LeaderElectionConfig(worker="worker")
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="Invalid lock name"):
+        LeaderElection.from_config(
+            name, config, backend=MemoryLeaderElectionAdapter()
+        )

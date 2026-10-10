@@ -157,15 +157,14 @@ def _decorators() -> list[tuple[str, Callable[[Any], Any]]]:
         ("@retry", retry(when=Exception)),
         ("Fallback", Fallback("f", when=Exception, default=None)),
         ("@fallback", fallback(when=Exception, default=None)),
-        ("Shield", Shield.api("sh")),
-        ("@shield", shield),
-        ("@shield.api", shield.api()),
+        ("Shield", Shield.api("sh", when=TimeoutError)),
+        ("@shield.api", shield.api(when=TimeoutError)),
         ("CircuitBreaker", CircuitBreaker("cb", backend=cb_backend)),
         ("Bulkhead", Bulkhead("b", max_concurrent=1)),
         ("Timeout", Timeout("t", seconds=1)),
         ("RateLimiter", limiter),
-        ("RateLimiterBinding", limiter(key="k")),
-        ("@cached", cached(TTLCache(ttl=1), key="k")),
+        ("RateLimiterBinding", limiter(key_template="k")),
+        ("@cached", cached(TTLCache(ttl=1), key_template="k")),
         ("@idempotent", idempotent(Idempotency("i"), key=lambda: "k")),
         ("@measure", measure),
         ("@instrument", instrument),
@@ -415,7 +414,7 @@ async def test_each_registrar_marks_what_it_records() -> None:
     checks = HealthChecks()
     outbox = Outbox(MemoryOutboxAdapter())
 
-    tasks.every(seconds=60)(scheduled_job)
+    tasks.every(interval=60)(scheduled_job)
 
     @checks.check("db")
     async def probe() -> None:
@@ -442,7 +441,7 @@ def test_a_task_added_imperatively_is_marked_too() -> None:
     """The decorators are one door to the schedule, not the only one."""
     tasks = Tasks()
 
-    tasks.add_task(IntervalTask(function=imperative_job, seconds=60))
+    tasks.add_task(IntervalTask(function=imperative_job, interval=60))
 
     assert registration_of(imperative_job) is not None
 
@@ -450,7 +449,7 @@ def test_a_task_added_imperatively_is_marked_too() -> None:
 def test_a_wraps_copy_is_named_as_a_wrapper_not_as_the_registration() -> None:
     """`functools.wraps` copies the mark, so the message says which it is."""
     tasks = Tasks()
-    tasks.every(seconds=60)(wrapped_job)
+    tasks.every(interval=60)(wrapped_job)
 
     @functools.wraps(wrapped_job)
     async def wrapper() -> None:
@@ -544,7 +543,7 @@ def test_a_generator_producer_is_still_reached_by_the_guard() -> None:
     mark_registered(produce, Registered.OUTBOX_HANDLER, REGISTRY)
 
     with pytest.raises(TypeError, match="already registered as an outbox"):
-        cached(TTLCache(ttl=1), key="k")(produce)
+        cached(TTLCache(ttl=1), key_template="k")(produce)
 
 
 def test_the_marker_module_names_what_it_exports() -> None:
@@ -678,7 +677,7 @@ def test_a_handler_the_registry_refused_is_never_marked() -> None:
 
 def test_a_task_passed_to_the_constructor_is_marked_too() -> None:
     """`Tasks(tasks=[...])` reaches the schedule without `add_task`."""
-    tasks = Tasks(tasks=[IntervalTask(function=constructed_job, seconds=60)])
+    tasks = Tasks(tasks=[IntervalTask(function=constructed_job, interval=60)])
 
     assert registration_of(constructed_job) is not None
     assert tasks.tasks
@@ -993,11 +992,8 @@ def test_a_shield_refusal_names_the_decorator_the_user_wrote() -> None:
     async def check_db() -> None:
         """Answer a probe."""
 
-    with pytest.raises(TypeError, match=r"@shield would only"):
-        shield(check_db)
-
     with pytest.raises(TypeError, match=r"@shield\.api would only"):
-        shield.api()(check_db)
+        shield.api(when=TimeoutError)(check_db)
 
 
 def test_a_task_whose_function_attribute_raises_is_still_added() -> None:
@@ -1065,7 +1061,7 @@ def test_a_router_that_refuses_its_timezone_marks_nothing() -> None:
     """A mark records what a router holds, so it follows construction."""
     with pytest.raises(TimezoneError):
         TaskRouter(
-            tasks=[IntervalTask(function=unbuilt_job, seconds=60)],
+            tasks=[IntervalTask(function=unbuilt_job, interval=60)],
             timezone="Not/AZone",
         )
 
@@ -1087,13 +1083,13 @@ def test_a_subclass_keeps_its_own_construction_order() -> None:
             self.seen.append(task)
             super().add_task(task)
 
-    router = Audited(tasks=[IntervalTask(function=subclassed_job, seconds=60)])
+    router = Audited(tasks=[IntervalTask(function=subclassed_job, interval=60)])
 
     assert router.seen == []
     assert len(router.tasks) == 1
     assert registration_of(subclassed_job) is not None
 
-    router.add_task(IntervalTask(function=constructed_job, seconds=30))
+    router.add_task(IntervalTask(function=constructed_job, interval=30))
 
     assert len(router.seen) == 1
 
@@ -1163,7 +1159,7 @@ def test_a_mark_dies_with_the_registry_that_wrote_it() -> None:
     assert registration_of(rebuilt_job) is None
 
     tasks = Tasks()
-    tasks.every(seconds=60)(Retry("r", when=Exception)(rebuilt_job))
+    tasks.every(interval=60)(Retry("r", when=Exception)(rebuilt_job))
 
     assert tasks.tasks
 
@@ -1184,7 +1180,7 @@ def test_a_mark_answers_while_its_registry_is_alive() -> None:
 def test_a_second_registry_never_evicts_a_live_one() -> None:
     """Two registries holding one function each keep their own mark."""
     live = Tasks()
-    live.every(seconds=60)(shared_job)
+    live.every(interval=60)(shared_job)
 
     _mark_from_a_passing_registry(shared_job)
     gc.collect()
@@ -1199,8 +1195,8 @@ def test_a_second_registry_never_evicts_a_live_one() -> None:
 def test_the_same_registry_replaces_its_own_mark() -> None:
     """One registry registering twice needs one mark, not two."""
     tasks = Tasks()
-    tasks.every(seconds=60)(twice_job)
-    tasks.every(seconds=30)(twice_job)
+    tasks.every(interval=60)(twice_job)
+    tasks.every(interval=30)(twice_job)
 
     assert len(getattr(twice_job, markers.REGISTRATION)) == 1
 
@@ -1233,7 +1229,7 @@ def test_a_task_decorator_marks_whatever_the_router_does_with_it() -> None:
             self._tasks.append(task)
 
     router = Rogue()
-    router.every(seconds=60)(rogue_job)
+    router.every(interval=60)(rogue_job)
 
     assert registration_of(rogue_job) is not None
     assert len(getattr(rogue_job, markers.REGISTRATION)) == 1
@@ -1244,8 +1240,8 @@ def test_a_task_the_router_refused_is_never_marked() -> None:
     """A mark records what a registrar holds, so it follows the schedule."""
     tasks = Tasks()
 
-    with pytest.raises(ValueError, match="seconds must be greater than 0"):
-        tasks.every(seconds=-1)(refused_job)
+    with pytest.raises(ValueError, match="interval must be greater than zero"):
+        tasks.every(interval=-1)(refused_job)
 
     assert registration_of(refused_job) is None
 

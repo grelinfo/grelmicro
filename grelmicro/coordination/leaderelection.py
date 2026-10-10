@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
+from datetime import timedelta
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
@@ -13,12 +14,13 @@ from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
-from grelmicro._async import sleep_or_stop
+from grelmicro._async import run_to_completion, sleep_or_stop
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
     resolve_config,
 )
+from grelmicro._duration import Duration
 from grelmicro._environment import record_coordination
 from grelmicro._task import Task
 from grelmicro.coordination._base import (
@@ -38,6 +40,7 @@ from grelmicro.coordination._protocol import (
     Seconds,
 )
 from grelmicro.coordination._tokens import resolve_worker
+from grelmicro.coordination.lock import validate_lock_name
 from grelmicro.errors import OutOfContextError, WouldBlockError
 from grelmicro.metrics import _emit
 
@@ -64,21 +67,28 @@ class LeaderElectionConfig(BaseLockConfig):
     """
 
     lease_duration: Annotated[
-        Seconds,
+        Duration,
         Doc(
             """
-            The lease duration in seconds.
+            The lease duration, in whole seconds or as a `timedelta`.
+
+            A float is refused. From text, such as an environment
+            variable, it reads whole seconds (`"15"`) or an ISO 8601
+            duration (`"PT0.5S"`).
             """,
         ),
-    ] = 15
+    ] = timedelta(seconds=15)
     renew_deadline: Annotated[
-        Seconds,
+        Duration,
         Doc(
             """
-            The renew deadline in seconds.
+            The renew deadline, in whole seconds or as a `timedelta`.
+
+            A float is refused. From text it reads like
+            `lease_duration`.
             """,
         ),
-    ] = 10
+    ] = timedelta(seconds=10)
     retry_interval: Annotated[
         Seconds,
         Doc(
@@ -120,10 +130,11 @@ class LeaderElectionConfig(BaseLockConfig):
         if self.renew_deadline >= self.lease_duration:
             msg = "Renew deadline must be shorter than lease duration"
             raise ValueError(msg)
-        if self.retry_interval >= self.renew_deadline:
+        renew_deadline = self.renew_deadline.total_seconds()
+        if self.retry_interval >= renew_deadline:
             msg = "Retry interval must be shorter than renew deadline"
             raise ValueError(msg)
-        if self.backend_timeout >= self.renew_deadline:
+        if self.backend_timeout >= renew_deadline:
             msg = "Backend timeout must be shorter than renew deadline"
             raise ValueError(msg)
         if not (0 <= self.retry_jitter < 1):
@@ -186,10 +197,11 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             ),
         ] = None,
         lease_duration: Annotated[
-            Seconds | None,
+            int | timedelta | None,
             Doc(
                 """
-                The duration in seconds after the lock will be released if not renewed.
+                How long the lease lasts when it is not renewed, in whole
+                seconds or as a `timedelta`. A float is refused.
 
                 Default: 15. If the worker becomes unavailable, the lock
                 can only be acquired by another worker after it has
@@ -204,11 +216,12 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             ),
         ] = None,
         renew_deadline: Annotated[
-            Seconds | None,
+            int | timedelta | None,
             Doc(
                 """
-                The duration in seconds that the leader worker will try to acquire the lock before
-                giving up.
+                How long the leader worker tries to renew the lease before
+                giving up, in whole seconds or as a `timedelta`. A float is
+                refused.
 
                 Default: 10. Must be shorter than the lease duration.
                 In case of multiple errors, the leader worker will
@@ -394,6 +407,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         metadata: Mapping[str, str] | None = None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
+        validate_lock_name(name)
         self._name = name
         self._config = config
         self._metadata: dict[str, str] = dict(metadata or {})
@@ -417,7 +431,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             backend if isinstance(backend, str) else None
         )
         if self._backend is not None:
-            record_coordination(self, self._backend, "election")
+            record_coordination(self, self._backend, "leaderelection")
 
         self._service_running = False
         self._state_change_condition: asyncio.Condition = asyncio.Condition()
@@ -484,7 +498,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             ("coordination", self._backend_name or "default"),
             _NO_BACKEND,
             self._name,
-        ).election_backend
+        ).leaderelection_backend
 
     def is_running(self) -> bool:
         """Check if the leader election task is running."""
@@ -670,17 +684,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             raise
         finally:
             self._service_running = False
-            # Run release as a separate task and keep waiting through
-            # repeated cancellations so the lock is released on the
-            # backend before the loop unwinds. asyncio.shield only
-            # protects the inner task from the awaiter's cancel; on a
-            # re-cancel of the awaiter, the inner task keeps running.
-            release_task = asyncio.ensure_future(self._release())
-            while not release_task.done():
-                try:
-                    await asyncio.shield(release_task)
-                except asyncio.CancelledError:  # pragma: no cover
-                    continue
+            # The lock is released on the backend before the loop
+            # unwinds, through every cancellation delivered meanwhile.
+            await run_to_completion(self._release())
 
     async def _update_state(
         self, *, is_leader: bool, reason_if_no_more_leader: str
@@ -764,7 +770,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         self, config: LeaderElectionConfig
     ) -> float:
         return max(
-            self._state_updated_at + config.lease_duration - monotonic(),
+            self._state_updated_at
+            + config.lease_duration.total_seconds()
+            - monotonic(),
             0,
         )
 
@@ -778,7 +786,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         return is_logging_allowed
 
     def _is_renew_deadline_reached(self, config: LeaderElectionConfig) -> bool:
-        return (monotonic() - self._state_updated_at) >= config.renew_deadline
+        return (
+            monotonic() - self._state_updated_at
+        ) >= config.renew_deadline.total_seconds()
 
     def guard(self) -> _LeaderGuard:
         """Return a non-blocking synchronization guard.

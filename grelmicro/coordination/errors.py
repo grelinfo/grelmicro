@@ -12,6 +12,7 @@ __all__ = [
     "CoordinationError",
     "LockAcquireError",
     "LockBackendError",
+    "LockExtendError",
     "LockLockedCheckError",
     "LockNotOwnedError",
     "LockOwnedCheckError",
@@ -135,6 +136,17 @@ class LockAcquireError(_BackendCallError):
         super().__init__(f"Failed to acquire lock: name={name}.")
 
 
+class LockExtendError(_BackendCallError):
+    """Lock Extend Error.
+
+    This error is raised when an error on backend side occurs while extending a held lease.
+    """
+
+    def __init__(self, *, name: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"Failed to extend lock: name={name}.")
+
+
 class LockReleaseError(_BackendCallError):
     """Lock Release Error.
 
@@ -150,24 +162,19 @@ class LockReleaseError(_BackendCallError):
         )
 
 
-class LockNotOwnedError(LockReleaseError):
+class LockNotOwnedError(CoordinationError):
     """Raised when a lock is used by a caller that does not hold it.
 
-    Releasing, refreshing, renewing, or checking a guard all raise it when
+    Releasing, extending, or checking a guard all raise it when
     the caller never acquired the lock, already released it, or let its
     lease run out.
     """
 
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        LockBackendError.__init__(
-            self,
+        super().__init__(
             f"Lock not held: name={name}. This caller never acquired it, "
             f"already released it, or its lease ran out because the work "
             f"outran lease_duration=. Use the lock only while it is held, "
             f"and raise lease_duration= above how long the work runs.",
         )
-
-    def __str__(self) -> str:
-        """Return the message, which names its own fix."""
-        return str(self.args[0])

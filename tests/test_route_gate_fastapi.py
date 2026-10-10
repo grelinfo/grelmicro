@@ -8,6 +8,7 @@ request, and the answering middleware run around the route it admitted.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pytest
@@ -881,14 +882,17 @@ class TestNothingIsSpentOnARefusal:
         assert statuses == [UNAUTHORIZED] * 2
         assert backend.calls == 0
 
-    @pytest.mark.parametrize("key_maker", [None, tenant_key])
-    def test_an_idempotent_write_stores_nothing(self, key_maker: Any) -> None:  # noqa: ANN401
-        """A `key_maker` refusing a caller with no credential is never asked."""
+    @pytest.mark.parametrize("key_function", [None, tenant_key])
+    def test_an_idempotent_write_stores_nothing(
+        self,
+        key_function: Any,  # noqa: ANN401
+    ) -> None:
+        """A key function refusing a caller with no credential is never asked."""
         calls = Calls()
         backend = CountingCache()
         idempotent = (
-            IdempotentRequests(key_maker=key_maker)
-            if key_maker
+            IdempotentRequests(key=key_function)
+            if key_function
             else IdempotentRequests()
         )
         app = catalog(calls, Cache(backend), idempotent)
@@ -1458,10 +1462,34 @@ class TestDeclarations:
     def test_a_route_caching_beside_an_authenticated_caller_caches(
         self,
     ) -> None:
-        """Every caller the route admits is served the same response."""
+        """`shared=True` says every caller the route admits gets the same response."""
         assert checked(Authenticated(), CachedResponse(ttl=60)) == (
-            RouteDeclaration("/r", methods=frozenset({"GET"}), cache=60)
+            RouteDeclaration(
+                "/r", methods=frozenset({"GET"}), cache=timedelta(seconds=60)
+            )
         )
+        assert checked(CachedResponse(ttl=60, shared=True)) == (
+            RouteDeclaration(
+                "/r",
+                methods=frozenset({"GET"}),
+                cache=timedelta(seconds=60),
+                shared=True,
+            )
+        )
+
+    def test_a_router_sharing_its_cache_is_refused_naming_its_prefix(
+        self,
+    ) -> None:
+        """Only a route may say its own response is the same for every caller."""
+        router = APIRouter(
+            prefix="/v1", dependencies=[CachedResponse(shared=True)]
+        )
+        router.add_api_route("/members", listed)
+        app = FastAPI(openapi_url=None)
+        app.include_router(router)
+
+        with pytest.raises(ValueError, match=r"prefix '/v1'.*/v1/members"):
+            route_declarations(app)
 
     @pytest.mark.parametrize("authenticated", [False, True])
     def test_a_route_caching_beside_a_check_of_its_own_fails_install(
@@ -1482,7 +1510,7 @@ class TestDeclarations:
 
         with pytest.raises(
             TypeError,
-            match=r"CachedResponse\(\) is declared on '/r', which runs",
+            match=r"GET /r declares a cached response and runs checks",
         ):
             Grelmicro(uses=uses).install(app)
 
@@ -1529,4 +1557,8 @@ class TestDeclarations:
         assert [
             (declaration.path, declaration.cache)
             for declaration in route_declarations(installed(app))
-        ] == [("/read", 30), ("/paged", False), ("/write", False)]
+        ] == [
+            ("/read", timedelta(seconds=30)),
+            ("/paged", False),
+            ("/write", False),
+        ]

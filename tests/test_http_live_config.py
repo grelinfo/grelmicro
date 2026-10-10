@@ -9,6 +9,8 @@ nothing a file says can start caching what the static path would refuse.
 
 import logging
 from collections.abc import Callable
+from datetime import timedelta
+from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -46,26 +48,23 @@ from grelmicro.http import (
     IdempotencyMiddleware,
     IdempotentRequests,
     IdempotentRequestsConfig,
-    ProblemDetail,
     RateLimitedRequests,
     RateLimitedRequestsConfig,
 )
+from grelmicro.http._ratelimit import describe_rate_limit
 from grelmicro.http._response_cache import _Policies
 from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import (
-    CachedResponse,
-    _annotate_rate_limited,
-)
+from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.log import AccessLog, AccessLogConfig
 from grelmicro.resilience import RateLimiter
 from grelmicro.security import TrustedProxies
 
 pytestmark = pytest.mark.anyio
 
-DEFAULT_TTL = 60.0
+DEFAULT_TTL = timedelta(seconds=60)
 """What the file below says a response is kept for."""
 
-HOT_TTL = 300.0
+HOT_TTL = timedelta(seconds=300)
 """What it says the one hot path is kept for."""
 
 WINDOW = 3600
@@ -74,19 +73,19 @@ WINDOW = 3600
 MAX_WAIT = 0.5
 """Seconds it says a throttled request waits."""
 
-DECLARED_TTL = 30.0
+DECLARED_TTL = timedelta(seconds=30)
 """What a component built from a config of its own was given."""
 
-TUPLE_TTL = 45.0
+TUPLE_TTL = timedelta(seconds=45)
 """What a tuple `include` keeps every path it names for."""
 
 DECLARED_COST = 2
 """Tokens the declared rate limiter spends per request."""
 
-KIND_TTL = 120.0
+KIND_TTL = timedelta(seconds=120)
 """What a kind-wide key retunes every cache to."""
 
-NAMED_TTL = 600.0
+NAMED_TTL = timedelta(seconds=600)
 """What the named instance's own key retunes it to instead."""
 
 BUILT = 5
@@ -218,7 +217,7 @@ async def test_the_window_is_tuned_where_the_store_lives(
     # Act
     async with ExternalConfig(_mounted(tmp_path), reload_interval=60):
         # Assert
-        assert component.idempotency.config.ttl == WINDOW
+        assert component.idempotency.config.ttl == timedelta(seconds=WINDOW)
 
 
 async def test_a_reload_reaches_the_middleware_without_rebuilding_it() -> None:
@@ -246,12 +245,12 @@ async def test_a_reload_reaches_the_middleware_without_rebuilding_it() -> None:
 
 
 async def test_a_live_include_cannot_cache_a_gated_read() -> None:
-    """A file must not start caching what the static path refuses.
+    """A file must not start caching what the static path leaves alone.
 
-    `micro.install(app)` refuses a pattern naming a read behind a
-    security scheme, because a hit answers before the route's own
-    dependencies run. A pattern arriving later has to be refused the
-    same way, or live reload opens the hole the static path closes.
+    A read behind a security scheme runs checks of its own, and a hit
+    answers before they run, so a pattern naming it caches nothing. A
+    pattern arriving later is read against the routes the same way, or
+    live reload would open the hole the static path closes.
     """
     # Arrange
     gate = APIKeyHeader(name="X-Key")
@@ -264,17 +263,17 @@ async def test_a_live_include_cannot_cache_a_gated_read() -> None:
 
     micro.install(app)
     component = _cached_responses(micro)
-    before = component.config
 
     # Act
-    with pytest.raises(TypeError, match="/private"):
-        await component.reconfigure(
-            CachedResponsesConfig(include={"/private": 60})
-        )
+    await component.reconfigure(CachedResponsesConfig(include={"/private": 60}))
 
     # Assert
-    assert component.config is before
-    assert component._live.state.policies.ttl_for("/private", 60) is None
+    assert (
+        component._live.state.policies.ttl_for(
+            "/private", timedelta(seconds=60)
+        )
+        is None
+    )
 
 
 async def test_a_bad_live_value_keeps_the_running_config(
@@ -950,7 +949,7 @@ async def test_what_the_schema_states_is_not_live(
     path = tmp_path / "config.env"
     path.write_text(
         f"{prefix}{field.upper()}=true\n"
-        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL:g}\n"
+        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL.total_seconds():g}\n"
     )
     before = getattr(component.config, field)
 
@@ -995,7 +994,7 @@ async def test_what_protects_a_client_is_wired_in_code(
     path = tmp_path / "config.env"
     path.write_text(
         f"{prefix}{field.upper()}={value}\n"
-        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL:g}\n"
+        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL.total_seconds():g}\n"
     )
     before = getattr(component.config, field)
 
@@ -1118,7 +1117,7 @@ def test_a_path_item_that_is_not_an_operation_is_left_alone() -> None:
     }
 
     # Act
-    _annotate_rate_limited(schema, "application/problem+json", ProblemDetail)
+    describe_rate_limit(schema, None)
 
     # Assert
     item: dict[str, Any] = schema["paths"]["/products"]
@@ -1318,10 +1317,10 @@ def test_a_gated_read_under_a_marked_router_is_not_reported_as_cached() -> None:
 def test_a_duplicate_may_be_answered_without_waiting() -> None:
     """Zero is how "do not wait" is written, not a value to refuse."""
     # Act
-    component = IdempotentRequests(wait_timeout=0)
+    component = IdempotentRequests(max_wait=0)
 
     # Assert
-    assert component.config.wait_timeout == 0.0
+    assert component.config.max_wait == 0.0
 
 
 def test_a_hand_wired_middleware_refuses_without_echoing_the_value() -> None:
@@ -1763,7 +1762,7 @@ def test_the_hand_wired_cache_takes_the_tuple_form_too() -> None:
     assert policies.ttl_for("/orders", DEFAULT_TTL) is None
 
 
-def test_a_pattern_naming_a_gated_url_is_refused() -> None:
+def test_a_pattern_naming_a_gated_url_is_never_cached() -> None:
     """A pattern names a URL, and a route template stands for many.
 
     `include={"/users/me": 30}` names no template on an app declaring
@@ -1789,9 +1788,18 @@ def test_a_pattern_naming_a_gated_url_is_refused() -> None:
     ) -> dict[str, str]:
         return {"caller": key, "uid": uid}
 
-    # Act / Assert
-    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
-        micro.install(app)
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.get("/users/me", headers={"X-API-Key": "alice"})
+        bob = client.get("/users/me", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/users/me")
+
+    # Assert
+    assert alice.json() == {"caller": "alice", "uid": "me"}
+    assert bob.json() == {"caller": "bob", "uid": "me"}
+    assert anonymous.status_code == HTTPStatus.UNAUTHORIZED
 
 
 @pytest.mark.parametrize(
@@ -1849,14 +1857,15 @@ def test_the_cache_row_reads_like_every_other(
     assert applies == expected
 
 
-def test_a_gated_read_under_a_marked_router_is_refused_by_a_pattern() -> None:
+def test_a_gated_read_under_a_marked_router_is_never_cached_by_a_pattern() -> (
+    None
+):
     """A router's declaration does not make a pattern safe.
 
     An inherited `CachedResponse()` is left alone where the cache cannot
-    answer, so the route is kept out. A pattern naming that same path is
-    not inherited: somebody wrote it, and it cannot be cached, so the
-    refusal has to reach this branch too. It did not, and an anonymous
-    request was answered `200` with the previous caller's response.
+    answer, so the route is kept out. A pattern naming that same path
+    has to keep it out too, or an anonymous request is answered `200`
+    with the previous caller's response.
     """
     # Arrange
     gate = APIKeyHeader(name="X-API-Key")
@@ -1878,9 +1887,16 @@ def test_a_gated_read_under_a_marked_router_is_refused_by_a_pattern() -> None:
         ]
     )
 
-    # Act / Assert
-    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
-        micro.install(app)
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.get("/products/secret", headers={"X-API-Key": "alice"})
+        anonymous = client.get("/products/secret")
+
+    # Assert
+    assert alice.json() == {"caller": "alice"}
+    assert anonymous.status_code == HTTPStatus.UNAUTHORIZED
 
 
 def test_what_the_app_refuses_is_never_cached_however_it_is_asked() -> None:
@@ -2000,9 +2016,10 @@ def test_exclude_carves_a_gated_read_out_of_a_prefix() -> None:
     # Assert: the open read is kept, the gated one is not.
     assert policies.pattern_ttl("/api/public", DEFAULT_TTL) == DEFAULT_TTL
     assert policies.pattern_ttl("/api/private", DEFAULT_TTL) is None
-    # And without the carve-out it is still refused where it is written.
-    with pytest.raises(TypeError, match="gated by HTTPBearer"):
-        build(include=("/api/*",))
+    # And without the carve-out the gated one is still left uncached.
+    whole = build(include=("/api/*",))
+    assert whole.pattern_ttl("/api/public", DEFAULT_TTL) == DEFAULT_TTL
+    assert whole.pattern_ttl("/api/private", DEFAULT_TTL) is None
 
 
 def test_a_prefix_cutting_into_a_parameter_names_the_route() -> None:

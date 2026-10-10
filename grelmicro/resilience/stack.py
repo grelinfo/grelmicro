@@ -344,7 +344,7 @@ class Stack:
     | its `BulkheadFullError` | its `CircuitBreaker` records no outcome |
 
     Every other error reaches each pattern exactly as its own `when=`
-    or `ignore_exceptions` decides.
+    decides.
 
     A stack whose patterns all take sync functions decorates one. A
     sync stack holding a `CircuitBreaker` runs from a worker thread,

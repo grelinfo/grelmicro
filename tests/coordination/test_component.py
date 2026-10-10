@@ -74,7 +74,7 @@ def test_task_lock_factory_binds_backend() -> None:
 def test_leader_election_factory_binds_backend() -> None:
     """`coordination.leaderelection(name)` binds the election backend."""
     backend = MemoryLeaderElectionAdapter()
-    coordination = Coordination(election=backend)
+    coordination = Coordination(leaderelection=backend)
     election = coordination.leaderelection("worker")
     assert isinstance(election, LeaderElection)
     assert election.backend is backend
@@ -87,36 +87,36 @@ def test_lock_backend_property() -> None:
     assert coordination.lock_backend is backend
 
 
-def test_election_backend_property() -> None:
-    """`coordination.election_backend` returns the wired election backend."""
+def test_leaderelection_backend_property() -> None:
+    """`coordination.leaderelection_backend` returns the wired election backend."""
     backend = MemoryLeaderElectionAdapter()
-    coordination = Coordination(election=backend)
-    assert coordination.election_backend is backend
+    coordination = Coordination(leaderelection=backend)
+    assert coordination.leaderelection_backend is backend
 
 
 def test_lock_without_lock_backend_raises() -> None:
-    """`coordination.lock()` raises when no lock backend is wired."""
-    coordination = Coordination(election=MemoryLeaderElectionAdapter())
+    """`coordination.lock(...)` raises when no lock backend is wired."""
+    coordination = Coordination(leaderelection=MemoryLeaderElectionAdapter())
     with pytest.raises(CoordinationBackendError, match="no lock backend"):
         coordination.lock("cart")
 
 
 def test_task_lock_without_lock_backend_raises() -> None:
     """`coordination.tasklock()` raises when no lock backend is wired."""
-    coordination = Coordination(election=MemoryLeaderElectionAdapter())
+    coordination = Coordination(leaderelection=MemoryLeaderElectionAdapter())
     with pytest.raises(CoordinationBackendError, match="no lock backend"):
         coordination.tasklock("cleanup")
 
 
 def test_lock_backend_property_without_lock_backend_raises() -> None:
     """`coordination.lock_backend` raises when no lock backend is wired."""
-    coordination = Coordination(election=MemoryLeaderElectionAdapter())
+    coordination = Coordination(leaderelection=MemoryLeaderElectionAdapter())
     with pytest.raises(CoordinationBackendError, match="no lock backend"):
         _ = coordination.lock_backend
 
 
-def test_leader_election_without_election_backend_raises() -> None:
-    """`coordination.leaderelection()` raises when no election backend."""
+def test_leader_election_without_leaderelection_backend_raises() -> None:
+    """`coordination.leaderelection(...)` raises when no election backend."""
     coordination = Coordination(lock=MemoryLockAdapter())
     with pytest.raises(
         CoordinationBackendError, match="no leader election backend"
@@ -124,13 +124,13 @@ def test_leader_election_without_election_backend_raises() -> None:
         coordination.leaderelection("worker")
 
 
-def test_election_backend_property_without_election_backend_raises() -> None:
-    """`coordination.election_backend` raises when none is wired."""
+def test_leaderelection_backend_property_raises_when_unset() -> None:
+    """`coordination.leaderelection_backend` raises when none is wired."""
     coordination = Coordination(lock=MemoryLockAdapter())
     with pytest.raises(
         CoordinationBackendError, match="no leader election backend"
     ):
-        _ = coordination.election_backend
+        _ = coordination.leaderelection_backend
 
 
 def test_coordination_resolves_both_from_provider() -> None:
@@ -138,7 +138,7 @@ def test_coordination_resolves_both_from_provider() -> None:
     provider = RedisProvider("redis://localhost:6379/0")
     coordination = Coordination(provider)
     assert coordination.lock_backend.__class__.__name__ == "RedisLockAdapter"
-    assert coordination.election_backend.__class__.__name__ == (
+    assert coordination.leaderelection_backend.__class__.__name__ == (
         "RedisLeaderElectionAdapter"
     )
 
@@ -155,17 +155,17 @@ def test_coordination_accepts_bare_provider_class() -> None:
 
 
 def test_lock_keyword_accepts_provider() -> None:
-    """`lock=Provider` resolves the lock backend via `provider.lock()`."""
+    """`lock=Provider` resolves the lock backend via `provider.lock_backend()`."""
     provider = PostgresProvider("postgresql://localhost:5432/app")
     coordination = Coordination(lock=provider)
     assert coordination.lock_backend.__class__.__name__ == "PostgresLockAdapter"
 
 
-def test_election_keyword_accepts_provider() -> None:
-    """`election=Provider` resolves via `provider.leaderelection()`."""
+def test_leaderelection_keyword_accepts_provider() -> None:
+    """`leaderelection=Provider` resolves via `provider.leaderelection_backend()`."""
     provider = RedisProvider("redis://localhost:6379/0")
-    coordination = Coordination(election=provider)
-    assert coordination.election_backend.__class__.__name__ == (
+    coordination = Coordination(leaderelection=provider)
+    assert coordination.leaderelection_backend.__class__.__name__ == (
         "RedisLeaderElectionAdapter"
     )
 
@@ -180,7 +180,7 @@ def test_coordination_resolves_schedule_from_provider() -> None:
 
 
 def test_schedule_keyword_accepts_provider() -> None:
-    """`schedule=Provider` resolves via `provider.schedule()`."""
+    """`schedule=Provider` resolves via `provider.schedule_backend()`."""
     provider = RedisProvider("redis://localhost:6379/0")
     coordination = Coordination(schedule=provider)
     assert coordination.schedule_backend.__class__.__name__ == (
@@ -217,13 +217,13 @@ def test_lock_keyword_accepts_bare_backend_class() -> None:
     assert isinstance(coordination.lock_backend, MemoryLockAdapter)
 
 
-def test_election_keyword_accepts_bare_backend_class() -> None:
-    """`election=MemoryLeaderElectionAdapter` instantiates the class."""
+def test_leaderelection_keyword_accepts_bare_backend_class() -> None:
+    """`leaderelection=MemoryLeaderElectionAdapter` instantiates the class."""
     coordination = Coordination(
-        election=MemoryLeaderElectionAdapter,
+        leaderelection=MemoryLeaderElectionAdapter,
     )
     assert isinstance(
-        coordination.election_backend, MemoryLeaderElectionAdapter
+        coordination.leaderelection_backend, MemoryLeaderElectionAdapter
     )
 
 
@@ -233,17 +233,17 @@ def test_keyword_overrides_provider_lock_backend() -> None:
     override = MemoryLockAdapter()
     coordination = Coordination(provider, lock=override)
     assert coordination.lock_backend is override
-    assert coordination.election_backend.__class__.__name__ == (
+    assert coordination.leaderelection_backend.__class__.__name__ == (
         "RedisLeaderElectionAdapter"
     )
 
 
-def test_keyword_overrides_provider_election_backend() -> None:
-    """`election=` overrides the election backend resolved from `source`."""
+def test_keyword_overrides_provider_leaderelection_backend() -> None:
+    """`leaderelection=` overrides the election backend resolved from `source`."""
     provider = RedisProvider("redis://localhost:6379/0")
     override = MemoryLeaderElectionAdapter()
-    coordination = Coordination(provider, election=override)
-    assert coordination.election_backend is override
+    coordination = Coordination(provider, leaderelection=override)
+    assert coordination.leaderelection_backend is override
     assert coordination.lock_backend.__class__.__name__ == "RedisLockAdapter"
 
 
@@ -279,7 +279,7 @@ def test_provider_without_any_adapter_constructs() -> None:
     with pytest.raises(
         CoordinationBackendError, match="no leader election backend"
     ):
-        _ = coordination.election_backend
+        _ = coordination.leaderelection_backend
     with pytest.raises(CoordinationBackendError, match="no schedule backend"):
         _ = coordination.schedule_backend
 
@@ -300,7 +300,7 @@ def test_lock_only_provider_constructs() -> None:
     with pytest.raises(
         CoordinationBackendError, match="no leader election backend"
     ):
-        _ = coordination.election_backend
+        _ = coordination.leaderelection_backend
 
 
 async def test_lock_only_lifecycle() -> None:
@@ -314,19 +314,21 @@ async def test_lock_only_lifecycle() -> None:
 async def test_election_only_lifecycle() -> None:
     """An election-only component opens and closes its election backend."""
     backend = MemoryLeaderElectionAdapter()
-    micro = Grelmicro(uses=[Coordination(election=backend)])
+    micro = Grelmicro(uses=[Coordination(leaderelection=backend)])
     async with micro:
-        assert micro.coordination.election_backend is backend
+        assert micro.coordination.leaderelection_backend is backend
 
 
 async def test_dual_lifecycle_opens_and_closes_both() -> None:
     """Both backends open and close when both are wired."""
     lock_backend = MemoryLockAdapter()
-    election_backend = MemoryLeaderElectionAdapter()
-    coordination = Coordination(lock=lock_backend, election=election_backend)
+    leaderelection_backend = MemoryLeaderElectionAdapter()
+    coordination = Coordination(
+        lock=lock_backend, leaderelection=leaderelection_backend
+    )
     async with Grelmicro(uses=[coordination]):
         assert coordination.lock_backend is lock_backend
-        assert coordination.election_backend is election_backend
+        assert coordination.leaderelection_backend is leaderelection_backend
 
 
 async def test_lock_via_micro_attribute() -> None:
@@ -344,12 +346,12 @@ async def test_use_auto_wraps_raw_lock_backend() -> None:
     assert micro.coordination.lock_backend is backend
 
 
-async def test_use_auto_wraps_raw_election_backend() -> None:
+async def test_use_auto_wraps_raw_leaderelection_backend() -> None:
     """`micro.use(MemoryLeaderElectionAdapter())` auto-wraps the backend."""
     backend = MemoryLeaderElectionAdapter()
     micro = Grelmicro(uses=[backend])
     assert isinstance(micro.coordination, Coordination)
-    assert micro.coordination.election_backend is backend
+    assert micro.coordination.leaderelection_backend is backend
 
 
 async def test_micro_coordination_prefers_default() -> None:
@@ -428,8 +430,10 @@ async def test_aexit_closes_both_when_lock_close_raises() -> None:
             await super().__aexit__(exc_type, exc_value, traceback)
 
     lock_backend = _RaisingLock()
-    election_backend = _TrackingElection()
-    coordination = Coordination(lock=lock_backend, election=election_backend)
+    leaderelection_backend = _TrackingElection()
+    coordination = Coordination(
+        lock=lock_backend, leaderelection=leaderelection_backend
+    )
     await coordination.__aenter__()
     with pytest.raises(RuntimeError, match="lock close failed"):
         await coordination.__aexit__(None, None, None)

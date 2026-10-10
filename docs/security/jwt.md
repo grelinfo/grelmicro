@@ -393,7 +393,8 @@ next request, cached or not, by
 JWTVerifier.keys(..., audience="my-api", cache_size=1024, cache_ttl=300)
 ```
 
-Set `cache_size=0` to turn the cache off.
+Set `cache_size=0` or `cache_ttl=0` to turn the cache off. `cache_ttl` takes
+whole seconds or a `timedelta`.
 
 ### Sizing it
 

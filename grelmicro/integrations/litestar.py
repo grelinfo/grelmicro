@@ -7,6 +7,7 @@ import warnings
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
 from litestar import Litestar
+from litestar._asgi.routing_trie.traversal import traverse_route_map
 from litestar.exceptions import (
     HTTPException,
     LitestarException,
@@ -20,29 +21,32 @@ from typing_extensions import Doc
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
 from grelmicro._paths import (
-    ROUTE_OF_KEY,
-    Answered,
+    RouteReading,
     litestar_mount,
     litestar_owned_handler,
-    litestar_route_template,
+    read_route,
 )
 from grelmicro.errors import (
     MiddlewarePlacementWarning,
 )
+from grelmicro.health._served import HealthEndpoint, health_endpoint_in
 from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     METADATA_MARKER,
-    document_operations,
-    metadata_path_of,
-    operation_authentication,
+    operation_declarations,
+    refuse_anonymous_caller,
     refuse_routes_at_metadata,
     resource_metadata_of,
     serves_anonymous_routes,
     template_under_root,
 )
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED, UNHANDLED_KEY
-from grelmicro.http._openapi import add_error_schema
+from grelmicro.http._openapi import (
+    add_error_schema,
+    describe_schema,
+    describing,
+)
 from grelmicro.http._requirement import (
     AUTHENTICATED,
     Requirement,
@@ -55,6 +59,7 @@ if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
         Callable,
+        Iterator,
         Mapping,
         MutableMapping,
         Sequence,
@@ -66,6 +71,7 @@ if TYPE_CHECKING:
     from litestar.response import Response
 
     from grelmicro import Grelmicro
+    from grelmicro._paths import RouteReader
     from grelmicro.http import Gate
     from grelmicro.http._kinds import Unhandled
     from grelmicro.security.principal import VerifiedToken
@@ -122,7 +128,8 @@ def install(
     marked request.
 
     With `Trace` or `Metrics` registered, records the request span and the
-    HTTP server metrics of every request.
+    HTTP server metrics of every request. The request span, the access
+    record and the security event of a request name the same route.
 
     When `ambient` is `True`, wraps the app's ASGI handler so patterns resolve
     through `Grelmicro.current()` inside route handlers. The wrap sits outside
@@ -184,56 +191,41 @@ def install(
         app.asgi_handler = cast(
             "Any", GrelmicroMiddleware(handler, micro=micro)
         )
-    _wire_route_reading(app)
-    _wire_request_telemetry(app, micro)
+    reader = _wire_route_reading(app)
+    _wire_request_telemetry(app, micro, reader)
 
 
-class _RouteReading:
-    """Leave how `app` reads a request's route in the scope, with the request.
+def _wire_route_reading(app: Litestar) -> RouteReader:
+    """Leave the route reader of `app` in the scope of every request, and return it.
 
-    The access log and security events then read the route the request
-    spans read, even after an app mounted with a shared scope rewrote it.
-    An app mounted under another installed app leaves the outer one's.
+    The reading wraps the app's ASGI handler, outside the binding. The
+    first install wires it, and a later one returns the same reader.
     """
-
-    def __init__(
-        self, app: ASGIApp, *, route: Callable[[Scope, Answered], str | None]
-    ) -> None:
-        self.app = app
-        self._route = route
-
-    async def __call__(
-        self, scope: Scope, receive: Receive, send: Send
-    ) -> None:
-        if scope["type"] != "lifespan" and ROUTE_OF_KEY not in scope:
-            scope[ROUTE_OF_KEY] = (
-                self._route,
-                Answered(scope.get("root_path", ""), scope["path"], None),
-            )
-        await self.app(scope, receive, send)
-
-
-def _wire_route_reading(app: Litestar) -> None:
-    """Read the route of a request to `app` the way its request spans do."""
-    if _wrapped_already(app.asgi_handler, _RouteReading):
-        return
-    options: dict[str, Any] = {"route": _route_of(app)}
+    reading = _wrapper_in(app.asgi_handler, RouteReading)
+    if reading is not None:
+        return reading.reader
+    reader = _route_reader(app)
+    options: dict[str, Any] = {"reader": reader}
     binding = app.asgi_handler
     if isinstance(binding, GrelmicroMiddleware):
-        _wrap_outside(binding, _RouteReading, options)
+        _wrap_outside(binding, RouteReading, options)
     else:
         app.asgi_handler = cast(
-            "Any", _RouteReading(cast("ASGIApp", binding), **options)
+            "Any", RouteReading(cast("ASGIApp", binding), **options)
         )
+    return reader
 
 
-def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
+def _wire_request_telemetry(
+    app: Litestar, micro: Grelmicro, reader: RouteReader
+) -> None:
     """Record the request telemetry of `app` when `micro` exports it.
 
     The recorder goes over everything the app built, under the binding, and
-    an `after_exception` hook hands it the exceptions no handler answers. A
-    `Trace` that is off, or whose `instrument` leaves out `litestar`, turns
-    the request spans off and keeps the metrics.
+    an `after_exception` hook hands it the exceptions no handler answers.
+    `reader` names the route. A `Trace` that is off, or whose `instrument`
+    leaves out `litestar`, turns the request spans off and keeps the
+    metrics.
     """
     tracing = request_spans(micro.components, "litestar")
     if tracing is None:
@@ -250,7 +242,7 @@ def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
     if _wrapped_already(app.asgi_handler, RequestTelemetry):
         return
     options: dict[str, Any] = {
-        "route": _route_of(app),
+        "route": reader,
         "tracing": tracing,
         "exclude": excluding("litestar"),
         "methods": known_methods(),
@@ -284,26 +276,40 @@ def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
     app.after_exception.append(cast("Any", record))
 
 
-def _route_of(app: Litestar) -> Callable[[Scope, Answered], str | None]:
-    """Return how to read the route template a request to `app` matched.
+def _route_reader(app: Litestar) -> RouteReader:
+    """Return the route reader of `app`.
 
     Router prefixes are included. A mounted ASGI app reads as `{path}`
     under its mount, and a mounted Litestar app as its own route under
     the mount. A request Litestar refused for its method reads the route
     its path matched. One answered before routing, such as a CORS
-    preflight, reads no route.
+    preflight, reads no route, unless `reach` asks for the route its path
+    would reach. There, a mount reads as `{path}` under it, whatever app
+    its handler passes the request to.
     """
 
-    def route(scope: Scope, answered: Answered) -> str | None:
+    def route(
+        scope: Scope,
+        root_path: str,
+        path: str,
+        status: int | None,
+        /,
+        *,
+        reach: bool = False,
+    ) -> str | None:
         handler = litestar_owned_handler(app, scope.get("route_handler"))
-        template: str | None = (
-            _handler_template(app, handler, scope["path_template"])
-            if scope.get("litestar_app") is app and handler is not None
-            else _routed_template(app, scope, answered)
-        )
+        template: str | None = None
+        if scope.get("litestar_app") is app and handler is not None:
+            template = _handler_template(app, handler, scope["path_template"])
+        elif "route_handler" in scope:
+            template = _mounted_template(app, scope, root_path, path)
+        elif reach or status == HTTP_405_METHOD_NOT_ALLOWED:
+            template = _reached_template(
+                app, root_path, path, scope.get("method")
+            )
         if template is None:
             return None
-        return answered.root_path.rstrip("/") + template
+        return root_path.rstrip("/") + template
 
     return route
 
@@ -315,42 +321,64 @@ def _handler_template(app: Litestar, handler: Any, template: str) -> str:  # noq
     return litestar_mount(app, handler).rstrip("/") + "/{path}"
 
 
-def _routed_template(
-    app: Litestar, scope: Scope, answered: Answered
+def _mounted_template(
+    app: Litestar, scope: Scope, root_path: str, path: str
 ) -> str | None:
-    """Return the template of the route `app` routes the request's path to.
+    """Return the template of the mount of `app` a mounted app took the request over at.
 
-    For a request the scope does not describe as `app` routed it: one a
-    mounted app took over, one refused for its method, or one answered
-    before routing. A mounted Litestar app adds the route it matched.
-    `None` when no route of `app` matched the request.
+    A mounted Litestar app adds the route it matched under the mount.
+    Any other reads as `{path}` under it.
     """
-    root_path, path, status = answered
-    routed = path.split(root_path, maxsplit=1)[-1] if root_path else path
-    routed = normalize_path(routed)
-    router = app.asgi_router
-    try:
-        _, handler, _, _, _ = router.handle_routing(routed, scope.get("method"))
-    except MethodNotAllowedException:
-        if status != HTTP_405_METHOD_NOT_ALLOWED:
-            return None
-        return litestar_route_template(app, routed)
-    except Exception:  # noqa: BLE001
-        return None
-    if not getattr(handler, "is_mount", False):
-        return None
-    mount = litestar_mount(app, handler)
+    template = _reached_template(app, root_path, path, scope.get("method"))
     inner = scope.get("litestar_app")
     inner_handler = litestar_owned_handler(inner, scope.get("route_handler"))
     inner_template = scope.get("path_template")
     if (
-        inner is not app
+        template is not None
+        and inner is not app
         and inner_handler is not None
         and isinstance(inner_template, str)
         and not getattr(inner_handler, "is_mount", False)
     ):
-        return mount.rstrip("/") + inner_template
-    return mount.rstrip("/") + "/{path}"
+        return template.removesuffix("/{path}") + inner_template
+    return template
+
+
+def _reached_template(
+    app: Litestar, root_path: str, path: str, method: str | None
+) -> str | None:
+    """Return the template of the route `app` routes the request's path to.
+
+    Matched as Litestar's router matches it. A path refused for its
+    method reads the route it matched, and a mount reads as `{path}`
+    under it. `None` when no route of `app` matches the path.
+    """
+    routed = path.split(root_path, maxsplit=1)[-1] if root_path else path
+    routed = normalize_path(routed)
+    try:
+        _, handler, _, _, template = app.asgi_router.handle_routing(
+            routed, method
+        )
+    except MethodNotAllowedException:
+        return _template_matching(app, routed)
+    except Exception:  # noqa: BLE001
+        return None
+    return _handler_template(app, handler, template)
+
+
+def _template_matching(app: Litestar, path: str) -> str:
+    """Return the template of the route `path` matches, whatever the method.
+
+    For a path the app matched and refused for its method, so a route
+    holds it.
+    """
+    router = app.asgi_router
+    if path in router._plain_routes:  # noqa: SLF001
+        return router.root_route_map_node.children[path].path_template
+    node, _, _ = traverse_route_map(
+        root_node=router.root_route_map_node, path=path
+    )
+    return node.path_template
 
 
 def _raised_by_app(exc: BaseException) -> BaseException:
@@ -499,7 +527,7 @@ def install_middleware(
             # ours name their paths in `include=` on Litestar.
             _route_resource_metadata(app, component)
             component.read_routes(app)
-            component.document_openapi(app)
+    _document_components(app, ordered)
 
 
 _FLOOD_BEHIND_ROUTER = (
@@ -604,7 +632,7 @@ def install_route_gate(
 
     Raises:
         TypeError: If a declaration's `cache` is neither a boolean nor a
-            number.
+            `timedelta`.
         ValueError: If a declaration cannot hold, naming its route.
     """
     gated: dict[int, tuple[Any, ASGIApp]] = {}
@@ -618,19 +646,30 @@ def install_route_gate(
         key = (id(handler), template)
         if key not in declared:
             declared.update(
-                ((id(found), declaration.path), declaration)
-                for found, declaration in _handler_declarations(app)
+                ((id(found), path_format), declaration)
+                for found, path_format, declaration in _handler_declarations(
+                    app
+                )
             )
         declaration = declared.get(key) or RouteDeclaration(template or "/")
         wrapped = gate(
             asgi_app,
             declaration,
-            name=functools.partial(template_under_root, declaration.path),
+            name=functools.partial(_gated_route, template or "/"),
         )
         gated[id(asgi_app)] = (asgi_app, wrapped)
         return wrapped
 
     _gate_router(app.asgi_router, gated_for)
+
+
+def _gated_route(declared: str, scope: Scope) -> str:
+    """Return the route a gate refused, as the app's route reader names it.
+
+    Falls back to the path the route was declared with, under the root
+    path, on an app no route reader was left for.
+    """
+    return read_route(scope) or template_under_root(declared, scope)
 
 
 def _gate_router(
@@ -804,6 +843,23 @@ _ROUTING_CACHE: Final = 1024
 """How many routed paths and methods each gated router keeps, as Litestar's own does."""
 
 
+def health_endpoints(
+    app: Annotated[
+        Litestar,
+        Doc("The Litestar application whose health endpoints to list."),
+    ],
+) -> Iterator[HealthEndpoint]:
+    """Yield the health endpoints the app serves, an ASGI mount included."""
+    for route in app.routes:
+        handlers = getattr(route, "route_handlers", None) or [
+            route.route_handler  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+        ]
+        for handler in handlers:
+            found = health_endpoint_in(getattr(handler, "fn", None))
+            if found is not None:
+                yield found
+
+
 def route_declarations(
     app: Annotated[
         Litestar,
@@ -814,23 +870,54 @@ def route_declarations(
 
     One declaration per handler. A handler declaring `Anonymous()` is
     anonymous, and its scopes are the ones every `Authenticated` guard
-    around it names. The `OPTIONS` handler Litestar adds needs a caller.
+    around it names. Any other guard, a dependency the handler asks for, a
+    `before_request` hook, middleware on the handler, its controller or a
+    router, and a mounted ASGI app run checks of their own. The `OPTIONS`
+    handler Litestar adds needs a caller.
     """
-    return [declaration for _, declaration in _handler_declarations(app)]
+    return [declaration for _, _, declaration in _handler_declarations(app)]
 
 
-def _handler_declarations(app: Litestar) -> list[tuple[Any, RouteDeclaration]]:
-    """Return every handler of the app beside what it declares."""
-    found: list[tuple[Any, RouteDeclaration]] = []
+def _lists_routes(app: object) -> bool:
+    """Return whether `route_declarations` reads the routes of `app`, a Litestar app."""
+    return isinstance(app, Litestar)
+
+
+def _handler_declarations(
+    app: Litestar,
+) -> list[tuple[Any, str, RouteDeclaration]]:
+    """Return every handler of the app beside its route's path and what it declares.
+
+    The path is the route's own, as Litestar's router names it.
+    """
+    found: list[tuple[Any, str, RouteDeclaration]] = []
     for route in app.routes:
         handlers = getattr(route, "route_handlers", None) or [
             route.route_handler  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
         ]
         found.extend(
-            (handler, _declaration(route.path_format, handler))
+            (
+                handler,
+                route.path_format,
+                _declaration(_template(route, handler), handler),
+            )
             for handler in handlers
         )
     return found
+
+
+def _template(route: BaseRoute, handler: Any) -> str:  # noqa: ANN401
+    """Return the path a handler answers, a `path` parameter spanning segments.
+
+    A mounted handler answers its path and every path under it.
+    """
+    template = route.path_format
+    for name, parameter in route.path_parameters.items():
+        if parameter.full.endswith(":path"):
+            template = template.replace(f"{{{name}}}", f"{{{name}:path}}")
+    if getattr(handler, "is_mount", False):
+        template = f"{template.rstrip('/') or '/'}{{path:path}}"
+    return template
 
 
 def _declaration(template: str, handler: Any) -> RouteDeclaration:  # noqa: ANN401
@@ -838,18 +925,50 @@ def _declaration(template: str, handler: Any) -> RouteDeclaration:  # noqa: ANN4
 
     The route grelmicro adds for the protected resource metadata is not
     anonymous.
+
+    Raises:
+        TypeError: If the handler declares `Anonymous()` and an
+            `Authenticated` guard, naming it.
     """
     methods = getattr(handler, "http_methods", None)
-    return RouteDeclaration(
+    guards = handler.resolve_guards()
+    required = [declared_scopes(guard) for guard in guards]
+    declaration = RouteDeclaration(
         template,
         methods=frozenset(methods) if methods else None,
         anonymous=bool(handler.opt.get(ANONYMOUS_OPT))
         and not getattr(handler.fn, METADATA_MARKER, False),
         scopes=frozenset(
-            scope
-            for guard in handler.resolve_guards()
-            for scope in declared_scopes(guard) or ()
+            scope for scopes in required for scope in scopes or ()
         ),
+        own_checks=_runs_own_checks(handler, guards),
+    )
+    if declaration.anonymous and any(scopes is not None for scopes in required):
+        refuse_anonymous_caller(declaration)
+    return declaration
+
+
+def _runs_own_checks(handler: Any, guards: Sequence[Any]) -> bool:  # noqa: ANN401
+    """Return whether a handler runs checks of its own before it.
+
+    A guard other than `Authenticated` is one, and so are a dependency the
+    handler asks for, a `before_request` hook, middleware on the handler,
+    its controller or a router it sits under, and a mounted ASGI app.
+    """
+    if getattr(handler, "is_mount", False) or any(
+        declared_scopes(guard) is None for guard in guards
+    ):
+        return True
+    provided = handler.resolve_dependencies()
+    if any(name in provided for name in handler.parsed_fn_signature.parameters):
+        return True
+    before = getattr(handler, "resolve_before_request", None)
+    if before is not None and before() is not None:
+        return True
+    return any(
+        layer.middleware
+        for layer in handler.ownership_layers
+        if not isinstance(layer, Litestar)
     )
 
 
@@ -1106,13 +1225,18 @@ def _declared_by_app(app: Litestar, component: Any) -> bool:  # noqa: ANN401
 
 def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
     """Return whether the handler chain already holds one of these."""
+    return _wrapper_in(handler, middleware) is not None
+
+
+def _wrapper_in[M](handler: object, middleware: type[M]) -> M | None:
+    """Return the first of these the handler chain holds, if any."""
     seen = 0
     while handler is not None and seen < _MAX_CHAIN:
         if isinstance(handler, middleware):
-            return True
+            return handler
         handler = getattr(handler, "app", None)
         seen += 1
-    return False
+    return None
 
 
 _MAX_CHAIN = 32
@@ -1331,14 +1455,18 @@ def _document_error_responses(app: Litestar, errors: ErrorResponses) -> None:
     app.on_startup.append(rewrite)
 
 
-def _document_authentication(app: Litestar, options: dict[str, Any]) -> None:
-    """Describe the bearer token every covered operation needs, in the schema.
+def _document_components(app: Litestar, components: Sequence[Any]) -> None:
+    """Hand the schema Litestar builds to each component that describes itself.
 
     Runs on startup, as the error responses do, so a handler registered
-    after `install` is described too. A handler declaring `Anonymous()`
-    lists it as optional when `micro.install(app)` added the middleware, and
-    a path in `exclude` names none.
+    after `install` is described too. Each component carrying
+    `_document_openapi` is handed the schema, the route declarations and the
+    registered error format. A handler declaring `Anonymous()` lists the
+    scheme as optional when `micro.install(app)` added authentication.
     """
+    documenting = describing(components)
+    if not documenting:
+        return
 
     async def document() -> None:
         from litestar._openapi.plugin import (  # noqa: PLC0415
@@ -1347,22 +1475,14 @@ def _document_authentication(app: Litestar, options: dict[str, Any]) -> None:
 
         if app.openapi_config is None:
             return
-        registered = getattr(app.state, "grelmicro_error_responses", None)
-        errors = ErrorResponses() if registered is None else registered
-        public, scopes = operation_authentication(
+        # Built once and cached by the plugin, so editing the dict it
+        # returns is what every later reader sees.
+        schema = app.plugins.get(OpenAPIPlugin).provide_openapi_schema()
+        errors = getattr(app.state, "grelmicro_error_responses", None)
+        routes = operation_declarations(
             app, anonymous=serves_anonymous_routes(app)
         )
-        document_operations(
-            app.plugins.get(OpenAPIPlugin).provide_openapi_schema(),
-            verifier=options["verifier"],
-            bans=options["bans"] is not None,
-            exclude=tuple(options["exclude"]),
-            public=public,
-            scopes=scopes,
-            media_type=errors.media_type,
-            model=errors.model,
-            metadata_path=metadata_path_of(options),
-        )
+        describe_schema(schema, documenting, routes=routes, errors=errors)
 
     app.on_startup.append(document)
 

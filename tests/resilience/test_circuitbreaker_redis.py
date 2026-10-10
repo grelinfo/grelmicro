@@ -2,10 +2,12 @@
 
 import asyncio
 from collections.abc import AsyncGenerator, Generator
+from datetime import timedelta
 
 import pytest
-from testcontainers.redis import RedisContainer
+from testcontainers.community.redis import RedisContainer
 
+from grelmicro._duration import microseconds, seconds_to_microseconds
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
@@ -20,7 +22,7 @@ pytestmark = [pytest.mark.timeout(1)]
 
 URL = "redis://:test_password@test_host:1234/0"
 
-RESET_TIMEOUT = 5
+RESET_TIMEOUT = timedelta(seconds=5)
 """Cool-down the end-to-end breakers are built with."""
 
 
@@ -76,7 +78,7 @@ def test_bind_rejects_unknown_kind(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- Integration tests against a real Redis container ---
 
 
-LONG_RESET_TIMEOUT = 3600
+LONG_RESET_TIMEOUT = timedelta(hours=1)
 """A cool-down long enough that the lifetime floor must exceed it."""
 
 _INTEGRATION_TIMEOUT = pytest.mark.timeout(30)
@@ -108,7 +110,7 @@ def _bind(
     name: str = "api",
     error_threshold: int = 3,
     success_threshold: int = 2,
-    reset_timeout: float = 5,
+    reset_timeout: int | timedelta = 5,
     half_open_capacity: int = 1,
 ) -> CircuitBreakerStrategy:
     return backend.bind(
@@ -155,16 +157,20 @@ async def test_open_rejects_until_reset_timeout_elapses(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
     """OPEN rejects calls until `reset_timeout`, then enters HALF_OPEN."""
-    strategy = _bind(backend, reset_timeout=0.5)
+    strategy = _bind(backend, reset_timeout=timedelta(milliseconds=500))
 
     # A long cool-down makes the rejection assert independent of scheduling:
     # a stalled runner cannot let the window elapse between the two calls.
-    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=60)
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=timedelta(seconds=60)
+    )
     assert await strategy.try_acquire() is False
 
     # Re-open with a short cool-down and wait several times past it, so the
     # elapse assert has margin instead of racing a 0.1s gap.
-    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=0.1)
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=timedelta(milliseconds=100)
+    )
     await asyncio.sleep(0.5)
 
     assert await strategy.try_acquire() is True
@@ -179,7 +185,11 @@ async def test_half_open_admission_cap_enforced_globally(
 ) -> None:
     """N concurrent acquires in HALF_OPEN never exceed `half_open_capacity`."""
     cap = 2
-    strategy = _bind(backend, half_open_capacity=cap, reset_timeout=0.1)
+    strategy = _bind(
+        backend,
+        half_open_capacity=cap,
+        reset_timeout=timedelta(milliseconds=100),
+    )
     await strategy.transition(desired=CircuitBreakerState.OPEN)
     await asyncio.sleep(0.5)  # 5x the 0.1s cool-down, not a 0.05s race
 
@@ -226,8 +236,10 @@ async def test_transition_to_open_honors_custom_cool_down(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
     """`transition(OPEN, cool_down=X)` cools down for X, ignoring config.reset_timeout."""
-    strategy = _bind(backend, reset_timeout=60)
-    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=0.2)
+    strategy = _bind(backend, reset_timeout=timedelta(seconds=60))
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=timedelta(milliseconds=200)
+    )
 
     assert await strategy.try_acquire() is False
 
@@ -281,7 +293,7 @@ async def test_circuit_breaker_integration_end_to_end(
     assert cb.state is CircuitBreakerState.OPEN
     # Counted on the backend clock that stamped the open, so every replica
     # reports the same wait.
-    assert 0 < refused.value.retry_after <= RESET_TIMEOUT
+    assert 0 < refused.value.retry_after <= RESET_TIMEOUT.total_seconds()
 
 
 @pytest.mark.integration
@@ -355,7 +367,7 @@ async def test_lifetime_outlasts_the_cool_down(
 
     ttl = await backend.provider.client.ttl(f"{backend._key_prefix}floor")
 
-    assert ttl > LONG_RESET_TIMEOUT
+    assert ttl > LONG_RESET_TIMEOUT.total_seconds()
 
 
 @pytest.mark.integration
@@ -369,7 +381,7 @@ async def test_recovered_circuit_stores_nothing(
         name="recover",
         error_threshold=1,
         success_threshold=1,
-        reset_timeout=0.01,
+        reset_timeout=timedelta(milliseconds=10),
     )
     await strategy.try_acquire()
     await strategy.record_outcome(success=False)
@@ -427,7 +439,9 @@ async def test_abandon_returns_the_half_open_slot(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
     """A probe that produced no outcome must not hold its slot."""
-    strategy = _bind(backend, error_threshold=1, reset_timeout=0.01)
+    strategy = _bind(
+        backend, error_threshold=1, reset_timeout=timedelta(milliseconds=10)
+    )
     await strategy.record_outcome(success=False)
     await asyncio.sleep(0.05)
 
@@ -451,3 +465,137 @@ async def test_abandon_outside_half_open_changes_nothing(
 
     snapshot = await strategy.get_snapshot()
     assert snapshot.state is CircuitBreakerState.CLOSED
+
+
+UNDER_A_SECOND = timedelta(milliseconds=300)
+"""A cool-down under a second, which rounding to a whole second would break."""
+
+PAST_UNDER_A_SECOND = 0.6
+"""Seconds to wait past `UNDER_A_SECOND`, well inside a whole second."""
+
+NOT_WHOLE_MILLISECONDS = timedelta(seconds=1, microseconds=500_001)
+"""A reset timeout that is not a whole number of milliseconds."""
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_redis_circuit_breaker_reset_timeout_under_a_second_refuses_a_probe_before_it_ends(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """An open circuit refuses a probe before its reset timeout ends."""
+    # Arrange
+    strategy = _bind(backend, error_threshold=1, reset_timeout=UNDER_A_SECOND)
+    await strategy.record_outcome(success=False)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is False
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_redis_circuit_breaker_reset_timeout_under_a_second_admits_a_probe_once_it_ends(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """A reset timeout under a second is kept, not rounded to a second."""
+    # Arrange
+    strategy = _bind(backend, error_threshold=1, reset_timeout=UNDER_A_SECOND)
+    await strategy.record_outcome(success=False)
+    await asyncio.sleep(PAST_UNDER_A_SECOND)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is True
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_redis_circuit_breaker_cool_down_under_a_second_refuses_a_probe_before_it_ends(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """A manual cool-down refuses a probe before it ends."""
+    # Arrange
+    strategy = _bind(backend, reset_timeout=timedelta(minutes=1))
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=UNDER_A_SECOND
+    )
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is False
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_redis_circuit_breaker_cool_down_under_a_second_admits_a_probe_once_it_ends(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """A manual cool-down under a second is kept, whatever the config says."""
+    # Arrange
+    strategy = _bind(backend, reset_timeout=timedelta(minutes=1))
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=UNDER_A_SECOND
+    )
+    await asyncio.sleep(PAST_UNDER_A_SECOND)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is True
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_redis_circuit_breaker_stores_reset_timeout_to_the_microsecond(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """The stored cool-down is the exact microseconds asked, in seconds."""
+    # Arrange
+    strategy = _bind(
+        backend, error_threshold=1, reset_timeout=NOT_WHOLE_MILLISECONDS
+    )
+
+    # Act
+    await strategy.record_outcome(success=False)
+
+    # Assert
+    stored = await backend.provider.client.hget(
+        f"{backend._key_prefix}api", "cool_down"
+    )
+    assert seconds_to_microseconds(float(stored)) == microseconds(
+        NOT_WHOLE_MILLISECONDS
+    )
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_redis_circuit_breaker_reads_a_circuit_opened_by_the_previous_version(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """A circuit stored in float seconds by the previous version stays open."""
+    # Arrange
+    client = backend.provider.client
+    seconds, micros = await client.time()
+    await client.hset(
+        f"{backend._key_prefix}api",
+        mapping={
+            "state": "OPEN",
+            "opened_at": seconds + micros / 1_000_000,
+            "cool_down": RESET_TIMEOUT.total_seconds(),
+        },
+    )
+    strategy = _bind(backend, reset_timeout=RESET_TIMEOUT)
+
+    # Act
+    snapshot = await strategy.get_snapshot()
+
+    # Assert
+    assert snapshot.state is CircuitBreakerState.OPEN
+    assert 0 < snapshot.retry_after <= RESET_TIMEOUT.total_seconds()

@@ -45,11 +45,106 @@ that a client library used to accept.
 | `EventLoopDeadlockError` from a `CircuitBreaker` on a callable object, which an `except Exception` did not catch | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 | `TypeError: ... got an unexpected keyword argument 'lock'` or `'leader'` from `every` | 0.42 | [Pass `gate=`](#0-42-task-gate) |
 | A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
+| `SettingsValidationError: lock= takes 'process', 'host', 'cluster' or None` | 0.42 | [Name the fold scope](#0-42-fold-scope) |
+| `OutOfContextError` from a `@cached` function or `get_or_set` with `lock="cluster"` | 0.42 | [Register a lock backend](#0-42-fold-scope) |
+| A `get_or_set` value computed once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-fold-scope) |
+| `TypeError: ... got an unexpected keyword argument 'wait_timeout'` | 0.42 | [Pass `max_wait=`](#0-42-max-wait) |
+| `SettingsValidationError` on `BulkheadConfig.max_wait` set to `None` | 0.42 | [Pass `0`](#0-42-max-wait) |
+| `BackendScopeError: ... is bound to InProcessLock` on `Idempotency` or `IdempotentRequests` | 0.42 | [Register a lock backend](#0-42-idempotency-lock) |
+| `CachedResponses` misses run once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-idempotency-lock) |
 | `ImportError: cannot import name 'metrics_router' from 'grelmicro.metrics'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ModuleNotFoundError: No module named 'grelmicro.metrics.fastapi'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
-| `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to seconds` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
+| `ImportError: cannot import name 'CacheError' from 'grelmicro.cache'` | 0.42 | [Delete the `except CacheError:` block](#0-42-cache-error) |
+| `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to interval` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
+| `SettingsValidationError` or `ValueError`: `... must be whole seconds or a timedelta` | 0.42 | [Pass whole seconds or a `timedelta`](#0-42-durations) |
+| `TypeError: TaskRouter.every() got an unexpected keyword argument 'seconds'` | 0.42 | [Pass `interval=`](#0-42-durations) |
+| `TypeError: ... got an unexpected keyword argument 'misfire_grace_seconds'` | 0.42 | [Pass `misfire_grace=`](#0-42-durations) |
+| `TypeError: ... declares cache=60` on a route | 0.42 | [Pass `True` or a `timedelta`](#0-42-durations) |
+| `TypeError: ... got an unexpected keyword argument 'ignore_exceptions'` from a `CircuitBreaker` | 0.42 | [Pass `when=`](#0-42-when) |
+| `TypeError: ... got an unexpected keyword argument 'timeout_errors'` from a `Shield` | 0.42 | [Pass `when=`](#0-42-when) |
+| `SettingsValidationError: ... when: Field required` from a `Shield` | 0.42 | [Pass `when=`](#0-42-when) |
+| `TypeError: '_ShieldDecorator' object is not callable` from a bare `@shield` | 0.42 | [Pass a preset and `when=`](#0-42-when) |
+| `AttributeError: 'TaskLock' object has no attribute 'refresh'` | 0.42 | [Call `extend()`](#0-42-lock-extend) |
+| `LockExtendError` where you caught `LockAcquireError` or `LockReleaseError` from extending a lease | 0.42 | [Catch `LockExtendError`](#0-42-lock-extend) |
+| `LockNotOwnedError` passes an `except LockReleaseError` or `except LockBackendError` | 0.42 | [Catch `LockNotOwnedError`](#0-42-lock-extend) |
+| A dashboard or alert on `grelmicro.lock.renewals` stopped receiving data | 0.42 | [Use `grelmicro.lock.extensions`](#0-42-lock-extend) |
+| `TypeError: key must be a function, use key_template= for a template` from `@cached` or `@limiter` | 0.42 | [Pass `key_template=`](#0-42-key-function) |
+| `TypeError: ... got an unexpected keyword argument 'key_maker'` | 0.42 | [Pass `key=`](#0-42-key-function) |
+| `ImportError: cannot import name 'IdempotencyKeyMakerError'` | 0.42 | [Catch `IdempotencyKeyFunctionError`](#0-42-key-function) |
+| `SettingsValidationError` naming `GREL_SHIELD_{NAME}_PROFILE` or `GREL_SHIELD_PROFILE`: `is no longer read` | 0.42 | [Choose the preset in code](#0-42-shield-profile-env) |
+| `TypeError: AuthenticatedRequests.from_config takes the verifier first: pass from_config(verifier, config)` | 0.42 | [Pass the verifier first](#0-42-from-config) |
+| `SettingsValidationError: TaskLock has no name` | 0.42 | [Name the lock or gate a task with it](#0-42-lock-names) |
+| `SettingsValidationError: Invalid lock name ...` from a `TaskLock`, a `LeaderElection` or a gated task | 0.42 | [Pass a valid name](#0-42-lock-names) |
+| `SettingsValidationError: Invalid task name ... The prefix 'task-' is reserved` | 0.42 | [Pass a valid name](#0-42-lock-names) |
+| A dashboard on `grelmicro.lock.name` lost a task defined in a script run directly | 0.42 | [Filter on the new lock name](#0-42-lock-names) |
+| `AttributeError: 'RedisProvider' object has no attribute 'lock'`, or `'cache'`, `'leaderelection'` and the other pattern names | 0.42 | [Call `lock_backend()`](#0-42-backend-names) |
+| `AttributeError: 'Coordination' object has no attribute 'rwlock_backend'` or `'election_backend'` | 0.42 | [Read `readwritelock_backend`](#0-42-backend-names) |
+| `TypeError: Coordination.__init__() got an unexpected keyword argument 'rwlock'` or `'election'` | 0.42 | [Pass `readwritelock=` or `leaderelection=`](#0-42-backend-names) |
+| `TypeError: Rename MyProvider.lock() to lock_backend()` | 0.42 | [Rename it `lock_backend()`](#0-42-backend-names) |
+| `ImportError: cannot import name 'document_idempotency'`, or `'document_conditional_requests'`, `'document_rate_limited_requests'` and `'document_authenticated_requests'` | 0.42 | [Register the component](#0-42-document-functions) |
 
 ## 0.42
+
+### A stored duration is whole seconds or a `timedelta` {#0-42-durations}
+
+A lease, a TTL, a task schedule and a circuit breaker reset timeout
+take whole seconds as an `int`, or a `timedelta`. A float is refused,
+`60.0` included. Each config reads the value back as a `timedelta`.
+
+```python
+from datetime import timedelta
+
+from grelmicro.coordination import Lock
+
+# Before
+tasks.every(seconds=0.5)
+tasks.cron("0 * * * *", gate="claim", misfire_grace_seconds=600)
+Lock("cart", lease_duration=0.5)
+
+# After
+tasks.every(interval=timedelta(milliseconds=500))
+tasks.cron("0 * * * *", gate="claim", misfire_grace=600)
+Lock("cart", lease_duration=timedelta(milliseconds=500))
+```
+
+From an environment variable, a duration reads whole seconds (`"60"`) or an
+ISO 8601 duration (`"PT0.5S"`). A decimal such as `"0.5"` is refused. A method
+or decorator argument, such as `cached(ttl=...)`, refuses text.
+
+What moved:
+
+- **Task**: `every(seconds=...)` is now `every(interval=...)`, and cron
+  `misfire_grace_seconds` is now `misfire_grace`. The old names are gone.
+- **Coordination**: `lease_duration` on `Lock`, `ReadWriteLock`,
+  `LeaderElection` and `TaskLock`, `renew_deadline` on `LeaderElection`, and
+  `min_hold_duration` on `TaskLock`.
+- **Cache**: `TTLCacheConfig.ttl`, `Cache.ttl`, `cached(ttl, stale_ttl)`, and
+  the `ttl` and `stale_ttl` of `TTLCache.set`, `.get_or_set` and `.set_many`.
+- **HTTP**: `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl` and its
+  per-path `include` TTLs, and `CachedResponse(ttl)`. `RouteDeclaration.cache`
+  takes `True` for the component TTL or a `timedelta`. A number is refused.
+- **Rate limiter**: the sliding window `window`.
+- **Circuit breaker**: `reset_timeout` on `CircuitBreaker.consecutive_count`
+  and `ConsecutiveCountConfig`.
+- **Security**: `ClientBans` `window` and `duration`, `JWTVerifier` `ttl` and `cache_ttl` (`0` still turns the cache off), and `OAuthClient` `refresh_before` and `default_lifetime`.
+- **Outbox**: `lease_duration`, `keep_delivered` and `purge(older_than=...)`.
+  `keep_delivered` takes no bool. Write `0` for `False` (delete on delivery)
+  and `None` for `True` (keep for good). `keep_delivered=1` now means one
+  second, where it used to become `True` and keep rows for good. From an
+  environment variable, write `0` or `none`. Bool spellings such as `"true"`
+  are refused, and `"1"` means one second too. `purge(older_than=0)` purges
+  every delivered and dead row.
+- **Log and health**: `DuplicateFilter` `ttl`, and `HealthChecks` `cache_ttl` (`0` still turns the cache off).
+
+A backend of your own takes each lease, TTL or cool-down as a `timedelta`: the
+`LockBackend`, `ReadWriteLockBackend`, `LeaderElectionBackend` and
+`CacheBackend` protocols, `CircuitBreakerStrategy.transition(cool_down)`, and
+`LeaderRecord.lease_duration`. An `OutboxBackend` takes `claim(lease=...)` as
+a `timedelta`, and `purge` takes `older_than` as a `timedelta` instead of
+`before_seconds`.
+
+Redis leader election stores its record under new `le_us:` keys, so a leader
+on the previous version is not seen. Upgrade every worker at once.
 
 ### One `gate=` for which workers run a task {#0-42-task-gate}
 
@@ -64,19 +159,94 @@ every worker by default. A cron task used to claim each fire whenever a
 @tasks.cron("0 3 * * *")
 
 # After
-@tasks.every(seconds=3600, gate="claim")
-@tasks.every(seconds=60, gate=election)
+@tasks.every(interval=3600, gate="claim")
+@tasks.every(interval=60, gate=election)
 @tasks.cron("0 3 * * *", gate="claim")
 ```
 
 `gate="claim"` holds the claim for the whole interval, which the old
 `lock=TaskLock(...)` did not: its one-second hold let replicas with offset
 timers each run their own tick. A `TaskLock` you still pass as the gate needs a
-`min_hold_duration` of at least `seconds`.
+`min_hold_duration` of at least `interval`.
 
 A gated task with no backend reports a coordination error on every fire
 instead of running on every worker. Register a `Coordination` component, or
 drop the gate when every worker should run it.
+
+### Every resilience pattern takes `when=` {#0-42-when}
+
+`CircuitBreaker` and `Shield` name the errors they react to with `when=`, like
+`Retry` and `Fallback`. It takes an exception class, a tuple of classes, a
+predicate or a `Match`.
+
+A breaker's `when=` names the errors that count as failures, and every
+`Exception` counts by default. An error you ignored becomes an exclusion:
+
+```python
+# Before
+CircuitBreaker.consecutive_count("payments", ignore_exceptions=ValidationError)
+
+# After
+CircuitBreaker.consecutive_count(
+    "payments", when=Match.not_exception(ValidationError)
+)
+```
+
+A Shield's `when=` names the errors that count as transient, and it is
+required. `TimeoutError` still always counts:
+
+```python
+# Before
+@shield.api(timeout_errors=(httpx.TimeoutException,))
+async def fetch(url: str) -> bytes: ...
+
+
+# After
+@shield.api(when=httpx.TimeoutException)
+async def fetch(url: str) -> bytes: ...
+```
+
+The bare `@shield` is gone, because it had no way to take `when=`. Name a
+preset and the errors instead:
+
+```python
+# Before
+@shield
+async def ping() -> None: ...
+
+
+# After
+@shield.api(when=TimeoutError)
+async def ping() -> None: ...
+```
+
+The same rename applies to `ConsecutiveCountConfig`, the Shield profile
+configs and the environment: `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS`
+and `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` become `GREL_CIRCUITBREAKER_{NAME}_WHEN`
+and `GREL_SHIELD_{NAME}_WHEN`. An ignore list in the environment cannot be
+written as an exclusion, so list the errors that count as failures instead.
+
+### The environment no longer picks a Shield preset {#0-42-shield-profile-env}
+
+`GREL_SHIELD_{NAME}_PROFILE` and `GREL_SHIELD_PROFILE` are no longer read. With
+environment reads on, a Shield refuses to build while either is set, so a preset
+never changes in silence. The environment tunes a Shield's values, and code
+chooses its preset. A bare `Shield(...)` builds `api`. Remove the variable and
+name the preset it used to pick:
+
+```python
+# Before: GREL_SHIELD_DB_PROFILE=internal
+db = Shield("db", when=TimeoutError)
+
+# After
+db = Shield.internal("db", when=TimeoutError)
+```
+
+The decorators follow the same rule: write `@shield.internal(...)` or
+`@shield.slow(...)`. `GREL_SHIELD_{NAME}_WHEN` and
+`GREL_SHIELD_{NAME}_MAX_RATE` still tune the preset code chose. A `PROFILE` key
+in a mounted ConfigMap or Secret is refused the same way: the Shield keeps its
+running config and a warning names the key.
 
 ### `metrics_router` moved to `grelmicro.integrations.fastapi` {#0-42-metrics-router-moved}
 
@@ -91,6 +261,197 @@ from grelmicro.integrations.fastapi import metrics_router
 ```
 
 `metrics_asgi` stays in `grelmicro.metrics`, since it needs no framework.
+
+### The `document_*` functions are removed {#0-42-document-functions}
+
+`document_idempotency`, `document_conditional_requests`, `document_rate_limited_requests` and `document_authenticated_requests` are gone from `grelmicro.integrations.fastapi`. A registered component needs nothing: `micro.install(app)` describes it in the OpenAPI schema on FastAPI and Litestar.
+
+A middleware you added by hand and documented with one of them is registered as its component instead, with the same options:
+
+```python
+# Before
+app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
+document_idempotency(app)
+
+# After
+micro = Grelmicro(uses=[cache, IdempotentRequests()])
+micro.install(app)
+```
+
+### `CacheError` is removed {#0-42-cache-error}
+
+Nothing raised `CacheError`, so an `except CacheError:` block never ran. Delete it. A backend failure reaches the caller as the backend's own error, such as `redis.exceptions.ConnectionError`.
+
+### `lock=` names how far misses fold {#0-42-fold-scope}
+
+`@cached` and `TTLCache.get_or_set` take the same `lock=`, a backend scope:
+
+| Before | After |
+|---|---|
+| `@cached(cache, lock="local")` | `@cached(cache, lock="process")`, the default |
+| `@cached(cache, lock=True)` | `@cached(cache, lock="cluster")` |
+| `@cached(cache, lock=False)` | `@cached(cache, lock=None)` |
+| `cache.get_or_set(key, factory)` | `cache.get_or_set(key, factory, lock="cluster")` to keep folding across replicas |
+
+`"host"` and `"cluster"` fold through the lock backend of the app's `Coordination`. Register one, or the call raises `OutOfContextError`. A lock backend that reaches less far than the scope is refused in `staging` and `production`, like `requires=`.
+
+### `max_wait=` bounds every wait to get in {#0-42-max-wait}
+
+Idempotency spells its wait the way the bulkhead and the rate limiter do:
+
+| Before | After |
+|---|---|
+| `Idempotency(..., wait_timeout=5)` | `Idempotency(..., max_wait=5)` |
+| `idem.run(key, fn, wait_timeout=5)` | `idem.run(key, fn, max_wait=5)` |
+| `IdempotentRequests(wait_timeout=5)` | `IdempotentRequests(max_wait=5)` |
+| `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` | `GREL_IDEMPOTENT_REQUESTS_MAX_WAIT` |
+| `BulkheadConfig(max_wait=None)` | `BulkheadConfig(max_wait=0)`, the default |
+
+A lock keeps `timeout=` on `acquire()` and `hold()`.
+
+### Idempotency checks its lock, and `CachedResponses` names its fold {#0-42-idempotency-lock}
+
+A duplicate request waits on a lock so it runs once. Without a lock backend that lock holds in one process only, and a duplicate on another replica runs again. The backend check now says so, like it does for the cache. Register a lock backend, or say one replica is all you run:
+
+```python
+micro = Grelmicro(uses=[Cache(redis), Coordination(redis), IdempotentRequests()])
+# or
+micro = Grelmicro(uses=[Cache(redis), IdempotentRequests(requires="process")])
+```
+
+`CachedResponses` folds concurrent misses in the process by default, like `@cached`. Pass `CachedResponses(lock="cluster")` to fold them through the lock backend, as it did whenever one existed.
+
+### Extend a lease with `extend()` {#0-42-lock-extend}
+
+`TaskLock.refresh()` is now `TaskLock.extend()`, like `Lock` and
+`ReadWriteLock`:
+
+```python title="fragment"
+# Before
+await task_lock.refresh()
+
+# After
+await task_lock.extend()
+```
+
+A backend failure while extending a lease raises `LockExtendError`, on every
+lock and when a task gate extends its claim. `Lock` and `ReadWriteLock` raised
+`LockAcquireError` there, and `TaskLock` raised `LockReleaseError`.
+`except LockBackendError` catches every backend failure.
+
+A lost lease still raises `LockNotOwnedError`, which is no longer a
+`LockReleaseError` or a `LockBackendError`. Code that used
+`except LockReleaseError` to also catch a lost lease adds
+`except LockNotOwnedError`.
+
+The `grelmicro.lock.renewals` metric is now `grelmicro.lock.extensions`.
+Switch dashboards and alerts on the old name to the new one.
+
+### `key=` is always a function {#0-42-key-function}
+
+`key=` now takes the function deriving the key, everywhere. `key_maker=` is
+gone. `@cached` and `@limiter` take a template string as `key_template=`, and a
+string passed to `key=` raises `TypeError`:
+
+```python
+# Before
+@cached(cache, key="user:{user_id}")
+@cached(cache, key_maker=lambda func, args, kwargs: f"user:{args[0]}")
+@limiter(key="user:{user_id}")
+@limiter(key_maker=lambda func, args, kwargs: f"user:{args[0]}")
+IdempotentRequests(key_maker=tenant_key)
+
+# After
+@cached(cache, key_template="user:{user_id}")
+@cached(cache, key=lambda func, args, kwargs: f"user:{args[0]}")
+@limiter(key_template="user:{user_id}")
+@limiter(key=lambda func, args, kwargs: f"user:{args[0]}")
+IdempotentRequests(key=tenant_key)
+```
+
+`IdempotencyMiddleware(key_maker=...)` is `IdempotencyMiddleware(key=...)` the
+same way. `IdempotencyKeyMakerError` is renamed `IdempotencyKeyFunctionError`.
+
+### `from_config` takes the constructor's arguments in its order {#0-42-from-config}
+
+`AuthenticatedRequests.from_config` takes the verifier first, like
+`AuthenticatedRequests(verifier)`:
+
+```python title="fragment"
+# Before
+AuthenticatedRequests.from_config(config, verifier)
+
+# After
+AuthenticatedRequests.from_config(verifier, config)
+```
+
+### A `TaskLock` needs a name {#0-42-lock-names}
+
+`TaskLock()` has no name by default. As the `gate` of a task it takes the task
+name, as before. Used on its own, it raises `SettingsValidationError` when
+entered. Pass the name it used to share:
+
+```python title="fragment"
+# Before
+task_lock = TaskLock()
+
+# After
+task_lock = TaskLock("cleanup")
+```
+
+A gate named `TaskLock("default")` keeps that name instead of taking the task
+name. Drop the name to have it take the task name.
+
+`TaskLock`, `LeaderElection` and a gated task's `name=` follow the `Lock` rule:
+a letter or digit, then letters, digits and `._:/-`, up to 200 characters.
+Rename one that does not, such as `name="daily report"` to
+`name="daily-report"`. A gated task's `name=` cannot start with `task-` either.
+
+A task named after its function, whose name is not a valid lock name, locks
+under a derived name. In a script run directly, `__main__:job` locks under
+`task-__main__:job`. That is also its gate log label and its
+`grelmicro.lock.name` metric label, so update dashboards that filter on the
+old one. Workers on the previous version lock it under the old key and do not
+block the new ones, so upgrade every worker running such a task at once.
+
+### Provider methods end in `_backend` {#0-42-backend-names}
+
+A provider method that builds a backend now says so. `Coordination` takes and
+exposes its backends under the same names:
+
+| Before | After |
+|---|---|
+| `provider.lock()` | `provider.lock_backend()` |
+| `provider.readwritelock()` | `provider.readwritelock_backend()` |
+| `provider.leaderelection()` | `provider.leaderelection_backend()` |
+| `provider.schedule()` | `provider.schedule_backend()` |
+| `provider.cache()` | `provider.cache_backend()` |
+| `provider.outbox()` | `provider.outbox_backend()` |
+| `provider.ratelimiter()` | `provider.ratelimiter_backend()` |
+| `provider.circuitbreaker()` | `provider.circuitbreaker_backend()` |
+| `coordination.rwlock_backend` | `coordination.readwritelock_backend` |
+| `coordination.election_backend` | `coordination.leaderelection_backend` |
+| `Coordination(rwlock=...)` | `Coordination(readwritelock=...)` |
+| `Coordination(election=...)` | `Coordination(leaderelection=...)` |
+| `grelmicro.coordination.election.adapters` | `grelmicro.coordination.leaderelection.adapters` |
+
+```python title="fragment"
+# Before
+leader = LeaderElection("worker", backend=redis.leaderelection())
+
+# After
+leader = LeaderElection("worker", backend=redis.leaderelection_backend())
+```
+
+A custom `Provider` renames the methods it overrides the same way, such as
+`def lock_backend(self, **kwargs)`. A subclass that still defines `lock()`
+without `lock_backend()` fails when the class is defined, naming the rename.
+Component methods are unchanged: `micro.coordination.lock("cart")` still
+returns a `Lock`, and `coordination.lock_backend` and
+`coordination.schedule_backend` keep their names.
+
+A plugin that ships a leader election adapter registers it under the
+`grelmicro.coordination.leaderelection.adapters` entry-point group.
 
 ## 0.40
 

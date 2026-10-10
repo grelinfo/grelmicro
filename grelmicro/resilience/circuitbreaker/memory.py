@@ -19,6 +19,7 @@ from grelmicro.resilience.circuitbreaker import (
 )
 
 if TYPE_CHECKING:
+    from datetime import timedelta
     from types import TracebackType
 
     from grelmicro.resilience.circuitbreaker.consecutive_count import (
@@ -38,6 +39,9 @@ _FORCED_STATES = (
 
 _NEVER = float("inf")
 """Deadline of an entry no lifetime may reclaim."""
+
+_IDLE_TTL_SECONDS = _STATE_TTL.total_seconds()
+"""Seconds an entry lives without activity, on the monotonic clock."""
 
 
 @dataclass(slots=True)
@@ -118,7 +122,6 @@ class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
             states=self._states,
             name=name,
             config=config,
-            open_ttl=_resolve_state_ttl(config.reset_timeout),
         )
 
 
@@ -135,16 +138,21 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         states: dict[str, _BreakerState],
         name: str,
         config: ConsecutiveCountConfig,
-        open_ttl: float,
     ) -> None:
-        """Bind the strategy to the breaker's per-name state and config."""
+        """Bind the strategy to the breaker's per-name state and config.
+
+        Reads the cool-down and its lifetime once, in seconds on the
+        monotonic clock.
+        """
         self._states = states
         self._name = name
         self._error_threshold = config.error_threshold
         self._success_threshold = config.success_threshold
-        self._reset_timeout = config.reset_timeout
+        self._reset_timeout_seconds = config.reset_timeout.total_seconds()
         self._half_open_capacity = config.half_open_capacity
-        self._open_ttl = open_ttl
+        self._open_ttl_seconds = _resolve_state_ttl(
+            config.reset_timeout
+        ).total_seconds()
 
     def _live(self, now: float) -> _BreakerState:
         """Return the live entry for this breaker, creating it if needed.
@@ -159,7 +167,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         """
         state = self._states.get(self._name)
         if state is None or now >= state.expires_at:
-            state = _BreakerState(expires_at=now + _STATE_TTL)
+            state = _BreakerState(expires_at=now + _IDLE_TTL_SECONDS)
             self._states[self._name] = state
             self._cull(now)
         return state
@@ -229,11 +237,11 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
             state.half_open_admit = 0
             state.opened_at = 0.0
             state.cool_down = 0.0
-            state.expires_at = now + _STATE_TTL
+            state.expires_at = now + _IDLE_TTL_SECONDS
 
         if state.half_open_admit < self._half_open_capacity:
             state.half_open_admit += 1
-            state.expires_at = now + _STATE_TTL
+            state.expires_at = now + _IDLE_TTL_SECONDS
             return True
 
         return False
@@ -264,7 +272,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         ):
             return _snapshot_of(state)
 
-        state.expires_at = now + _STATE_TTL
+        state.expires_at = now + _IDLE_TTL_SECONDS
 
         if success:
             state.consecutive_success_count += 1
@@ -285,8 +293,8 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
             if state.consecutive_error_count >= self._error_threshold:
                 state.state = CircuitBreakerState.OPEN
                 state.opened_at = now
-                state.cool_down = self._reset_timeout
-                state.expires_at = now + self._open_ttl
+                state.cool_down = self._reset_timeout_seconds
+                state.expires_at = now + self._open_ttl_seconds
                 state.consecutive_error_count = 0
                 state.consecutive_success_count = 0
                 state.half_open_admit = 0
@@ -297,7 +305,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         self,
         *,
         desired: CircuitBreakerState,
-        cool_down: float | None = None,
+        cool_down: timedelta | None = None,
     ) -> None:
         """Manual transition. Last-write-wins.
 
@@ -313,20 +321,20 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         if desired == CircuitBreakerState.OPEN:
             state.state = CircuitBreakerState.OPEN
             state.opened_at = now
-            state.cool_down = (
-                cool_down if cool_down is not None else self._reset_timeout
-            )
-            state.expires_at = now + (
-                self._open_ttl
-                if cool_down is None
-                else _resolve_state_ttl(cool_down)
-            )
+            if cool_down is None:
+                state.cool_down = self._reset_timeout_seconds
+                state.expires_at = now + self._open_ttl_seconds
+            else:
+                state.cool_down = cool_down.total_seconds()
+                state.expires_at = (
+                    now + _resolve_state_ttl(cool_down).total_seconds()
+                )
         else:
             state.state = desired
             state.opened_at = 0.0
             state.cool_down = 0.0
             state.expires_at = (
-                _NEVER if desired in _FORCED_STATES else now + _STATE_TTL
+                _NEVER if desired in _FORCED_STATES else now + _IDLE_TTL_SECONDS
             )
         state.consecutive_error_count = 0
         state.consecutive_success_count = 0

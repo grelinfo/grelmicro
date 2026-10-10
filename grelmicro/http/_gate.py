@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import functools
 from collections import Counter
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
 
-from grelmicro._paths import ROUTE_KEY, route_path, selects
+from grelmicro._paths import ROUTE_KEY, path_format, route_path, selects
 from grelmicro.errors import AuthenticationRequiredError, InsufficientScopeError
 from grelmicro.http._component import ErrorResponses, raw_headers_of, send_error
 from grelmicro.http._kinds import AUTHENTICATION_REQUIRED, INSUFFICIENT_SCOPE
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CROSSED_KEY",
+    "DECLARATION_KEY",
     "EXCLUDED_ROOT_KEY",
     "GATE_KEY",
     "PENDING_KEY",
@@ -73,6 +75,7 @@ __all__ = [
     "crossed",
     "deny_websocket",
     "edge_of",
+    "handed_on",
     "refuse_websocket",
     "wrapped",
 ]
@@ -82,6 +85,9 @@ EXCLUDED_ROOT_KEY: Final = "grelmicro.excluded_root"
 
 GATE_KEY: Final = "grelmicro.gate"
 """Where the middleware leaves the `GatePolicy` of the app serving the request."""
+
+DECLARATION_KEY: Final = "grelmicro.declaration"
+"""Where a route's gate leaves the declaration that admitted the request."""
 
 _GATED: Final = "__grelmicro_gated__"
 """Set on an app a gate returned."""
@@ -298,7 +304,7 @@ def _lane(target: ASGIApp, edges: tuple[Edge, ...], *, moved: bool) -> ASGIApp:
     gets back.
     """
     if not any(edge.answering for edge in edges):
-        return target
+        return handed_on(target)
     app = _route(target, restore=moved)
     if not moved:
         return _segment(wrapped(app, edges[0].answering), edges[0])
@@ -318,13 +324,29 @@ def wrapped(app: ASGIApp, answering: Answering) -> ASGIApp:
     return app
 
 
+def handed_on(target: ASGIApp) -> ASGIApp:
+    """Return `target`, run without the declaration the route's gate left.
+
+    A middleware further in, such as one of a mounted app, reads no
+    declaration of the route that admitted the request.
+    """
+
+    def route(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
+        scope.pop(DECLARATION_KEY, None)
+        return target(scope, receive, send)
+
+    return route
+
+
 def _route(target: ASGIApp, *, restore: bool) -> ASGIApp:
     """Return `target`, marking what it raises as the route's own.
 
-    With `restore`, it gets the request as the router left it.
+    It runs without the declaration the route's gate left. With
+    `restore`, it gets the request as the router left it.
     """
 
     async def route(scope: Scope, receive: Receive, send: Send) -> None:
+        scope.pop(DECLARATION_KEY, None)
         if restore:
             (
                 scope["path"],
@@ -598,25 +620,29 @@ def _admission(
     """Return what the route asks of a request, by the request's method.
 
     A method no declaration names is checked as an authenticated route.
-    A refusal is named by `name`, when there is one, and answers a request
+    A request it admits carries the declaration that admitted it. A
+    refusal is named by `name`, when there is one, and answers a request
     routed without a credential.
     """
-    table: dict[str | None, _Check] = {}
-    every: _Check | None = None
+    table: dict[str | None, tuple[_Check, RouteDeclaration]] = {}
+    every: tuple[_Check, RouteDeclaration] | None = None
     for declaration in declarations:
-        check = _check_of(declaration)
+        entry = (_check_of(declaration), declaration)
         if declaration.methods is None:
-            every = check
+            every = entry
         else:
-            table.update(dict.fromkeys(declaration.methods, check))
+            table.update(dict.fromkeys(declaration.methods, entry))
     if every is None:
-        every = _check_of(RouteDeclaration(declarations[0].path))
+        authenticated = RouteDeclaration(declarations[0].path)
+        every = (_check_of(authenticated), authenticated)
     pick = table.get
     otherwise = every
 
     def admit(scope: Scope) -> ASGIApp | None:
-        refusal = pick(scope.get("method"), otherwise)(scope)
+        check, declaration = pick(scope.get("method"), otherwise)
+        refusal = check(scope)
         if refusal is None:
+            scope[DECLARATION_KEY] = declaration
             return None
         answered(scope)
         if name is not None:
@@ -624,6 +650,33 @@ def _admission(
         return refusal
 
     return admit
+
+
+def _refuse_excluded_scopes(
+    declaration: RouteDeclaration, exclude: tuple[str, ...]
+) -> None:
+    """Refuse a declaration requiring scopes on a path in `exclude`.
+
+    The gate lets every request on that path through unchecked, so no
+    scope it declares is ever checked. The route is named by its path
+    with each converter left out.
+
+    Raises:
+        ValueError: Naming the route and its scopes.
+    """
+    if not declaration.scopes or not exclude:
+        return
+    path = path_format(declaration.path)
+    if selects(path, include=(), exclude=exclude):
+        return
+    route = route_name(replace(declaration, path=path))
+    msg = (
+        f"{route} is in exclude, so a token is never read there, and "
+        f"declares the scopes {' '.join(sorted(declaration.scopes))}, which no "
+        f"request there is checked for. Take the path out of exclude, or "
+        f"drop the scopes."
+    )
+    raise ValueError(msg)
 
 
 def _refuse_overlap(declarations: tuple[RouteDeclaration, ...]) -> None:
@@ -692,6 +745,7 @@ def _gated(target: ASGIApp, admit: _Admit, *, door: bool) -> ASGIApp:
             return refusal(scope, receive, send)
         arrived = scope.get(CROSSED_KEY)
         if arrived is None or door:
+            del scope[DECLARATION_KEY]
             return target(scope, receive, send)
         return lane(scope, arrived)(scope, receive, send)
 
@@ -767,12 +821,14 @@ class RouteGate:
 
         Raises:
             TypeError: If there is no declaration, or a `cache` is neither
-                a boolean nor a number.
-            ValueError: If a declaration cannot hold, or two declarations
-                answer the same method, naming the route.
+                a boolean nor a `timedelta`.
+            ValueError: If a declaration cannot hold, requires scopes on a
+                path in `exclude`, or two declarations answer the same
+                method, naming the route.
         """
         for declaration in declarations:
             refuse_impossible(declaration)
+            _refuse_excluded_scopes(declaration, self.policy.exclude)
         _refuse_overlap(declarations)
         self._gated.update(declarations)
         if any(declaration.anonymous for declaration in declarations):

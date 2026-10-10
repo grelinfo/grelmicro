@@ -21,7 +21,7 @@ _DOUBLED = 42
 
 def test_backoff_is_random_times_capped_exponential() -> None:
     """Delay is `random() * min(scale * 2 ** (attempt - 1), cap)`."""
-    shield = Shield.api("backoff-exact", timeout_errors=(ValueError,))
+    shield = Shield.api("backoff-exact", when=ValueError)
     shield._random = lambda: _FIXED_RANDOM
     state = shield._state
 
@@ -38,7 +38,7 @@ async def test_run_accepts_partial_wrapped_coroutine() -> None:
     async def work(value: int) -> int:
         return value * 2
 
-    shield = Shield.api("partial-run", timeout_errors=(ValueError,))
+    shield = Shield.api("partial-run", when=ValueError)
     wrapped = functools.partial(work, _PARTIAL_ARG)
 
     assert await shield.run(wrapped) == _DOUBLED

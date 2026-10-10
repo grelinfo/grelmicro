@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, cast
 from weakref import WeakSet
@@ -312,11 +313,44 @@ class Match:
     Read more in the [Retry filtering](../resilience/retry.md#filtering-outcomes-with-match) docs.
     """
 
-    __slots__ = ("_matcher", "_repr")
+    __slots__ = ("_matcher", "_raised", "_repr")
 
     def __init__(self, matcher: Matcher, repr_: str) -> None:
         self._matcher = matcher
         self._repr = repr_
+        self._raised: _ClassTest | None = None
+
+    @classmethod
+    def _of_classes(
+        cls,
+        matcher: Matcher,
+        repr_: str,
+        test: _ClassTest | None,
+    ) -> Match:
+        """Build a filter carrying the classes `test` names, if any."""
+        match = cls(matcher, repr_)
+        match._raised = test
+        return match
+
+    def __eq__(self, other: object) -> bool:
+        """Compare class filters by their classes, any other by identity.
+
+        Two class filters are equal when they are of the same type, both
+        negated or both not, and name the very same classes in the same
+        order.
+        """
+        if not is_instance(other, Match):
+            return NotImplemented
+        other_test = cast("Match", other)._raised
+        if self._raised is None or other_test is None:
+            return self is other
+        return type(self) is type(other) and self._raised.same_as(other_test)
+
+    def __hash__(self) -> int:
+        """Hash class filters by their classes, any other by identity."""
+        if self._raised is None:
+            return id(self)
+        return hash((id(type(self)), self._raised.identity))
 
     def __call__(self, outcome: Outcome[Any]) -> bool:
         """Test the outcome against this filter, and never raise.
@@ -355,9 +389,22 @@ class Match:
         """Return a Match that engages when either side engages."""
         if not is_instance(other, Match):
             return NotImplemented
-        return Match(
+        test = None
+        left = self._raised
+        right = other._raised
+        if (
+            type(self) is Match
+            and type(other) is Match
+            and left is not None
+            and right is not None
+            and not left.negated
+            and not right.negated
+        ):
+            test = left.joined(right)
+        return Match._of_classes(
             lambda outcome: self(outcome) or other(outcome),
             f"any({self._repr}, {other._repr})",
+            test,
         )
 
     def __and__(self, other: Match) -> Match:
@@ -428,7 +475,11 @@ class Match:
             return outcome.raised and isinstance(outcome.exception, types)
 
         names = ", ".join(_describe(t) for t in types)
-        return cls(_check_types, f"exception({names})")
+        return cls._of_classes(
+            _check_types,
+            f"exception({names})",
+            _ClassTest(types, negated=False),
+        )
 
     @classmethod
     def result(
@@ -654,7 +705,14 @@ class Match:
         def _check(outcome: Outcome[Any]) -> bool:
             return outcome.raised and not positive(outcome)
 
-        return cls(_check, label)
+        positive_test = twin._raised  # noqa: SLF001
+        return cls._of_classes(
+            _check,
+            label,
+            None
+            if positive_test is None
+            else _ClassTest(positive_test.types, negated=True),
+        )
 
     @classmethod
     def not_result(
@@ -728,3 +786,70 @@ class Match:
             return outcome.raised and not positive(outcome)
 
         return cls(_check, label)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _ClassTest:
+    """The classes a class filter names, for equality and the JSON dump.
+
+    `negated` is set when the filter engages on an exception that is none
+    of them. Classes are compared by identity, so no metaclass `__eq__` or
+    `__hash__` runs.
+    """
+
+    types: tuple[type[Exception], ...]
+    negated: bool
+
+    @property
+    def identity(self) -> tuple[bool, tuple[int, ...]]:
+        """Return a hashable key built from the identity of each class."""
+        return self.negated, tuple(id(type_) for type_ in self.types)
+
+    def same_as(self, other: _ClassTest) -> bool:
+        """Return whether `other` names the very same classes, the same way."""
+        return (
+            self.negated == other.negated
+            and len(self.types) == len(other.types)
+            and all(
+                a is b for a, b in zip(self.types, other.types, strict=True)
+            )
+        )
+
+    def joined(self, other: _ClassTest) -> _ClassTest:
+        """Return the classes of both, each listed once."""
+        seen: dict[int, type[Exception]] = {}
+        for type_ in (*self.types, *other.types):
+            seen.setdefault(id(type_), type_)
+        return _ClassTest(tuple(seen.values()), negated=False)
+
+
+def matches_raised_type(match: Match, exception_type: type) -> bool | None:
+    """Return whether `match` engages on an exception of `exception_type`.
+
+    Answers from the type alone, with `issubclass` against the classes a
+    plain class filter names. Returns `None` for any other filter, or when
+    the check raises.
+    """
+    test = match._raised  # noqa: SLF001
+    if type(match) is not Match or test is None:
+        return None
+    try:
+        return issubclass(exception_type, test.types) != test.negated
+    except KeyboardInterrupt, SystemExit:
+        raise
+    except BaseException:  # noqa: BLE001
+        return None
+
+
+def named_classes(match: Match) -> tuple[type[Exception], ...] | None:
+    """Return the classes `match` engages on, or `None` for any other filter.
+
+    Answers for a filter that engages on a raised exception of one of its
+    classes, such as `Match.exception(KeyError, ValueError)`. A negated,
+    predicate or result filter, or a filter of a `Match` subclass, gives
+    `None`.
+    """
+    test = match._raised  # noqa: SLF001
+    if type(match) is not Match or test is None or test.negated:
+        return None
+    return test.types

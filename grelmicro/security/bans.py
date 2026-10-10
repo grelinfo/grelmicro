@@ -35,13 +35,15 @@ import asyncio
 import threading
 import weakref
 from collections import OrderedDict
-from time import monotonic
+from datetime import timedelta
+from time import monotonic_ns
 from typing import TYPE_CHECKING, Annotated, Any, Final, Self
 
 from pydantic import BaseModel, field_validator
 from typing_extensions import Doc
 
 from grelmicro._config import Reconfigurable, env_prefixes, resolve_config
+from grelmicro._duration import NANOSECONDS_PER_SECOND, Duration, nanoseconds
 from grelmicro.errors import AdmissionError
 from grelmicro.metrics import _hub
 from grelmicro.security._events import BANS_ACTIVE, ban_started
@@ -107,17 +109,23 @@ class ClientBansConfig(BaseModel, frozen=True):
         Doc("Failures inside `window` before the client is banned."),
     ] = 10
     window: Annotated[
-        float,
-        Doc("Seconds over which failures are counted."),
-    ] = 60.0
-    duration: Annotated[
-        float,
+        Duration,
         Doc(
-            "Seconds a ban lasts. Keep it short. Addresses are shared behind"
+            "How long failures are counted, in whole seconds or as a"
+            " `timedelta`. A float is refused. From text, such as an"
+            ' environment variable, it reads whole seconds (`"60"`) or an'
+            ' ISO 8601 duration (`"PT0.5S"`).'
+        ),
+    ] = timedelta(minutes=1)
+    duration: Annotated[
+        Duration,
+        Doc(
+            "How long a ban lasts, in whole seconds or as a `timedelta`. A"
+            " float is refused. Keep it short. Addresses are shared behind"
             " NAT, so a ban reaches more people than the one caller that"
             " earned it."
         ),
-    ] = 300.0
+    ] = timedelta(minutes=5)
     max_clients: Annotated[
         int,
         Doc(
@@ -133,15 +141,6 @@ class ClientBansConfig(BaseModel, frozen=True):
         """Refuse a count that would ban everyone or remember no one."""
         if value < 1:
             msg = "value must be at least one"
-            raise ValueError(msg)
-        return value
-
-    @field_validator("window", "duration")
-    @classmethod
-    def _check_duration(cls, value: Any) -> Any:  # noqa: ANN401
-        """Refuse a duration that is zero or below."""
-        if value <= 0:
-            msg = "value must be greater than zero"
             raise ValueError(msg)
         return value
 
@@ -181,12 +180,18 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
             Doc("Failures inside `window` before the client is banned."),
         ] = None,
         window: Annotated[
-            float | None,
-            Doc("Seconds over which failures are counted."),
+            int | timedelta | None,
+            Doc(
+                "How long failures are counted, in whole seconds or as a"
+                " `timedelta`. A float is refused."
+            ),
         ] = None,
         duration: Annotated[
-            float | None,
-            Doc("Seconds a ban lasts. Keep it short: addresses are shared."),
+            int | timedelta | None,
+            Doc(
+                "How long a ban lasts, in whole seconds or as a `timedelta`."
+                " A float is refused. Keep it short: addresses are shared."
+            ),
         ] = None,
         max_clients: Annotated[
             int | None,
@@ -275,14 +280,13 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         self._reconfigure_lock = asyncio.Lock()
         self._take(config)
         self._reasons = ABUSIVE_REASONS if reasons is None else reasons
-        # `(window_started, count, banned_until)` per client, the least
-        # recently recorded first. Only a rejected token writes, and it writes
-        # under the lock, so a request that succeeds never takes it: `banned`
-        # stays one lookup, safe beside a writer on a thread pool and under a
+        # `(window_started, count, banned_until)` per client, on the
+        # monotonic clock in whole nanoseconds, the least recently recorded
+        # first. Only a rejected token writes, and it writes under the lock,
+        # so a request that succeeds never takes it: `banned` stays one
+        # lookup, safe beside a writer on a thread pool and under a
         # free-threaded interpreter.
-        self._clients: OrderedDict[str, tuple[float, int, float]] = (
-            OrderedDict()
-        )
+        self._clients: OrderedDict[str, tuple[int, int, int]] = OrderedDict()
         self._lock = threading.Lock()
         _TABLES.add(self)
 
@@ -294,14 +298,14 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
     def active(self) -> int:
         """Return how many clients are banned right now."""
         with self._lock:
-            now = monotonic()
+            now = monotonic_ns()
             return sum(1 for seen in self._clients.values() if seen[2] > now)
 
     def _take(self, config: ClientBansConfig) -> None:
-        """Read the thresholds a request is judged against."""
+        """Read the thresholds a request is judged against, in nanoseconds."""
         self._failures = config.failures
-        self._window = config.window
-        self._duration = config.duration
+        self._window = nanoseconds(config.window)
+        self._duration = nanoseconds(config.duration)
         self._max_clients = config.max_clients
 
     async def _apply_reconfigure(self, new_config: ClientBansConfig) -> None:
@@ -321,7 +325,7 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         pays this and no more.
         """
         seen = self._clients.get(client)
-        return seen is not None and seen[2] > monotonic()
+        return seen is not None and seen[2] > monotonic_ns()
 
     def banned_for(
         self,
@@ -338,7 +342,7 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         seen = self._clients.get(client)
         if seen is None:
             return 0.0
-        return max(seen[2] - monotonic(), 0.0)
+        return max(seen[2] - monotonic_ns(), 0) / NANOSECONDS_PER_SECOND
 
     def record(
         self,
@@ -362,7 +366,7 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         if reason not in self._reasons:
             return False
         with self._lock:
-            now = monotonic()
+            now = monotonic_ns()
             clients = self._clients
             seen = clients.get(client)
             if seen is None or now - seen[0] >= self._window:
@@ -370,13 +374,13 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
             else:
                 started, count = seen[0], seen[1] + 1
             banned_until = (
-                now + self._duration if count >= self._failures else 0.0
+                now + self._duration if count >= self._failures else 0
             )
-            running_until = 0.0 if seen is None else seen[2]
+            running_until = 0 if seen is None else seen[2]
             running = running_until > now
             if running:
                 banned_until = max(banned_until, running_until)
-            starts = banned_until > 0.0 and not running
+            starts = banned_until > 0 and not running
             duration = self._duration
             if seen is None:
                 # Only an address not yet tracked makes room. Making it for
@@ -388,8 +392,10 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
             # room is always the one that failed longest ago.
             clients.move_to_end(client)
         if starts:
-            ban_started(self._name, client, count, duration)
-        return banned_until > 0.0
+            ban_started(
+                self._name, client, count, duration / NANOSECONDS_PER_SECOND
+            )
+        return banned_until > 0
 
     def forget(
         self, client: Annotated[str, Doc("The address to clear.")]

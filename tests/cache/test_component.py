@@ -156,7 +156,7 @@ async def test_micro_cache_raises_when_ambiguous() -> None:
 
 
 def test_cache_accepts_redis_provider() -> None:
-    """`Cache(RedisProvider(...))` calls `provider.cache()` to build the adapter."""
+    """`Cache(RedisProvider(...))` calls `provider.cache_backend()` to build the adapter."""
     provider = RedisProvider("redis://localhost:6379/0")
     cache = Cache(provider)
     assert isinstance(cache.backend, RedisCacheAdapter)

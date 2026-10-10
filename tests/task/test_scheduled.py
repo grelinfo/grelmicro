@@ -2,6 +2,7 @@
 
 import asyncio
 from asyncio import sleep
+from datetime import timedelta
 
 import pytest
 from pytest_mock import MockFixture
@@ -43,7 +44,7 @@ def test_interval_task_with_lock_init() -> None:
     backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
-        seconds=1,
+        interval=1,
         function=test1,
         gate=TaskLock(backend=backend, lease_duration=5),
     )
@@ -57,7 +58,7 @@ def test_interval_task_with_lock_init_with_name() -> None:
     backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
-        seconds=1,
+        interval=1,
         function=test1,
         name="my-task",
         gate=TaskLock(backend=backend, lease_duration=5),
@@ -66,14 +67,14 @@ def test_interval_task_with_lock_init_with_name() -> None:
     assert task.name == "my-task"
 
 
-def test_interval_task_with_lock_init_invalid_seconds() -> None:
-    """Test IntervalTask with lock initialization with invalid seconds."""
+def test_interval_task_with_lock_zero_interval_refused() -> None:
+    """An interval of zero is refused before the lock is bound."""
     # Arrange
     backend = MemoryLockAdapter()
     # Act / Assert
-    with pytest.raises(ValueError, match="seconds must be greater than 0"):
+    with pytest.raises(ValueError, match="interval must be greater than zero"):
         IntervalTask(
-            seconds=0,
+            interval=0,
             function=test1,
             gate=TaskLock(backend=backend, lease_duration=5),
         )
@@ -86,7 +87,7 @@ def test_interval_task_with_lock_default_lease_duration() -> None:
         "test-leader", backend=MemoryLeaderElectionAdapter()
     )
     # Act - leader implies a claim, lease_duration defaults to interval * 2
-    task = IntervalTask(seconds=10, function=test1, gate=leader)
+    task = IntervalTask(interval=10, function=test1, gate=leader)
     # Assert
     assert task.name == "tests.task.samples:test1"
 
@@ -97,7 +98,7 @@ def test_interval_task_with_lock_custom_lease_duration() -> None:
     backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
-        seconds=10,
+        interval=10,
         function=test1,
         gate=TaskLock(
             backend=backend, lease_duration=100, min_hold_duration=10
@@ -114,10 +115,10 @@ def test_interval_task_with_min_hold_duration_validation() -> None:
     # Act / Assert
     with pytest.raises(
         ValueError,
-        match="min_hold_duration must be greater than or equal to seconds",
+        match="min_hold_duration must be greater than or equal to interval",
     ):
         IntervalTask(
-            seconds=10,
+            interval=10,
             function=test1,
             gate=TaskLock(backend=backend, lease_duration=5),
         )
@@ -139,12 +140,12 @@ async def test_interval_task_with_lock_and_resource_lock(
     """Test IntervalTask with Lock (resource sync) + distributed lock."""
     resource_lock = Lock(name="shared-resource", backend=backend)
     task = IntervalTask(
-        seconds=SECONDS,
+        interval=timedelta(seconds=SECONDS),
         function=notify,
         gate=TaskLock(
             backend=backend,
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
+            lease_duration=timedelta(seconds=SECONDS * 5),
+            min_hold_duration=timedelta(seconds=SECONDS),
         ),
         sync=resource_lock,
     )
@@ -160,7 +161,7 @@ def test_interval_task_custom_min_hold_duration() -> None:
     backend = MemoryLockAdapter()
     # Act - should not raise
     task = IntervalTask(
-        seconds=10,
+        interval=10,
         function=test1,
         gate=TaskLock(
             backend=backend, lease_duration=100, min_hold_duration=30
@@ -173,12 +174,12 @@ async def test_interval_task_with_lock_start(backend: LockBackend) -> None:
     """Test IntervalTask with lock start."""
     # Arrange
     task = IntervalTask(
-        seconds=SECONDS,
+        interval=timedelta(seconds=SECONDS),
         function=notify,
         gate=TaskLock(
             backend=backend,
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
+            lease_duration=timedelta(seconds=SECONDS * 5),
+            min_hold_duration=timedelta(seconds=SECONDS),
         ),
     )
     # Act
@@ -196,12 +197,12 @@ async def test_interval_task_with_lock_execution_error(
     """Test IntervalTask with lock execution error."""
     # Arrange
     task = IntervalTask(
-        seconds=SECONDS,
+        interval=timedelta(seconds=SECONDS),
         function=always_fail,
         gate=TaskLock(
             backend=backend,
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
+            lease_duration=timedelta(seconds=SECONDS * 5),
+            min_hold_duration=timedelta(seconds=SECONDS),
         ),
     )
     # Act
@@ -226,12 +227,12 @@ async def test_interval_task_with_lock_synchronization_error(
     """Test IntervalTask with lock synchronization error."""
     # Arrange
     task = IntervalTask(
-        seconds=SECONDS,
+        interval=timedelta(seconds=SECONDS),
         function=notify,
         gate=TaskLock(
             backend=backend,
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
+            lease_duration=timedelta(seconds=SECONDS * 5),
+            min_hold_duration=timedelta(seconds=SECONDS),
         ),
     )
     mocker.patch.object(
@@ -269,7 +270,7 @@ async def test_interval_task_with_lock_stop(
         side_effect=CustomBaseException,
     )
     task = IntervalTask(
-        seconds=1,
+        interval=1,
         function=test1,
         gate=TaskLock(backend=backend, lease_duration=5),
     )
@@ -304,7 +305,7 @@ async def test_interval_task_with_leader_executes(
         "test-leader", backend=leader_backend, worker="worker_1"
     )
     task = IntervalTask(
-        seconds=SECONDS,
+        interval=timedelta(seconds=SECONDS),
         function=samples.set_event_1,
         name="e2e_task",
         gate=leader,
@@ -336,7 +337,7 @@ async def test_interval_task_with_leader_skips_when_not_leader(
         "test-leader", backend=leader_backend, worker="worker_2"
     )
     task = IntervalTask(
-        seconds=SECONDS,
+        interval=timedelta(seconds=SECONDS),
         function=samples.set_event_1,
         name="e2e_task",
         gate=leader_2,

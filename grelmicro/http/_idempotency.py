@@ -12,6 +12,7 @@ import base64
 import hashlib
 import logging
 import re
+from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, replace
 from typing import (
     TYPE_CHECKING,
@@ -33,30 +34,24 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._discovery import load_integration
 from grelmicro._environment import Binding, label, unrecorded
 from grelmicro._guards import is_instance, type_name
+from grelmicro._key_checks import check_key_function
 from grelmicro._paths import (
     BARE_METHOD_MESSAGE,
     MethodNames,
     PathPatterns,
-    _is_mount,
-    _is_route,
-    _nested_routing_app,
+    _bound_router,
     _request_authority,
     _request_root_path,
     _request_scheme,
-    _route_methods,
     _RouteTopologyState,
-    _routing_app,
-    _same_routing_root,
     _scope_text,
-    _wrapped_app,
     as_patterns,
     compile_route,
-    declared_dependencies,
     route_path,
     selects,
-    walk_routes,
 )
 from grelmicro.cache.ttl import _CACHE_KEY
 from grelmicro.errors import (
@@ -64,7 +59,6 @@ from grelmicro.errors import (
     SettingsValidationError,
     _AmbientMissError,
 )
-from grelmicro.http._authentication import is_anonymous_declaration
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
     _IN_FLIGHT_RETRY_AFTER,
@@ -78,27 +72,37 @@ from grelmicro.http._kinds import (
     Occurrence,
     Unhandled,
 )
+from grelmicro.http._openapi import (
+    add_error_schema,
+    add_parameter,
+    error_format,
+    merge_response,
+    operations_of,
+)
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
-    IdempotencyKeyMakerError,
+    IdempotencyKeyFunctionError,
     IdempotencyWaitTimeoutError,
 )
+
+Scope = MutableMapping[str, Any]
+"""An ASGI connection scope."""
 
 if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
-        Callable,
         Collection,
-        MutableMapping,
+        Iterable,
         Sequence,
     )
+    from datetime import timedelta
     from types import TracebackType
 
     from grelmicro.cache import TTLCache
+    from grelmicro.http._routes import RouteDeclaration
     from grelmicro.types import BackendScope
 
-    Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
     Receive = Callable[[], Awaitable[Message]]
     Send = Callable[[Message], Awaitable[None]]
@@ -107,6 +111,13 @@ if TYPE_CHECKING:
 __all__ = ["IdempotencyMiddleware", "IdempotentRequests", "StoredResponse"]
 
 _logger = logging.getLogger(__name__)
+
+type RequestKeyFunction = Callable[[Scope, str], str]
+"""A function building the stored idempotency key for one request.
+
+It receives the ASGI scope and the client's idempotency key, and returns the
+whole stored key.
+"""
 
 
 _KEY_PATTERN = r"^[\x20-\x7e]+$"
@@ -209,121 +220,142 @@ _PRIVATE_REQUEST_HEADERS = frozenset({b"authorization", b"cookie"})
 
 
 class _GatedRoutes:
-    """Routes whose dependencies or authentication must run before replay."""
+    """Routes that run checks of their own before replay."""
 
-    __slots__ = (
-        "_apps",
-        "_authenticated",
-        "_routes",
-        "_topology",
-        "_wrapped",
-    )
+    __slots__ = ("_routes", "_sources", "_topology", "_wrapped")
 
     def __init__(self, app: Any = None) -> None:  # noqa: ANN401
         """Remember the wrapped app and defer route discovery to a request."""
-        self._wrapped = app
-        self._apps: tuple[Any, ...] = ()
-        self._authenticated: tuple[
-            tuple[str, re.Pattern[str], frozenset[str] | None], ...
-        ] = ()
+        self._wrapped: tuple[Any, ...] = () if app is None else (app,)
+        self._sources: tuple[Any, ...] = ()
         self._routes: tuple[
-            tuple[str, re.Pattern[str], frozenset[str]], ...
+            tuple[str, re.Pattern[str], frozenset[str] | None], ...
         ] = ()
         self._topology: tuple[_RouteTopologyState, ...] = ()
 
     def read(self, *apps: Any) -> None:  # noqa: ANN401
-        """Read dependency-bearing and authenticated routes from the apps."""
-        self._apps = apps
+        """Read the routes of `apps` that run checks of their own."""
+        self._sources = apps
         self._topology = tuple(_RouteTopologyState(app) for app in apps)
-        roots = [
-            root for app in apps if (root := _routing_app(app)) is not None
-        ]
-        authenticated = {
-            boundary for app in apps for boundary in _authentication_paths(app)
+        checked = {
+            (template, declaration.methods): None
+            for declaration in _declarations_of(apps)
+            if declaration.own_checks or declaration.checked_above
+            for template in _templates(declaration)
         }
-        fastapi_roots = [root for root in roots if _contains_fastapi(root)]
-        if not authenticated and not fastapi_roots:
-            self._authenticated = ()
-            self._routes = ()
-            return
-
-        protected: list[tuple[str, re.Pattern[str], frozenset[str] | None]] = []
-        for prefix, nested, methods in sorted(
-            authenticated,
-            key=lambda boundary: (
-                boundary[0],
-                boundary[1],
-                tuple(sorted(boundary[2] or ())),
-            ),
-        ):
-            exact = compile_route(prefix or "/")
-            protected.append((prefix or "/", exact, methods))
-            if nested:
-                template = (
-                    f"{prefix.rstrip('/')}/{{path:path}}"
-                    if prefix
-                    else "/{path:path}"
-                )
-                descendant = compile_route(template)
-                protected.append((template, descendant, methods))
-        self._authenticated = tuple(protected)
-
-        found: list[tuple[str, re.Pattern[str], frozenset[str]]] = []
-        for root in fastapi_roots:
-            for prefix, route, contexts in walk_routes(
-                root, unwrap_middleware=True
-            ):
-                template = f"{prefix}{route.path}"
-                compiled = compile_route(template)
-                methods = frozenset(
-                    method.upper()
-                    for method in (getattr(route, "methods", None) or ())
-                )
-                if _has_dependencies(route, contexts):
-                    found.append((template, compiled, methods))
-                leaf = _nested_routing_app(route)
-                if leaf is None:
-                    continue
-                nested_methods = _dependency_methods(
-                    leaf, frozenset({id(root)})
-                )
-                if nested_methods:
-                    # A Router used as a Route endpoint keeps the outer
-                    # route's exact match. Its inner paths cannot be safely
-                    # composed onto that path, so gate the exact outer route.
-                    found.append((template, compiled, nested_methods))
-        self._routes = tuple(found)
+        self._routes = tuple(
+            (path, _declared_pattern(path), methods)
+            for path, methods in checked
+        )
 
     def refresh(self, *apps: Any) -> None:  # noqa: ANN401
-        """Refresh the gate classification from compatible routing sources."""
-        sources = _unique_apps((self._wrapped, *apps))
+        """Read the routes again when the source or its routes changed.
+
+        The source is the wrapped app, or `apps` when nothing is wrapped.
+        """
+        sources = self._wrapped or tuple(app for app in apps if app is not None)
         if (
-            len(sources) != len(self._apps)
+            len(sources) != len(self._sources)
             or any(
                 app is not seen
-                for app, seen in zip(sources, self._apps, strict=True)
+                for app, seen in zip(sources, self._sources, strict=True)
             )
             or any(snapshot.changed() for snapshot in self._topology)
         ):
             self.read(*sources)
 
     def matches(self, scope: Scope) -> bool:
-        """Return whether authentication or a dependency guards the route."""
-        self.refresh(scope.get("app"))
-        return self.matches_route(scope["method"], route_path(scope))
+        """Return whether a check of the route's own runs before its handler."""
+        self.refresh()
+        return self._checked(scope["method"], route_path(scope))
 
     def matches_route(self, method: str, path: str) -> bool:
         """Return whether runtime replay is gated for this method and path."""
         if any(snapshot.changed() for snapshot in self._topology):
-            self.read(*self._apps)
+            self.read(*self._sources)
+        return self._checked(method, path)
+
+    def _checked(self, method: str, path: str) -> bool:
+        """Return whether a route running checks of its own answers this method and path."""
         return any(
             (methods is None or method in methods)
             and _gate_path_matches(template, regex, path)
-            for template, regex, methods in self._authenticated
-        ) or any(
-            method in methods and _gate_path_matches(template, regex, path)
             for template, regex, methods in self._routes
         )
+
+
+def _declarations_of(apps: tuple[Any, ...]) -> list[RouteDeclaration]:
+    """Return what the routes of each app declare, as its integration lists them.
+
+    Each app is looked through, wrapper by wrapper, to the first one its
+    integration lists the routes of. One no integration lists declares
+    nothing.
+    """
+    found: list[RouteDeclaration] = []
+    for source in apps:
+        seen: set[int] = set()
+        app = source
+        while app is not None and id(app) not in seen:
+            seen.add(id(app))
+            declarations = _listed(app)
+            if declarations is not None:
+                found.extend(declarations)
+                break
+            app = _bound_router(app) or getattr(app, "app", None)
+    return found
+
+
+def _listed(app: Any) -> list[RouteDeclaration] | None:  # noqa: ANN401
+    """Return what the routes of `app` declare, or `None` when nothing lists them.
+
+    An integration carrying `_lists_routes` lists only what it accepts.
+    One without it lists every object of its framework.
+    """
+    integration = load_integration(app)
+    listed = getattr(integration, "route_declarations", None)
+    if listed is None:
+        return None
+    accepts = getattr(integration, "_lists_routes", None)
+    if accepts is not None and not accepts(app):
+        return None
+    return list(listed(app))
+
+
+def _templates(declaration: RouteDeclaration) -> tuple[str, ...]:
+    """Return the templates a declaration answers.
+
+    One taking every method, such as a mount, answers the paths under it
+    too.
+    """
+    if declaration.methods is not None:
+        return (declaration.path,)
+    return (
+        declaration.path,
+        f"{declaration.path.rstrip('/')}/{{path:path}}",
+    )
+
+
+_PARAMETER = re.compile(r"\{[^{}:]+(:[^{}]+)?\}")
+"""A parameter in a route template, with its converter if it names one."""
+
+
+def _declared_pattern(template: str) -> re.Pattern[str]:
+    """Return the regex a route template matches a request path with.
+
+    Starlette's own when it is installed. Without it, a `path` parameter
+    matches every remaining segment and any other parameter one segment.
+    """
+    try:
+        return compile_route(template)
+    except ImportError:
+        parts: list[str] = []
+        last = 0
+        for found in _PARAMETER.finditer(template):
+            parts.append(re.escape(template[last : found.start()]))
+            parts.append(".*" if found.group(1) == ":path" else "[^/]+")
+            last = found.end()
+        parts.append(re.escape(template[last:]))
+        return re.compile(f"^{''.join(parts)}$")
 
 
 def _gate_path_matches(
@@ -339,52 +371,6 @@ def _gate_path_matches(
     return template == path or regex.match(path) is not None
 
 
-def _unique_apps(apps: tuple[Any, ...]) -> tuple[Any, ...]:
-    """Return sources from one routing root, preserving the wrapped source."""
-    found: list[Any] = []
-    for app in apps:
-        if app is None:
-            continue
-        if found and not any(_same_routing_root(app, seen) for seen in found):
-            continue
-        if not any(
-            app is seen or _same_routing_root(app, seen) for seen in found
-        ):
-            found.append(app)
-    return tuple(found)
-
-
-def _contains_fastapi(app: Any) -> bool:  # noqa: ANN401
-    """Return whether an application is FastAPI or mounts one."""
-    pending = [app]
-    seen: set[int] = set()
-    while pending:
-        current = _routing_app(pending.pop())
-        if current is None:
-            continue
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        if any(
-            klass.__module__.partition(".")[0] == "fastapi"
-            for klass in type(current).__mro__
-        ):
-            return True
-        if _is_mount(current):
-            pending.append(getattr(current, "app", None))
-        router = getattr(current, "router", None)
-        for route in getattr(router or current, "routes", ()) or ():
-            if any(
-                klass.__module__.partition(".")[0] == "fastapi"
-                for klass in type(route).__mro__
-            ):
-                return True
-            nested = getattr(route, "app", None)
-            if nested is not None:
-                pending.append(nested)
-    return False
-
-
 def _authenticated_scope(scope: Scope) -> bool:
     """Return whether authentication already established a caller identity.
 
@@ -396,168 +382,6 @@ def _authenticated_scope(scope: Scope) -> bool:
         return True
     auth = scope.get("auth")
     return bool(getattr(auth, "scopes", ()))
-
-
-def _is_authentication_middleware(value: Any) -> bool:  # noqa: ANN401
-    """Return whether a class or instance is Starlette authentication."""
-    classes = value.__mro__ if isinstance(value, type) else type(value).__mro__
-    return any(
-        klass.__module__ == "starlette.middleware.authentication"
-        and klass.__name__ == "AuthenticationMiddleware"
-        for klass in classes
-    )
-
-
-def _authentication_here(app: Any) -> bool:  # noqa: ANN401
-    """Return whether this application boundary authenticates requests."""
-    if _authentication_chain(app):
-        return True
-    routed = _routing_app(app)
-    if routed is None:
-        return False
-    if any(
-        _is_authentication_middleware(getattr(middleware, "cls", middleware))
-        for middleware in getattr(routed, "user_middleware", ())
-    ):
-        return True
-    return _authentication_chain(getattr(routed, "middleware_stack", None))
-
-
-def _authentication_chain(app: Any) -> bool:  # noqa: ANN401
-    """Return whether an instantiated ASGI chain contains authentication."""
-    seen: set[int] = set()
-    while app is not None and id(app) not in seen:
-        seen.add(id(app))
-        if _is_authentication_middleware(app):
-            return True
-        app = _wrapped_app(app)
-    return False
-
-
-def _authentication_paths(  # noqa: C901, PLR0915
-    app: Any,  # noqa: ANN401
-) -> set[tuple[str, bool, frozenset[str] | None]]:
-    """Return exact or nested paths protected by Starlette authentication."""
-    found: set[tuple[str, bool, frozenset[str] | None]] = set()
-
-    def visit(  # noqa: C901, PLR0912
-        current: Any,  # noqa: ANN401
-        prefix: str,
-        ancestors: frozenset[int],
-        target: set[tuple[str, bool, frozenset[str] | None]],
-    ) -> None:
-        routed = _routing_app(current)
-        if routed is None or id(routed) in ancestors:
-            return
-        if _authentication_here(current):
-            if _is_route(routed):
-                target.add(
-                    (
-                        f"{prefix}{getattr(routed, 'path', '')}",
-                        False,
-                        _route_methods(routed),
-                    )
-                )
-            else:
-                target.add((prefix, True, None))
-            return
-        nested_ancestors = ancestors | {id(routed)}
-        if _is_mount(routed):
-            path = f"{prefix}{getattr(routed, 'path', '')}"
-            nested = getattr(routed, "app", None)
-            if _authentication_here(nested):
-                target.add((path, True, None))
-            else:
-                visit(nested, path, nested_ancestors, target)
-            return
-        if _is_route(routed):
-            path = f"{prefix}{getattr(routed, 'path', '')}"
-            nested = getattr(routed, "app", None)
-            if _authentication_here(nested):
-                target.add((path, False, _route_methods(routed)))
-                return
-            leaf = _nested_routing_app(routed)
-            if leaf is None:
-                return
-            direct_found: set[tuple[str, bool, frozenset[str] | None]] = set()
-            visit(leaf, "", nested_ancestors, direct_found)
-            if direct_found:
-                target.add((path, False, _route_methods(routed)))
-            return
-        router = getattr(routed, "router", None)
-        for route in getattr(router or routed, "routes", ()) or ():
-            included = getattr(route, "original_router", None)
-            if included is not None:
-                context = getattr(route, "include_context", None)
-                visit(
-                    included,
-                    f"{prefix}{getattr(context, 'prefix', '')}",
-                    nested_ancestors,
-                    target,
-                )
-                continue
-            path = f"{prefix}{getattr(route, 'path', '')}"
-            nested = getattr(route, "app", None)
-            if _authentication_here(nested):
-                nested_boundary = getattr(route, "routes", None) is not None
-                target.add(
-                    (
-                        path,
-                        nested_boundary,
-                        None if nested_boundary else _route_methods(route),
-                    )
-                )
-                continue
-            if getattr(route, "routes", None) is not None:
-                visit(nested, path, nested_ancestors, target)
-                continue
-            leaf = _nested_routing_app(route)
-            if leaf is None:
-                continue
-            nested_found: set[tuple[str, bool, frozenset[str] | None]] = set()
-            visit(leaf, "", nested_ancestors, nested_found)
-            if nested_found:
-                # A leaf router receives the unchanged outer scope, unlike
-                # a Mount. Its protected inner paths therefore collapse to
-                # the exact path matched by the outer Route.
-                target.add((path, False, _route_methods(route)))
-
-    visit(app, "", frozenset(), found)
-    return found
-
-
-def _has_dependencies(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: ANN401
-    """Return whether FastAPI runs dependencies before this route.
-
-    `Anonymous()` computes nothing, so a route declaring only that gates no
-    replay.
-    """
-    return any(
-        not is_anonymous_declaration(call)
-        for call in declared_dependencies(route, contexts)
-    )
-
-
-def _dependency_methods(
-    app: Any,  # noqa: ANN401
-    ancestors: frozenset[int] = frozenset(),
-) -> frozenset[str]:
-    """Return methods gated by dependencies below a leaf routing endpoint."""
-    routed = _routing_app(app)
-    if routed is None or id(routed) in ancestors:
-        return frozenset()
-    nested_ancestors = ancestors | {id(routed)}
-    found: set[str] = set()
-    for _prefix, route, contexts in walk_routes(routed, unwrap_middleware=True):
-        if _has_dependencies(route, contexts):
-            found.update(
-                method.upper()
-                for method in (getattr(route, "methods", None) or ())
-            )
-        nested = _nested_routing_app(route)
-        if nested is not None:
-            found.update(_dependency_methods(nested, nested_ancestors))
-    return frozenset(found)
 
 
 def _field_name(value: str, argument: str, example: str) -> str:
@@ -700,7 +524,7 @@ class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
         PositiveInt,
         Doc("Largest body held in memory, in bytes."),
     ] = 1024 * 1024
-    wait_timeout: Annotated[
+    max_wait: Annotated[
         NonNegativeFloat,
         Doc(
             "Seconds a duplicate waits for an execution already in "
@@ -793,16 +617,16 @@ class IdempotencyMiddleware:
     A duplicate that arrives while the first execution is in flight waits
     for it and replays its response. The wait folds across replicas when
     a `Coordination` lock backend is configured, and in-process
-    otherwise. It is bounded by `wait_timeout`.
+    otherwise. It is bounded by `max_wait`.
 
     Every response the app returns is stored, errors included. A handler
     that raises an unhandled exception stores nothing, so the framework's
     `500` never replays.
 
-    Without a custom `key_maker`, a request carrying `Authorization` or
+    Without a custom `key=` function, a request carrying `Authorization` or
     `Cookie` bypasses idempotency and runs the app. Its response cannot be
     stored under a key shared across callers, and a replay cannot skip
-    authentication inside the app. Configure an identity-aware `key_maker`
+    authentication inside the app. Configure an identity-aware `key=` function
     to make authenticated requests idempotent.
 
     Four kinds of response are not stored, and each one lets a retry re-run
@@ -855,8 +679,8 @@ class IdempotencyMiddleware:
                 "passes through."
             ),
         ] = ("POST",),
-        key_maker: Annotated[
-            Callable[[Scope, str], str] | None,
+        key: Annotated[
+            RequestKeyFunction | None,
             Doc(
                 """
                 Build the stored key from the ASGI scope and the client key.
@@ -913,7 +737,7 @@ class IdempotencyMiddleware:
                 "with `413`."
             ),
         ] = 1024 * 1024,
-        wait_timeout: Annotated[
+        max_wait: Annotated[
             float,
             Doc(
                 """
@@ -965,15 +789,15 @@ class IdempotencyMiddleware:
         """Initialize the middleware with the idempotency store and policy.
 
         Raises:
-            TypeError: If `methods` is given as a string. `tuple("POST")`
-                is four one-letter methods, none of which a request
-                carries, so it would meter nothing at all.
+            TypeError: If `methods` is a string, or `key` is not a
+                function.
         """
         if isinstance(methods, str):
             raise TypeError(BARE_METHOD_MESSAGE)
+        check_key_function(key)
         self.app = app
         self._idempotency = idempotency
-        self._key_maker = key_maker
+        self._key_function = key
         self._skip = skip
         self._gated_routes = _GatedRoutes(app)
         self._replay_collision_logged = False
@@ -992,7 +816,7 @@ class IdempotencyMiddleware:
                         require_key=require_key,
                         fingerprint_body=fingerprint_body,
                         max_body_size=max_body_size,
-                        wait_timeout=wait_timeout,
+                        max_wait=max_wait,
                         include=as_patterns(include, name="include"),
                         exclude=as_patterns(exclude, name="exclude"),
                         reused_status=reused_status,
@@ -1064,7 +888,7 @@ class IdempotencyMiddleware:
 
     def _unscoped_private(self, scope: Scope) -> bool:
         """Return whether the default key cannot safely replay this request."""
-        return self._key_maker is None and (
+        return self._key_function is None and (
             _has_private_request_header(scope["headers"])
             or _authenticated_scope(scope)
             or self._gated_routes.matches(scope)
@@ -1118,7 +942,7 @@ class IdempotencyMiddleware:
         block = self._idempotency(
             storage_key,
             fingerprint=fingerprint,
-            wait_timeout=config.wait_timeout,
+            max_wait=config.max_wait,
         )
         try:
             operation = await block.__aenter__()
@@ -1203,9 +1027,9 @@ class IdempotencyMiddleware:
         )
 
     def _storage_key(self, scope: Scope, key: str) -> str:
-        """Build the stored key, scoped by route unless `key_maker` says otherwise."""
-        if self._key_maker is not None:
-            return _checked_key(self._key_maker(scope, key), key)
+        """Build the stored key, scoped by route unless `key=` says otherwise."""
+        if self._key_function is not None:
+            return _checked_key(self._key_function(scope, key), key)
         return _default_storage_key(scope, key)
 
 
@@ -1266,40 +1090,39 @@ def _checked_key(built: object, client_key: str) -> str:
     boundary quietly removed, which is worth refusing over.
 
     Raises:
-        IdempotencyKeyMakerError: If the key is not a non-empty string, drops
+        IdempotencyKeyFunctionError: If the key is not a non-empty string, drops
             the client's key, or carries an unresolved `None`.
     """
     if not is_instance(built, str):
-        # Named by its type, never printed: what a `key_maker` returns is
+        # Named by its type, never printed: what a `key=` function returns is
         # built from caller data, and reading its `__repr__` runs caller
         # code that a detached object raises from.
         msg = (
-            f"key_maker returned a {type_name(built)}, expected a "
-            f"non-empty string."
+            f"key= returned a {type_name(built)}, expected a non-empty string."
         )
-        raise IdempotencyKeyMakerError(msg)
+        raise IdempotencyKeyFunctionError(msg)
     # An exact `str`, whatever subclass it arrived as: a subclass runs
     # caller code again from `__str__` the moment it is interpolated.
     built = str.__str__(cast("str", built))
     if not built:
-        msg = "key_maker returned an empty string, expected a non-empty key."
-        raise IdempotencyKeyMakerError(msg)
+        msg = "key= returned an empty string, expected a non-empty key."
+        raise IdempotencyKeyFunctionError(msg)
     if client_key not in built:
         msg = (
-            f"key_maker returned {built!r}, which drops the client's "
-            f"idempotency key. Every request to this route would then share "
-            f"one entry. Include the key it was given."
+            "key= returned a key that drops the client's idempotency key. "
+            "Every request to this route would then share one entry. "
+            "Include the key it was given."
         )
-        raise IdempotencyKeyMakerError(msg)
+        raise IdempotencyKeyFunctionError(msg)
     if _UNRESOLVED_TOKEN.search(built):
         msg = (
-            f"key_maker returned {built!r}, which carries an unresolved None. "
-            f"Something the key reads was not set yet, so that component is "
-            f"the same for every caller and they share one entry. A middleware "
-            f"the key depends on must run outside IdempotencyMiddleware, which "
-            f"means adding it after."
+            "key= returned a key that carries an unresolved None. Something "
+            "the key reads was not set yet, so that component is the same "
+            "for every caller and they share one entry. A middleware the key "
+            "depends on must run outside IdempotencyMiddleware, which means "
+            "adding it after."
         )
-        raise IdempotencyKeyMakerError(msg)
+        raise IdempotencyKeyFunctionError(msg)
     return built
 
 
@@ -1629,11 +1452,12 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         self,
         *,
         ttl: Annotated[
-            float | None,
+            int | timedelta | None,
             Doc(
-                "Seconds a stored response replays for. Defaults to a "
-                "day. Held by the `Idempotency` this rides, which is named "
-                "after the namespace, so it is tuned live under "
+                "How long a stored response replays for, in whole seconds "
+                "or as a `timedelta`. Defaults to a day. Held by the "
+                "`Idempotency` this rides, which is named after the "
+                "namespace, so it is tuned live under "
                 "`GREL_IDEMPOTENCY_HTTP_TTL`."
             ),
         ] = None,
@@ -1680,8 +1504,8 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
                 "passes through."
             ),
         ] = None,
-        key_maker: Annotated[
-            Callable[[Scope, str], str] | None,
+        key: Annotated[
+            RequestKeyFunction | None,
             Doc(
                 "Build the stored key from the ASGI scope and the client "
                 "key. **Set this in any multi-tenant app**, folding in the "
@@ -1714,7 +1538,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             int | None,
             Doc("Largest body held in memory, in bytes."),
         ] = None,
-        wait_timeout: Annotated[
+        max_wait: Annotated[
             float | None,
             Doc(
                 "Seconds a duplicate waits for an execution already in "
@@ -1748,8 +1572,8 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             bool,
             Doc(
                 "Describe both headers and the responses the middleware "
-                "returns in the OpenAPI schema. Only FastAPI builds one. "
-                "Read once when the schema is built, so it is not live."
+                "returns in the OpenAPI schema. Read once when the schema "
+                "is built, so it is not live."
             ),
         ] = True,
         name: Annotated[
@@ -1785,7 +1609,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
                 "require_key": require_key,
                 "fingerprint_body": fingerprint_body,
                 "max_body_size": max_body_size,
-                "wait_timeout": wait_timeout,
+                "max_wait": max_wait,
                 "include": include,
                 "exclude": exclude,
                 "reused_status": reused_status,
@@ -1798,14 +1622,18 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         # its own name.
         with unrecorded():
             idempotency = Idempotency(
-                namespace, ttl=ttl, cache=cache, requires=requires
+                namespace,
+                ttl=ttl,
+                cache=cache,
+                requires=requires,
+                env_load=env_load,
             )
         self._setup(
             config,
             name=name,
             openapi=openapi,
             idempotency=idempotency,
-            key_maker=key_maker,
+            key_function=key,
             skip=skip,
         )
         self._track_reconfigure(resolved_env_prefix)
@@ -1827,8 +1655,11 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             Doc("Namespace the stored keys sit under."),
         ] = "http",
         ttl: Annotated[
-            float | None,
-            Doc("Seconds a stored response replays for."),
+            int | timedelta | None,
+            Doc(
+                "How long a stored response replays for, in whole seconds "
+                "or as a `timedelta`."
+            ),
         ] = None,
         cache: Annotated[
             TTLCache[Any] | None,
@@ -1838,8 +1669,8 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             BackendScope | None,
             Doc("The smallest scope the cache backend must reach."),
         ] = None,
-        key_maker: Annotated[
-            Callable[[Scope, str], str] | None,
+        key: Annotated[
+            RequestKeyFunction | None,
             Doc("Build the stored key from the scope and the client key."),
         ] = None,
         skip: Annotated[
@@ -1855,21 +1686,24 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
 
         The one declarative door. What you pass is what runs: no
         environment variable is read, and the instance is not registered
-        for live reload. The store, the key maker and the skip predicate
-        stay here rather than in the config, because they are objects and
-        callables rather than values.
+        for live reload. The store, the key function and the skip predicate
+        are passed here, next to the config.
         """
         instance = cls.__new__(cls)
         with unrecorded():
             idempotency = Idempotency(
-                namespace, ttl=ttl, cache=cache, requires=requires
+                namespace,
+                ttl=ttl,
+                cache=cache,
+                requires=requires,
+                env_load=False,
             )
         instance._setup(  # noqa: SLF001
             config,
             name=name,
             openapi=openapi,
             idempotency=idempotency,
-            key_maker=key_maker,
+            key_function=key,
             skip=skip,
         )
         return instance
@@ -1881,14 +1715,15 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         name: str,
         openapi: bool,
         idempotency: Idempotency[Any],
-        key_maker: Callable[[Scope, str], str] | None,
+        key_function: RequestKeyFunction | None,
         skip: Callable[[StoredResponse], bool] | None,
     ) -> None:
         """Hold the configuration and the cell the middleware reads."""
         self._name = name
         self._openapi = openapi
         self._idempotency = idempotency
-        self._key_maker = key_maker
+        check_key_function(key_function)
+        self._key_function = key_function
         self._skip = skip
         self._gated_routes = _GatedRoutes()
         self._config = config
@@ -1900,7 +1735,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         app: Annotated[Any, Doc("The application whose routes are reported.")],  # noqa: ANN401
     ) -> None:
         """Refresh the same route gates the runtime middleware enforces."""
-        if self._key_maker is None:
+        if self._key_function is None:
             self._gated_routes.refresh(app)
 
     def route_is_gated(self, method: str, path: str) -> bool:
@@ -1920,14 +1755,14 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
 
     @property
     def requires(self) -> BackendScope:
-        """The smallest scope the cache backend must reach."""
+        """The smallest scope the cache and lock backends must reach."""
         return self._idempotency.requires
 
-    def _scope_binding(self) -> Binding:
-        """Describe the backend responses are stored through, for the check."""
-        return replace(
-            self._idempotency._scope_binding(),  # noqa: SLF001
-            label=label(self),
+    def _scope_bindings(self) -> tuple[Binding, Binding]:
+        """Describe the store and the lock responses go through, for the check."""
+        store, lock = self._idempotency._scope_bindings()  # noqa: SLF001
+        return replace(store, label=label(self)), replace(
+            lock, label=label(self)
         )
 
     @property
@@ -1950,7 +1785,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         """
         return IdempotencyMiddleware, {
             "idempotency": self._idempotency,
-            "key_maker": self._key_maker,
+            "key": self._key_function,
             "skip": self._skip,
             "live": self._live,
         }
@@ -1964,22 +1799,42 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         """
         return (IdempotencyConflictError, IdempotencyWaitTimeoutError)
 
-    def document_openapi(
+    def _document_openapi(
         self,
-        app: Annotated[Any, Doc("The FastAPI application to describe.")],  # noqa: ANN401
-    ) -> None:
-        """Describe the middleware in the app's OpenAPI schema.
+        schema: Annotated[
+            dict[str, Any],
+            Doc("The OpenAPI schema to describe the component in."),
+        ],
+        *,
+        routes: Annotated[  # noqa: ARG002
+            Iterable[RouteDeclaration],
+            Doc("The app's route declarations. This component reads none."),
+        ] = (),
+        errors: Annotated[
+            ErrorResponses | None,
+            Doc(
+                "The registered format refusals are answered in. `None` "
+                "publishes RFC 9457 problem details."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Describe both headers and the middleware's responses, and return the schema.
 
-        Called by the FastAPI integration after the middleware is added.
-        A framework that builds no schema never calls it.
+        Every operation the middleware covers, by method and by `include`
+        and `exclude`, gains the key header parameter, the replay header on
+        its responses, and the refusals the middleware answers. An
+        operation that already declares the key header keeps its own
+        declaration, and a `422` the framework generated keeps its schema
+        and gains the reuse case in its description. The schema is edited
+        in place, and a second call changes nothing. With `openapi=False`
+        it is returned untouched.
+
+        `micro.install(app)` calls it when FastAPI or Litestar builds the
+        schema.
         """
-        if not self._openapi:
-            return
-        from grelmicro.integrations.fastapi import (  # noqa: PLC0415
-            document_idempotency,
-        )
-
-        document_idempotency(app, idempotency=self.idempotency)
+        if self._openapi:
+            describe_idempotency(schema, self._live.state.config, errors)
+        return schema
 
     async def __aenter__(self) -> Self:
         """Open the component.
@@ -1998,3 +1853,95 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
     ) -> bool | None:
         """Close the component. Nothing to close."""
         return None
+
+
+def describe_idempotency(
+    schema: dict[str, Any],
+    config: IdempotentRequestsConfig,
+    errors: ErrorResponses | None,
+) -> None:
+    """Add the key header and the middleware's responses to covered operations."""
+    media_type, model = error_format(errors)
+    methods = {method.lower() for method in config.methods}
+    header = config.key_header
+    parameter = {
+        "name": header,
+        "in": "header",
+        "required": config.require_key,
+        "schema": {
+            "type": "string",
+            "maxLength": _MAX_KEY_LENGTH,
+            "pattern": _KEY_PATTERN,
+        },
+        "description": (
+            "Key that makes this request safe to retry. A repeat within the "
+            "replay window returns the first response instead of running the "
+            f"operation again. Up to {_MAX_KEY_LENGTH} printable ASCII "
+            f"characters, such as a UUID."
+        ),
+    }
+    responses = {
+        "400": f"`{header}` is missing or longer than {_MAX_KEY_LENGTH} characters."
+        if config.require_key
+        else f"`{header}` is longer than {_MAX_KEY_LENGTH} characters.",
+        "409": (
+            f"A request with this `{header}` is still in flight. Retry after "
+            f"the delay in `Retry-After`."
+        ),
+    }
+    if config.fingerprint_body:
+        responses["413"] = "Request body too large to fingerprint."
+        reused = str(config.reused_status)
+        description = (
+            f"This `{header}` was already used with a different request "
+            f"payload."
+        )
+        # A service answering the reuse case with `400` shares the status
+        # with the missing-key case, so both descriptions have to survive.
+        responses[reused] = (
+            f"{responses[reused]} {description}"
+            if reused in responses
+            else description
+        )
+    covered = [
+        (path_item, operation)
+        # The patterns select the same path here as on the wire, because the
+        # middleware matches them against the route rather than the prefix a
+        # mount or a proxy adds.
+        for path, path_item, operation, _method in operations_of(
+            schema, methods
+        )
+        if selects(path, include=config.include, exclude=config.exclude)
+    ]
+    if not covered:
+        return
+    ref = add_error_schema(schema, model)
+    for path_item, operation in covered:
+        add_parameter(operation, path_item, parameter)
+        for status, text in responses.items():
+            merge_response(operation, status, text, ref, media_type)
+        _add_replay_header(operation, config.replay_header)
+
+
+def _add_replay_header(operation: dict[str, Any], name: str) -> None:
+    """Describe the replay marker on every response of an operation.
+
+    Every status the app answers is stored and replayed, errors included,
+    and which statuses those are is decided at runtime rather than by the
+    schema. The marker is published as a header that may appear. A
+    response that declares the header itself, under any casing, keeps its
+    own.
+    """
+    lowered = name.lower()
+    for response in operation.get("responses", {}).values():
+        headers = response.setdefault("headers", {})
+        if any(declared.lower() == lowered for declared in headers):
+            continue
+        headers[name] = {
+            "schema": {"type": "string", "enum": ["true"]},
+            "description": (
+                "Sent when this response replays an earlier request that "
+                "carried the same idempotency key. Absent when the "
+                "operation ran."
+            ),
+        }

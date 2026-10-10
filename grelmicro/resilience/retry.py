@@ -7,7 +7,6 @@ import functools
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass
-from importlib import import_module
 from logging import getLogger
 from typing import (
     TYPE_CHECKING,
@@ -28,7 +27,6 @@ from pydantic import (
     Field,
     PositiveFloat,
     PositiveInt,
-    field_validator,
 )
 from typing_extensions import Doc
 
@@ -36,23 +34,16 @@ from grelmicro._async import is_async_callable
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
-    parse_csv_or_json,
     resolve_config,
-)
-from grelmicro._guards import (
-    is_class,
-    is_instance,
-    is_subclass,
-    items_of,
-    type_name,
 )
 from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.metrics import _emit
-from grelmicro.resilience._match import Match, Matcher
+from grelmicro.resilience._match import Matcher
 from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience._retry_strategy import build_retry_strategy
+from grelmicro.resilience._when import OutcomeFilter, WhenInput
 from grelmicro.resilience.backoffs import (
     ConstantBackoff,
     ExponentialBackoff,
@@ -71,78 +62,8 @@ logger = getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-WhenInput = (
-    Match
-    | type[Exception]
-    | tuple[type[Exception], ...]
-    | Callable[[Exception], bool]
-)
-"""User-facing shape accepted by ``when=``.
 
-A [`Match`][grelmicro.resilience.Match] instance, or one of the
-shorthand forms a Match would build for you: a single exception
-class, a tuple of classes, or a callable predicate on the
-exception. Bare shapes are coerced to ``Match.exception(...)``.
-"""
-
-
-def _coerce_to_match(value: Any) -> Match:  # noqa: ANN401
-    """Coerce a non-Match shorthand into a ``Match`` instance.
-
-    The validator on ``RetryConfig.when`` short-circuits Match
-    instances before calling this helper, so the input here is one
-    of the shorthand forms (class, tuple, callable, FQN env list).
-    """
-    if is_class(value) and is_subclass(value, Exception):
-        return Match.exception(value)
-    if is_instance(value, tuple):
-        items = items_of(value)
-        if items is not None and all(
-            is_class(item) and is_subclass(item, Exception) for item in items
-        ):
-            return Match.exception(*items)
-    if callable(value):
-        return Match.exception(value)
-    msg = (
-        "when= must be a Match, an Exception class, a tuple of "
-        f"Exception classes, or a callable. Got {type_name(value)}"
-    )
-    # `ValueError`, not `TypeError`: pydantic converts only `ValueError` and
-    # `AssertionError`, so a `TypeError` escaped every documented `except`.
-    raise ValueError(msg)
-
-
-def _resolve_fqn(fqn: str) -> type[Exception]:
-    """Resolve a fully-qualified name to an Exception class."""
-    module_path, _, name = fqn.rpartition(".")
-    if not module_path:
-        msg = (
-            "when= env entry must be a fully-qualified name, "
-            "such as 'httpx.HTTPError'"
-        )
-        raise ValueError(msg)
-    try:
-        module = import_module(module_path)
-    except ModuleNotFoundError as exc:
-        msg = "when= env entry names a module that cannot be imported"
-        raise ValueError(msg) from exc
-    try:
-        cls = getattr(module, name)
-    except AttributeError as exc:
-        msg = "when= env entry names an attribute its module does not define"
-        raise ValueError(msg) from exc
-    if not (is_class(cls) and is_subclass(cls, Exception)):
-        # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
-        # and `AssertionError` into a `ValidationError`, so a `TypeError` here
-        # escaped `except SettingsValidationError` and `except ValueError` both.
-        msg = "when= env entry does not name an Exception subclass"
-        raise ValueError(msg)
-    return cls
-
-
-class RetryConfig(
-    BaseModel, frozen=True, extra="forbid", arbitrary_types_allowed=True
-):
+class RetryConfig(BaseModel, frozen=True, extra="forbid"):
     """Retry policy configuration.
 
     Holds the top-level retry fields plus a discriminated backoff
@@ -172,7 +93,7 @@ class RetryConfig(
     ] = None
 
     when: Annotated[
-        Match,
+        OutcomeFilter,
         Doc(
             "Outcome filter that engages the retry. Pass a "
             "[`Match`][grelmicro.resilience.Match] (e.g. "
@@ -196,44 +117,6 @@ class RetryConfig(
             "Default: exponential with full jitter."
         ),
     ]
-
-    @field_validator("when", mode="before")
-    @classmethod
-    def _coerce_when(cls, value: Any) -> Any:  # noqa: ANN401
-        """Coerce shorthand shapes (and the env string) to a ``Match``.
-
-        Accepts a ``Match`` directly, an exception class, a tuple of
-        classes, a callable predicate on the exception, or a
-        CSV/JSON env string of FQNs (e.g. ``"httpx.HTTPError"``).
-
-        Every shape test goes through the same total helpers the matcher
-        uses. `isinstance` reads `__class__`, which a lazy proxy raises
-        from, and a validator runs where an arbitrary error escapes the
-        conversion pydantic performs for `ValueError` alone.
-        """
-        if is_instance(value, Match):
-            return value
-        # Env path: a CSV or JSON string of FQNs.
-        if is_instance(value, str):
-            value = parse_csv_or_json(value)
-        # List/tuple of items (FQN strings or resolved classes).
-        items = items_of(value) if is_instance(value, list | tuple) else None
-        if items is not None and not (
-            is_instance(value, tuple)
-            and all(
-                is_class(item) and is_subclass(item, Exception)
-                for item in items
-            )
-        ):
-            resolved: tuple[type[Exception], ...] = tuple(
-                _resolve_fqn(item) if is_instance(item, str) else item
-                for item in items
-            )
-            if not resolved:
-                msg = "when= is empty, name at least one exception class"
-                raise ValueError(msg)
-            return Match.exception(*resolved)
-        return _coerce_to_match(value)
 
 
 @dataclass(frozen=True, slots=True)

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Self
 
 from pydantic import ValidationError
 
+from grelmicro._duration import SECOND
 from grelmicro.metrics import _emit
 from grelmicro.outbox._control import Cancel, Retry
 from grelmicro.outbox._otel import consumer_span
@@ -73,14 +74,11 @@ class Relay:
         self._registry = registry
         self._config = config
         self._shutdown_timeout = shutdown_timeout
-        # A literal False deletes delivered rows on success. True or a
-        # retention timedelta keeps them (the janitor trims the timedelta).
-        self._keep = config.keep_delivered is not False
-        self._retention_seconds = (
-            config.keep_delivered.total_seconds()
-            if isinstance(config.keep_delivered, timedelta)
-            else None
-        )
+        # Zero deletes delivered rows on success. None keeps them for good,
+        # and a window keeps them until the janitor purges them.
+        keep = config.keep_delivered
+        self._keep = keep != timedelta(0)
+        self._retention = None if keep is None or keep == timedelta(0) else keep
         self._stop = asyncio.Event()
         self._slot_freed = asyncio.Event()
         self._inflight: set[asyncio.Task[None]] = set()
@@ -94,9 +92,9 @@ class Relay:
         self._loop_task.add_done_callback(
             partial(_report_task_crash, what="relay loop")
         )
-        if self._retention_seconds is not None:
+        if self._retention is not None:
             self._purge_task = asyncio.create_task(
-                self._purge_loop(self._retention_seconds), name="outbox-purge"
+                self._purge_loop(self._retention), name="outbox-purge"
             )
             self._purge_task.add_done_callback(
                 partial(_report_task_crash, what="purge loop")
@@ -165,18 +163,18 @@ class Relay:
             for record in claimed:
                 self._dispatch(record)
 
-    async def _purge_loop(self, retention: float) -> None:
+    async def _purge_loop(self, retention: timedelta) -> None:
         """Purge delivered rows past the retention window on an interval.
 
-        Runs only when `keep_delivered` is a timedelta. Dead rows are never
+        Runs only when `keep_delivered` is a window. Dead rows are never
         touched, since a dead-letter is a failure to inspect and redrive.
         The delete is idempotent, so every replica running it is safe.
         """
-        interval = max(60.0, min(retention / 10, 3600.0))
+        interval = max(60.0, min(retention / SECOND / 10, 3600.0))
         while not self._stop.is_set():
             try:
                 removed = await self._backend.purge(
-                    before_seconds=retention, states=("delivered",)
+                    older_than=retention, states=("delivered",)
                 )
             except Exception:
                 logger.exception("Outbox purge failed, backing off")

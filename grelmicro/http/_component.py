@@ -369,8 +369,8 @@ class ErrorResponses:
     def model(self) -> type[BaseModel]:
         """Return the body model, for publishing the shape in OpenAPI.
 
-        `document_idempotency(app)` reads it, so a schema describes the
-        format the app actually answers in rather than assuming one.
+        Each registered component reads it when the OpenAPI schema is
+        built, so the schema describes the format the app answers in.
         """
         return self._model
 

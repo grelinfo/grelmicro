@@ -12,7 +12,6 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
-from starlette.applications import Starlette
 
 from grelmicro import Grelmicro
 from grelmicro._paths import route_path, selects
@@ -30,7 +29,6 @@ from grelmicro.http._conditional import _Preconditions
 from grelmicro.integrations.fastapi import (
     Conditional,
     ConditionalRequired,
-    document_conditional_requests,
 )
 
 if TYPE_CHECKING:
@@ -1137,23 +1135,6 @@ def test_the_documented_refusal_follows_the_registered_format() -> None:
     assert responses["412"]["content"]["application/json"]["schema"][
         "$ref"
     ].endswith("TMFError")
-
-
-def test_documenting_needs_the_middleware() -> None:
-    """Nothing to describe without it, and saying so beats a silent no-op."""
-    # Arrange
-    app = FastAPI()
-
-    # Act / Assert
-    with pytest.raises(TypeError, match="no ConditionalRequestsMiddleware"):
-        document_conditional_requests(app)
-
-
-def test_documenting_needs_a_fastapi_app() -> None:
-    """Only FastAPI builds an OpenAPI schema to annotate."""
-    # Act / Assert
-    with pytest.raises(TypeError, match="needs a FastAPI app"):
-        document_conditional_requests(Starlette())  # ty: ignore[invalid-argument-type]
 
 
 def test_an_app_with_nothing_to_document_is_left_alone() -> None:

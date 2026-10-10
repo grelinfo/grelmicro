@@ -388,7 +388,7 @@ class PostgresProvider(Provider):
             raise OutOfContextError(self, "client")
         return self._pool
 
-    def lock(self, **kwargs: Any) -> PostgresLockAdapter:  # noqa: ANN401
+    def lock_backend(self, **kwargs: Any) -> PostgresLockAdapter:  # noqa: ANN401
         """Build a `PostgresLockAdapter` bound to this provider."""
         from grelmicro.coordination.postgres import (  # noqa: PLC0415
             PostgresLockAdapter,
@@ -396,7 +396,7 @@ class PostgresProvider(Provider):
 
         return PostgresLockAdapter(provider=self, **kwargs)
 
-    def readwritelock(
+    def readwritelock_backend(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> PostgresReadWriteLockAdapter:
@@ -407,7 +407,7 @@ class PostgresProvider(Provider):
 
         return PostgresReadWriteLockAdapter(provider=self, **kwargs)
 
-    def leaderelection(
+    def leaderelection_backend(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> PostgresLeaderElectionAdapter:
@@ -418,7 +418,7 @@ class PostgresProvider(Provider):
 
         return PostgresLeaderElectionAdapter(provider=self, **kwargs)
 
-    def schedule(self, **kwargs: Any) -> PostgresScheduleAdapter:  # noqa: ANN401
+    def schedule_backend(self, **kwargs: Any) -> PostgresScheduleAdapter:  # noqa: ANN401
         """Build a `PostgresScheduleAdapter` bound to this provider."""
         from grelmicro.coordination.postgres import (  # noqa: PLC0415
             PostgresScheduleAdapter,
@@ -426,7 +426,7 @@ class PostgresProvider(Provider):
 
         return PostgresScheduleAdapter(provider=self, **kwargs)
 
-    def cache(self, **kwargs: Any) -> PostgresCacheAdapter:  # noqa: ANN401
+    def cache_backend(self, **kwargs: Any) -> PostgresCacheAdapter:  # noqa: ANN401
         """Build a `PostgresCacheAdapter` bound to this provider."""
         from grelmicro.cache.postgres import (  # noqa: PLC0415
             PostgresCacheAdapter,
@@ -434,7 +434,7 @@ class PostgresProvider(Provider):
 
         return PostgresCacheAdapter(provider=self, **kwargs)
 
-    def outbox(self, **kwargs: Any) -> PostgresOutboxAdapter:  # noqa: ANN401
+    def outbox_backend(self, **kwargs: Any) -> PostgresOutboxAdapter:  # noqa: ANN401
         """Build a `PostgresOutboxAdapter` bound to this provider."""
         from grelmicro.outbox.postgres import (  # noqa: PLC0415
             PostgresOutboxAdapter,
@@ -442,7 +442,7 @@ class PostgresProvider(Provider):
 
         return PostgresOutboxAdapter(provider=self, **kwargs)
 
-    def ratelimiter(self, **kwargs: Any) -> PostgresRateLimiterAdapter:  # noqa: ANN401
+    def ratelimiter_backend(self, **kwargs: Any) -> PostgresRateLimiterAdapter:  # noqa: ANN401
         """Build a `PostgresRateLimiterAdapter` bound to this provider."""
         from grelmicro.resilience.ratelimiter.postgres import (  # noqa: PLC0415
             PostgresRateLimiterAdapter,
@@ -450,7 +450,10 @@ class PostgresProvider(Provider):
 
         return PostgresRateLimiterAdapter(provider=self, **kwargs)
 
-    def circuitbreaker(self, **kwargs: Any) -> PostgresCircuitBreakerAdapter:  # noqa: ANN401
+    def circuitbreaker_backend(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> PostgresCircuitBreakerAdapter:
         """Build a `PostgresCircuitBreakerAdapter` bound to this provider."""
         from grelmicro.resilience.circuitbreaker.postgres import (  # noqa: PLC0415
             PostgresCircuitBreakerAdapter,

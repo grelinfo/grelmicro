@@ -223,7 +223,8 @@ wherever it is used.
 
 A registered `RateLimitedRequests` documents the `429`, and the `RateLimit`,
 `RateLimit-Policy` and `Retry-After` fields it carries, on every operation in
-the OpenAPI schema. So a generated client has a branch for it.
+the OpenAPI schema FastAPI or Litestar builds. So a generated client has a
+branch for it.
 
 Every operation, not the metered ones. Which paths are metered is tuned while
 the service runs, and the schema is built once when the app starts, so naming

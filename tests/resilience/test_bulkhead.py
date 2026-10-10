@@ -610,7 +610,7 @@ async def test_uses_names_the_order_when_a_borrow_outruns_its_provider() -> (
     """An adapter that does read the client says what to move, not what broke."""
     provider = _BorrowedProvider()
     bulkhead = Bulkhead(
-        "eager", uses=[Cache(provider.cache(eager=True), name="scoped")]
+        "eager", uses=[Cache(provider.cache_backend(eager=True), name="scoped")]
     )
     refused: list[BaseException] = []
 
@@ -2637,7 +2637,9 @@ class _BorrowedProvider(Provider):
     async def __aexit__(self, *_: object) -> None:
         self.log.append("close")
 
-    def cache(self, *, eager: bool = False, **_: object) -> MemoryCacheAdapter:
+    def cache_backend(
+        self, *, eager: bool = False, **_: object
+    ) -> MemoryCacheAdapter:
         adapter = _EagerAdapter() if eager else MemoryCacheAdapter()
         adapter._provider = self  # ty: ignore[unresolved-attribute]
         adapter._owns_provider = False  # ty: ignore[unresolved-attribute]
@@ -2710,3 +2712,16 @@ async def _enter(bulkhead: Bulkhead) -> None:
     """Enter and leave the bulkhead once."""
     async with bulkhead:
         pass
+
+
+def test_bulkhead_config_max_wait_defaults_to_fail_fast() -> None:
+    """A bulkhead waits no time for a permit unless told to."""
+    # Act / Assert
+    assert BulkheadConfig().max_wait == 0.0
+
+
+def test_bulkhead_config_max_wait_none_is_refused() -> None:
+    """`None` would read as "wait forever", so it is refused rather than failing fast."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="max_wait"):
+        BulkheadConfig(max_wait=None)  # ty: ignore[invalid-argument-type]

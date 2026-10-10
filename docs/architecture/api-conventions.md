@@ -66,6 +66,22 @@ Two carry the `Component` suffix, `RateLimiterComponent` and
 `RateLimiter` and `CircuitBreaker` patterns. The suffix names the concept from
 [Backends and Adapters](backends.md), so it adds no vocabulary.
 
+## Providers build backends, components build patterns
+
+A provider method returns the backend for a pattern and ends in `_backend`. A
+component method returns the pattern:
+
+```python
+backend = redis.lock_backend()  # a LockBackend
+lock = micro.coordination.lock("cart")  # a Lock
+```
+
+Every provider names its factories the same way: `lock_backend()`,
+`readwritelock_backend()`, `leaderelection_backend()`, `schedule_backend()`,
+`cache_backend()`, `outbox_backend()`, `ratelimiter_backend()`, and
+`circuitbreaker_backend()`. `Coordination` exposes the backends it holds under
+the same names, such as `coordination.readwritelock_backend`.
+
 ## Algorithms use factory classmethods
 
 When a pattern has more than one algorithm, expose each as an explicit factory
@@ -87,6 +103,25 @@ has no default algorithm, so it has no bare constructor: both algorithms need
 parameters the library cannot guess, which makes naming one part of building
 the object.
 
+## `from_config` mirrors the constructor
+
+`from_config` takes the constructor's positional arguments first, in order,
+then `config`, then the same keyword-only arguments. It leaves out what the
+config carries and the environment switches (`env_load`, `env_prefix`):
+
+```python
+Lock("cart", backend=backend)
+Lock.from_config("cart", config, backend=backend)
+
+TTLCache(name="sessions")
+TTLCache.from_config(config, name="sessions")
+```
+
+A class built only through factories, such as `JWTVerifier`, mirrors them:
+`JWTVerifier.from_config(config, fetch=fetch, name="partners")`. A
+constructor's `*args` follows `config`, as in
+`RateLimitedRequests.from_config(config, *limiters)`.
+
 ## The OpenAPI schema has two words, for two things
 
 `include_in_schema=` says whether a router grelmicro builds puts *its own*
@@ -104,12 +139,13 @@ Two words because they are two operations. Adding a route to the schema and
 annotating someone else's are not the same act, and a component that serves
 no route has nothing to include.
 
-## A quota window is whole seconds or a `timedelta`
+## A stored duration is whole seconds or a `timedelta`
 
-A window that defines a quota takes an `int` of seconds or a `timedelta`,
-never a float. `RateLimiter.sliding_window("api", limit=100, window=60)` is
-the common case, and `window=timedelta(milliseconds=500)` covers a window
-under a second.
+A duration that grelmicro stores or enforces takes an `int` of seconds or a
+`timedelta`, never a float. A TTL, a lease, a quota window, a ban and a task
+schedule are such durations. `RateLimiter.sliding_window("api", limit=100,
+window=60)` is the common case, and `window=timedelta(milliseconds=500)`
+covers a window under a second.
 
 ```python
 from datetime import timedelta
@@ -120,14 +156,55 @@ RateLimiter.sliding_window("api", limit=100, window=60)
 RateLimiter.sliding_window("burst", limit=10, window=timedelta(milliseconds=500))
 ```
 
-Both are whole microseconds from the start, so the limiter compares
-integers and every decision is exact. A float such as `1.001` is
-`1000999.9999999999` microseconds, and a limiter that took it would have to
-guess what was meant. From text, such as an environment variable, a window
-reads whole seconds (`"60"`) or an ISO 8601 duration (`"PT0.5S"`).
+Both are whole microseconds from the start, so nothing has to guess what
+was meant. A float such as `1.001` is `1000999.9999999999` microseconds.
 
-A window is at most 100 years, so the time a backend stores stays an exact
-integer in every backend.
+From text, such as an environment variable, a duration reads whole seconds
+(`"60"`) or an ISO 8601 duration in weeks, days, hours, minutes and seconds
+(`"PT0.5S"`, `"P1DT12H"`). Only the seconds take a fraction, up to the
+microsecond. Years and months are refused, since their length depends on the
+calendar. A config dumped to JSON writes a duration the same way, in days and
+smaller units (`"P400D"`), so it reads back exactly. A duration is at most
+100 years.
 
-A wait or a timeout passed to I/O stays a float of seconds, the type
-`asyncio` and HTTP clients take.
+A duration that says how long to keep something (`cache_ttl`,
+`keep_delivered`) accepts zero, meaning keep nothing. No other duration
+accepts zero, and `None` means no limit, never off.
+
+Once validated, the config holds a `timedelta`, and its field is typed
+`timedelta`. A component parameter is typed `int | timedelta`, so
+`RateLimiter.sliding_window("api", limit=100, window=60)` type-checks. A
+`*Config` built directly takes a `timedelta` in typed code, since a type
+checker reads its parameters from the field types.
+
+A wait, a timeout passed to I/O and the sleep between two runs of a
+background loop stay a float of seconds, the type `asyncio` and HTTP clients
+take.
+
+| Parameter | Type | Moved |
+| --- | --- | --- |
+| `SlidingWindowConfig.window` | `int \| timedelta` | yes |
+| `ClientBansConfig.window`, `.duration` | `int \| timedelta` | yes |
+| `ConsecutiveCountConfig.reset_timeout` | `int \| timedelta` | yes |
+| `LockConfig.lease_duration`, `ReadWriteLockConfig.lease_duration` | `int \| timedelta` | yes |
+| `TaskLockConfig.lease_duration`, `.min_hold_duration` | `int \| timedelta` | yes |
+| `LeaderElectionConfig.lease_duration`, `.renew_deadline` | `int \| timedelta` | yes |
+| `OutboxConfig.lease_duration` | `int \| timedelta` | yes |
+| `OutboxConfig.keep_delivered` | `int \| timedelta \| None`, `0` deletes on delivery, `None` keeps for good | yes |
+| `Outbox.purge(older_than)` | `int \| timedelta`, `0` purges every settled row | yes |
+| `TTLCacheConfig.ttl`, `Cache.ttl(ttl)`, `cached(ttl, stale_ttl)`, `TTLCache.set(ttl, stale_ttl)`, `.get_or_set(ttl, stale_ttl)`, `.set_many(ttl)` | `int \| timedelta` | yes |
+| `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl`, `.include` per-path TTLs, `CachedResponse(ttl)` | `int \| timedelta` | yes |
+| `DuplicateFilterConfig.ttl` | `int \| timedelta \| None`, `None` means no time limit | yes |
+| `HealthChecksConfig.cache_ttl` | `int \| timedelta`, `0` caches nothing | yes |
+| `JWKSConfig.ttl`, `.cache_ttl`, `DiscoveryConfig.ttl`, `.cache_ttl`, `JWTKeysConfig.cache_ttl` | `int \| timedelta` | yes |
+| `OAuthClientConfig.refresh_before`, `.default_lifetime` | `int \| timedelta` | yes |
+| `TaskRouter.every(seconds)`, renamed `interval` | `int \| timedelta` | yes |
+| cron `misfire_grace_seconds`, renamed `misfire_grace` | `int \| timedelta` | yes |
+| `max_wait` on the rate limiter, the bulkhead and idempotency | `float` | stays |
+| `retry_interval`, `error_interval`, `poll_interval`, `export_interval` | `float` | stays |
+| `timeout`, `backend_timeout`, `request_timeout` | `float` | stays |
+| `shutdown_timeout`, `export_timeout`, `command_timeout` | `float` | stays |
+| `TimeoutConfig.seconds` | `float` | stays |
+| `Liveness.interval`, `.stall_timeout`, `.shutdown_timeout` | `float`, `stall_timeout=None` starts no watchdog | stays |
+| `RetryConfig.max_seconds`, backoff delays, outbox `retry_base` and `retry_max` | `float` | stays |
+| `Outbox.publish(delay)`, outbox `Retry(delay)` | `float \| timedelta` | stays |

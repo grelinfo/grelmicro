@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+from datetime import timedelta
 from types import TracebackType
 from typing import Annotated, ClassVar, Final, Self
 from uuid import UUID
@@ -15,12 +16,14 @@ from grelmicro._async import (
     on_backend_loop,
     raise_backend_not_open,
     raise_event_loop_deadlock,
+    run_to_completion,
 )
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
     resolve_config,
 )
+from grelmicro._duration import Duration
 from grelmicro._environment import record_coordination
 from grelmicro.coordination._base import (
     BaseLock,
@@ -29,6 +32,7 @@ from grelmicro.coordination._base import (
     jittered_interval,
 )
 from grelmicro.coordination._handle import LockHandle
+from grelmicro.coordination._hold import Hold, ThreadHold
 from grelmicro.coordination._metrics import (
     ACQUIRED,
     ERROR,
@@ -46,6 +50,7 @@ from grelmicro.coordination._tokens import (
 )
 from grelmicro.coordination.errors import (
     LockAcquireError,
+    LockExtendError,
     LockLockedCheckError,
     LockNotOwnedError,
     LockOwnedCheckError,
@@ -59,7 +64,9 @@ from grelmicro.errors import (
 )
 
 _MIN_RETRY_INTERVAL: float = 0.001
-_NAME_MAX_LEN = 200
+LOCK_NAME_MAX_LENGTH = 200
+"""The longest name a lock, task lock or leader election takes."""
+
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\-]*$")
 
 
@@ -71,11 +78,15 @@ def validate_lock_name(name: str) -> None:
     control characters, and shell metacharacters while staying broad
     enough for namespaced names like ``users:42`` or ``payments/eu``.
     """
-    if not name or len(name) > _NAME_MAX_LEN or not _NAME_PATTERN.match(name):
+    if (
+        not name
+        or len(name) > LOCK_NAME_MAX_LENGTH
+        or not _NAME_PATTERN.match(name)
+    ):
         msg = (
             f"Invalid lock name {name!r}: must match "
             f"^[A-Za-z0-9][A-Za-z0-9._:/-]*$ and be at most "
-            f"{_NAME_MAX_LEN} chars. "
+            f"{LOCK_NAME_MAX_LENGTH} chars. "
             f"Valid examples: 'cart', 'users:42', 'payments/eu'."
         )
         raise SettingsValidationError(msg)
@@ -98,13 +109,18 @@ class LockConfig(BaseLockConfig):
     """Lock Config."""
 
     lease_duration: Annotated[
-        Seconds,
+        Duration,
         Doc(
             """
-            The lease duration in seconds for the lock.
+            The lease duration for the lock, in whole seconds or as a
+            `timedelta`.
+
+            A float is refused. From text, such as an environment
+            variable, it reads whole seconds (`"60"`) or an ISO 8601
+            duration (`"PT0.5S"`).
             """,
         ),
-    ] = 60
+    ] = timedelta(seconds=60)
     retry_interval: Annotated[
         Seconds,
         Doc(
@@ -193,10 +209,11 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             ),
         ] = None,
         lease_duration: Annotated[
-            Seconds | None,
+            int | timedelta | None,
             Doc(
                 """
-                The duration in seconds for the lock to be held by default.
+                How long the lock is held by default, in whole seconds or
+                as a `timedelta`. A float is refused.
 
                 Default: 60. When unset and env reads are enabled (see ``env_load`` and
                 ``GREL_ENV_LOAD``), resolves from the environment
@@ -439,6 +456,33 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             raise RuntimeError(msg)
         return task
 
+    def hold(
+        self,
+        *,
+        timeout: Annotated[
+            Seconds | None,
+            Doc(
+                """
+                Seconds to wait for the lock before raising
+                `LockTimeoutError`. It bounds the wait, never the lease.
+                `0` makes one attempt, and `None` waits as long as
+                `async with lock:` does.
+                """,
+            ),
+        ],
+    ) -> Hold[LockHandle]:
+        """Hold the lock for the body of `async with`, waiting at most `timeout`.
+
+        ```python
+        async with lock.hold(timeout=5) as held:
+            ...
+        ```
+
+        Entering raises `LockTimeoutError` when `timeout` elapses first,
+        and the body does not run. Leaving releases the lock.
+        """
+        return Hold(self.acquire, self.__aexit__, timeout)
+
     async def acquire(
         self,
         *,
@@ -497,7 +541,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         )
 
     async def extend(self) -> LockHandle:
-        """Renew the lease for another `lease_duration` without releasing.
+        """Extend the lease for another `lease_duration` without releasing.
 
         The fencing token is unchanged when the lease is still held. If the
         lease has expired or was released by another path, the backend returns
@@ -508,7 +552,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
         Raises:
             LockNotOwnedError: If this task does not hold the lock or the lease was lost.
-            LockAcquireError: If the backend call fails.
+            LockExtendError: If the backend call fails.
 
         """
         config = self._config
@@ -517,16 +561,16 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             raise LockNotOwnedError(name=self._name)
         token = generate_task_token(config.worker)
         try:
-            fencing_token = await self._backend_acquire(
+            fencing_token = await self._backend_extend(
                 token, config.lease_duration
             )
-        except LockAcquireError:
-            self._metrics.renewal(ERROR)
+        except LockExtendError:
+            self._metrics.extension(ERROR)
             raise
         if fencing_token is None:
-            self._metrics.renewal(LOST)
+            self._metrics.extension(LOST)
             raise LockNotOwnedError(name=self._name)
-        self._metrics.renewal(SUCCESS)
+        self._metrics.extension(SUCCESS)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -568,17 +612,38 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
         """
         token = generate_task_token(self._config.worker)
+        # The release runs to its end even when the task is cancelled.
+        released = await run_to_completion(
+            self._release(token, self._running_task())
+        )
+        if not released:
+            raise LockNotOwnedError(name=self._name)
+
+    async def _release(self, token: str, task: asyncio.Task[object]) -> bool:
+        """Release `token` on the backend, then forget that `task` holds it.
+
+        Raises:
+            LockReleaseError: The backend call failed.
+        """
         # Local ownership is cleared only after the backend has
         # responded. A backend error keeps the marker so the caller
         # can retry release. A "not owned" answer still clears it
-        # because the distributed truth is authoritative.
-        released = await self.do_release(token)
-        task = self._running_task()
+        # because the distributed truth is authoritative, and so does
+        # a release that ran past the lease, which the backend ended.
+        try:
+            released = await self.do_release(token)
+        except LockReleaseError as error:
+            if isinstance(error.__cause__, TimeoutError):
+                self._forget(task)
+            raise
+        self._forget(task)
+        return released
+
+    def _forget(self, task: asyncio.Task[object]) -> None:
+        """Stop counting `task` as a holder of this lock."""
         if task in self._held_by_tasks:
             self._held_by_tasks.discard(task)
             self._metrics.hold(-1)
-        if not released:
-            raise LockNotOwnedError(name=self._name)
 
     async def locked(self) -> bool:
         """Check if the lock is acquired.
@@ -600,14 +665,16 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         return await self.do_owned(generate_task_token(self._config.worker))
 
-    async def do_acquire(self, token: str, *, duration: Seconds) -> int | None:
+    async def do_acquire(
+        self, token: str, *, duration: timedelta
+    ) -> int | None:
         """Acquire the lock.
 
         This method should not be called directly. Use `acquire` instead.
 
         Args:
             token: The token to register on the backend.
-            duration: The lease duration to request, in seconds. The
+            duration: The lease duration to request. The
                 caller captures this from `self._config.lease_duration`
                 at the start of the operation so the request is
                 consistent across retries even when `reconfigure`
@@ -631,16 +698,36 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         return fencing_token
 
     async def _backend_acquire(
-        self, token: str, duration: Seconds
+        self, token: str, duration: timedelta
     ) -> int | None:
         """Ask the backend for the lease, without counting the outcome.
 
-        Acquiring and renewing both land here and emit nothing, because
-        each caller counts its own outcome: a lease lost on renewal is a
-        different event from a lock another worker holds.
+        Raises:
+            LockAcquireError: If the backend call fails.
+        """
+        return await self._ask_backend(token, duration, LockAcquireError)
+
+    async def _backend_extend(
+        self, token: str, duration: timedelta
+    ) -> int | None:
+        """Ask the backend to extend the lease, without counting the outcome.
 
         Raises:
-            LockAcquireError: If the lock cannot be acquired due to an error on the backend.
+            LockExtendError: If the backend call fails.
+        """
+        return await self._ask_backend(token, duration, LockExtendError)
+
+    async def _ask_backend(
+        self,
+        token: str,
+        duration: timedelta,
+        error: type[LockAcquireError | LockExtendError],
+    ) -> int | None:
+        """Ask the backend for the lease, raising `error` when the call fails.
+
+        Raises:
+            LockAcquireError: If the backend call fails and `error` is it.
+            LockExtendError: If the backend call fails and `error` is it.
         """
         backend = self.backend
         try:
@@ -650,7 +737,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 duration=duration,
             )
         except Exception as exc:
-            raise LockAcquireError(name=self._name) from exc
+            raise error(name=self._name) from exc
 
     async def do_release(self, token: str) -> bool:
         """Release the lock.
@@ -665,7 +752,11 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         backend = self.backend
         try:
-            return await backend.release(name=self._lock_name, token=token)
+            # Past the lease the backend frees the lock on its own.
+            async with asyncio.timeout(
+                self._config.lease_duration.total_seconds()
+            ):
+                return await backend.release(name=self._lock_name, token=token)
         except Exception as exc:
             raise LockReleaseError(name=self._name) from exc
 
@@ -736,30 +827,30 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         )
 
     async def do_thread_extend(self, owner: HolderIdentity) -> LockHandle:
-        """Renew the lease from a worker thread without releasing.
+        """Extend the lease from a worker thread without releasing.
 
         Runs on the event loop so the ownership check and backend acquire
         are atomic with respect to other threads.
 
         Raises:
             LockNotOwnedError: If this thread does not hold the lock or the lease was lost.
-            LockAcquireError: If the backend call fails.
+            LockExtendError: If the backend call fails.
         """
         config = self._config
         if owner not in self._held_by_threads:
             raise LockNotOwnedError(name=self._name)
         token = generate_thread_token(config.worker, identity=owner)
         try:
-            fencing_token = await self._backend_acquire(
+            fencing_token = await self._backend_extend(
                 token, config.lease_duration
             )
-        except LockAcquireError:
-            self._metrics.renewal(ERROR)
+        except LockExtendError:
+            self._metrics.extension(ERROR)
             raise
         if fencing_token is None:
-            self._metrics.renewal(LOST)
+            self._metrics.extension(LOST)
             raise LockNotOwnedError(name=self._name)
-        self._metrics.renewal(SUCCESS)
+        self._metrics.extension(SUCCESS)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -856,8 +947,40 @@ class ThreadLockAdapter:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Release the lock with the context manager."""
+        """Release the lock with the context manager.
+
+        Raises:
+            LockNotOwnedError: If the lock is not currently held.
+            LockReleaseError: Cannot release the lock due to backend error.
+        """
         self.release()
+
+    def hold(
+        self,
+        *,
+        timeout: Annotated[
+            Seconds | None,
+            Doc(
+                """
+                Seconds to wait for the lock before raising
+                `LockTimeoutError`. It bounds the wait, never the lease.
+                `0` makes one attempt, and `None` waits as long as
+                `with lock.from_thread:` does.
+                """,
+            ),
+        ],
+    ) -> ThreadHold[LockHandle]:
+        """Hold the lock for the body of `with`, waiting at most `timeout`.
+
+        ```python
+        with lock.from_thread.hold(timeout=5) as held:
+            ...
+        ```
+
+        Entering raises `LockTimeoutError` when `timeout` elapses first,
+        and the body does not run. Leaving releases the lock.
+        """
+        return ThreadHold(self.acquire, self.__exit__, timeout)
 
     def acquire(self, *, timeout: Seconds | None = None) -> LockHandle:
         """Acquire the lock.
@@ -880,13 +1003,13 @@ class ThreadLockAdapter:
         ).result()
 
     def extend(self) -> LockHandle:
-        """Renew the lease without releasing.
+        """Extend the lease without releasing.
 
         Returns the `LockHandle` with the same fencing token.
 
         Raises:
             LockNotOwnedError: If this thread does not hold the lock or the lease was lost.
-            LockAcquireError: Cannot extend the lock due to backend error.
+            LockExtendError: Cannot extend the lock due to backend error.
         """
         loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import math
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._duration import SECOND, microseconds, round_up
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
@@ -20,6 +20,7 @@ from grelmicro.resilience.circuitbreaker import (
 )
 
 if TYPE_CHECKING:
+    from datetime import timedelta
     from types import TracebackType
 
     from redis.asyncio import Redis
@@ -169,14 +170,44 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
     - `state` - one of `CLOSED`, `OPEN`, `HALF_OPEN`, `FORCED_OPEN`,
       `FORCED_CLOSED`.
     - `opened_at` - Redis-server epoch seconds when the breaker
-      entered OPEN. Absent or `0` otherwise.
+      entered OPEN, to the microsecond. Absent or `0` otherwise.
     - `cool_down` - seconds the breaker should stay OPEN before
-      transitioning to HALF_OPEN.
+      transitioning to HALF_OPEN, to the microsecond.
     - `cerr` - consecutive error count.
     - `csucc` - consecutive success count.
     - `ho_admit` - probes admitted while in HALF_OPEN. Reset on every
       state transition.
+
+    The scripts read both times back in whole microseconds and compare
+    them with the Redis server clock in whole microseconds.
     """
+
+    _LUA_TIME = """
+        local function now_us()
+            local now_pair = redis.call("TIME")
+            return tonumber(now_pair[1]) * 1000000 + tonumber(now_pair[2])
+        end
+
+        local function to_us(seconds, default_us)
+            local value = tonumber(seconds)
+            if value == nil then return default_us end
+            return math.floor(value * 1000000 + 0.5)
+        end
+
+        local function to_seconds(us)
+            return string.format("%.6f", us / 1000000)
+        end
+
+        local function remaining(state, opened_us, cool_us)
+            -- Seconds an OPEN circuit still has to wait out, on the Redis
+            -- server clock that stamped `opened_at`.
+            if state ~= "OPEN" then return "0" end
+            local left = opened_us + cool_us - now_us()
+            if left < 0 then return "0" end
+            return to_seconds(left)
+        end
+    """
+    """Lua helpers that read and write every time in whole microseconds."""
 
     _LUA_ABANDON = """
         local key = KEYS[1]
@@ -191,23 +222,20 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         return 1
     """
 
-    _LUA_TRY_ACQUIRE = """
+    _LUA_TRY_ACQUIRE = (
+        _LUA_TIME
+        + """
         local key = KEYS[1]
         local capacity = tonumber(ARGV[1])
-        local reset_timeout = tonumber(ARGV[2])
+        local reset_us = tonumber(ARGV[2])
         local ttl = tonumber(ARGV[3])
-
-        local now_pair = redis.call("TIME")
-        local now = now_pair[1] + (now_pair[2] / 1000000)
 
         local stored = redis.call(
             "HMGET", key, "state", "opened_at", "ho_admit", "cool_down"
         )
         local state = stored[1]
         if state == false then state = "CLOSED" end
-        local opened_at = tonumber(stored[2]) or 0
         local ho_admit = tonumber(stored[3]) or 0
-        local cool_down = tonumber(stored[4]) or reset_timeout
 
         if state == "FORCED_CLOSED" or state == "CLOSED" then
             return 1
@@ -218,7 +246,9 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         end
 
         if state == "OPEN" then
-            if now >= opened_at + cool_down then
+            local opened_us = to_us(stored[2], 0)
+            local cool_us = to_us(stored[4], reset_us)
+            if now_us() >= opened_us + cool_us then
                 state = "HALF_OPEN"
                 ho_admit = 0
                 redis.call(
@@ -243,39 +273,26 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
 
         return 0
     """
-
-    _LUA_REMAINING = """
-        local function remaining(state, opened_at, cool_down)
-            -- Seconds an OPEN circuit still has to wait out, on the Redis
-            -- server clock that stamped `opened_at`. Read here rather than
-            -- in Python, where the two clocks have no common reference.
-            if state ~= "OPEN" then return 0 end
-            local now_pair = redis.call("TIME")
-            local now = now_pair[1] + (now_pair[2] / 1000000)
-            local left = opened_at + cool_down - now
-            if left < 0 then return 0 end
-            return left
-        end
-    """
+    )
 
     _LUA_RECORD_ERROR = (
-        _LUA_REMAINING
+        _LUA_TIME
         + """
         local key = KEYS[1]
         local threshold = tonumber(ARGV[1])
-        local reset_timeout = tonumber(ARGV[2])
+        local reset_us = tonumber(ARGV[2])
         local ttl = tonumber(ARGV[3])
 
         local stored = redis.call("HMGET", key, "state", "opened_at", "cool_down")
         local state = stored[1]
         if state == false then state = "CLOSED" end
-        local opened_at = tonumber(stored[2]) or 0
-        local cool_down = tonumber(stored[3]) or reset_timeout
+        local opened_us = to_us(stored[2], 0)
+        local cool_us = to_us(stored[3], reset_us)
 
         if state == "FORCED_OPEN" or state == "FORCED_CLOSED" or state == "OPEN" then
             return {
-                state, 0, 0, tostring(opened_at),
-                tostring(remaining(state, opened_at, cool_down))
+                state, 0, 0, to_seconds(opened_us),
+                remaining(state, opened_us, cool_us)
             }
         end
 
@@ -290,43 +307,41 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         end
 
         if cerr >= threshold then
-            local now_pair = redis.call("TIME")
-            local now = now_pair[1] + (now_pair[2] / 1000000)
-            state = "OPEN"
-            opened_at = now
+            local opened_at = to_seconds(now_us())
+            local cool_down = to_seconds(reset_us)
             redis.call(
                 "HSET", key,
-                "state", state, "opened_at", opened_at,
-                "cool_down", reset_timeout,
+                "state", "OPEN", "opened_at", opened_at,
+                "cool_down", cool_down,
                 "cerr", 0, "csucc", 0, "ho_admit", 0
             )
             redis.call("EXPIRE", key, ttl)
-            return {state, 0, 0, tostring(opened_at), tostring(reset_timeout)}
+            return {"OPEN", 0, 0, opened_at, cool_down}
         end
 
         redis.call("EXPIRE", key, ttl)
-        return {state, cerr, 0, tostring(opened_at), "0"}
+        return {state, cerr, 0, to_seconds(opened_us), "0"}
     """
     )
 
     _LUA_RECORD_SUCCESS = (
-        _LUA_REMAINING
+        _LUA_TIME
         + """
         local key = KEYS[1]
         local threshold = tonumber(ARGV[1])
-        local reset_timeout = tonumber(ARGV[2])
+        local reset_us = tonumber(ARGV[2])
         local ttl = tonumber(ARGV[3])
 
         local stored = redis.call("HMGET", key, "state", "opened_at", "cool_down")
         local state = stored[1]
         if state == false then state = "CLOSED" end
-        local opened_at = tonumber(stored[2]) or 0
-        local cool_down = tonumber(stored[3]) or reset_timeout
+        local opened_us = to_us(stored[2], 0)
+        local cool_us = to_us(stored[3], reset_us)
 
         if state == "FORCED_OPEN" or state == "FORCED_CLOSED" or state == "OPEN" then
             return {
-                state, 0, 0, tostring(opened_at),
-                tostring(remaining(state, opened_at, cool_down))
+                state, 0, 0, to_seconds(opened_us),
+                remaining(state, opened_us, cool_us)
             }
         end
 
@@ -348,14 +363,16 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         end
 
         redis.call("EXPIRE", key, ttl)
-        return {state, 0, csucc, tostring(opened_at), "0"}
+        return {state, 0, csucc, to_seconds(opened_us), "0"}
     """
     )
 
-    _LUA_TRANSITION = """
+    _LUA_TRANSITION = (
+        _LUA_TIME
+        + """
         local key = KEYS[1]
         local desired = ARGV[1]
-        local cool_down = tonumber(ARGV[2])
+        local cool_us = tonumber(ARGV[2])
         local ttl = tonumber(ARGV[3])
 
         if desired == "CLOSED" then
@@ -365,11 +382,10 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         end
 
         if desired == "OPEN" then
-            local now_pair = redis.call("TIME")
-            local now = now_pair[1] + (now_pair[2] / 1000000)
             redis.call(
                 "HSET", key,
-                "state", desired, "opened_at", now, "cool_down", cool_down,
+                "state", desired, "opened_at", to_seconds(now_us()),
+                "cool_down", to_seconds(cool_us),
                 "cerr", 0, "csucc", 0, "ho_admit", 0
             )
         else
@@ -388,12 +404,13 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
             redis.call("EXPIRE", key, ttl)
         end
     """
+    )
 
     _LUA_GET_STATE = (
-        _LUA_REMAINING
+        _LUA_TIME
         + """
         local key = KEYS[1]
-        local reset_timeout = tonumber(ARGV[1])
+        local reset_us = tonumber(ARGV[1])
         local stored = redis.call(
             "HMGET", key, "state", "cerr", "csucc", "opened_at", "cool_down"
         )
@@ -401,11 +418,11 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         if state == false then state = "CLOSED" end
         local cerr = tonumber(stored[2]) or 0
         local csucc = tonumber(stored[3]) or 0
-        local opened_at = tonumber(stored[4]) or 0
-        local cool_down = tonumber(stored[5]) or reset_timeout
+        local opened_us = to_us(stored[4], 0)
+        local cool_us = to_us(stored[5], reset_us)
         return {
-            state, cerr, csucc, tostring(opened_at),
-            tostring(remaining(state, opened_at, cool_down))
+            state, cerr, csucc, to_seconds(opened_us),
+            remaining(state, opened_us, cool_us)
         }
     """
     )
@@ -417,16 +434,18 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         key: str,
         config: ConsecutiveCountConfig,
     ) -> None:
-        """Bind the strategy to the breaker's key and config."""
+        """Bind the strategy to the breaker's key and config.
+
+        The cool-down is passed to the scripts in whole microseconds, and
+        its lifetime in whole seconds, rounded up.
+        """
         self._client = client
         self._key = key
         self._error_threshold = config.error_threshold
         self._success_threshold = config.success_threshold
-        self._reset_timeout = config.reset_timeout
+        self._reset_timeout_us = microseconds(config.reset_timeout)
         self._half_open_capacity = config.half_open_capacity
-        # Redis takes whole seconds, and rounding down could put the
-        # lifetime under the cool-down floor.
-        self._ttl = math.ceil(_resolve_state_ttl(config.reset_timeout))
+        self._ttl_seconds = _lifetime_seconds(config.reset_timeout)
         self._lua_try_acquire = client.register_script(self._LUA_TRY_ACQUIRE)
         self._lua_record_error = client.register_script(self._LUA_RECORD_ERROR)
         self._lua_record_success = client.register_script(
@@ -440,7 +459,11 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         """Atomic admission via Lua."""
         result = await self._lua_try_acquire(
             keys=[self._key],
-            args=[self._half_open_capacity, self._reset_timeout, self._ttl],
+            args=[
+                self._half_open_capacity,
+                self._reset_timeout_us,
+                self._ttl_seconds,
+            ],
             client=self._client,
         )
         return bool(result)
@@ -461,8 +484,8 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
                 keys=[self._key],
                 args=[
                     self._success_threshold,
-                    self._reset_timeout,
-                    self._ttl,
+                    self._reset_timeout_us,
+                    self._ttl_seconds,
                 ],
                 client=self._client,
             )
@@ -471,8 +494,8 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
                 keys=[self._key],
                 args=[
                     self._error_threshold,
-                    self._reset_timeout,
-                    self._ttl,
+                    self._reset_timeout_us,
+                    self._ttl_seconds,
                 ],
                 client=self._client,
             )
@@ -482,16 +505,24 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         self,
         *,
         desired: CircuitBreakerState,
-        cool_down: float | None = None,
+        cool_down: timedelta | None = None,
     ) -> None:
-        """Manual transition. Last-write-wins."""
+        """Manual transition. Last-write-wins.
+
+        A custom `cool_down` gets the lifetime that cool-down needs, so
+        the key outlives it.
+        """
+        if cool_down is None:
+            cool_down_us, ttl_seconds = (
+                self._reset_timeout_us,
+                self._ttl_seconds,
+            )
+        else:
+            cool_down_us = microseconds(cool_down)
+            ttl_seconds = _lifetime_seconds(cool_down)
         await self._lua_transition(
             keys=[self._key],
-            args=[
-                desired.value,
-                cool_down if cool_down is not None else self._reset_timeout,
-                self._ttl,
-            ],
+            args=[desired.value, cool_down_us, ttl_seconds],
             client=self._client,
         )
 
@@ -499,7 +530,7 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         """Read the current snapshot."""
         result: list[Any] = await self._lua_get_state(
             keys=[self._key],
-            args=[self._reset_timeout],
+            args=[self._reset_timeout_us],
             client=self._client,
         )
         return self._unpack(result)
@@ -516,3 +547,8 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
             consecutive_success_count=int(result[2]),
             retry_after=float(result[4]),
         )
+
+
+def _lifetime_seconds(cool_down: timedelta) -> int:
+    """Return the key lifetime for `cool_down` in whole seconds, rounded up."""
+    return round_up(_resolve_state_ttl(cool_down), SECOND)

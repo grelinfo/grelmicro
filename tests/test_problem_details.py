@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -55,7 +56,7 @@ from grelmicro.http._problem import body_of, retry_after_of
 from grelmicro.http._tmf import TMF_MEDIA_TYPE
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
-    IdempotencyKeyMakerError,
+    IdempotencyKeyFunctionError,
     IdempotencyWaitTimeoutError,
 )
 from grelmicro.integrations import faststream
@@ -218,7 +219,7 @@ def test_an_unmapped_error_has_no_problem() -> None:
     """A server fault stays unhandled rather than dressed up as a rejection."""
     # Act & Assert
     assert _problem_for(BoomError()) is None
-    assert _problem_for(IdempotencyKeyMakerError("bad key")) is None
+    assert _problem_for(IdempotencyKeyFunctionError("bad key")) is None
 
 
 def test_a_new_admission_subclass_is_covered() -> None:
@@ -884,7 +885,10 @@ def stacked_client() -> Iterator[TestClient]:
     cb_backend = MemoryCircuitBreakerAdapter()
     rl_backend = MemoryRateLimiterAdapter()
     breaker = CircuitBreaker.consecutive_count(
-        "recs", error_threshold=1, backend=cb_backend, reset_timeout=60.0
+        "recs",
+        error_threshold=1,
+        backend=cb_backend,
+        reset_timeout=timedelta(seconds=60),
     )
     limiter = RateLimiter.token_bucket(
         "recs", capacity=1, refill_rate=0.00001, backend=rl_backend
@@ -897,7 +901,7 @@ def stacked_client() -> Iterator[TestClient]:
                 "trip",
                 error_threshold=1,
                 backend=cb_backend,
-                reset_timeout=60.0,
+                reset_timeout=timedelta(seconds=60),
             )
         ],
     )

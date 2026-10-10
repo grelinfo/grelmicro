@@ -93,6 +93,8 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
 | **Multi-node** | Yes | Yes | No (single file) | No |
 | **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | Yes (file-backed) | No |
 
+SQLite is host-scoped: it shares state with the processes on one host only. `Cache` requires `process`, so it accepts SQLite. [`IdempotentRequests`](../http/idempotency.md) and [`Idempotency`](../idempotency/index.md) require `cluster`, so a SQLite cache under them is refused at startup in `staging` and `production`, and warns once when `GREL_ENVIRONMENT` is unset. See [The backend check](../deployment.md#the-backend-check).
+
 The Postgres adapter stores entries in a single `grelmicro_cache` table keyed on `key TEXT PRIMARY KEY` with `value BYTEA` and `expires_at TIMESTAMPTZ`. `get` filters expired rows with `WHERE expires_at > NOW()`, `set` is one `INSERT ... ON CONFLICT DO UPDATE`, `delete` and `clear` are single statements. The table is created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema. Set `cleanup_interval=` to enable a background janitor that reclaims rows expired for more than one hour.
 
 On a Redis Cluster, give the adapter's `prefix` a hash tag so its multi-key operations stay in one slot. See [the hash-tag rule](../providers/redis.md#the-hash-tag-rule-on-cluster). Use `prefix` on any backend to isolate cache keys from other data in the same server.
@@ -119,6 +121,8 @@ cache = TTLCache(maxsize=100, ttl=300)
 # Or pass a backend explicitly
 cache = TTLCache(maxsize=100, ttl=300, backend=my_backend)
 ```
+
+A TTL takes whole seconds or a `timedelta`. A float is refused. Write `ttl=timedelta(milliseconds=500)` for a TTL under a second. `cache.config.ttl` reads it back as a `timedelta`. Every backend keeps an entry at least as long as its TTL, and Redis rounds it up to the millisecond.
 
 All `TTLCache` methods are async:
 
@@ -205,7 +209,7 @@ With no type parameter and no serializer, only `bytes` values are accepted. `TTL
 Override the default TTL for individual entries:
 
 ```python title="fragment"
-await cache.set("session", b"token", ttl=3600)  # 1 hour instead of default
+await cache.set("session", b"token", ttl=timedelta(hours=1))
 ```
 
 ### Get or Set
@@ -220,7 +224,7 @@ user = await cache.get_or_set(
 )
 ```
 
-The factory shares the same stampede protection as [`@cached(lock=True)`](cached.md#stampede-protection). When many callers miss the same key at once, the factory runs once and the rest reuse its result. This works across replicas when a `Coordination` backend is configured.
+Concurrent misses on one key fold: the factory runs once and the other callers reuse its result. `lock=` says how far, the same as [`@cached(lock=...)`](cached.md#stampede-protection). The default `"process"` folds in one process, so each replica still runs the factory once. Pass `lock="cluster"` to fold across replicas through the app's `Coordination` lock backend, or `lock=None` to turn folding off.
 
 Pass `stale_ttl=` to serve the last good value when the factory fails, the same serve-stale-on-error behavior as [`@cached(stale_ttl=...)`](cached.md#serve-stale-on-error).
 

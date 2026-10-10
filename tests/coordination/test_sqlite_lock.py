@@ -1,6 +1,7 @@
 """Tests for SQLite Backends."""
 
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 
 import aiosqlite
@@ -47,7 +48,9 @@ async def test_sync_backend_out_of_context_errors() -> None:
 
     # Act / Assert
     with pytest.raises(OutOfContextError):
-        await backend.acquire(name=name, token=key, duration=1)
+        await backend.acquire(
+            name=name, token=key, duration=timedelta(seconds=1)
+        )
     with pytest.raises(OutOfContextError):
         await backend.release(name=name, token=key)
     with pytest.raises(OutOfContextError):
@@ -126,7 +129,9 @@ async def test_owned_provider_opens_and_closes(
 
     # Act
     async with backend:
-        fence = await backend.acquire(name="lock", token="token", duration=1)
+        fence = await backend.acquire(
+            name="lock", token="token", duration=timedelta(seconds=1)
+        )
 
     # Assert
     assert fence == 1
@@ -142,7 +147,9 @@ async def test_borrowed_provider_stays_open(tmp_path: Path) -> None:
     # Act
     async with provider:
         async with SQLiteLockAdapter(provider=provider) as backend:
-            await backend.acquire(name="lock", token="token", duration=1)
+            await backend.acquire(
+                name="lock", token="token", duration=timedelta(seconds=1)
+            )
 
         # Assert
         assert provider.client is not None
@@ -161,8 +168,10 @@ async def test_shares_one_connection_with_another_component(
         SQLiteLockAdapter(provider=provider) as lock,
         SQLiteCacheAdapter(provider=provider) as cache,
     ):
-        await lock.acquire(name="lock", token="token", duration=1)
-        await cache.set(key="k", value=b"v", ttl=10)
+        await lock.acquire(
+            name="lock", token="token", duration=timedelta(seconds=1)
+        )
+        await cache.set(key="k", value=b"v", ttl=timedelta(seconds=10))
 
         # Assert
         assert lock.provider.client is cache.provider.client
@@ -184,7 +193,9 @@ async def test_acquire_and_release_commit_for_other_processes(
 
     async with provider, SQLiteLockAdapter(provider=provider) as backend:
         # Act
-        await backend.acquire(name="lock", token="token", duration=60)
+        await backend.acquire(
+            name="lock", token="token", duration=timedelta(seconds=60)
+        )
 
         # Assert
         async with (
@@ -216,7 +227,9 @@ async def test_acquire_rolls_back_on_error(tmp_path: Path) -> None:
 
         # Act / Assert
         with pytest.raises(Exception, match="no such table"):
-            await backend.acquire(name="lock", token="token", duration=1)
+            await backend.acquire(
+                name="lock", token="token", duration=timedelta(seconds=1)
+            )
 
         assert conn.in_transaction is False
 
@@ -229,13 +242,13 @@ async def test_acquire_rolls_back_on_error(tmp_path: Path) -> None:
 
 
 async def test_tasklock_holder_takes_back_its_own_hold(tmp_path: Path) -> None:
-    """A hold stored in whole seconds lets its own holder back in on time.
+    """A hold rounded up to the millisecond lets its own holder back in on time.
 
-    SQLite keeps a lease up to a second past what was asked. The instance
-    that set the hold still gets through once the hold ran out on its own
-    clock.
+    SQLite can keep a lease up to a millisecond past what was asked. The
+    instance that set the hold still gets through once the hold ran out on
+    its own clock.
     """
-    hold = 0.3
+    hold = timedelta(milliseconds=300)
     provider = SQLiteProvider(str(tmp_path / "hold.db"))
     async with provider, SQLiteLockAdapter(provider=provider) as backend:
         holder = TaskLock(
@@ -243,7 +256,7 @@ async def test_tasklock_holder_takes_back_its_own_hold(tmp_path: Path) -> None:
         )
         async with holder:
             pass
-        await asyncio.sleep(hold)
+        await asyncio.sleep(hold.total_seconds())
 
         async with holder:
             pass

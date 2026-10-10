@@ -11,14 +11,16 @@ from faststream import BaseMiddleware
 from typing_extensions import Doc
 
 from grelmicro._context import pop_context, push_context
+from grelmicro.health._served import health_endpoint_in
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Iterator
 
     from faststream import FastStream
     from faststream.message import StreamMessage
 
     from grelmicro import Grelmicro
+    from grelmicro.health._served import HealthEndpoint
     from grelmicro.trace._component import Trace
 
     AsyncFuncAny = Callable[[Any], Awaitable[Any]]
@@ -103,6 +105,26 @@ class _GrelmicroBrokerMiddleware(BaseMiddleware):
         finally:
             pop_context(context)
             self.micro._reset_current(token)  # noqa: SLF001
+
+
+def health_endpoints(
+    app: Annotated[
+        FastStream,
+        Doc("The FastStream application whose health endpoints to list."),
+    ],
+) -> Iterator[HealthEndpoint] | None:
+    """Yield the health endpoints an `AsgiFastStream` serves.
+
+    Returns `None` for an app that serves no HTTP.
+    """
+    routes = getattr(app, "routes", None)
+    if routes is None:
+        return None
+    return (
+        found
+        for _path, handler in routes
+        if (found := health_endpoint_in(handler)) is not None
+    )
 
 
 def install(

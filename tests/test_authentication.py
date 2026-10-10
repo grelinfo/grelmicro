@@ -16,6 +16,7 @@ import re
 import time
 import warnings
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
@@ -96,6 +97,7 @@ from grelmicro.http import (
     AuthenticatedRequestsMiddleware,
     CachedResponses,
     ErrorResponses,
+    IdempotentRequests,
     RateLimitedRequests,
 )
 from grelmicro.http._authentication import (
@@ -103,7 +105,6 @@ from grelmicro.http._authentication import (
     document_operations,
     routes_of,
 )
-from grelmicro.http._idempotency import _has_dependencies
 from grelmicro.integrations.fastapi import (
     Anonymous,
     Authenticated,
@@ -112,7 +113,6 @@ from grelmicro.integrations.fastapi import (
     CurrentPrincipal,
     CurrentToken,
     OptionalPrincipal,
-    document_authenticated_requests,
 )
 from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
 from grelmicro.integrations.litestar import (
@@ -615,7 +615,7 @@ class TestBans:
 
     def test_a_forging_caller_is_banned(self) -> None:
         """The ban answers before the next token is even looked at."""
-        bans = ClientBans(failures=1, duration=60.0)
+        bans = ClientBans(failures=1, duration=60)
         app = app_with(
             AuthenticatedRequests(
                 verifier(), bans=bans, trusted=TrustedProxies(PROXIES)
@@ -632,7 +632,7 @@ class TestBans:
 
     def test_an_expired_token_is_never_counted(self) -> None:
         """A client whose token needs refreshing is not an attacker."""
-        bans = ClientBans(failures=1, duration=60.0)
+        bans = ClientBans(failures=1, duration=60)
         app = app_with(
             AuthenticatedRequests(
                 verifier(), bans=bans, trusted=TrustedProxies(PROXIES)
@@ -822,7 +822,7 @@ class TestCheck:
         """A revoked token is the service's decision, not an attack."""
         check = Revocations()
         check.revoked.add("t-4")
-        bans = ClientBans(failures=1, duration=60.0)
+        bans = ClientBans(failures=1, duration=60)
         client = TestClient(
             app_with(
                 AuthenticatedRequests(
@@ -931,7 +931,7 @@ class TestCheck:
         check = Revocations()
         check.revoked.add("t-8")
         component = AuthenticatedRequests.from_config(
-            AuthenticatedRequestsConfig(), verifier(), check=check
+            verifier(), AuthenticatedRequestsConfig(), check=check
         )
         client = TestClient(app_with(component))
 
@@ -1203,7 +1203,7 @@ class TestStarlette:
             'Bearer error="insufficient_scope", scope="admin orders:read"'
         )
         assert served.json() == {"audited": True}
-        assert applies == ("authenticated orders:read admin",)
+        assert applies == ("authenticated admin orders:read",)
 
     def test_an_endpoint_taking_no_connection_is_refused(self) -> None:
         """There would be nothing to read the caller from."""
@@ -1342,15 +1342,30 @@ class TestUnreachable:
         with pytest.raises(TypeError, match="OptionalPrincipal"):
             self.install(app)
 
-    def test_an_excluded_route_requiring_a_caller_is_refused(self) -> None:
-        """A token is never read there, so every request would be refused."""
+    def test_an_excluded_route_requiring_scopes_is_refused(self) -> None:
+        """A token is never read there, so no scope is ever checked."""
+        app = FastAPI()
+
+        @app.get("/probe", dependencies=[Authenticated(scopes=["ops"])])
+        async def probe() -> None: ...  # pragma: no cover
+
+        with pytest.raises(ValueError, match="GET /probe is in exclude"):
+            self.install(app, exclude=("/probe",))
+
+    def test_an_excluded_route_requiring_a_caller_and_no_scope_installs(
+        self,
+    ) -> None:
+        """Its declaration says no more than a route declaring nothing."""
         app = FastAPI()
 
         @app.get("/probe", dependencies=[Authenticated()])
         async def probe() -> None: ...  # pragma: no cover
 
-        with pytest.raises(TypeError, match="GET /probe is in exclude"):
-            self.install(app, exclude=("/probe",))
+        self.install(app, exclude=("/probe",))
+
+        assert (
+            TestClient(app).get("/probe").status_code == HTTP_401_UNAUTHORIZED
+        )
 
     def test_a_security_scope_that_is_not_a_token_is_refused(self) -> None:
         """A scope a `Security` around the caller names is checked at install."""
@@ -1363,7 +1378,7 @@ class TestUnreachable:
         async def read() -> None: ...  # pragma: no cover
 
         with pytest.raises(
-            ValueError, match="GET /read requires the scope 'réad'"
+            ValueError, match="GET /read declares a scope that is not an OAuth"
         ):
             self.install(app)
 
@@ -1392,50 +1407,51 @@ class TestUnreachable:
     def test_a_guarded_litestar_websocket_in_exclude_is_refused(self) -> None:
         """A websocket handler names no method, and is refused all the same."""
 
-        @websocket("/live", guards=[LitestarAuthenticated()])
+        @websocket("/live", guards=[LitestarAuthenticated(scopes=["chat"])])
         async def live(
             socket: LitestarWebSocket,
         ) -> None: ...  # pragma: no cover
 
-        with pytest.raises(TypeError, match="/live is in exclude"):
+        with pytest.raises(ValueError, match="/live is in exclude"):
             self.install(Litestar(route_handlers=[live]), exclude=("/live",))
 
     def test_a_decorated_starlette_endpoint_in_exclude_is_refused(self) -> None:
         """A function and an endpoint method alike."""
 
         class Orders(HTTPEndpoint):
-            @StarletteAuthenticated()
+            @StarletteAuthenticated(scopes=["orders:write"])
             async def delete(
                 self, request: Request
             ) -> None: ...  # pragma: no cover
 
-        @StarletteAuthenticated()
+        @StarletteAuthenticated(scopes=["ops"])
         async def probe(
             request: Request,
         ) -> None: ...  # pragma: no cover
 
         for route in (Route("/orders", Orders), Route("/probe", probe)):
-            with pytest.raises(TypeError, match="is in exclude"):
+            with pytest.raises(ValueError, match="is in exclude"):
                 self.install(Starlette(routes=[route]), exclude=(route.path,))
 
-    def test_a_route_declared_after_install_is_refused_at_startup(self) -> None:
-        """The app is read again when it starts, and checked again."""
+    def test_a_route_declared_after_install_is_refused_as_it_lands(
+        self,
+    ) -> None:
+        """The route is gated as it lands, and its declaration checked."""
         app = FastAPI()
         self.install(app, exclude=("/late",))
 
-        @app.get("/late", dependencies=[Authenticated()])
-        async def late() -> None: ...  # pragma: no cover
+        with pytest.raises(ValueError, match="GET /late is in exclude"):
 
-        with (
-            pytest.raises(TypeError, match="GET /late is in exclude"),
-            TestClient(app),
-        ):
-            pass  # pragma: no cover
+            @app.get("/late", dependencies=[Authenticated(scopes=["ops"])])
+            async def late() -> None: ...  # pragma: no cover
 
     def test_a_route_is_checked_on_every_method_it_answers(self) -> None:
         """A guarded read beside an open delete is found, in a stable order."""
 
-        @get("/orders/{order_id:int}", guards=[LitestarAuthenticated()])
+        @get(
+            "/orders/{order_id:int}",
+            guards=[LitestarAuthenticated(scopes=["orders:read"])],
+        )
         async def read(
             order_id: Annotated[int, Parameter()],
         ) -> None: ...  # pragma: no cover
@@ -1446,7 +1462,7 @@ class TestUnreachable:
         ) -> None: ...  # pragma: no cover
 
         with pytest.raises(
-            TypeError, match=r"GET /orders/\{order_id\} is in exclude"
+            ValueError, match=r"GET /orders/\{order_id\} is in exclude"
         ):
             self.install(
                 Litestar(route_handlers=[read, remove]), exclude=("/orders/*",)
@@ -1455,11 +1471,11 @@ class TestUnreachable:
     def test_the_refusal_names_the_path_as_the_schema_does(self) -> None:
         """A converter is left out of the path the message names."""
 
-        @StarletteAuthenticated()
+        @StarletteAuthenticated(scopes=["items"])
         async def item(request: Request) -> None: ...  # pragma: no cover
 
         with pytest.raises(
-            TypeError, match=r"GET /items/\{item_id\} is in exclude"
+            ValueError, match=r"GET HEAD /items/\{item_id\} is in exclude"
         ):
             self.install(
                 Starlette(routes=[Route("/items/{item_id:int}", item)]),
@@ -1470,10 +1486,10 @@ class TestUnreachable:
         """A route answering only `DELETE` is named by it."""
         app = FastAPI()
 
-        @app.delete("/orders", dependencies=[Authenticated()])
+        @app.delete("/orders", dependencies=[Authenticated(scopes=["ops"])])
         async def cancel() -> None: ...  # pragma: no cover
 
-        with pytest.raises(TypeError, match="DELETE /orders is in exclude"):
+        with pytest.raises(ValueError, match="DELETE /orders is in exclude"):
             self.install(app, exclude=("/orders",))
 
     def test_a_router_included_with_authenticated_is_checked(self) -> None:
@@ -1485,10 +1501,10 @@ class TestUnreachable:
 
         app = FastAPI()
         app.include_router(
-            router, prefix="/ops", dependencies=[Authenticated()]
+            router, prefix="/ops", dependencies=[Authenticated(scopes=["ops"])]
         )
 
-        with pytest.raises(TypeError, match="GET /ops/health is in exclude"):
+        with pytest.raises(ValueError, match="GET /ops/health is in exclude"):
             self.install(app, exclude=("/ops/*",))
 
     def test_a_router_included_as_public_is_checked(self) -> None:
@@ -1649,8 +1665,8 @@ class TestConstruction:
             AuthenticatedRequests(verifier(), exclude=(pattern,))
         with pytest.raises(ValueError, match=refused):
             AuthenticatedRequests.from_config(
-                AuthenticatedRequestsConfig(exclude=("/livez", pattern)),
                 verifier(),
+                AuthenticatedRequestsConfig(exclude=("/livez", pattern)),
             )
         with pytest.raises(ValueError, match=refused):
             AuthenticatedRequestsMiddleware(
@@ -1698,8 +1714,8 @@ class TestConstruction:
         trusted = TrustedProxies(PROXIES)
         trusting = verifier()
         component = AuthenticatedRequests.from_config(
-            AuthenticatedRequestsConfig(),
             trusting,
+            AuthenticatedRequestsConfig(),
             bans=bans,
             trusted=trusted,
             name="edge",
@@ -1720,7 +1736,7 @@ class TestConstruction:
     def test_from_config_describes_the_schema_by_default(self) -> None:
         """Only `openapi=False` leaves the schema alone."""
         component = AuthenticatedRequests.from_config(
-            AuthenticatedRequestsConfig(), verifier()
+            verifier(), AuthenticatedRequestsConfig()
         )
         app = FastAPI()
         Grelmicro(uses=[ErrorResponses(), component]).install(app)
@@ -1759,12 +1775,27 @@ class TestConstruction:
     def test_from_config_takes_the_config_whole(self) -> None:
         """The declarative door serves exactly what the config says."""
         component = AuthenticatedRequests.from_config(
-            AuthenticatedRequestsConfig(exclude=("/livez",)), verifier()
+            verifier(), AuthenticatedRequestsConfig(exclude=("/livez",))
         )
         client = TestClient(app_with(component))
 
         assert client.get("/livez").status_code == HTTP_200_OK
         assert client.get("/whoami").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_from_config_config_first_raises_type_error(self) -> None:
+        """A config in the verifier slot is refused, naming the order."""
+        # Arrange
+        config = AuthenticatedRequestsConfig()
+
+        # Act
+        with pytest.raises(TypeError) as caught:
+            AuthenticatedRequests.from_config(
+                config,  # ty: ignore[invalid-argument-type]
+                verifier(),  # ty: ignore[invalid-argument-type]
+            )
+
+        # Assert
+        assert "from_config(verifier, config)" in str(caught.value)
 
 
 class Opaque:
@@ -1985,16 +2016,6 @@ class TestVerifiedToken:
 
         with pytest.raises(TypeError, match="GET /who declares Anonymous"):
             TestUnreachable.install(app)
-
-    def test_fastapi_refuses_it_on_an_excluded_route(self) -> None:
-        """An excluded route never has a token read."""
-        app = FastAPI()
-
-        @app.get("/probe")
-        async def probe(verified: CurrentToken) -> None: ...  # pragma: no cover
-
-        with pytest.raises(TypeError, match="GET /probe is in exclude"):
-            TestUnreachable.install(app, exclude=("/probe",))
 
     def test_litestar_reads_the_token_that_verified(self) -> None:
         """`current_token` is the token, and a public handler without one is refused."""
@@ -2336,7 +2357,7 @@ class TestOpenAPI:
         assert cancel["security"] == [{SCHEME: ["orders:write"]}]
         assert "403" in cancel["responses"]
         assert export["security"] == [
-            {SCHEME: ["reports:read", "reports:export"]}
+            {SCHEME: ["reports:export", "reports:read"]}
         ]
         assert schema["paths"]["/reports/daily"]["get"]["security"] == [
             {SCHEME: ["reports:read"]}
@@ -2537,13 +2558,6 @@ class TestOpenAPI:
         assert SCHEME not in schema.get("components", {}).get(
             "securitySchemes", {}
         )
-
-    def test_documenting_an_app_without_the_middleware_is_refused(
-        self,
-    ) -> None:
-        """There is nothing to describe on an app nothing authenticates."""
-        with pytest.raises(TypeError, match="AuthenticatedRequestsMiddleware"):
-            document_authenticated_requests(FastAPI())
 
 
 def litestar_app(*uses: Any) -> Litestar:  # noqa: ANN401
@@ -2893,7 +2907,7 @@ class TestReport:
             "authenticated orders:write",
         )
         assert self.applies(app, "GET", "/reports/export") == (
-            "authenticated reports:read reports:export",
+            "authenticated reports:export reports:read",
         )
         assert self.applies(app, "GET", "/catalog") == ("anonymous",)
         assert self.applies(app, "GET", "/livez") == ()
@@ -2928,9 +2942,11 @@ class TestReport:
         """A replay is skipped for a request that carries a caller."""
         idempotent = SimpleNamespace(
             config=SimpleNamespace(methods=("POST",), include=(), exclude=()),
-            _key_maker=None,
+            _key_function=None,
             route_is_gated=lambda method, path: False,  # noqa: ARG005
-            idempotency=SimpleNamespace(config=SimpleNamespace(ttl=3600.0)),
+            idempotency=SimpleNamespace(
+                config=SimpleNamespace(ttl=timedelta(hours=1))
+            ),
         )
         read = _reads_idempotent(idempotent)
         public = _Endpoint(
@@ -3001,27 +3017,46 @@ class TestDeclarationsElsewhere:
         assert len(calls) == 1
 
     def test_an_anonymous_route_gates_no_idempotent_replay(self) -> None:
-        """Declared on the route or on its router, it is not a dependency."""
+        """Declared on the route or on its router, the default key replays."""
+        # Arrange
+        calls: list[str] = []
         app = FastAPI()
 
         @app.post("/signup", dependencies=[Anonymous()])
-        async def signup() -> dict[str, bool]:
-            return {"ok": True}
+        async def signup() -> dict[str, int]:
+            calls.append("signup")
+            return {"call": len(calls)}
 
         public = APIRouter(dependencies=[Anonymous()])
 
         @public.post("/newsletter")
-        async def newsletter() -> dict[str, bool]:
-            return {"ok": True}
+        async def newsletter() -> dict[str, int]:
+            calls.append("newsletter")
+            return {"call": len(calls)}
 
         app.include_router(public)
-        routes = {
-            route.path: (route, contexts)
-            for _, route, contexts in walk_routes(app)
-        }
+        micro = Grelmicro(
+            uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()]
+        )
+        micro.install(app)
 
-        assert not _has_dependencies(*routes["/signup"])
-        assert not _has_dependencies(*routes["/newsletter"])
+        # Act
+        with TestClient(app) as client:
+            replays = [
+                client.post(path, headers={"Idempotency-Key": "k"})
+                for path in ("/signup", "/signup", "/newsletter", "/newsletter")
+            ]
+
+        # Assert
+        assert [
+            reply.headers.get("idempotent-replayed") for reply in replays
+        ] == [
+            None,
+            "true",
+            None,
+            "true",
+        ]
+        assert calls == ["signup", "newsletter"]
 
 
 class TestRouting:
@@ -4569,6 +4604,27 @@ class TestConsistency:
             "featured": True
         }
 
+    def test_a_public_route_declared_after_a_mount_is_described_as_public(
+        self,
+    ) -> None:
+        """A mount the route's URL does not reach leaves the route public."""
+
+        # Arrange
+        def declare(app: FastAPI) -> None:
+            app.mount("/admin", Starlette(routes=[Route("/users", whoami)]))
+
+            @app.get("/open", dependencies=[Anonymous()])
+            async def opened() -> dict[str, bool]:
+                return {"open": True}  # pragma: no cover
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+
+        # Act
+        security = app.openapi()["paths"]["/open"]["get"]["security"]
+
+        # Assert
+        assert security == [{}, {SCHEME: []}]
+
     @staticmethod
     def reported(app: FastAPI) -> FastAPI:
         """Install authentication on `app`, keeping what reports on it."""
@@ -6106,7 +6162,7 @@ class TestResourceMetadataOnLitestar:
         assert refused.value.code == WS_1008_POLICY_VIOLATION
         assert closed.value.code == WS_1000_NORMAL_CLOSURE
 
-    def test_a_route_added_after_the_metadata_route_is_checked_at_startup(
+    def test_a_route_added_after_the_metadata_route_is_checked_as_it_lands(
         self,
     ) -> None:
         """The metadata route is passed over, not where the check stops."""
@@ -6125,17 +6181,9 @@ class TestResourceMetadataOnLitestar:
                 AuthenticatedRequests(issuing(), resource=RESOURCE),
             ]
         ).install(app)
-        app.register(both)
 
-        with (
-            pytest.raises(BaseExceptionGroup) as refused,
-            LitestarTestClient(app),
-        ):
-            pass  # pragma: no cover
-
-        assert refused.group_contains(
-            TypeError, match="GET /both declares Anonymous"
-        )
+        with pytest.raises(TypeError, match="GET /both declares Anonymous"):
+            app.register(both)
 
     def test_an_app_mounted_under_litestar_does_not_warn(self) -> None:
         """The router a mounted app runs behind is its own, not Litestar's."""

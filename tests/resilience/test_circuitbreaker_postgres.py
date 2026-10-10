@@ -3,10 +3,12 @@
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, Generator
+from datetime import timedelta
 
 import pytest
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
+from grelmicro._duration import microseconds, seconds_to_microseconds
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.resilience import (
@@ -24,8 +26,11 @@ pytestmark = [pytest.mark.timeout(1)]
 
 URL = "postgresql://test:test@test_host:5432/test"
 
-RESET_TIMEOUT = 5
+RESET_TIMEOUT = timedelta(seconds=5)
 """Cool-down the end-to-end breakers are built with."""
+
+MINUTE_US = 60 * 1_000_000
+"""A short sweep lifetime, in microseconds."""
 
 
 def test_explicit_provider_is_borrowed() -> None:
@@ -117,7 +122,7 @@ def _bind(
     name: str = "api",
     error_threshold: int = 3,
     success_threshold: int = 2,
-    reset_timeout: float = 5,
+    reset_timeout: int | timedelta = 5,
     half_open_capacity: int = 1,
 ) -> CircuitBreakerStrategy:
     return backend.bind(
@@ -164,16 +169,20 @@ async def test_open_rejects_until_reset_timeout_elapses(
     backend: PostgresCircuitBreakerAdapter,
 ) -> None:
     """OPEN rejects calls until `reset_timeout`, then enters HALF_OPEN."""
-    strategy = _bind(backend, reset_timeout=0.5)
+    strategy = _bind(backend, reset_timeout=timedelta(milliseconds=500))
 
     # A long cool-down makes the rejection assert independent of scheduling:
     # a stalled runner cannot let the window elapse between the two calls.
-    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=60)
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=timedelta(seconds=60)
+    )
     assert await strategy.try_acquire() is False
 
     # Re-open with a short cool-down and wait several times past it, so the
     # elapse assert has margin instead of racing a 0.1s gap.
-    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=0.1)
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=timedelta(milliseconds=100)
+    )
     await asyncio.sleep(0.5)
 
     assert await strategy.try_acquire() is True
@@ -188,7 +197,11 @@ async def test_half_open_admission_cap_enforced_globally(
 ) -> None:
     """N concurrent acquires in HALF_OPEN never exceed `half_open_capacity`."""
     cap = 2
-    strategy = _bind(backend, half_open_capacity=cap, reset_timeout=0.1)
+    strategy = _bind(
+        backend,
+        half_open_capacity=cap,
+        reset_timeout=timedelta(milliseconds=100),
+    )
     await strategy.transition(desired=CircuitBreakerState.OPEN)
     await asyncio.sleep(0.5)  # 5x the 0.1s cool-down, not a 0.05s race
 
@@ -221,8 +234,10 @@ async def test_transition_to_open_honors_custom_cool_down(
     backend: PostgresCircuitBreakerAdapter,
 ) -> None:
     """`transition(OPEN, cool_down=X)` cools down for X, ignoring reset_timeout."""
-    strategy = _bind(backend, reset_timeout=60)
-    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=0.2)
+    strategy = _bind(backend, reset_timeout=timedelta(seconds=60))
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=timedelta(milliseconds=200)
+    )
 
     assert await strategy.try_acquire() is False
 
@@ -276,7 +291,7 @@ async def test_circuit_breaker_integration_end_to_end(
     assert cb.state is CircuitBreakerState.OPEN
     # Counted on the backend clock that stamped the open, so every replica
     # reports the same wait.
-    assert 0 < refused.value.retry_after <= RESET_TIMEOUT
+    assert 0 < refused.value.retry_after <= RESET_TIMEOUT.total_seconds()
 
 
 @pytest.mark.integration
@@ -340,7 +355,7 @@ async def test_recovered_circuit_stores_nothing(
         name="recover",
         error_threshold=1,
         success_threshold=1,
-        reset_timeout=0.01,
+        reset_timeout=timedelta(milliseconds=10),
     )
     await strategy.try_acquire()
     await strategy.record_outcome(success=False)
@@ -407,7 +422,7 @@ async def test_cleanup_deletes_only_expired_unforced_rows(
         "WHERE name IN ('cb:stale', 'cb:forced');"
     )
 
-    await backend.provider.client.execute(backend._cleanup_sql, 60.0, 100)
+    await backend.provider.client.execute(backend._cleanup_sql, MINUTE_US, 100)
 
     names = [
         r["name"]
@@ -432,7 +447,7 @@ async def test_cleanup_is_bounded(
     )
 
     await backend.provider.client.execute(
-        backend._cleanup_sql, 60.0, SWEEP_LIMIT
+        backend._cleanup_sql, MINUTE_US, SWEEP_LIMIT
     )
 
     assert await _row_count(backend) == SWEEP_SURVIVORS
@@ -553,59 +568,13 @@ async def test_get_snapshot_keeps_a_forced_circuit(
 
 @pytest.mark.integration
 @_INTEGRATION_TIMEOUT
-async def test_migrate_upgrades_a_pre_retry_after_install(
-    container: PostgresContainer,
-) -> None:
-    """An install from before `r_retry_after` upgrades in place.
-
-    Postgres refuses `CREATE OR REPLACE FUNCTION` when the returned columns
-    change, so the migration drops the three widened functions first. This
-    recreates the old signature and checks the next start still comes up.
-    """
-    # Arrange
-    port = container.get_exposed_port(5432)
-    provider = PostgresProvider(f"postgresql://test:test@localhost:{port}/test")
-    table = "grelmicro_cb_upgrade"
-    old_signature = f"""
-        DROP FUNCTION IF EXISTS {table}_cb_get_state(TEXT);
-        CREATE FUNCTION {table}_cb_get_state(
-            p_name TEXT
-        ) RETURNS TABLE(
-            r_state TEXT, r_cerr INT, r_csucc INT, r_opened_at DOUBLE PRECISION
-        ) AS $$
-        BEGIN
-            RETURN QUERY SELECT 'CLOSED'::TEXT, 0, 0, 0::double precision;
-        END;
-        $$ LANGUAGE plpgsql;
-    """
-    async with provider:
-        async with PostgresCircuitBreakerAdapter(
-            provider=provider, table_name=table
-        ):
-            pass
-        await provider.client.execute(old_signature)
-
-        # Act
-        async with PostgresCircuitBreakerAdapter(
-            provider=provider, table_name=table
-        ) as adapter:
-            snapshot = await _bind(adapter).get_snapshot()
-
-        # Assert
-        assert snapshot.state is CircuitBreakerState.CLOSED
-        assert snapshot.retry_after == 0.0
-
-
-@pytest.mark.integration
-@_INTEGRATION_TIMEOUT
 async def test_migrate_leaves_current_functions_alone(
     container: PostgresContainer,
 ) -> None:
     """A restart on a current install does not churn the function OIDs.
 
     A new OID invalidates every cached plan that references it, across
-    every replica. The drop is guarded on the stored result signature so
-    that cost is paid once, not on every start forever.
+    every replica.
     """
     # Arrange
     port = container.get_exposed_port(5432)
@@ -637,7 +606,9 @@ async def test_abandon_returns_the_half_open_slot(
     backend: PostgresCircuitBreakerAdapter,
 ) -> None:
     """A probe that produced no outcome must not hold its slot."""
-    strategy = _bind(backend, error_threshold=1, reset_timeout=0.01)
+    strategy = _bind(
+        backend, error_threshold=1, reset_timeout=timedelta(milliseconds=10)
+    )
     await strategy.record_outcome(success=False)
     await asyncio.sleep(0.05)
 
@@ -661,3 +632,135 @@ async def test_abandon_outside_half_open_changes_nothing(
 
     snapshot = await strategy.get_snapshot()
     assert snapshot.state is CircuitBreakerState.CLOSED
+
+
+UNDER_A_SECOND = timedelta(milliseconds=300)
+"""A cool-down under a second, which rounding to a whole second would break."""
+
+PAST_UNDER_A_SECOND = 0.6
+"""Seconds to wait past `UNDER_A_SECOND`, well inside a whole second."""
+
+NOT_WHOLE_MILLISECONDS = timedelta(seconds=1, microseconds=500_001)
+"""A reset timeout that is not a whole number of milliseconds."""
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_postgres_circuit_breaker_reset_timeout_under_a_second_refuses_a_probe_before_it_ends(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """An open circuit refuses a probe before its reset timeout ends."""
+    # Arrange
+    strategy = _bind(backend, error_threshold=1, reset_timeout=UNDER_A_SECOND)
+    await strategy.record_outcome(success=False)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is False
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_postgres_circuit_breaker_reset_timeout_under_a_second_admits_a_probe_once_it_ends(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A reset timeout under a second is kept, not rounded to a second."""
+    # Arrange
+    strategy = _bind(backend, error_threshold=1, reset_timeout=UNDER_A_SECOND)
+    await strategy.record_outcome(success=False)
+    await asyncio.sleep(PAST_UNDER_A_SECOND)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is True
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_postgres_circuit_breaker_cool_down_under_a_second_refuses_a_probe_before_it_ends(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A manual cool-down refuses a probe before it ends."""
+    # Arrange
+    strategy = _bind(backend, reset_timeout=timedelta(minutes=1))
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=UNDER_A_SECOND
+    )
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is False
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_postgres_circuit_breaker_cool_down_under_a_second_admits_a_probe_once_it_ends(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A manual cool-down under a second is kept, whatever the config says."""
+    # Arrange
+    strategy = _bind(backend, reset_timeout=timedelta(minutes=1))
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=UNDER_A_SECOND
+    )
+    await asyncio.sleep(PAST_UNDER_A_SECOND)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is True
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_postgres_circuit_breaker_stores_reset_timeout_to_the_microsecond(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """The stored cool-down reads back as the exact microseconds asked."""
+    # Arrange
+    strategy = _bind(
+        backend, error_threshold=1, reset_timeout=NOT_WHOLE_MILLISECONDS
+    )
+
+    # Act
+    await strategy.record_outcome(success=False)
+
+    # Assert
+    stored = await backend.provider.client.fetchval(
+        "SELECT cool_down FROM grelmicro_circuit_breaker;"
+    )
+    assert seconds_to_microseconds(stored) == microseconds(
+        NOT_WHOLE_MILLISECONDS
+    )
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_postgres_circuit_breaker_reads_a_circuit_opened_by_the_previous_version(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A row the previous version stored in float seconds stays open."""
+    # Arrange
+    await backend.provider.client.execute(
+        "INSERT INTO grelmicro_circuit_breaker"
+        " (name, state, opened_at, cool_down, updated_at)"
+        " VALUES ($1, 'OPEN', EXTRACT(EPOCH FROM clock_timestamp()),"
+        " $2, EXTRACT(EPOCH FROM clock_timestamp()));",
+        f"{backend._key_prefix}api",
+        RESET_TIMEOUT.total_seconds(),
+    )
+    strategy = _bind(backend, reset_timeout=RESET_TIMEOUT)
+
+    # Act
+    snapshot = await strategy.get_snapshot()
+
+    # Assert
+    assert snapshot.state is CircuitBreakerState.OPEN
+    assert 0 < snapshot.retry_after <= RESET_TIMEOUT.total_seconds()

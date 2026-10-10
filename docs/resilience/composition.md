@@ -67,9 +67,9 @@ A refusal by the stack's own rate limiter, bulkhead, or circuit breaker is not a
 | `RateLimitExceededError` | its `CircuitBreaker` records no outcome |
 | `BulkheadFullError` | its `CircuitBreaker` records no outcome |
 
-Nothing that happens while the stack is admitting a call counts against its breaker either. A `key_maker` that raises, a `cost` above the limiter's capacity, and a limiter backend that is down are all refused without recording a dependency outcome, so a mistake in one tenant's key cannot open the circuit for every caller.
+Nothing that happens while the stack is admitting a call counts against its breaker either. A `key=` function that raises, a `cost` above the limiter's capacity, and a limiter backend that is down are all refused without recording a dependency outcome, so a mistake in one tenant's key cannot open the circuit for every caller.
 
-Everything else reaches every pattern exactly as that pattern's own `when=` or `ignore_exceptions` decides. The stack changes no configuration.
+Everything else reaches every pattern exactly as that pattern's own `when=` decides. The stack changes no configuration.
 
 The refusal itself is unchanged. A `Fallback` at the top still catches the `CircuitBreakerError`, and a caller still reads `retry_after` off the `RateLimitExceededError`.
 
@@ -145,7 +145,7 @@ A `Stack` composes the six patterns that wrap a call. Anything else is refused a
 Read outside-in, a fully wired call site looks like this:
 
 ```python
-@tasks.every(seconds=60)
+@tasks.every(interval=60)
 @cached(prices, ttl=30)
 @recs
 async def refresh_prices() -> list[Price]: ...
@@ -164,7 +164,7 @@ Read top to bottom: the call enters `Fallback`, which delegates to `Retry`, whic
 Hand-stacked layers get none of the guarantees above, so the filters have to carry them:
 
 - Keep `when=` on the retry narrow. A broad `Retry(when=Exception)` retries a `CircuitBreakerError`, so an open breaker spends every attempt and every backoff before failing.
-- Keep the breaker's `ignore_exceptions` aware of admission errors. Without it a full bulkhead or a spent quota counts as a dependency failure and helps open the circuit.
+- Keep the breaker's `when=` clear of admission errors, for example `when=Match.not_exception(BulkheadFullError, RateLimitExceededError)`. Without it a full bulkhead or a spent quota counts as a dependency failure and helps open the circuit.
 
 ## Picking `when=`
 

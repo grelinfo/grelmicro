@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from logging import getLogger
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from grelmicro._app import resolve_ambient
 from grelmicro._async import sleep_or_stop
+from grelmicro._duration import check_duration
 from grelmicro._environment import record_coordination
 from grelmicro._task import Task
 from grelmicro._timezone import UTC_NAME
@@ -327,7 +328,7 @@ class CronTask(Task):
       before now and asks the schedule backend to claim it. Exactly one
       worker wins the claim and runs the body. The backend stores the last
       fire durably, so a fire missed while every worker was down replays
-      once on restart, bounded by ``misfire_grace_seconds``. Only the most
+      once on restart, bounded by ``misfire_grace``. Only the most
       recent missed fire runs, never a backlog.
     - A ``LeaderElection``: the elected worker claims each fire, as with
       ``"claim"``. Every other worker skips it. A follower that becomes the
@@ -341,7 +342,7 @@ class CronTask(Task):
         expr: str,
         timezone: str | None = None,
         name: str | None = None,
-        misfire_grace_seconds: float | None = None,
+        misfire_grace: int | timedelta | None = None,
         backend: ScheduleBackend | None = None,
         gate: Literal["claim"] | LeaderElection | None = None,
         sync: LockPrimitive | None = None,
@@ -355,6 +356,9 @@ class CronTask(Task):
             TypeError: If `gate` is not a supported value, or `sync` is
                 a leader election.
             ValueError: If `backend` is passed without a gate.
+            ValueError: If `misfire_grace` is not whole seconds or a
+                `timedelta`, is not greater than zero, or is over 100
+                years.
         """
         gate_label = _gate.gate_label(gate, takes_lock=False)
         _gate.check_sync(sync)
@@ -378,7 +382,11 @@ class CronTask(Task):
         self._function = function
         self._fire = FireRecorder(self._name, function, clock=self._wall_clock)
 
-        self._misfire_grace_seconds = misfire_grace_seconds
+        self._misfire_grace = (
+            check_duration(misfire_grace, "misfire_grace")
+            if misfire_grace is not None
+            else None
+        )
         self._backend = backend
         if backend is not None:
             record_coordination(self, backend, "schedule")
@@ -629,8 +637,9 @@ class CronTask(Task):
                 self._fire.unrun(now, FireOutcome.SKIPPED)
             return
         if (
-            self._misfire_grace_seconds is not None
-            and (now.timestamp() - due) > self._misfire_grace_seconds
+            self._misfire_grace is not None
+            and now.astimezone(UTC) - due_dt.astimezone(UTC)
+            > self._misfire_grace
         ):
             await self._drop_late_fire(backend, due, now)
             return

@@ -2,11 +2,12 @@
 
 from asyncio import sleep
 from collections.abc import AsyncGenerator, Generator
+from datetime import timedelta
 
 import pytest
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 from testcontainers.core.container import DockerContainer
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
 
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
@@ -100,7 +101,9 @@ async def backend(
 
 async def test_get_set_roundtrip(backend: CacheBackend) -> None:
     """Test that bytes written with set are returned unchanged by get."""
-    await backend.set(key="roundtrip", value=b"hello", ttl=60)
+    await backend.set(
+        key="roundtrip", value=b"hello", ttl=timedelta(seconds=60)
+    )
 
     result = await backend.get(key="roundtrip")
 
@@ -116,7 +119,9 @@ async def test_get_miss_returns_none(backend: CacheBackend) -> None:
 
 async def test_ttl_expiry(backend: CacheBackend) -> None:
     """Test that a key becomes unavailable after the TTL elapses."""
-    await backend.set(key="expiring", value=b"temp", ttl=0.5)
+    await backend.set(
+        key="expiring", value=b"temp", ttl=timedelta(milliseconds=500)
+    )
 
     assert await backend.get(key="expiring") == b"temp"
 
@@ -125,9 +130,62 @@ async def test_ttl_expiry(backend: CacheBackend) -> None:
     assert await backend.get(key="expiring") is None
 
 
+async def test_cache_ttl_under_a_millisecond_stored_then_expires(
+    backend: CacheBackend,
+) -> None:
+    """A TTL under a millisecond is stored, never refused as zero."""
+    # Arrange
+    await backend.set(
+        key="tiny", value=b"temp", ttl=timedelta(microseconds=500)
+    )
+
+    # Act
+    await sleep(0.5)
+
+    # Assert
+    assert await backend.get(key="tiny") is None
+
+
+async def test_cache_set_many_ttl_under_a_millisecond_stored_then_expires(
+    backend: CacheBackend,
+) -> None:
+    """`set_many` stores a TTL under a millisecond, never refused as zero."""
+    # Arrange
+    await backend.set_many(
+        items={"tiny_a": b"a", "tiny_b": b"b"},
+        ttl=timedelta(microseconds=500),
+    )
+
+    # Act
+    await sleep(0.5)
+
+    # Assert
+    assert await backend.get_many(keys=["tiny_a", "tiny_b"]) == {}
+
+
+async def test_cache_ttl_with_a_fraction_of_a_second_still_held_before_it_ends(
+    backend: CacheBackend,
+) -> None:
+    """An entry with a 1.5 second TTL is still there well before it ends."""
+    # Arrange
+    await backend.set(
+        key="fraction", value=b"v", ttl=timedelta(milliseconds=1500)
+    )
+
+    # Act
+    await sleep(0.5)
+
+    # Assert
+    assert await backend.get(key="fraction") == b"v"
+
+
 async def test_stale_on_error_serves_last_value(backend: CacheBackend) -> None:
     """A failing recompute serves the stale reserve within `stale_ttl`."""
-    cache = TTLCache(ttl=0.5, backend=backend, serializer=JsonSerializer())
+    cache = TTLCache(
+        ttl=timedelta(milliseconds=500),
+        backend=backend,
+        serializer=JsonSerializer(),
+    )
     fail = False
     calls = 0
 
@@ -150,7 +208,7 @@ async def test_stale_on_error_serves_last_value(backend: CacheBackend) -> None:
 
 async def test_delete(backend: CacheBackend) -> None:
     """Test that delete removes a key."""
-    await backend.set(key="to_delete", value=b"bye", ttl=60)
+    await backend.set(key="to_delete", value=b"bye", ttl=timedelta(seconds=60))
     assert await backend.get(key="to_delete") == b"bye"
 
     await backend.delete(key="to_delete")
@@ -165,8 +223,8 @@ async def test_delete_missing_key_is_no_op(backend: CacheBackend) -> None:
 
 async def test_clear(backend: CacheBackend) -> None:
     """Test that clear removes all entries."""
-    await backend.set(key="clear_a", value=b"a", ttl=60)
-    await backend.set(key="clear_b", value=b"b", ttl=60)
+    await backend.set(key="clear_a", value=b"a", ttl=timedelta(seconds=60))
+    await backend.set(key="clear_b", value=b"b", ttl=timedelta(seconds=60))
 
     await backend.clear()
 
@@ -176,8 +234,8 @@ async def test_clear(backend: CacheBackend) -> None:
 
 async def test_overwrite(backend: CacheBackend) -> None:
     """Test that setting the same key overwrites the previous value."""
-    await backend.set(key="overwrite", value=b"old", ttl=60)
-    await backend.set(key="overwrite", value=b"new", ttl=60)
+    await backend.set(key="overwrite", value=b"old", ttl=timedelta(seconds=60))
+    await backend.set(key="overwrite", value=b"new", ttl=timedelta(seconds=60))
 
     result = await backend.get(key="overwrite")
 
@@ -189,8 +247,8 @@ async def test_overwrite(backend: CacheBackend) -> None:
 
 async def test_get_many_returns_found_only(backend: CacheBackend) -> None:
     """Test that get_many returns only the keys that exist."""
-    await backend.set(key="gm_a", value=b"a", ttl=60)
-    await backend.set(key="gm_b", value=b"b", ttl=60)
+    await backend.set(key="gm_a", value=b"a", ttl=timedelta(seconds=60))
+    await backend.set(key="gm_b", value=b"b", ttl=timedelta(seconds=60))
 
     result = await backend.get_many(keys=["gm_a", "gm_b", "gm_missing"])
 
@@ -204,7 +262,9 @@ async def test_get_many_empty_keys(backend: CacheBackend) -> None:
 
 async def test_set_many_stores_all(backend: CacheBackend) -> None:
     """Test that set_many writes every key."""
-    await backend.set_many(items={"sm_a": b"a", "sm_b": b"b"}, ttl=60)
+    await backend.set_many(
+        items={"sm_a": b"a", "sm_b": b"b"}, ttl=timedelta(seconds=60)
+    )
 
     assert await backend.get(key="sm_a") == b"a"
     assert await backend.get(key="sm_b") == b"b"
@@ -212,13 +272,13 @@ async def test_set_many_stores_all(backend: CacheBackend) -> None:
 
 async def test_set_many_empty_is_no_op(backend: CacheBackend) -> None:
     """Test that set_many with no items does not raise."""
-    await backend.set_many(items={}, ttl=60)
+    await backend.set_many(items={}, ttl=timedelta(seconds=60))
 
 
 async def test_delete_many_removes_all(backend: CacheBackend) -> None:
     """Test that delete_many removes every listed key."""
-    await backend.set(key="dm_a", value=b"a", ttl=60)
-    await backend.set(key="dm_b", value=b"b", ttl=60)
+    await backend.set(key="dm_a", value=b"a", ttl=timedelta(seconds=60))
+    await backend.set(key="dm_b", value=b"b", ttl=timedelta(seconds=60))
 
     await backend.delete_many(keys=["dm_a", "dm_b", "dm_missing"])
 
@@ -241,9 +301,15 @@ async def test_delete_tags_empty_is_no_op(backend: CacheBackend) -> None:
 
 async def test_set_with_tags_then_delete_tags(backend: CacheBackend) -> None:
     """Test that delete_tags invalidates every key sharing a tag."""
-    await backend.set(key="tg_a", value=b"a", ttl=60, tags=["group"])
-    await backend.set(key="tg_b", value=b"b", ttl=60, tags=["group"])
-    await backend.set(key="tg_c", value=b"c", ttl=60, tags=["other"])
+    await backend.set(
+        key="tg_a", value=b"a", ttl=timedelta(seconds=60), tags=["group"]
+    )
+    await backend.set(
+        key="tg_b", value=b"b", ttl=timedelta(seconds=60), tags=["group"]
+    )
+    await backend.set(
+        key="tg_c", value=b"c", ttl=timedelta(seconds=60), tags=["other"]
+    )
 
     await backend.delete_tags(tags=["group"])
 
@@ -254,8 +320,12 @@ async def test_set_with_tags_then_delete_tags(backend: CacheBackend) -> None:
 
 async def test_delete_cleans_tag_membership(backend: CacheBackend) -> None:
     """Test that deleting a key leaves its tag empty of that key."""
-    await backend.set(key="dc_a", value=b"a", ttl=60, tags=["g"])
-    await backend.set(key="dc_b", value=b"b", ttl=60, tags=["g"])
+    await backend.set(
+        key="dc_a", value=b"a", ttl=timedelta(seconds=60), tags=["g"]
+    )
+    await backend.set(
+        key="dc_b", value=b"b", ttl=timedelta(seconds=60), tags=["g"]
+    )
 
     await backend.delete(key="dc_a")
     await backend.delete_tags(tags=["g"])
@@ -268,7 +338,9 @@ async def test_set_many_with_tags_then_delete_tags(
 ) -> None:
     """Test that set_many tags are invalidated by delete_tags."""
     await backend.set_many(
-        items={"smt_a": b"a", "smt_b": b"b"}, ttl=60, tags=["bulk"]
+        items={"smt_a": b"a", "smt_b": b"b"},
+        ttl=timedelta(seconds=60),
+        tags=["bulk"],
     )
 
     await backend.delete_tags(tags=["bulk"])
@@ -279,8 +351,12 @@ async def test_set_many_with_tags_then_delete_tags(
 
 async def test_overwrite_replaces_tags(backend: CacheBackend) -> None:
     """Test that re-setting a key with new tags drops the old tag link."""
-    await backend.set(key="rt_k", value=b"v", ttl=60, tags=["old"])
-    await backend.set(key="rt_k", value=b"v2", ttl=60, tags=["new"])
+    await backend.set(
+        key="rt_k", value=b"v", ttl=timedelta(seconds=60), tags=["old"]
+    )
+    await backend.set(
+        key="rt_k", value=b"v2", ttl=timedelta(seconds=60), tags=["new"]
+    )
 
     await backend.delete_tags(tags=["old"])
 
@@ -295,8 +371,12 @@ async def test_overwrite_with_empty_tags_clears_tags(
     backend: CacheBackend,
 ) -> None:
     """Re-setting a tagged key with no tags drops the old tag link."""
-    await backend.set(key="et_k", value=b"v", ttl=60, tags=["old"])
-    await backend.set(key="et_k", value=b"v2", ttl=60)  # no tags
+    await backend.set(
+        key="et_k", value=b"v", ttl=timedelta(seconds=60), tags=["old"]
+    )
+    await backend.set(
+        key="et_k", value=b"v2", ttl=timedelta(seconds=60)
+    )  # no tags
 
     await backend.delete_tags(tags=["old"])
 
@@ -306,13 +386,17 @@ async def test_overwrite_with_empty_tags_clears_tags(
 
 async def test_clear_sweeps_tags(backend: CacheBackend) -> None:
     """Test that clear removes tagged entries and their tag bookkeeping."""
-    await backend.set(key="ct_a", value=b"a", ttl=60, tags=["g"])
+    await backend.set(
+        key="ct_a", value=b"a", ttl=timedelta(seconds=60), tags=["g"]
+    )
 
     await backend.clear()
 
     assert await backend.get(key="ct_a") is None
     # A fresh entry under the same tag is not haunted by stale members.
-    await backend.set(key="ct_b", value=b"b", ttl=60, tags=["g"])
+    await backend.set(
+        key="ct_b", value=b"b", ttl=timedelta(seconds=60), tags=["g"]
+    )
     await backend.delete_tags(tags=["g"])
     assert await backend.get(key="ct_b") is None
 
@@ -334,8 +418,8 @@ async def test_redis_prefix_isolation() -> None:
                 provider=RedisProvider(url), prefix="beta:"
             ) as beta,
         ):
-            await alpha.set(key="k", value=b"alpha", ttl=60)
-            await beta.set(key="k", value=b"beta", ttl=60)
+            await alpha.set(key="k", value=b"alpha", ttl=timedelta(seconds=60))
+            await beta.set(key="k", value=b"beta", ttl=timedelta(seconds=60))
 
             await alpha.clear()
 
@@ -357,8 +441,8 @@ async def test_postgres_prefix_isolation() -> None:
             PostgresCacheAdapter(provider=provider, prefix="alpha:") as alpha,
             PostgresCacheAdapter(provider=provider, prefix="beta:") as beta,
         ):
-            await alpha.set(key="k", value=b"alpha", ttl=60)
-            await beta.set(key="k", value=b"beta", ttl=60)
+            await alpha.set(key="k", value=b"alpha", ttl=timedelta(seconds=60))
+            await beta.set(key="k", value=b"beta", ttl=timedelta(seconds=60))
 
             await alpha.clear()
 
@@ -379,13 +463,13 @@ async def test_cached_end_to_end_with_postgres() -> None:
             ) as pg_backend,
         ):
             cache = TTLCache(
-                ttl=60,
+                ttl=timedelta(seconds=60),
                 backend=pg_backend,
                 serializer=JsonSerializer(),
             )
             call_count = 0
 
-            @cached(cache, lock="local")
+            @cached(cache, lock="process")
             async def fetch_user(user_id: int) -> dict:
                 nonlocal call_count
                 call_count += 1
@@ -409,7 +493,7 @@ async def test_cached_end_to_end_with_redis() -> None:
             provider=RedisProvider(url), prefix="e2e:"
         ) as redis_backend:
             cache = TTLCache(
-                ttl=60,
+                ttl=timedelta(seconds=60),
                 backend=redis_backend,
                 serializer=JsonSerializer(),
             )
@@ -433,7 +517,7 @@ async def test_cached_end_to_end_with_memory() -> None:
     """Test @cached with TTLCache backed by MemoryCacheAdapter."""
     async with MemoryCacheAdapter() as memory_backend:
         cache = TTLCache(
-            ttl=60,
+            ttl=timedelta(seconds=60),
             backend=memory_backend,
             serializer=JsonSerializer(),
         )

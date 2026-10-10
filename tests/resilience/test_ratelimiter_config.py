@@ -46,7 +46,7 @@ def test_sliding_window_config() -> None:
     assert rl.name == "auth"
     assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == LIMIT
-    assert rl.config.window == WINDOW
+    assert rl.config.window == timedelta(seconds=WINDOW)
 
 
 @pytest.mark.usefixtures("_rate_limiter_backend")
@@ -79,7 +79,7 @@ def test_sliding_window_factory() -> None:
     assert rl.name == "auth"
     assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == LIMIT
-    assert rl.config.window == WINDOW
+    assert rl.config.window == timedelta(seconds=WINDOW)
     assert rl.config.fail_open is False
 
 
@@ -140,7 +140,7 @@ def test_bare_constructor_names_the_three_doors() -> None:
 
 
 @pytest.mark.parametrize("window", [1.5, 60.0, True])
-def test_sliding_window_refuses_a_float_window(window: object) -> None:
+def test_sliding_window_refuses_a_float_window(window: float) -> None:
     """A window is whole seconds or a timedelta, never a float."""
     with pytest.raises(ValueError, match="whole seconds or a timedelta"):
         SlidingWindowConfig(limit=LIMIT, window=window)
@@ -166,10 +166,10 @@ def test_sliding_window_takes_a_timedelta_under_a_second() -> None:
 
 @pytest.mark.parametrize(
     ("raw", "window"),
-    [("60", 60), ("PT0.5S", timedelta(milliseconds=500))],
+    [("60", timedelta(seconds=60)), ("PT0.5S", timedelta(milliseconds=500))],
 )
 def test_sliding_window_reads_a_window_from_text(
-    raw: str, window: int | timedelta
+    raw: str, window: timedelta
 ) -> None:
     """Text from the environment is whole seconds or an ISO 8601 duration."""
     config = SlidingWindowConfig.model_validate({"limit": LIMIT, "window": raw})
@@ -212,3 +212,15 @@ def test_sliding_window_refuses_decimal_seconds_from_text() -> None:
     """Text with a decimal number of seconds is refused, as a float is."""
     with pytest.raises(ValueError, match="window"):
         SlidingWindowConfig.model_validate({"limit": LIMIT, "window": "1.5"})
+
+
+def test_rate_limiter_algorithms_declare_different_fields() -> None:
+    """`TokenBucketConfig` and `SlidingWindowConfig` declare different fields."""
+    # Arrange
+    bucket = set(TokenBucketConfig.model_fields)
+
+    # Act
+    window = set(SlidingWindowConfig.model_fields)
+
+    # Assert
+    assert bucket != window

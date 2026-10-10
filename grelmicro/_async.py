@@ -10,7 +10,10 @@ from typing import TYPE_CHECKING, Any, NoReturn, TypeGuard
 from grelmicro.errors import EventLoopDeadlockError
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Coroutine
+
+_finishing: set[asyncio.Task[Any]] = set()
+"""Tasks `run_to_completion` is waiting on, kept alive until they end."""
 
 
 def raise_backend_not_open(what: str) -> NoReturn:
@@ -82,6 +85,32 @@ async def sleep_or_stop(seconds: float, stop: asyncio.Event | None) -> bool:
     except TimeoutError:
         return False
     return True
+
+
+async def run_to_completion[T](work: Coroutine[Any, Any, T]) -> T:
+    """Await `work` to its end, even when the caller is cancelled meanwhile.
+
+    `work` runs as a task of its own, and the caller keeps waiting for it
+    through every cancellation delivered in the meantime. Once `work` has
+    ended, a cancellation the caller received is raised, whatever `work`
+    returned or raised. Otherwise its result is returned, or its error
+    raised.
+
+    `work` has to bound its own wait, since nothing here gives up on it.
+    """
+    task = asyncio.ensure_future(work)
+    _finishing.add(task)
+    task.add_done_callback(_finishing.discard)
+    cancelled: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            # Waiting never cancels `task` and never raises its error.
+            await asyncio.wait((task,))
+        except asyncio.CancelledError as error:
+            cancelled = error
+    if cancelled is not None:
+        raise cancelled
+    return task.result()
 
 
 def is_async_callable(

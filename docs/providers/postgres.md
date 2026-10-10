@@ -1,6 +1,6 @@
 # Postgres
 
-`PostgresProvider` ships all factory methods: `.lock()`, `.leaderelection()`, `.cache()`, `.outbox()`, `.ratelimiter()`, `.circuitbreaker()`, and `.schedule()`. The
+`PostgresProvider` ships all factory methods: `.lock_backend()`, `.leaderelection_backend()`, `.cache_backend()`, `.outbox_backend()`, `.ratelimiter_backend()`, `.circuitbreaker_backend()`, and `.schedule_backend()`. The
 provider wraps an `asyncpg.Pool` and opens it lazily on `__aenter__`.
 
 ```python

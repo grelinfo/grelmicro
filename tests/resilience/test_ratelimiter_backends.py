@@ -5,9 +5,9 @@ from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 
 import pytest
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 from testcontainers.core.container import DockerContainer
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
 
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
@@ -94,7 +94,7 @@ async def backend(
             provider = SQLiteProvider(str(Path(tmpdir) / "rate_limit.db"))
             async with (
                 provider,
-                provider.ratelimiter(prefix="test:") as sqlite_backend,
+                provider.ratelimiter_backend(prefix="test:") as sqlite_backend,
             ):
                 yield sqlite_backend
     elif backend_name == "memory":

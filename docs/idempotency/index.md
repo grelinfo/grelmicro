@@ -122,7 +122,7 @@ Without a type parameter, responses store as JSON. Pass `serializer=ChargeRespon
 
 ## Single-flight duplicates
 
-A duplicate that arrives while the first execution is still in flight waits and receives the stored response. It folds across replicas when a Coordination lock backend is configured, and in-process otherwise.
+A duplicate that arrives while the first execution is still in flight waits and receives the stored response. It folds across replicas through the app's Coordination lock backend.
 
 ```python
 from grelmicro import Grelmicro
@@ -134,17 +134,17 @@ redis = RedisProvider("redis://localhost:6379/0")
 micro = Grelmicro(uses=[Cache(redis), Coordination(redis)])
 ```
 
-With a lock backend, two replicas that receive the same key at the same time run the work once and both return the same response.
+With a lock backend, two replicas that receive the same key at the same time run the work once and both return the same response. Without one, the lock holds in the process only, so a duplicate on another replica runs the work again. The [backend check](../deployment.md#the-backend-check) reports it: a warning when no environment is declared, `BackendScopeError` in `staging` and `production`. Pass `requires="process"` when one replica is all you run.
 
 ### Bounding the wait
 
-The wait is unbounded by default. Pass `wait_timeout=` to bound it, on the block or on `run()`. Past it the wait raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`.
+The wait is unbounded by default. Pass `max_wait=` to bound it, on the block or on `run()`. Past it the wait raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`.
 
 ```python title="fragment"
 from grelmicro.idempotency import IdempotencyWaitTimeoutError
 
 try:
-    async with idem(key, wait_timeout=5) as op:
+    async with idem(key, max_wait=5) as op:
         ...
 except IdempotencyWaitTimeoutError:
     ...  # an execution for this key is still in flight
@@ -182,11 +182,17 @@ Not guaranteed:
 
 ## Configuration
 
+`ttl` takes whole seconds or a `timedelta`. A float is refused. From an
+environment variable it reads whole seconds (`"3600"`) or an ISO 8601
+duration (`"PT1H"`).
+
 Build with keyword arguments and tune `ttl` in deployment. Set
 `GREL_IDEMPOTENCY_{NAME}_TTL` to change it without code changes (the default
 instance drops the name segment and reads `GREL_IDEMPOTENCY_TTL`). The instance
 reconfigures live from a mounted ConfigMap. See
 [Live reconfiguration](../architecture/reconfigure.md).
+
+--8<-- "env_gate.md"
 
 !!! tip "Advanced"
     For the `from_config` declarative path and `pydantic-settings` composition,

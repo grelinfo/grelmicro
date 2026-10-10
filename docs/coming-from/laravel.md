@@ -6,7 +6,7 @@ grelmicro is not a web framework and has no ORM. It runs inside FastAPI, Starlet
 
 | Laravel | grelmicro | Page |
 |---|---|---|
-| `Schedule::call(...)->everyMinute()`, `->cron(...)` | `@tasks.every(seconds=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
+| `Schedule::call(...)->everyMinute()`, `->cron(...)` | `@tasks.every(interval=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
 | `->onOneServer()` | `gate="claim"` on a task | [Task Scheduler](../task.md#claim) |
 | `->withoutOverlapping()` | Nothing to add on one worker. Across workers, `gate="claim"` on an interval task | [Task Scheduler](../task.md#interval-task) |
 | `Cache::lock('name', 10)` | `Lock("name", lease_duration=10)` | [Lock](../coordination/lock.md) |

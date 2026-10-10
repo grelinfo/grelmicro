@@ -115,10 +115,10 @@ def test_custom_table_name() -> None:
 
 @pytest.mark.timeout(1)
 def test_provider_factory_returns_postgres_adapter() -> None:
-    """`PostgresProvider.schedule()` returns a bound adapter."""
+    """`PostgresProvider.schedule_backend()` returns a bound adapter."""
     provider = PostgresProvider(URL)
 
-    adapter = provider.schedule()
+    adapter = provider.schedule_backend()
 
     assert isinstance(adapter, PostgresScheduleAdapter)
     assert adapter.provider is provider
@@ -203,7 +203,9 @@ pytestmark: list[pytest.MarkDecorator] = []
 @pytest.fixture(scope="module")
 async def backend() -> AsyncGenerator[PostgresScheduleAdapter]:
     """Provide a Postgres-backed schedule adapter in a container."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)

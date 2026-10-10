@@ -33,6 +33,7 @@ from grelmicro.trace._autoinstrument import (
     uninstrument_providers,
     validate_directive,
 )
+from tests._logs import records_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -153,7 +154,7 @@ def test_instrument_providers_silent_on_default_miss(
     provider = _SpyProvider(attaches=False)
     caplog.set_level("WARNING")
     assert instrument_providers([provider], object(), directive=True) == []  # ty: ignore[invalid-argument-type]
-    assert caplog.text == ""
+    assert records_of(caplog, "grelmicro") == []
 
 
 def test_instrument_providers_swallows_instrument_errors(

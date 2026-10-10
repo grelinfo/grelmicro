@@ -9,6 +9,7 @@ from logging import getLogger
 from typing import Any, Literal
 
 from grelmicro._async import sleep_or_stop
+from grelmicro._duration import check_duration
 from grelmicro._task import Task
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination._tokens import generate_worker_id
@@ -18,7 +19,10 @@ from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.metrics import _emit
 from grelmicro.task._fire import FireInfo, FireRecorder
 from grelmicro.task._gate import LeaderWatch, check_sync, gate_label
-from grelmicro.task._utils import validate_and_generate_reference
+from grelmicro.task._utils import (
+    gate_lock_name,
+    validate_and_generate_reference,
+)
 
 logger = getLogger("grelmicro.task")
 
@@ -43,7 +47,7 @@ class IntervalTask(Task):
         *,
         function: Callable[..., Any],
         name: str | None = None,
-        seconds: float | timedelta,
+        interval: int | timedelta,
         gate: Literal["claim"] | TaskLock | LeaderElection | None = None,
         sync: LockPrimitive | None = None,
     ) -> None:
@@ -51,38 +55,36 @@ class IntervalTask(Task):
 
         Raises:
             FunctionTypeError: If the function is not supported.
-            ValueError: If seconds is less than or equal to 0.
+            ValueError: If `interval` is not whole seconds or a
+                `timedelta`, is not greater than zero, or is over 100
+                years.
             ValueError: If the gate lock already gates another task.
             SettingsValidationError: If the gate lock holds a claim for
-                less than `seconds`.
+                less than `interval`, or the gate locks under a `name` that
+                is not a valid lock name or starts with `task-`.
             TypeError: If `gate` is not a supported value, or `sync` is
                 a leader election.
         """
-        seconds = (
-            seconds.total_seconds()
-            if isinstance(seconds, timedelta)
-            else seconds
-        )
-        if seconds <= 0:
-            msg = "seconds must be greater than 0"
-            raise ValueError(msg)
+        interval = check_duration(interval, "interval")
         check_sync(sync)
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
-        self._seconds = seconds
+        self._name_derived = not name
+        self._interval = interval
+        self._interval_seconds = interval.total_seconds()
         self._function = function
         self._fire = FireRecorder(
             self._name, function, clock=partial(datetime.now, UTC)
         )
 
+        primitives = self._gate_primitives(gate, interval)
         self._gate_label = gate_label(gate, takes_lock=True)
         self._watch = (
             LeaderWatch(gate, self._name)
             if isinstance(gate, LeaderElection)
             else None
         )
-        primitives = self._gate_primitives(gate, seconds)
         self._claim = next(
             (p for p in primitives if isinstance(p, TaskLock)), None
         )
@@ -95,7 +97,7 @@ class IntervalTask(Task):
     def _gate_primitives(
         self,
         gate: Literal["claim"] | TaskLock | LeaderElection | None,
-        seconds: float,
+        interval: timedelta,
     ) -> list[LockPrimitive]:
         """Return the primitives a gate enters before the body, in order.
 
@@ -106,30 +108,46 @@ class IntervalTask(Task):
         if gate is None:
             return []
         if isinstance(gate, TaskLock):
-            gate._bind_task(self._name, interval=seconds)  # noqa: SLF001
+            gate._bind_task(  # noqa: SLF001
+                self._name,
+                lock_name=gate.name or self._gate_lock_name(),
+                interval=interval,
+            )
             return [gate]
         if isinstance(gate, LeaderElection):
-            return [gate.guard(), self._claim_lock(seconds)]
-        return [self._claim_lock(seconds)]
+            return [gate.guard(), self._claim_lock(interval)]
+        return [self._claim_lock(interval)]
 
-    def _claim_lock(self, seconds: float) -> TaskLock:
+    def _gate_lock_name(self) -> str:
+        """Return the lock name a gate takes from the task name.
+
+        Raises:
+            SettingsValidationError: If an explicit task name starts with
+                the reserved ``task-`` prefix.
+        """
+        return gate_lock_name(self._name, derived=self._name_derived)
+
+    def _claim_lock(self, interval: timedelta) -> TaskLock:
         """Build the lock that holds one claim per interval.
 
-        The claim is held for the whole interval. The task renews it
+        The claim is held for the whole interval. The task extends it
         while the body runs, so the lease of two intervals only bounds
         how long a crashed worker keeps it.
         The lock is built from a fixed config, so neither the environment
         nor an external reload retunes it.
         """
+        lock_name = self._gate_lock_name()
         lock = TaskLock.from_config(
-            self._name,
+            lock_name,
             TaskLockConfig(
                 worker=generate_worker_id(),
-                min_hold_duration=seconds,
-                lease_duration=seconds * 2,
+                min_hold_duration=interval,
+                lease_duration=interval * 2,
             ),
         )
-        lock._bind_task(self._name, interval=seconds)  # noqa: SLF001
+        lock._bind_task(  # noqa: SLF001
+            self._name, lock_name=lock_name, interval=interval
+        )
         return lock
 
     @property
@@ -152,9 +170,8 @@ class IntervalTask(Task):
         """The computed next fire time based on last loop instant, or None when not started."""
         if self._last_loop_start is None:
             return None
-        elapsed = time.monotonic() - self._last_loop_start
-        remaining = max(self._seconds - elapsed, 0)
-        return datetime.now(UTC) + timedelta(seconds=remaining)
+        elapsed = timedelta(seconds=time.monotonic() - self._last_loop_start)
+        return datetime.now(UTC) + max(self._interval - elapsed, timedelta(0))
 
     @property
     def last_fire(self) -> FireInfo | None:
@@ -170,7 +187,7 @@ class IntervalTask(Task):
         """Run the repeated task loop."""
         logger.info(
             "Task started (interval: %ss, gate: %s): %s",
-            self._seconds,
+            self._interval_seconds,
             self._gate_label,
             self.name,
         )
@@ -192,11 +209,11 @@ class IntervalTask(Task):
                 self._last_loop_start = time.monotonic()
                 _emit.observe(
                     "grelmicro.task.next_run",
-                    time.time() + self._seconds,
+                    time.time() + self._interval_seconds,
                     self._fire.metric_attrs,
                     unit="s",
                 )
-                if await sleep_or_stop(self._seconds, stop):
+                if await sleep_or_stop(self._interval_seconds, stop):
                     break
         finally:
             logger.info("Task stopped: %s", self.name)
@@ -205,7 +222,7 @@ class IntervalTask(Task):
         """Return how late the body starts against its planned instant.
 
         The interval is measured from the end of the previous iteration,
-        so the planned instant is that moment plus `seconds`. It rises
+        so the planned instant is that moment plus `interval`. It rises
         when a worker is saturated or when acquiring the lock takes
         longer than the interval it guards. Nothing was planned before
         the first iteration, which answers `None`.
@@ -213,7 +230,7 @@ class IntervalTask(Task):
         planned = self._last_loop_start
         if planned is None:
             return None
-        return max(time.monotonic() - (planned + self._seconds), 0.0)
+        return max(time.monotonic() - (planned + self._interval_seconds), 0.0)
 
     async def _run_with_sync(
         self, primitives: list[LockPrimitive], index: int = 0
@@ -236,54 +253,54 @@ class IntervalTask(Task):
             # Renew from the moment the claim is held, so waiting for a
             # `sync` lock after it never lets the lease run out.
             done = asyncio.Event()
-            renewal = asyncio.create_task(self._renew_claim(primitive, done))
+            extension = asyncio.create_task(self._extend_claim(primitive, done))
             try:
                 await self._fire.claimed(
                     self._run_with_sync(primitives, index + 1)
                 )
             finally:
-                # Signal instead of cancel, so a renewal already sent to the
+                # Signal instead of cancel, so an extension already sent to the
                 # backend lands before the claim is released.
                 done.set()
-                await renewal
+                await extension
 
-    async def _renew_claim(self, claim: TaskLock, done: asyncio.Event) -> None:
+    async def _extend_claim(self, claim: TaskLock, done: asyncio.Event) -> None:
         """Keep the claim until `done` is set.
 
-        Renews every third of the lease, read again before each wait so
-        a `reconfigure` sets the pace. A renewal the backend fails is
+        Extends every third of the lease, read again before each wait so
+        a `reconfigure` sets the pace. An extension the backend fails is
         retried every tenth of the lease for as long as the lease since
         the last one that worked lasts. A claim the backend no longer
-        holds stops the renewals. The body keeps running either way.
+        holds stops the extensions. The body keeps running either way.
         """
-        renewed_at = time.monotonic()
+        extended_at = time.monotonic()
         failing = False
         while True:
-            lease = claim.config.lease_duration
+            lease = claim.config.lease_duration.total_seconds()
             delay = lease / 10 if failing else lease / 3
             if await sleep_or_stop(delay, done):
                 return
             try:
-                await claim._renew_held()  # noqa: SLF001
+                await claim._extend_held()  # noqa: SLF001
             except LockNotOwnedError:
                 logger.warning(
                     "Task lost its claim while the body ran: %s", self.name
                 )
                 return
             except Exception:
-                if time.monotonic() - renewed_at >= lease:
+                if time.monotonic() - extended_at >= lease:
                     logger.warning(
-                        "Task could not renew its claim while the body ran: %s",
+                        "Task could not extend its claim while the body ran: %s",
                         self.name,
                         exc_info=True,
                     )
                     return
                 logger.debug(
-                    "Task claim renewal failed, retrying: %s",
+                    "Task claim extension failed, retrying: %s",
                     self.name,
                     exc_info=True,
                 )
                 failing = True
             else:
-                renewed_at = time.monotonic()
+                extended_at = time.monotonic()
                 failing = False

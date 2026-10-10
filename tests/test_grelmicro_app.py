@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from datetime import timedelta
 from typing import TYPE_CHECKING, ClassVar, Self
 
 import pytest
@@ -125,7 +126,7 @@ class _RecordingLockAdapter:
         return None
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise NotImplementedError
 
@@ -166,7 +167,7 @@ class _RecordingElectionAdapter:
         *,
         name: str,
         token: str,
-        duration: float,
+        duration: timedelta,
         metadata: Mapping[str, str] | None = None,
     ) -> LeaderRecord:
         raise NotImplementedError
@@ -234,7 +235,7 @@ class _RecordingReadWriteLockAdapter:
         return None
 
     async def acquire_read(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise NotImplementedError
 
@@ -246,7 +247,7 @@ class _RecordingReadWriteLockAdapter:
         *,
         name: str,
         token: str,
-        duration: float,
+        duration: timedelta,
         intent: bool = True,
     ) -> WriteGrant | None:
         raise NotImplementedError
@@ -258,7 +259,7 @@ class _RecordingReadWriteLockAdapter:
         raise NotImplementedError
 
     async def downgrade(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise NotImplementedError
 
@@ -287,22 +288,22 @@ class _RecordingProvider(Provider):
         self.entered = 0
         self.exited = 0
 
-    def lock(self, **kwargs: object) -> _RecordingLockAdapter:  # noqa: ARG002
+    def lock_backend(self, **kwargs: object) -> _RecordingLockAdapter:  # noqa: ARG002
         return _RecordingLockAdapter(self)
 
-    def readwritelock(
+    def readwritelock_backend(
         self,
         **kwargs: object,  # noqa: ARG002
     ) -> _RecordingReadWriteLockAdapter:
         return _RecordingReadWriteLockAdapter(self)
 
-    def leaderelection(
+    def leaderelection_backend(
         self,
         **kwargs: object,  # noqa: ARG002
     ) -> _RecordingElectionAdapter:
         return _RecordingElectionAdapter(self)
 
-    def schedule(self, **kwargs: object) -> _RecordingScheduleAdapter:  # noqa: ARG002
+    def schedule_backend(self, **kwargs: object) -> _RecordingScheduleAdapter:  # noqa: ARG002
         return _RecordingScheduleAdapter(self)
 
     async def __aenter__(self) -> Self:
@@ -870,7 +871,7 @@ async def test_provider_public_export() -> None:
 
 
 async def test_provider_base_lock_raises_not_implemented() -> None:
-    """`Provider.lock()` raises when a subclass does not override it."""
+    """`Provider.lock_backend()` raises when a subclass does not override it."""
     from grelmicro.providers import Provider  # noqa: PLC0415
 
     class _BareProvider(Provider):
@@ -889,11 +890,11 @@ async def test_provider_base_lock_raises_not_implemented() -> None:
 
     bare = _BareProvider()
     with pytest.raises(NotImplementedError, match="no lock adapter"):
-        bare.lock()
+        bare.lock_backend()
 
 
 async def test_provider_base_leader_election_raises_not_implemented() -> None:
-    """`Provider.leaderelection()` raises when a subclass does not override it."""
+    """`Provider.leaderelection_backend()` raises when a subclass does not override it."""
     from grelmicro.providers import Provider  # noqa: PLC0415
 
     class _BareProvider(Provider):
@@ -912,7 +913,7 @@ async def test_provider_base_leader_election_raises_not_implemented() -> None:
 
     bare = _BareProvider()
     with pytest.raises(NotImplementedError, match="no leader election adapter"):
-        bare.leaderelection()
+        bare.leaderelection_backend()
 
 
 async def test_discovers_provider_not_in_uses(
@@ -953,7 +954,9 @@ async def test_discovers_both_providers_of_a_coordination() -> None:
     lock_provider = _RecordingProvider()
     election_provider = _RecordingProvider()
     micro = Grelmicro(
-        uses=[Coordination(lock=lock_provider, election=election_provider)]
+        uses=[
+            Coordination(lock=lock_provider, leaderelection=election_provider)
+        ]
     )
     async with micro:
         pass
@@ -982,7 +985,7 @@ async def test_discovers_the_provider_of_a_read_write_lock_backend() -> None:
     Provider the same way the other three do.
     """
     provider = _RecordingProvider()
-    micro = Grelmicro(uses=[Coordination(rwlock=provider)])
+    micro = Grelmicro(uses=[Coordination(readwritelock=provider)])
     async with micro:
         pass
 
@@ -1000,8 +1003,8 @@ async def test_a_bare_provider_wires_every_coordination_backend() -> None:
 
     coordination = micro.coordination
     assert coordination.lock_backend is not None
-    assert coordination.rwlock_backend is not None
-    assert coordination.election_backend is not None
+    assert coordination.readwritelock_backend is not None
+    assert coordination.leaderelection_backend is not None
     assert coordination.schedule_backend is not None
 
 

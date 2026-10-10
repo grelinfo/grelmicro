@@ -1,7 +1,7 @@
-from grelmicro.resilience import CircuitBreaker
+from grelmicro.resilience import CircuitBreaker, Match
 
 circuit_breaker = CircuitBreaker.consecutive_count(
-    "system_name", ignore_exceptions=FileNotFoundError
+    "system_name", when=Match.not_exception(FileNotFoundError)
 )
 
 

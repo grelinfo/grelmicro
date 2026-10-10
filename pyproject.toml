@@ -84,7 +84,7 @@ postgres = "grelmicro.coordination.postgres:PostgresReadWriteLockAdapter"
 sqlite = "grelmicro.coordination.sqlite:SQLiteReadWriteLockAdapter"
 kubernetes = "grelmicro.coordination.kubernetes:KubernetesReadWriteLockAdapter"
 
-[project.entry-points."grelmicro.coordination.election.adapters"]
+[project.entry-points."grelmicro.coordination.leaderelection.adapters"]
 memory = "grelmicro.coordination.memory:MemoryLeaderElectionAdapter"
 redis = "grelmicro.coordination.redis:RedisLeaderElectionAdapter"
 postgres = "grelmicro.coordination.postgres:PostgresLeaderElectionAdapter"
@@ -123,7 +123,7 @@ valkey = "grelmicro.trace._valkey:ValkeyInstrumentor"
 [project.optional-dependencies]
 standard = [
     "orjson>=3.11.1",
-    "uvloop>=0.22.1; sys_platform != 'win32' and sys_platform != 'cygwin' and platform_python_implementation != 'PyPy'",
+    "uvloop>=0.23.0; sys_platform != 'win32' and sys_platform != 'cygwin' and platform_python_implementation != 'PyPy'",
 ]
 fastapi = [
     "fastapi>=0.142.1",
@@ -151,7 +151,7 @@ kubernetes = [
     "lightkube>=1.0.0",
 ]
 opentelemetry = [
-    "opentelemetry-api>=1.44.0",
+    "opentelemetry-api>=1.45.0",
     "opentelemetry-sdk>=1.44.0",
     "opentelemetry-exporter-otlp-proto-http>=1.44.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.44.0",
@@ -185,16 +185,16 @@ dev = [
     # The security suite signs its own tokens, including the malformed and
     # confused ones a JWT library refuses to produce. grelmicro never issues
     # a token, so this is a test dependency only.
-    "cryptography>=50.0.1",
+    "cryptography>=50.0.2",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pytest>=9.1.1",
-    "hypothesis>=6.167.1",
-    "ruff>=0.16.5",
-    "testcontainers[postgres,redis]>=4.8.2",
+    "hypothesis>=6.168.3",
+    "ruff>=0.16.10",
+    "testcontainers[postgres,redis]>=4.15.0",
     "pytest-timeout>=2.4.0",
-    "pytest-mock>=3.15.1",
-    "pytest-randomly>=4.1.0",
+    "pytest-mock>=3.16.0",
+    "pytest-randomly>=5.0.0",
     "pre-commit>=4.6.2",
     "fastapi>=0.142.1",
     "fastapi-cli>=0.0.32",
@@ -205,13 +205,13 @@ dev = [
     "faststream>=0.7.0",
     "freezegun>=1.5.5",
     "ty>=0.0.77",
-    "mypy>=2.3.1",
+    "mypy>=2.4.0",
     "loguru>=0.7.3",
     "orjson>=3.11.1",
     "asyncpg>=0.31.0",
     "redis>=6.0.0",
     "valkey>=6",
-    "opentelemetry-api>=1.44.0",
+    "opentelemetry-api>=1.45.0",
     "opentelemetry-sdk>=1.44.0",
     "opentelemetry-exporter-otlp-proto-http>=1.44.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.44.0",
@@ -222,20 +222,20 @@ dev = [
     "structlog>=24.1.0",
     "aiosqlite>=0.20.0",
     "lightkube>=1.0.0",
-    "uvicorn>=0.52.4",
+    "uvicorn>=0.54.0",
     "pytest-xdist>=3.8.0",
     "syrupy>=6.0.0",
     "pyyaml>=6.0.3",
     "litestar>=2.24.0",
-    "sqlalchemy[asyncio]>=2.0.51",
+    "sqlalchemy[asyncio]>=2.1.3",
     "sqlmodel>=0.0.42",
 ]
 docs = [
     "mkdocs-material>=9.5.44",
-    "mkdocstrings[python]>=0.27.0",
+    "mkdocstrings[python]>=1.0.6",
     "griffe-typingdoc>=0.2.7",
     "pygments>=2.18.0",
-    "pymdown-extensions>=10.12",
+    "pymdown-extensions>=12.1",
     "mdx-include>=1.4.2",
 ]
 mutation = [
@@ -243,7 +243,7 @@ mutation = [
 ]
 
 [build-system]
-requires = ["hatchling>=1.25,<2", "hatch-fancy-pypi-readme>=24,<26"]
+requires = ["hatchling>=1.32.4,<2", "hatch-fancy-pypi-readme>=25.1.0,<26"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

@@ -1,5 +1,7 @@
 """Tests for the Postgres Lock Adapter."""
 
+from datetime import timedelta
+
 import pytest
 
 from grelmicro.coordination.postgres import PostgresLockAdapter
@@ -38,7 +40,9 @@ async def test_out_of_context_errors() -> None:
     token = "token"
 
     with pytest.raises(OutOfContextError):
-        await backend.acquire(name=name, token=token, duration=1)
+        await backend.acquire(
+            name=name, token=token, duration=timedelta(seconds=1)
+        )
     with pytest.raises(OutOfContextError):
         await backend.release(name=name, token=token)
     with pytest.raises(OutOfContextError):

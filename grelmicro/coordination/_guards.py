@@ -48,8 +48,8 @@ class _BaseGuard:
         """
         return not self._released and self._expires_at > monotonic()
 
-    def _renewed(self, expires_at: float) -> None:
-        """Record a renewed lease deadline."""
+    def _extended(self, expires_at: float) -> None:
+        """Record an extended lease deadline."""
         self._expires_at = expires_at
 
     def _invalidate(self) -> None:
@@ -105,11 +105,11 @@ class ReadGuard(_BaseGuard):
         return self._generation
 
     async def extend(self) -> None:
-        """Renew this reader's lease for another `lease_duration`.
+        """Extend this reader's lease for another `lease_duration`.
 
         Raises:
             LockNotOwnedError: This reader no longer holds a live lease.
-            LockAcquireError: The backend call failed.
+            LockExtendError: The backend call failed.
         """
         self._check()
         await self._owner.do_extend(self)
@@ -170,13 +170,13 @@ class WriteGuard(_BaseGuard):
         return self._poisoned
 
     async def extend(self) -> None:
-        """Renew the write lease for another `lease_duration`.
+        """Extend the write lease for another `lease_duration`.
 
         The fencing token is unchanged.
 
         Raises:
             LockNotOwnedError: This writer no longer holds the lock.
-            LockAcquireError: The backend call failed.
+            LockExtendError: The backend call failed.
         """
         self._check()
         await self._owner.do_extend(self)

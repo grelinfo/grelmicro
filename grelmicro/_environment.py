@@ -121,7 +121,7 @@ class Binding:
 
     A pattern that no app registers is kept as one of these until an app
     checks it. A component whose backend lives on another component
-    describes itself as one through `_scope_binding()`.
+    describes itself through `_scope_bindings()`.
     """
 
     label: str
@@ -136,6 +136,15 @@ class Binding:
     rides: tuple[str, str] | None = None
     """`(kind, name)` of the component whose backend it reads otherwise."""
 
+    attribute: str = "backend"
+    """The attribute of the ridden component that holds the backend."""
+
+    absent: object | None = None
+    """What it falls back to when the ridden component holds no backend.
+
+    `None` leaves such a binding unchecked.
+    """
+
     slot: str | None = None
     """The `Coordination` keyword that takes this backend.
 
@@ -146,6 +155,9 @@ class Binding:
 
     kind: str | None = None
     """Component kind of the backend, `"coordination"` or `"cache"`."""
+
+    keyword: str = "requires"
+    """The argument that accepts a smaller reach, `lock` on `@cached`."""
 
 
 _recorded: WeakKeyDictionary[object, Binding] = WeakKeyDictionary()
@@ -198,6 +210,9 @@ class Unmet:
     kind: str | None = None
     """Component kind of the backends, which decides the backends offered."""
 
+    keyword: str = "requires"
+    """The argument that accepts a smaller reach, `lock` on `@cached`."""
+
     @property
     def backend(self) -> str:
         """The backend names, read as a list."""
@@ -228,7 +243,7 @@ class Unmet:
     def remedy(self, scope: str | None = None) -> str:
         """Return how to accept a smaller reach, naming `scope` when given."""
         if self.slot is None:
-            return f"pass requires={scope or ''}"
+            return f"pass {self.keyword}={scope or ''}"
         return (
             f"register it as Coordination({self.slot}=..., "
             f"requires={scope or '...'})"
@@ -442,6 +457,7 @@ def unmet_requirements(
             rides=finding.rides,
             slot=finding.slot,
             kind=finding.kind,
+            keyword=finding.keyword,
         )
         for finding, names in grouped.items()
     ]
@@ -456,6 +472,7 @@ class _Finding(NamedTuple):
     requires: BackendScope
     slot: str | None
     kind: str | None
+    keyword: str = "requires"
 
 
 def falls_short(backend: object, requires: object) -> BackendScope | None:
@@ -496,9 +513,9 @@ def _item_findings(
 ) -> Iterator[tuple[_Finding, object]]:
     """Yield what every registered item holds short of its requirement."""
     for item in items:
-        describe = getattr(item, "_scope_binding", None)
+        describe = getattr(item, "_scope_bindings", None)
         if describe is not None:
-            yield from _binding_findings([describe()], items, components)
+            yield from _binding_findings(describe(), items, components)
             continue
         requires = getattr(item, "requires", None)
         kind = getattr(item, "kind", None)
@@ -530,7 +547,10 @@ def _binding_findings(
             ridden = (
                 None if binding.rides is None else components.get(binding.rides)
             )
-            backend = getattr(ridden, "backend", None)
+            backend = getattr(ridden, binding.attribute, None)
+            if backend is None:
+                backend = binding.absent
+                ridden = None
             if backend is None:
                 continue
         elif binding.slot is not None:
@@ -551,6 +571,7 @@ def _binding_findings(
                 binding.requires,
                 binding.slot,
                 binding.kind,
+                binding.keyword,
             )
             yield finding, backend
 

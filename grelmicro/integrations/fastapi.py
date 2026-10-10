@@ -1,15 +1,15 @@
-"""FastAPI integration: the Starlette wiring plus what only FastAPI has.
+"""FastAPI integration: the Starlette wiring plus what Starlette lacks.
 
 The lifespan, the binding, and the error responses are pure ASGI and live in
-`grelmicro.integrations.starlette`. This module adds what only FastAPI has,
+`grelmicro.integrations.starlette`. This module adds what Starlette lacks,
 the OpenAPI schema and the health and metrics routers.
 """
 
-import inspect
 import logging
 import weakref
-from collections.abc import Callable, Collection, Sequence
-from typing import TYPE_CHECKING, Annotated, Any, Final, cast
+from collections.abc import Callable, Collection, Iterator, Sequence
+from datetime import timedelta
+from typing import TYPE_CHECKING, Annotated, Any, Final
 
 try:
     # The module has to import without FastAPI. Its annotations and
@@ -39,11 +39,13 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Doc
 
-from grelmicro import Grelmicro
+from grelmicro import (
+    ComponentNotRegisteredError,
+    Grelmicro,
+    NoActiveAppError,
+)
 from grelmicro._caller import is_authenticated
 from grelmicro._endpoints import NO_STORE_HEADERS
-from grelmicro._guards import is_class, is_subclass
-from grelmicro._paths import selects, walk_routes
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._endpoints import (
     JSON_MEDIA_TYPE,
@@ -52,30 +54,35 @@ from grelmicro.health._endpoints import (
     status_code,
 )
 from grelmicro.health._models import HealthStatus
+from grelmicro.health._served import (
+    HealthEndpoint,
+    health_endpoints_in,
+    mark_health_endpoint,
+)
 from grelmicro.http import (
-    ConditionalRequestsMiddleware,
     ErrorResponses,
     Gate,
-    IdempotencyMiddleware,
     PreconditionRequiredError,
-    ProblemDetail,
     RouteDeclaration,
     check_freshness,
 )
 from grelmicro.http._authentication import (
-    AuthenticatedRequestsMiddleware,
     declare_anonymous,
-    document_operations,
-    metadata_path_of,
-    operation_authentication,
+    operation_declarations,
+    serves_anonymous_routes,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
-from grelmicro.http._conditional import _check_sent_precondition
-from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
-from grelmicro.http._openapi import add_error_schema, referenced
-from grelmicro.http._problem import PROBLEM_MEDIA_TYPE
+from grelmicro.http._conditional import (
+    _check_sent_precondition,
+    declare_precondition_required,
+)
+from grelmicro.http._openapi import (
+    add_error_schema,
+    describe_schema,
+    describing,
+    referenced,
+)
 from grelmicro.http._ratelimit import (
-    RateLimitMiddleware,
     bucket_of,
     check_route_limiters,
     spend,
@@ -88,14 +95,18 @@ from grelmicro.http._requirement import (
     requirement_for,
 )
 from grelmicro.http._response_cache import declare_cached
-from grelmicro.idempotency import Idempotency
+from grelmicro.integrations import _fastapi_internals as _fastapi
 from grelmicro.integrations._fastapi_internals import telemetry_of
 from grelmicro.integrations._request_telemetry import (
     exceptions_on_spans,
     excluding,
     normal_close,
 )
-from grelmicro.integrations._route_gate import declarations_of, gate_routes
+from grelmicro.integrations._route_gate import (
+    declarations_of,
+    gate_routes,
+    lists_routes,
+)
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
     _keep_watching_outside,
@@ -103,6 +114,9 @@ from grelmicro.integrations.starlette import (
     is_bound,
 )
 from grelmicro.integrations.starlette import _wire as _wire_starlette
+from grelmicro.integrations.starlette import (
+    _wire_route_reading as _wire_route_reading_starlette,
+)
 from grelmicro.integrations.starlette import (
     install_error_responses as _install_error_responses_starlette,
 )
@@ -136,10 +150,6 @@ __all__ = [
     "HealthzResponse",
     "OptionalPrincipal",
     "RateLimited",
-    "document_authenticated_requests",
-    "document_conditional_requests",
-    "document_idempotency",
-    "document_rate_limited_requests",
     "error_response",
     "health_router",
     "install",
@@ -177,13 +187,70 @@ def install(
     """Wire `micro` into a FastAPI app.
 
     The Starlette wiring, plus FastAPI's request telemetry exported through
-    the `Trace` and `Metrics` components.
+    the `Trace` and `Metrics` components. The access record and the
+    security event of a request name the route FastAPI's request span
+    names.
 
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
     """
     _wire_starlette(app, micro, ambient=ambient)
+    _wire_route_reading_starlette(app, _route_reader)
     _wire_telemetry(app, micro)
+
+
+def _route_reader(app: FastAPI) -> Callable[..., str | None]:
+    """Return the route reader of `app`, naming the route FastAPI's request span names.
+
+    The template starts with the root path the outermost app was reached
+    under, then the route FastAPI's router selected, with the prefix of
+    every router it was included by. A mount reads as `{path}` under its
+    template, unless a FastAPI app or router serves it, whose route then
+    follows the mount. Under a FastAPI app this one is mounted in, the
+    route reads from that app's router, which names the span. A `Host`
+    names no route. A request a router redirects to add or drop a trailing
+    slash reads the route it is redirected to, and a frontend route reads
+    as `{path}` under the frontend's path. A request no router reached
+    names no route, unless `reach` asks for the route its path would reach.
+
+    Raises:
+        RuntimeError: When FastAPI no longer has a part of its router the
+            reader reads.
+    """
+    held = weakref.ref(app.router)
+    _fastapi.require(app.router)
+
+    def route(
+        scope: Scope,
+        root_path: str,
+        path: str,
+        status: int | None,  # noqa: ARG001
+        /,
+        *,
+        reach: bool = False,
+    ) -> str | None:
+        root = scope.get("app_root_path", root_path)
+        outer = scope.get("router")
+        start = router = held()
+        if outer is None:
+            if not reach:
+                return None
+        elif outer is not router and isinstance(outer, _fastapi.ROUTERS):
+            start, root_path = outer, root
+        else:
+            matched = scope.get("route")
+            if (
+                _fastapi.is_route(matched)
+                and scope.get("root_path", "") == root_path
+            ):
+                return root.rstrip("/") + _fastapi.template_of(scope, matched)
+        return _fastapi.selected_route(
+            start,
+            {**scope, "path": path, "root_path": root_path, "path_params": {}},
+            root.rstrip("/"),
+        )
+
+    return route
 
 
 def install_error_responses(
@@ -220,16 +287,14 @@ def install_middleware(
 ) -> None:
     """Add each component's ASGI middleware and describe it in the schema.
 
-    The Starlette wiring reads route rules and adds the middleware. Nothing
-    the middleware does reaches the generated schema unless
-    `document_openapi(app)` writes it there. A component carrying no
-    documentation hook is added silently.
+    The Starlette wiring reads route rules and adds the middleware. Each
+    component carrying `_document_openapi` is handed the schema when FastAPI
+    builds it, with the route declarations and the registered error format,
+    so a route added after this call is described too. A component without
+    it is added silently.
     """
     _install_middleware_starlette(app, components)
-    for component in components:
-        document = getattr(component, "document_openapi", None)
-        if document is not None:
-            document(app)
+    _document_components(app, components)
 
 
 def install_route_gate(
@@ -265,10 +330,20 @@ def install_route_gate(
         RuntimeError: If FastAPI's router lacks what the gates rely on,
             naming it.
         TypeError: If a declaration's `cache` is neither a boolean nor a
-            number.
+            `timedelta`.
         ValueError: If a declaration cannot hold, naming its route.
     """
     gate_routes(app, gate)
+
+
+def health_endpoints(
+    app: Annotated[
+        FastAPI,
+        Doc("The FastAPI application whose health endpoints to list."),
+    ],
+) -> Iterator[HealthEndpoint]:
+    """Yield the health endpoints the app serves, included routers too."""
+    return health_endpoints_in(app.routes)
 
 
 def route_declarations(
@@ -289,6 +364,15 @@ def route_declarations(
     their own.
     """
     return declarations_of(app)
+
+
+def _lists_routes(app: object) -> bool:
+    """Return whether `route_declarations` reads the routes of `app`.
+
+    An app, a router, a mount or a host, and Starlette's authentication
+    around one of them.
+    """
+    return lists_routes(app)
 
 
 def _wire_telemetry(app: FastAPI, micro: Grelmicro) -> None:
@@ -345,116 +429,27 @@ class _ExceptionEvents:
             raise
 
 
-def document_idempotency(
-    app: Annotated[
-        FastAPI,
-        Doc("The app carrying an `IdempotencyMiddleware` to document."),
-    ],
-    *,
-    idempotency: Annotated[
-        Idempotency[Any] | None,
-        Doc(
-            "Describe only the middleware storing through this "
-            "`Idempotency`. Defaults to every one the app carries."
-        ),
-    ] = None,
-) -> None:
-    """Describe the installed `IdempotencyMiddleware` in the OpenAPI schema.
-
-    A middleware runs outside the routing layer, so nothing it does reaches
-    the generated schema and a client built from that schema never learns
-    the header exists. This reads the installed middleware and annotates
-    every operation it covers with the key header parameter, the replay
-    header on the responses that can carry it, and the responses the
-    middleware itself can return.
-
-    An app running two sets of rules has each described under its own
-    paths and its own two header names. Pass `idempotency` to describe one
-    of them and leave the other out of the schema. An app that wired the
-    middleware by hand stores through none of the registered components,
-    and every installed middleware is described.
-
-    ```python
-    from grelmicro.http import IdempotencyMiddleware
-    from grelmicro.integrations.fastapi import document_idempotency
-
-    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
-    micro.install(app)
-    document_idempotency(app)
-    ```
-
-    Registering `IdempotentRequests()` calls this for you, so a direct call
-    is for a middleware added by hand.
-
-    Call it any time after `add_middleware`. The schema is annotated the
-    next time it is built, so routes added afterwards are covered too, and
-    an `ErrorResponses` registered later is still the format published.
-
-    An operation that already declares the header keeps its own
-    declaration. A `422` that FastAPI generated for request validation
-    keeps its schema, and the idempotency case is added to its
-    description.
-
-    A mounted sub-application builds its own schema, which this does not
-    reach. Call it on the sub-application as well.
-
-    Raises:
-        DependencyNotFoundError: If `fastapi` is not installed.
-        TypeError: If `app` is not a `FastAPI` app, or carries no
-            `IdempotencyMiddleware`.
-    """
-    _require_fastapi(app, "document_idempotency")
-    _idempotency_options(app)
-    original = app.openapi
-
-    def openapi() -> dict[str, Any]:
-        # Read when the schema is built rather than when this is called, so
-        # the order of `document_idempotency` and `micro.install` cannot
-        # publish a format the app does not answer in, and so a middleware
-        # added after this call is described too.
-        errors = getattr(app.state, "grelmicro_error_responses", None)
-        schema = original()
-        installed = list(enumerate(_idempotency_options(app)))
-        # A component names the middleware it registered, so a second set
-        # of rules stays out of the schema. Naming one the app does not
-        # carry means the app wired the middleware itself, which serves
-        # the component's rules, so every installed one is described.
-        named = [
-            entry
-            for entry in installed
-            # A middleware that builds its own store rather than taking
-            # one has none to compare, and is named by nobody.
-            if idempotency is None or entry[1].get("idempotency") is idempotency
-        ]
-        described = _described(app, schema)
-        for index, options in named or installed:
-            if index in described:
-                continue
-            described.add(index)
-            _annotate_schema(
-                schema,
-                options,
-                PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
-                ProblemDetail if errors is None else errors.model,
-            )
-        return schema
-
-    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
-    # Drop a schema built before this call, which would otherwise be
-    # served from the cache without the annotations.
-    app.openapi_schema = None
-
-
 def CachedResponse(  # noqa: N802
     *,
     ttl: Annotated[
-        float | None,
+        int | timedelta | None,
         Doc(
-            "Seconds this route's response is served from the cache. "
+            "How long this route's response is served from the cache, in "
+            "whole seconds or as a `timedelta`. A float is refused. "
             "Defaults to the `ttl` the registered `CachedResponses` "
             "carries."
         ),
     ] = None,
+    shared: Annotated[
+        bool,
+        Doc(
+            "On a route that requires a caller, serve one stored response "
+            "to every caller the route admits, a credential included. Pass "
+            "it only when the response is the same for each of them. "
+            "Without it, a request carrying a credential is answered by "
+            "the handler."
+        ),
+    ] = False,
 ) -> Any:  # noqa: ANN401
     """Declare that this route's response is cached.
 
@@ -484,7 +479,7 @@ def CachedResponse(  # noqa: N802
 
     Starlette and Litestar resolve no dependencies to hang this on, so
     they name their paths in `CachedResponses(include=...)` instead,
-    with the seconds each is kept for.
+    with how long each is kept for.
 
     Read more in the [Response Cache](../http/cache.md) docs.
     """
@@ -494,7 +489,7 @@ def CachedResponse(  # noqa: N802
         )
 
         raise DependencyNotFoundError(module="fastapi")
-    return _Depends(declare_cached(ttl))
+    return _Depends(declare_cached(ttl, shared=shared))
 
 
 async def _current_principal(
@@ -948,657 +943,38 @@ class ConditionalRequest:
         return check_freshness(version, etag=etag)
 
 
-def document_conditional_requests(
-    app: Annotated[
-        FastAPI,
-        Doc("The app carrying a `ConditionalRequestsMiddleware` to document."),
-    ],
-) -> None:
-    """Describe the conditional headers in the OpenAPI schema.
+def _document_components(app: FastAPI, components: Sequence[Any]) -> None:
+    """Hand the schema FastAPI builds to each component that describes itself.
 
-    A middleware runs outside the routing layer, so nothing it does reaches
-    the generated schema, and Swagger shows no field for the header a
-    client has to send. This annotates every operation the middleware
-    covers:
-
-    - A read gains `If-None-Match` and the `304` it can answer.
-    - A write gains `If-Match`, the `412` a stale one gets, and the `428` a
-      missing one gets. The header is marked required on a method named in
-      `require_precondition`.
-
-    ```python
-    from grelmicro.integrations.fastapi import document_conditional_requests
-
-    app.add_middleware(ConditionalRequestsMiddleware)
-    document_conditional_requests(app)
-    ```
-
-    Registering `ConditionalRequests()` calls this for you, so a direct
-    call is for a middleware added by hand. Pass `openapi=False` to the
-    component to leave the schema alone.
-
-    Raises:
-        DependencyNotFoundError: If `fastapi` is not installed.
-        TypeError: If `app` is not a `FastAPI` app, or carries no
-            `ConditionalRequestsMiddleware`.
+    Each schema is edited once. FastAPI caches it and hands back the same
+    object, so serving it again edits nothing, and a schema built anew is
+    edited anew.
     """
-    _require_fastapi(app, "document_conditional_requests")
-    options = _middleware_options(
-        app,
-        ConditionalRequestsMiddleware,
-        "document_conditional_requests() found no "
-        "ConditionalRequestsMiddleware on the app. Add it with "
-        "app.add_middleware(ConditionalRequestsMiddleware) first.",
-    )
-    original = app.openapi
-
-    def openapi() -> dict[str, Any]:
-        errors = getattr(app.state, "grelmicro_error_responses", None)
-        schema = original()
-        _annotate_conditional(
-            schema,
-            options,
-            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
-            ProblemDetail if errors is None else errors.model,
-            _required_routes(app),
-        )
-        return schema
-
-    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
-    app.openapi_schema = None
-
-
-_CREATE_CASE = "Required, unless the request creates with `If-None-Match: *`."
-"""What `required` alone cannot say: either header satisfies the rule."""
-
-_IF_MATCH = "If-Match"
-"""Header a client sends to say which version it is updating."""
-
-_IF_NONE_MATCH = "If-None-Match"
-"""Header a client sends to say which version it already holds."""
-
-_READ_METHODS = ("get", "head")
-"""Methods a `304` may answer."""
-
-_WRITE_METHODS = ("put", "patch", "delete")
-"""Methods a precondition guards. `POST` creates, so it has none to hold."""
-
-
-def _required_routes(app: FastAPI) -> set[tuple[str, str]]:
-    """Return the `(path, method)` pairs that declared a precondition.
-
-    A guard called inside a handler body is invisible from here, which is
-    why requiring one is something a route declares rather than calls.
-
-    Walks the routers the app includes as well as the routes it declares
-    itself, since an included router is a node of its own and the routes
-    it holds are reached through it.
-    """
-    found: set[tuple[str, str]] = set()
-    for prefix, route, _ in walk_routes(app):
-        # The resolved dependency tree, under FastAPI's own spelling of it.
-        declared = getattr(route, "dependant", None)  # codespell:ignore
-        if declared is None:
-            continue
-        if not any(
-            getattr(dependency.call, "__name__", "") == "_required_conditional"
-            for dependency in declared.dependencies
-        ):
-            continue
-        for method in getattr(route, "methods", ()):
-            found.add((f"{prefix}{route.path}", method.lower()))
-    return found
-
-
-def document_rate_limited_requests(
-    app: Annotated[
-        FastAPI,
-        Doc("The app carrying a `RateLimitMiddleware` to document."),
-    ],
-) -> None:
-    """Describe the refusal a metered app can answer with, on every operation.
-
-    A middleware runs outside the routing layer, so nothing it does reaches
-    the generated schema, and a client built from it has no `429` branch to
-    handle. This adds one to every operation, with the `RateLimit` fields
-    the answer carries.
-
-    Every operation, not the metered ones. What is metered is tuned while
-    the service runs, and the schema is built once, so annotating the
-    current set would publish a document that stops being true the first
-    time an operator narrows it. `429` says only what a client may be
-    answered with and never what it must send, so stating it everywhere
-    stays true whichever paths are metered.
-
-    ```python
-    from grelmicro.integrations.fastapi import document_rate_limited_requests
-
-    app.add_middleware(RateLimitMiddleware, limiters=[burst], trusted=...)
-    document_rate_limited_requests(app)
-    ```
-
-    Registering `RateLimitedRequests(...)` calls this for you, so a direct
-    call is for a middleware added by hand. Pass `openapi=False` to the
-    component to leave the schema alone.
-
-    Raises:
-        DependencyNotFoundError: If `fastapi` is not installed.
-        TypeError: If `app` is not a `FastAPI` app, or carries no
-            `RateLimitMiddleware`.
-    """
-    _require_fastapi(app, "document_rate_limited_requests")
-    _middleware_options(
-        app,
-        RateLimitMiddleware,
-        "document_rate_limited_requests() found no RateLimitMiddleware on "
-        "the app. Add it with app.add_middleware(RateLimitMiddleware) "
-        "first.",
-    )
-    original = app.openapi
-
-    def openapi() -> dict[str, Any]:
-        errors = getattr(app.state, "grelmicro_error_responses", None)
-        schema = original()
-        _annotate_rate_limited(
-            schema,
-            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
-            ProblemDetail if errors is None else errors.model,
-        )
-        return schema
-
-    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
-    app.openapi_schema = None
-
-
-_HTTP_METHODS: Final = (
-    "get",
-    "put",
-    "post",
-    "delete",
-    "options",
-    "head",
-    "patch",
-    "trace",
-)
-"""Every method an OpenAPI path item can carry an operation under."""
-
-
-def document_authenticated_requests(
-    app: Annotated[
-        FastAPI,
-        Doc("The app carrying an `AuthenticatedRequestsMiddleware`."),
-    ],
-) -> None:
-    """Describe the bearer token every covered operation needs, in the schema.
-
-    A middleware runs outside the routing layer, so nothing it does reaches
-    the generated schema. This publishes the security scheme, requires it
-    on every operation the middleware authenticates, with the scopes its
-    route declares through `Authenticated`, and adds the `401` it answers,
-    the `403` where scopes are required, and the `429` when `bans` is set.
-
-    A path in `exclude` stays without it. A route declaring `Anonymous()`
-    lists it as optional, with the `401` a token that does not verify gets,
-    when `micro.install(app)` added the middleware. One added by hand serves
-    public paths through `exclude` alone.
-    The scheme is `openIdConnect` for a verifier that found the issuer's
-    OpenID Connect discovery document, and `http` bearer otherwise.
-
-    Registering `AuthenticatedRequests(...)` calls this for you, so a direct
-    call is for a middleware added by hand. Pass `openapi=False` to the
-    component to leave the schema alone.
-
-    Raises:
-        DependencyNotFoundError: If `fastapi` is not installed.
-        TypeError: If `app` is not a `FastAPI` app, or carries no
-            `AuthenticatedRequestsMiddleware`.
-    """
-    _require_fastapi(app, "document_authenticated_requests")
-    options = _middleware_options(
-        app,
-        AuthenticatedRequestsMiddleware,
-        "document_authenticated_requests() found no "
-        "AuthenticatedRequestsMiddleware on the app. Add it with "
-        "app.add_middleware(AuthenticatedRequestsMiddleware) first.",
-    )
-    original = app.openapi
-
-    def openapi() -> dict[str, Any]:
-        errors = getattr(app.state, "grelmicro_error_responses", None)
-        schema = original()
-        _annotate_authenticated(
-            schema,
-            app,
-            options,
-            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
-            ProblemDetail if errors is None else errors.model,
-        )
-        return schema
-
-    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
-    app.openapi_schema = None
-
-
-def _annotate_authenticated(
-    schema: dict[str, Any],
-    app: FastAPI,
-    options: dict[str, Any],
-    media_type: str,
-    model: type[BaseModel],
-) -> None:
-    """Require the scheme on every covered operation, with its refusals."""
-    public, scopes = operation_authentication(
-        app, anonymous=options["public"] is not None
-    )
-    document_operations(
-        schema,
-        verifier=options["verifier"],
-        bans=options["bans"] is not None,
-        exclude=tuple(options["exclude"]),
-        public=public,
-        scopes=scopes,
-        media_type=media_type,
-        model=model,
-        metadata_path=metadata_path_of(options),
-    )
-
-
-_RATE_LIMIT_HEADERS: Final = {
-    "RateLimit": (
-        "What the caller has left of each policy, as the RateLimit header "
-        "fields specify."
-    ),
-    "RateLimit-Policy": "The policies this request was metered against.",
-}
-"""Fields every metered answer carries, refused or not."""
-
-_TOO_MANY_REQUESTS: Final = "429"
-"""Status a caller over its budget is answered with."""
-
-
-def _annotate_rate_limited(
-    schema: dict[str, Any],
-    media_type: str,
-    model: type[BaseModel],
-) -> None:
-    """Add the `429` and the `RateLimit` fields to every operation."""
-    ref = add_error_schema(schema, model)
-    for operations in schema.get("paths", {}).values():
-        for operation in operations.values():
-            if not isinstance(operation, dict):
-                continue
-            responses = operation.setdefault("responses", {})
-            headers = {
-                name: {"schema": {"type": "string"}, "description": text}
-                for name, text in _RATE_LIMIT_HEADERS.items()
-            }
-            # Every metered answer carries them, refused or not, so the
-            # answers the operation already declares say so too. A client
-            # reads its remaining budget off a `200`, which is the whole
-            # point of stating it before the refusal arrives.
-            for status, response in responses.items():
-                if status.startswith("2") and isinstance(response, dict):
-                    response.setdefault("headers", {}).update(headers)
-            responses.setdefault(
-                _TOO_MANY_REQUESTS,
-                {
-                    "description": (
-                        "The caller is over its budget. Retry after the "
-                        "delay in `Retry-After`."
-                    ),
-                    "headers": {
-                        **headers,
-                        "Retry-After": {
-                            "schema": {"type": "integer"},
-                            "description": "Seconds to wait before retrying.",
-                        },
-                    },
-                    "content": {media_type: {"schema": {"$ref": ref}}},
-                },
-            )
-
-
-def _annotate_conditional(
-    schema: dict[str, Any],
-    options: dict[str, Any],
-    media_type: str,
-    model: type[BaseModel],
-    required_routes: set[tuple[str, str]],
-) -> None:
-    """Add the conditional headers and responses to covered operations."""
-    include = tuple(options["include"])
-    exclude = tuple(options["exclude"])
-    required = {method.lower() for method in options["require_precondition"]}
-    reads = [
-        (path, path_item, operation)
-        for path, path_item, operation in _paths(schema, _READ_METHODS)
-        if selects(path, include=include, exclude=exclude)
-    ]
-    writes = [
-        (path, path_item, operation, method)
-        for path, path_item, operation, method in _paths_with_method(
-            schema, _WRITE_METHODS
-        )
-        if selects(path, include=include, exclude=exclude)
-    ]
-    if not reads and not writes:
+    documenting = describing(components)
+    if not documenting:
         return
-    ref = add_error_schema(schema, model)
+    original = app.openapi
+    edited: list[dict[str, Any]] = []
 
-    for _path, path_item, operation in reads:
-        _add_parameter(
-            operation,
-            path_item,
-            {
-                "name": _IF_NONE_MATCH,
-                "in": "header",
-                "required": False,
-                "schema": {"type": "string"},
-                "description": (
-                    "Entity tag the client already holds, from the `ETag` "
-                    "of an earlier read. The service answers `304 Not "
-                    "Modified` while it still matches."
-                ),
-            },
+    def openapi() -> dict[str, Any]:
+        schema = original()
+        if edited and edited[0] is schema:
+            return schema
+        # Read when the schema is built, so the order of this and an
+        # `ErrorResponses` installed later never decides the format.
+        errors = getattr(app.state, "grelmicro_error_responses", None)
+        routes = operation_declarations(
+            app, anonymous=serves_anonymous_routes(app)
         )
-        _merge_response(
-            operation,
-            "304",
-            "The entity tag still matches, so the body is not sent again.",
-            "",
-            media_type,
-        )
+        describe_schema(schema, documenting, routes=routes, errors=errors)
+        # One slot, so serving the schema per request holds one reference.
+        edited[:] = [schema]
+        return schema
 
-    for path, path_item, operation, method in writes:
-        needed = method in required or (path, method) in required_routes
-        if needed:
-            _mark_required(operation, _IF_MATCH)
-        _add_parameter(
-            operation,
-            path_item,
-            {
-                "name": _IF_MATCH,
-                "in": "header",
-                "required": needed,
-                "schema": {"type": "string"},
-                "description": (
-                    "Entity tag of the version being updated, from the "
-                    "`ETag` of an earlier read. The write is refused if "
-                    "the resource changed since."
-                    + (f" {_CREATE_CASE}" if needed else "")
-                ),
-            },
-        )
-        _merge_response(
-            operation,
-            "412",
-            "The entity tag in `If-Match` is not the one the resource "
-            "carries now.",
-            ref,
-            media_type,
-        )
-        _merge_response(
-            operation,
-            "428",
-            "This request must carry a precondition.",
-            ref,
-            media_type,
-        )
-
-
-def _mark_required(operation: dict[str, Any], name: str) -> None:
-    """Mark a header the operation already declares as required.
-
-    The dependency puts it there, so the annotation cannot add a second
-    one, and OpenAPI forbids a duplicate anyway. The description gains
-    what `required` cannot say: a schema has no way to express that one
-    header or the other will do.
-    """
-    lowered = name.lower()
-    for parameter in operation.get("parameters", ()):
-        if (
-            parameter.get("in") == "header"
-            and str(parameter.get("name", "")).lower() == lowered
-        ):
-            parameter["required"] = True
-            description = str(parameter.get("description", ""))
-            if _CREATE_CASE not in description:
-                parameter["description"] = (
-                    f"{description} {_CREATE_CASE}".strip()
-                )
-
-
-def _paths(
-    schema: dict[str, Any],
-    methods: Collection[str],
-) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
-    """Return each operation of these methods, with the path it sits on."""
-    return [
-        (path, path_item, operation)
-        for path, path_item, operation, _method in _paths_with_method(
-            schema, methods
-        )
-    ]
-
-
-def _paths_with_method(
-    schema: dict[str, Any],
-    methods: Collection[str],
-) -> list[tuple[str, dict[str, Any], dict[str, Any], str]]:
-    """Return each operation of these methods, with its path and method.
-
-    Only `paths`: a webhook is a request the app sends, and no conditional
-    header of ours reaches it.
-    """
-    return [
-        (path, path_item, operation, method.lower())
-        for path, path_item in schema.get("paths", {}).items()
-        for method, operation in path_item.items()
-        if isinstance(operation, dict) and method.lower() in methods
-    ]
-
-
-def _require_fastapi(app: Any, caller: str) -> None:  # noqa: ANN401
-    """Refuse anything but a FastAPI app, which is what builds a schema.
-
-    Raises:
-        DependencyNotFoundError: If `fastapi` is not installed.
-        TypeError: If `app` is not a `FastAPI` app.
-    """
-    try:
-        from fastapi import FastAPI as _FastAPI  # noqa: PLC0415
-    except ImportError:
-        from grelmicro.errors import (  # noqa: PLC0415
-            DependencyNotFoundError,
-        )
-
-        raise DependencyNotFoundError(module="fastapi") from None
-
-    if not isinstance(app, _FastAPI):
-        msg = (
-            f"{caller}() needs a FastAPI app, got {type(app).__name__}. "
-            f"Only FastAPI builds an OpenAPI schema."
-        )
-        raise TypeError(msg)
-
-
-def _described(app: FastAPI, schema: dict[str, Any]) -> set[int]:
-    """Return which installed middlewares this schema already describes.
-
-    FastAPI caches the schema it builds and hands back the same object,
-    and two components leave two wrappers over it, so a middleware is
-    described once, by whichever wrapper reaches the schema first.
-    """
-    current = getattr(app.state, "grelmicro_idempotency_described", None)
-    if current is None or current[0] is not schema:
-        current = (schema, set())
-        app.state.grelmicro_idempotency_described = current
-    return cast("set[int]", current[1])
-
-
-def _middleware_options(
-    app: FastAPI, middleware: type[Any], missing: str
-) -> dict[str, Any]:
-    """Return one installed middleware's arguments, defaults filled in.
-
-    The first match is the outermost at runtime, which is what answers
-    first on the wire.
-
-    Raises:
-        TypeError: If the app carries no such middleware.
-    """
-    return _every_middleware_options(app, middleware, missing)[0]
-
-
-def _every_middleware_options(
-    app: FastAPI, middleware: type[Any], missing: str
-) -> list[dict[str, Any]]:
-    """Return every installed middleware's arguments, defaults filled in.
-
-    An app may carry two sets of rules, each with its own paths and its
-    own headers, and the schema describes what each one covers.
-
-    Raises:
-        TypeError: If the app carries no such middleware.
-    """
-    import inspect  # noqa: PLC0415
-
-    base = inspect.signature(middleware)
-    found = []
-    for entry in app.user_middleware:
-        cls = entry.cls
-        if is_class(cls) and is_subclass(cls, middleware):
-            # Every parameter after `app` is keyword-only, so
-            # `add_middleware` can only have passed them by keyword. A
-            # subclass may take keywords of its own, which say nothing
-            # about what this describes, and may declare a default of its
-            # own for one of these, which is what the wire then carries.
-            own = inspect.signature(cls)
-            options = _bound_options(own, entry.kwargs)
-            for name, value in _bound_options(base, entry.kwargs).items():
-                options.setdefault(name, value)
-            found.append(_with_live(options))
-    if not found:
-        raise TypeError(missing)
-    return found
-
-
-def _with_live(options: dict[str, Any]) -> dict[str, Any]:
-    """Fill the options from the snapshot cell, where one was passed.
-
-    A registered component hands its middleware the cell rather than the
-    values, so the signature's own defaults are not what the wire
-    carries. The configuration inside the cell is, and its field names
-    are the middleware's parameter names, so it fills them directly.
-
-    Read once, when the schema is documented. The schema is a published
-    contract rather than a tuning knob, so it describes the app as it was
-    installed and a mounted file never rewrites it. Nothing it publishes
-    is live either, so it cannot fall out of step with what the
-    middleware enforces.
-    """
-    live = options.get("live")
-    if live is None:
-        return options
-    options.update(live.state.config.model_dump())
-    return options
-
-
-def _bound_options(
-    signature: inspect.Signature, kwargs: dict[str, Any]
-) -> dict[str, Any]:
-    """Return what a signature makes of these arguments, defaults filled in."""
-    bound = signature.bind_partial(
-        **{
-            name: value
-            for name, value in kwargs.items()
-            if name in signature.parameters
-        }
-    )
-    bound.apply_defaults()
-    return dict(bound.arguments)
-
-
-def _idempotency_options(app: FastAPI) -> list[dict[str, Any]]:
-    """Return every installed middleware's arguments, defaults filled in."""
-    return _every_middleware_options(
-        app,
-        IdempotencyMiddleware,
-        "document_idempotency() found no IdempotencyMiddleware on the app. "
-        "Add it with app.add_middleware(IdempotencyMiddleware, ...) first.",
-    )
-
-
-def _annotate_schema(
-    schema: dict[str, Any],
-    options: dict[str, Any],
-    media_type: str,
-    model: type[BaseModel],
-) -> None:
-    """Add the header and the middleware's responses to covered operations."""
-    methods = {method.lower() for method in options["methods"]}
-    header = options["key_header"]
-    fingerprint_body = options["fingerprint_body"]
-    parameter = {
-        "name": header,
-        "in": "header",
-        "required": options["require_key"],
-        "schema": {
-            "type": "string",
-            "maxLength": _MAX_KEY_LENGTH,
-            "pattern": _KEY_PATTERN,
-        },
-        "description": (
-            "Key that makes this request safe to retry. A repeat within the "
-            "replay window returns the first response instead of running the "
-            f"operation again. Up to {_MAX_KEY_LENGTH} printable ASCII "
-            f"characters, such as a UUID."
-        ),
-    }
-    responses = {
-        "400": f"`{header}` is missing or longer than {_MAX_KEY_LENGTH} characters."
-        if options["require_key"]
-        else f"`{header}` is longer than {_MAX_KEY_LENGTH} characters.",
-        "409": (
-            f"A request with this `{header}` is still in flight. Retry after "
-            f"the delay in `Retry-After`."
-        ),
-    }
-    if fingerprint_body:
-        responses["413"] = "Request body too large to fingerprint."
-        reused = str(options["reused_status"])
-        description = (
-            f"This `{header}` was already used with a different request "
-            f"payload."
-        )
-        # A service answering the reuse case with `400` shares the status
-        # with the missing-key case, so both descriptions have to survive.
-        responses[reused] = (
-            f"{responses[reused]} {description}"
-            if reused in responses
-            else description
-        )
-
-    include = tuple(options["include"])
-    exclude = tuple(options["exclude"])
-    covered = [
-        (path_item, operation)
-        # `_paths` reads `paths` alone: a webhook is a request the app
-        # sends, and no `Idempotency-Key` of ours reaches it. The patterns
-        # select the same path here as on the wire, because the middleware
-        # matches them against the route rather than the prefix a mount or
-        # a proxy adds.
-        for path, path_item, operation in _paths(schema, methods)
-        if selects(path, include=include, exclude=exclude)
-    ]
-    if not covered:
-        return
-    ref = add_error_schema(schema, model)
-    for path_item, operation in covered:
-        _add_parameter(operation, path_item, parameter)
-        for status, description in responses.items():
-            _merge_response(operation, status, description, ref, media_type)
-        _add_replay_header(operation, options["replay_header"])
+    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    # Drop a schema built before this call, which would otherwise be served
+    # from the cache without the descriptions.
+    app.openapi_schema = None
 
 
 def _document_error_responses(app: FastAPI, errors: ErrorResponses) -> None:
@@ -1772,89 +1148,6 @@ def _operations(
     ]
 
 
-def _add_parameter(
-    operation: dict[str, Any],
-    path_item: dict[str, Any],
-    parameter: dict[str, Any],
-) -> None:
-    """Add the header parameter unless the operation already declares it.
-
-    OpenAPI keys a parameter by name and location, and forbids the same
-    pair twice, so a declaration already present at either level wins.
-    """
-    name = parameter["name"].lower()
-    declared = [
-        *operation.get("parameters", ()),
-        *path_item.get("parameters", ()),
-    ]
-    if any(
-        existing.get("in") == "header"
-        and str(existing.get("name", "")).lower() == name
-        for existing in declared
-    ):
-        return
-    # A copy per operation, so post-processing one never edits the rest.
-    operation.setdefault("parameters", []).append(dict(parameter))
-
-
-def _merge_response(
-    operation: dict[str, Any],
-    status: str,
-    description: str,
-    ref: str,
-    media_type: str,
-) -> None:
-    """Describe a status the middleware returns, keeping what is there.
-
-    FastAPI generates a `422` carrying the validation error schema. That
-    entry keeps its schema and gains this description and the problem
-    media type alongside it, so neither case is lost and a second call
-    adds nothing.
-    """
-    responses = operation.setdefault("responses", {})
-    existing = responses.get(status)
-    if existing is None:
-        responses[status] = {"description": description}
-        existing = responses[status]
-    else:
-        current = existing.get("description", "")
-        if description not in current:
-            existing["description"] = f"{current}\n\n{description}".strip()
-    if ref:
-        existing.setdefault("content", {}).setdefault(
-            media_type, {"schema": {"$ref": ref}}
-        )
-
-
-def _add_replay_header(operation: dict[str, Any], name: str) -> None:
-    """Describe the replay marker on every response of an operation.
-
-    The name is a service's to pick, so the schema is where a client
-    author reads it. Every status the app answers is stored and replayed,
-    errors included, and which statuses those are is decided by the
-    middleware order at runtime rather than by anything the schema holds:
-    a handler raising `HTTPException(400)` declares no `400`, and one
-    middleware's refusal is stored and replayed by another above it. The
-    marker is therefore published as a header that may appear, never as
-    one that always does, which is the reading that costs a client
-    nothing when it does not. A response that declares the header itself,
-    under any casing, keeps its own.
-    """
-    lowered = name.lower()
-    for response in operation.get("responses", {}).values():
-        headers = response.setdefault("headers", {})
-        if any(declared.lower() == lowered for declared in headers):
-            continue
-        headers[name] = {
-            "schema": {"type": "string", "enum": ["true"]},
-            "description": (
-                "Sent when this response replays an earlier request that "
-                "carried the same idempotency key. Absent when the "
-                "operation ran."
-            ),
-        }
-
-
 def _always_true() -> bool:
     return True
 
@@ -1955,8 +1248,9 @@ def health_router(
 
     Provides three endpoints:
 
-    - ``GET/HEAD {prefix}/livez``: Liveness probe. Never runs
-      checkers. Always returns ``200`` with an empty body.
+    - ``GET/HEAD {prefix}/livez``: Liveness probe. Runs no check per
+      request. ``503`` while a liveness check fails, else ``200``, with
+      an empty body.
     - ``GET/HEAD {prefix}/readyz``: Readiness probe. Runs critical
       checkers only. Returns ``200`` or ``503`` with an empty body.
     - ``GET/HEAD {prefix}/healthz``: Aggregate JSON report.
@@ -1993,11 +1287,25 @@ def health_router(
     )
     healthz_deps = list(healthz_dependencies or ())
 
-    @router.get("/livez", status_code=HTTP_200_OK, response_class=Response)
+    @router.get(
+        "/livez",
+        status_code=HTTP_200_OK,
+        response_class=Response,
+        responses={
+            HTTP_503_SERVICE_UNAVAILABLE: {
+                "description": "A liveness check failed its last round.",
+            },
+        },
+    )
     @router.head("/livez", include_in_schema=False)
     async def livez() -> Response:
-        """Liveness probe. Always returns ``200`` with an empty body."""
-        return Response(status_code=HTTP_200_OK, headers=NO_STORE_HEADERS)
+        """Liveness probe: ``503`` while a liveness check fails, else ``200``."""
+        try:
+            alive = _resolve_component().is_alive
+        except NoActiveAppError, ComponentNotRegisteredError:
+            alive = True
+        code = HTTP_200_OK if alive else HTTP_503_SERVICE_UNAVAILABLE
+        return Response(status_code=code, headers=NO_STORE_HEADERS)
 
     @router.get(
         "/readyz",
@@ -2065,6 +1373,8 @@ def health_router(
             headers=NO_STORE_HEADERS,
         )
 
+    for route in router.routes:
+        mark_health_endpoint(getattr(route, "endpoint", None), component)
     return router
 
 
@@ -2188,7 +1498,42 @@ if TYPE_CHECKING:
     # The runtime values are `Annotated` markers FastAPI reads. A checker
     # only needs to know what the handler receives.
     Conditional = ConditionalRequest
+    """The conditional guards, injected.
+
+    ```python
+    from grelmicro.integrations.fastapi import Conditional
+
+
+    @app.patch("/carts/{cart_id}")
+    async def update(cart_id: int, conditional: Conditional) -> Cart:
+        cart = await load(cart_id)
+        conditional.check(cart.version)
+        return await save(cart)
+    ```
+
+    A ready-made annotation, so a handler declares one word rather than
+    `Annotated[ConditionalRequest, Depends(...)]`.
+    """
+
     ConditionalRequired = ConditionalRequest
+    """The conditional guards, injected, on a route that requires a precondition.
+
+    ```python
+    from grelmicro.integrations.fastapi import ConditionalRequired
+
+
+    @app.put("/carts/{cart_id}")
+    async def replace(cart_id: int, conditional: ConditionalRequired) -> Cart:
+        cart = await load(cart_id)
+        conditional.check(cart.version)
+        return await save(cart)
+    ```
+
+    A request carrying neither `If-Match` nor `If-None-Match` is answered
+    `428` before the handler runs. The route declares
+    `precondition_required`, so the OpenAPI schema marks `If-Match`
+    required on its methods, `POST` included.
+    """
 elif HAS_FASTAPI:
 
     def _conditional(
@@ -2239,6 +1584,8 @@ elif HAS_FASTAPI:
             raise PreconditionRequiredError
         return conditional
 
+    declare_precondition_required(_required_conditional)
+
     Conditional = Annotated[ConditionalRequest, _Depends(_conditional)]
     ConditionalRequired = Annotated[
         ConditionalRequest, _Depends(_required_conditional)
@@ -2246,19 +1593,3 @@ elif HAS_FASTAPI:
 else:  # pragma: no cover - the reimport test walks this
     Conditional = ConditionalRequest
     ConditionalRequired = ConditionalRequest
-"""The conditional guards, injected.
-
-```python
-from grelmicro.integrations.fastapi import Conditional
-
-
-@app.patch("/carts/{cart_id}")
-async def update(cart_id: int, conditional: Conditional) -> Cart:
-    cart = await load(cart_id)
-    conditional.check(cart.version)
-    return await save(cart)
-```
-
-A ready-made annotation, so a handler declares one word rather than
-`Annotated[ConditionalRequest, _Depends(ConditionalRequest)]`.
-"""

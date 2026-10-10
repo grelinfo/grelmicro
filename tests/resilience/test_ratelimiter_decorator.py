@@ -53,7 +53,7 @@ async def test_a_key_template_meters_per_argument() -> None:
             "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
         )
 
-        @limiter(key="user:{user_id}")
+        @limiter(key_template="user:{user_id}")
         async def work(user_id: int) -> int:
             return user_id
 
@@ -70,7 +70,7 @@ async def test_a_key_template_reads_a_default_argument() -> None:
             "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
         )
 
-        @limiter(key="user:{user_id}")
+        @limiter(key_template="user:{user_id}")
         async def work(user_id: int = USER) -> int:
             return user_id
 
@@ -86,7 +86,7 @@ async def test_a_literal_key_meters_every_call_together() -> None:
             "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
         )
 
-        @limiter(key="shared")
+        @limiter(key_template="shared")
         async def work(user_id: int) -> int:
             return user_id
 
@@ -95,8 +95,8 @@ async def test_a_literal_key_meters_every_call_together() -> None:
             await work(OTHER_USER)
 
 
-async def test_a_key_maker_computes_the_key() -> None:
-    """`key_maker` receives the function and the call's arguments."""
+async def test_rate_limiter_key_function_receives_the_call() -> None:
+    """A `key` function receives the function and the call's arguments."""
     async with MemoryRateLimiterAdapter() as backend:
         limiter = RateLimiter.token_bucket(
             "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
@@ -111,7 +111,7 @@ async def test_a_key_maker_computes_the_key() -> None:
             seen.append(fn.__name__)
             return f"made:{args[0]}"
 
-        @limiter(key_maker=make_key)
+        @limiter(key=make_key)
         async def work(user_id: int) -> int:
             return user_id
 
@@ -174,7 +174,7 @@ async def test_a_wait_budget_still_gives_up() -> None:
 def test_the_binding_is_reusable_across_functions() -> None:
     """One binding decorates more than one function."""
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
-    binding = limiter(key="shared")
+    binding = limiter(key_template="shared")
     assert isinstance(binding, RateLimiterBinding)
     assert binding.limiter is limiter
 
@@ -182,22 +182,111 @@ def test_the_binding_is_reusable_across_functions() -> None:
 def test_the_binding_names_its_key_in_its_repr() -> None:
     """The repr says which limiter and which key."""
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
-    assert repr(limiter(key="user:{uid}")) == (
-        "<RateLimiterBinding 'api' key='user:{uid}'>"
+    assert repr(limiter(key_template="user:{uid}")) == (
+        "<RateLimiterBinding 'api' key_template='user:{uid}'>"
     )
     assert repr(limiter()) == "<RateLimiterBinding 'api' key='default'>"
 
     def make_key(_fn: Any, _args: Any, _kwargs: Any) -> str:  # noqa: ANN401
         return "x"
 
-    assert "make_key" in repr(limiter(key_maker=make_key))
+    assert repr(limiter(key=make_key)).startswith(
+        "<RateLimiterBinding 'api' key='"
+    )
+    assert "make_key'>" in repr(limiter(key=make_key))
+    assert repr(limiter(key=functools.partial(make_key))) == (
+        "<RateLimiterBinding 'api' key='partial'>"
+    )
 
 
-def test_a_key_and_a_key_maker_together_are_refused() -> None:
-    """One key source, not two."""
+async def test_rate_limiter_key_function_derives_the_bucket() -> None:
+    """A `key=` function receives `(func, args, kwargs)` and names the bucket."""
+    async with MemoryRateLimiterAdapter() as backend:
+        # Arrange
+        limiter = RateLimiter.token_bucket(
+            "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
+        )
+
+        @limiter(key=lambda _fn, args, _kwargs: f"user:{args[0]}")
+        async def work(user_id: int) -> int:
+            return user_id
+
+        # Act
+        await work(USER)
+
+        # Assert
+        assert await work(OTHER_USER) == OTHER_USER
+        with pytest.raises(RateLimitExceededError):
+            await work(USER)
+
+
+async def test_rate_limiter_key_template_renders_the_bucket() -> None:
+    """A `key_template=` string renders the bucket from the call."""
+    async with MemoryRateLimiterAdapter() as backend:
+        # Arrange
+        limiter = RateLimiter.token_bucket(
+            "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
+        )
+
+        @limiter(key_template="user:{user_id}")
+        async def work(user_id: int) -> int:
+            return user_id
+
+        # Act
+        await work(user_id=USER)
+
+        # Assert
+        assert await work(OTHER_USER) == OTHER_USER
+        with pytest.raises(RateLimitExceededError):
+            await work(USER)
+
+
+def test_rate_limiter_key_string_is_refused_with_a_template_hint() -> None:
+    """A string passed to `key=` is refused at decoration."""
+    # Arrange
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    template: Any = "user:{user_id}"
+
+    # Act / Assert
+    with pytest.raises(
+        TypeError,
+        match="key must be a function, use key_template= for a template",
+    ):
+        limiter(key=template)
+
+
+def test_rate_limiter_binding_key_string_is_refused_with_a_template_hint() -> (
+    None
+):
+    """A `RateLimiterBinding` refuses a string `key=` the same way."""
+    # Arrange
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    template: Any = "user:{user_id}"
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="use key_template= for a template"):
+        RateLimiterBinding(limiter, key=template)
+
+
+def test_rate_limiter_key_and_key_template_together_are_refused() -> None:
+    """One key source, not two."""
+    # Arrange
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+
+    # Act / Assert
     with pytest.raises(TypeError, match="not both"):
-        limiter(key="a", key_maker=lambda _fn, _args, _kwargs: "b")
+        limiter(key=lambda _fn, _args, _kwargs: "b", key_template="a")
+
+
+def test_rate_limiter_key_maker_is_an_unknown_argument() -> None:
+    """`key_maker=` is no longer accepted."""
+    # Arrange
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    legacy: dict[str, Any] = {"key_maker": lambda _fn, _args, _kwargs: "b"}
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="key_maker"):
+        limiter(**legacy)
 
 
 def test_a_negative_wait_budget_is_refused() -> None:
@@ -213,7 +302,7 @@ def test_a_template_naming_an_unknown_parameter_is_refused() -> None:
 
     with pytest.raises(ValueError, match=r"which .* does not take"):
 
-        @limiter(key="user:{missing}")
+        @limiter(key_template="user:{missing}")
         async def work(user_id: int) -> int:
             return user_id
 
@@ -265,7 +354,7 @@ def test_a_positional_template_field_is_refused(template: str) -> None:
 
     with pytest.raises(ValueError, match="positional field"):
 
-        @limiter(key=template)
+        @limiter(key_template=template)
         async def work(user_id: int) -> int:
             return user_id
 
@@ -284,7 +373,7 @@ def test_a_nested_template_field_is_validated_too() -> None:
 
     with pytest.raises(ValueError, match=r"which .* does not take"):
 
-        @limiter(key="user:{user_id:{width}}")
+        @limiter(key_template="user:{user_id:{width}}")
         async def work(user_id: int) -> int:
             return user_id
 
@@ -296,7 +385,7 @@ async def test_a_nested_template_field_renders() -> None:
             "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
         )
 
-        @limiter(key="user:{user_id:{width}}")
+        @limiter(key_template="user:{user_id:{width}}")
         async def work(user_id: int, width: int) -> int:  # noqa: ARG001
             return user_id
 
@@ -312,7 +401,7 @@ async def test_a_template_with_a_trailing_literal_renders() -> None:
             "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
         )
 
-        @limiter(key="user:{user_id}-v1")
+        @limiter(key_template="user:{user_id}-v1")
         async def work(user_id: int) -> int:
             return user_id
 
@@ -324,7 +413,7 @@ async def test_a_template_with_a_trailing_literal_renders() -> None:
 async def test_a_resolver_is_reused_without_holding_the_target() -> None:
     """The template resolver is shared, and it pins nothing."""
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
-    binding = limiter(key="user:{user_id}")
+    binding = limiter(key_template="user:{user_id}")
     assert isinstance(binding, RateLimiterBinding)
 
     async def work(user_id: int) -> int:
@@ -344,7 +433,7 @@ def test_a_resolver_is_built_for_a_target_that_takes_no_weak_reference() -> (
 ):
     """A `__slots__` client cannot be a weak key, and still resolves."""
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
-    binding = limiter(key="user:{user_id}")
+    binding = limiter(key_template="user:{user_id}")
     assert isinstance(binding, RateLimiterBinding)
 
     class Client:
@@ -359,10 +448,10 @@ def test_a_resolver_is_built_for_a_target_that_takes_no_weak_reference() -> (
     assert resolver((USER,), {}) == f"user:{USER}"
 
 
-async def test_a_key_maker_resolver_holds_on_to_nothing() -> None:
-    """A key maker closes over the target, so its resolver is not kept."""
+async def test_rate_limiter_key_function_resolver_is_not_kept() -> None:
+    """A key function closes over the target, so its resolver is not kept."""
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
-    binding = limiter(key_maker=lambda _fn, _args, _kwargs: "made")
+    binding = limiter(key=lambda _fn, _args, _kwargs: "made")
     assert isinstance(binding, RateLimiterBinding)
 
     async def work(user_id: int) -> int:
@@ -377,13 +466,13 @@ async def test_a_key_maker_resolver_holds_on_to_nothing() -> None:
     assert len(binding._resolvers) == 0
 
 
-async def test_a_key_maker_stack_does_not_grow_per_call() -> None:
+async def test_rate_limiter_key_function_stack_does_not_grow_per_call() -> None:
     """`run` on a fresh target each call keeps nothing behind."""
     async with MemoryRateLimiterAdapter() as backend:
         limiter = RateLimiter.token_bucket(
             "api", capacity=10**6, refill_rate=10**6, backend=backend
         )
-        binding = limiter(key_maker=lambda _fn, _args, _kwargs: "made")
+        binding = limiter(key=lambda _fn, _args, _kwargs: "made")
         assert isinstance(binding, RateLimiterBinding)
         stack = Stack("api", patterns=[binding])
 
@@ -403,7 +492,7 @@ async def test_a_template_of_escaped_braces_reads_no_parameter() -> None:
         limiter = RateLimiter.token_bucket(
             "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
         )
-        binding = limiter(key="a{{b}}")
+        binding = limiter(key_template="a{{b}}")
         assert isinstance(binding, RateLimiterBinding)
 
         @binding
@@ -420,7 +509,7 @@ async def test_a_mis_called_function_is_named_in_the_error() -> None:
     """Binding the call must not hide which function was called."""
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
 
-    @limiter(key="user:{user_id}")
+    @limiter(key_template="user:{user_id}")
     async def work(user_id: int) -> int:
         return user_id
 
@@ -434,7 +523,7 @@ async def test_a_bound_method_reuses_one_resolver() -> None:
         limiter = RateLimiter.token_bucket(
             "api", capacity=10**6, refill_rate=10**6, backend=backend
         )
-        binding = limiter(key="user:{user_id}")
+        binding = limiter(key_template="user:{user_id}")
         assert isinstance(binding, RateLimiterBinding)
 
         class Service:
@@ -459,7 +548,7 @@ async def test_a_bound_method_and_its_function_keep_separate_resolvers() -> (
         limiter = RateLimiter.token_bucket(
             "api", capacity=10**6, refill_rate=10**6, backend=backend
         )
-        binding = limiter(key="user:{user_id}")
+        binding = limiter(key_template="user:{user_id}")
         assert isinstance(binding, RateLimiterBinding)
 
         class Service:
@@ -480,7 +569,7 @@ async def test_a_bound_method_and_its_function_keep_separate_resolvers() -> (
 def test_a_key_passed_positionally_points_at_the_keyword() -> None:
     """The first argument is the function, so a key must be named."""
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
-    with pytest.raises(TypeError, match=r"write `@limiter\(key="):
+    with pytest.raises(TypeError, match=r"write `@limiter\(key_template="):
         limiter("user:{user_id}")  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
 
 
@@ -488,7 +577,7 @@ def test_a_template_that_cannot_be_read_names_itself() -> None:
     """A malformed template says which template, like every other refusal."""
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
     with pytest.raises(ValueError, match=r"'u:\{oops' cannot be read"):
-        limiter(key="u:{oops")
+        limiter(key_template="u:{oops")
 
 
 @pytest.mark.parametrize(
@@ -504,7 +593,7 @@ def test_a_wait_budget_that_is_not_finite_is_refused(budget: float) -> None:
 def test_a_function_already_registered_as_a_task_is_refused() -> None:
     """The schedule holds what it registered, so the limiter goes above."""
     tasks = Tasks()
-    registered = tasks.every(seconds=60, name="metered")(metered_job)
+    registered = tasks.every(interval=60, name="metered")(metered_job)
 
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
 

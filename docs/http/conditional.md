@@ -87,6 +87,10 @@ from what the request carried whether or not `ConditionalRequests()` is
 registered. `fresh` still needs the component, since only the middleware can
 put the tag on the response.
 
+Inject `ConditionalRequired` instead to require a precondition on that route. A
+request carrying neither header is answered `428` before the handler runs, and
+the schema marks `If-Match` required on the operation.
+
 ## The read is what makes the write possible
 
 A client can only send `If-Match` if a read gave it a tag. That makes the `GET`
@@ -521,17 +525,19 @@ The retry of a refused write is still refused.
 
 ## In Swagger
 
-`install` annotates the generated schema, so the headers are reachable from the
-UI rather than something a reader has to know about:
+`install` annotates the schema FastAPI or Litestar generates, so the headers
+are reachable from the UI rather than something a reader has to know about:
 
 | Operation | Gains |
 |---|---|
 | `GET`, `HEAD` | An `If-None-Match` field, and the `304` it can answer. |
 | `PUT`, `PATCH`, `DELETE` | An `If-Match` field, plus the `412` and `428` responses. |
-| `POST` | Nothing. A create has no version to match against. |
+| `POST` | Nothing, unless the service requires a precondition there. A create has no version to match against. |
 
 The `If-Match` field is marked required exactly when the service refuses
-without it, which is when the method is named in `require_precondition`.
+without it: when the method is named in `require_precondition`, or when a
+FastAPI route injects `ConditionalRequired`, `POST` included. Such an
+operation also gains the `412` and `428` responses.
 `exclude` keeps a path out of the schema as well as out of the middleware, and
 `openapi=False` turns the annotation off for a service that publishes its own.
 
@@ -551,5 +557,5 @@ options, so a registered component and a hand-added middleware answer the same.
 | `include` | `()` | Paths the middleware acts on. Empty means every path. Exact match unless the pattern ends with `*`. |
 | `exclude` | `()` | Paths the middleware leaves alone, whatever `include` says. |
 | `max_body_size` | `1048576` | Largest response body held in memory to hash, in bytes. |
-| `openapi` | `True` | Describe the headers and their responses in the OpenAPI schema. Component only, and only FastAPI builds one. |
+| `openapi` | `True` | Describe the headers and their responses in the OpenAPI schema. Component only. |
 | `name` | `"default"` | Registration name. Component only. |

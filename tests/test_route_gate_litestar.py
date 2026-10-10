@@ -15,10 +15,11 @@ import warnings
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pytest
-from litestar import Litestar, asgi, get, post, websocket
+from litestar import Litestar, Router, asgi, get, post, websocket
 from litestar import WebSocket as LitestarWebSocket
 from litestar.background_tasks import BackgroundTask
 from litestar.config.cors import CORSConfig
+from litestar.di import NamedDependency, Provide
 from litestar.exceptions import WebSocketDisconnect
 from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
@@ -271,6 +272,73 @@ class TestPerMethod:
             ),
         }
 
+    def test_route_declarations_checks_before_the_handler_declare_own_checks(
+        self,
+    ) -> None:
+        """A guard, a dependency, a hook or middleware under the app runs first."""
+
+        # Arrange
+        def nobody(_connection: object, _handler: object) -> None:
+            return None
+
+        async def caller() -> str:
+            return "caller"
+
+        async def hook(_request: object) -> None:
+            return None
+
+        @post("/guarded", guards=[nobody])
+        async def guarded() -> None: ...
+
+        @post("/authenticated", guards=[Authenticated()])
+        async def authenticated() -> None: ...
+
+        @post("/dependent", dependencies={"who": Provide(caller)})
+        async def dependent(who: NamedDependency[str]) -> str:
+            return who
+
+        @post("/hooked", before_request=hook)
+        async def hooked() -> None: ...
+
+        @post("/plain")
+        async def plain() -> None: ...
+
+        @post("/")
+        async def routed() -> None: ...
+
+        middleware: list[Any] = [Passing]
+        app = Litestar(
+            route_handlers=[
+                guarded,
+                authenticated,
+                dependent,
+                hooked,
+                plain,
+                Router(
+                    "/routed", route_handlers=[routed], middleware=middleware
+                ),
+            ],
+            middleware=middleware,
+            openapi_config=None,
+        )
+
+        # Act
+        declared = route_declarations(app)
+
+        # Assert
+        assert {
+            (declaration.path, declaration.own_checks)
+            for declaration in declared
+            if declaration.methods == frozenset({"POST"})
+        } == {
+            ("/guarded", True),
+            ("/authenticated", False),
+            ("/dependent", True),
+            ("/hooked", True),
+            ("/plain", False),
+            ("/routed", True),
+        }
+
 
 class TestRefusals:
     """What a request no handler admits is answered and recorded with."""
@@ -435,14 +503,17 @@ class TestNothingIsSpentOnARefusal:
         assert statuses == [UNAUTHORIZED] * 3
         assert backend.calls == 0
 
-    @pytest.mark.parametrize("key_maker", [None, tenant_key])
-    def test_an_idempotent_write_stores_nothing(self, key_maker: Any) -> None:  # noqa: ANN401
+    @pytest.mark.parametrize("key_function", [None, tenant_key])
+    def test_an_idempotent_write_stores_nothing(
+        self,
+        key_function: Any,  # noqa: ANN401
+    ) -> None:
         """Its key stays free for the retry with a token, which runs."""
         calls = Calls()
         backend = CountingCache()
         idempotent = (
-            IdempotentRequests(key_maker=key_maker)
-            if key_maker
+            IdempotentRequests(key=key_function)
+            if key_function
             else IdempotentRequests()
         )
         app = catalog(calls, Cache(backend), idempotent)

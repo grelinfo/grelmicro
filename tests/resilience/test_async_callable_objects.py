@@ -105,10 +105,10 @@ async def test_a_circuit_breaker_admits_an_async_callable_object() -> None:
     [
         pytest.param(lambda: Timeout("slow", seconds=1), id="timeout"),
         pytest.param(lambda: Bulkhead("db", max_concurrent=1), id="bulkhead"),
-        pytest.param(lambda: shield, id="shield"),
+        pytest.param(lambda: shield.api(when=TimeoutError), id="shield"),
         pytest.param(lambda: measure, id="measure"),
         pytest.param(lambda: instrument, id="instrument"),
-        pytest.param(lambda: cached(ttl=30, key="k"), id="cached"),
+        pytest.param(lambda: cached(ttl=30, key_template="k"), id="cached"),
     ],
 )
 async def test_an_async_callable_object_is_accepted(build: object) -> None:
@@ -127,8 +127,8 @@ async def test_an_async_callable_object_is_accepted(build: object) -> None:
     [
         pytest.param(lambda: Timeout("slow", seconds=1), id="timeout"),
         pytest.param(lambda: Bulkhead("db", max_concurrent=1), id="bulkhead"),
-        pytest.param(lambda: shield, id="shield"),
-        pytest.param(lambda: cached(ttl=30, key="k"), id="cached"),
+        pytest.param(lambda: shield.api(when=TimeoutError), id="shield"),
+        pytest.param(lambda: cached(ttl=30, key_template="k"), id="cached"),
     ],
 )
 def test_a_sync_callable_object_is_still_refused(build: object) -> None:

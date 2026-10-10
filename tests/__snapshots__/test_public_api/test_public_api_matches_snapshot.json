@@ -32,6 +32,7 @@
     "GrelmicroMiddleware": {
       "()": "(app, *, micro) -> 'None'"
     },
+    "HealthNotServedWarning": null,
     "LeaderNotRunningWarning": null,
     "LifecycleOrderError": null,
     "MiddlewarePlacementWarning": null,
@@ -57,12 +58,11 @@
   "grelmicro.cache": {
     "Cache": {
       "()": "(source, *, requires=None, name='default') -> 'None'",
-      ".cached": "(cache=None, *, ttl=None, maxsize=0, key=None, key_maker=None, skip=None, typed=False, lock='local', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
+      ".cached": "(cache=None, *, ttl=None, maxsize=0, key=None, key_template=None, skip=None, typed=False, lock='process', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
     },
     "CacheBackend": {
       "()": "(*args, **kwargs)"
     },
-    "CacheError": null,
     "CacheInfo": {
       "()": "(hits, misses, maxsize, currsize, evictions) -> None"
     },
@@ -89,10 +89,10 @@
       ".from_config": "(config, *, name='default', backend=None, serializer=None) -> 'Self'"
     },
     "TTLCacheConfig": {
-      "()": "(*, maxsize=0, ttl=60) -> None"
+      "()": "(*, maxsize=0, ttl=datetime.timedelta(seconds=60)) -> None"
     },
     "cached": {
-      "()": "(cache=None, *, ttl=None, maxsize=0, key=None, key_maker=None, skip=None, typed=False, lock='local', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
+      "()": "(cache=None, *, ttl=None, maxsize=0, key=None, key_template=None, skip=None, typed=False, lock='process', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
     }
   },
   "grelmicro.clock": {
@@ -125,7 +125,7 @@
   },
   "grelmicro.coordination": {
     "Coordination": {
-      "()": "(source=None, *, lock=None, election=None, rwlock=None, schedule=None, requires=None, name='default') -> 'None'"
+      "()": "(source=None, *, lock=None, leaderelection=None, readwritelock=None, schedule=None, requires=None, name='default') -> 'None'"
     },
     "CoordinationBackendError": null,
     "CoordinationError": null,
@@ -137,7 +137,7 @@
       "()": "(*args, **kwargs)"
     },
     "LeaderElectionConfig": {
-      "()": "(*, worker=<factory>, lease_duration=15, renew_deadline=10, retry_interval=2, backend_timeout=5, error_interval=30, retry_jitter=0.1) -> None"
+      "()": "(*, worker=<factory>, lease_duration=datetime.timedelta(seconds=15), renew_deadline=datetime.timedelta(seconds=10), retry_interval=2, backend_timeout=5, error_interval=30, retry_jitter=0.1) -> None"
     },
     "LeaderRecord": {
       "()": "(holder, lease_duration, acquired_at, renewed_at, transitions, metadata=<factory>) -> None"
@@ -154,7 +154,10 @@
     },
     "LockBackendError": null,
     "LockConfig": {
-      "()": "(*, worker=<factory>, lease_duration=60, retry_interval=0.1, retry_jitter=0.1) -> None"
+      "()": "(*, worker=<factory>, lease_duration=datetime.timedelta(seconds=60), retry_interval=0.1, retry_jitter=0.1) -> None"
+    },
+    "LockExtendError": {
+      "()": "(*, name) -> None"
     },
     "LockHandle": {
       "()": "(name, token, fencing_token) -> None"
@@ -194,7 +197,7 @@
       "()": "(*args, **kwargs)"
     },
     "ReadWriteLockConfig": {
-      "()": "(*, worker=<factory>, lease_duration=60, retry_interval=0.1, retry_jitter=0.1) -> None"
+      "()": "(*, worker=<factory>, lease_duration=datetime.timedelta(seconds=60), retry_interval=0.1, retry_jitter=0.1) -> None"
     },
     "ReadWriteLockState": {
       "()": "(generation, writing, readers, waiting_writers) -> None"
@@ -203,11 +206,11 @@
       "()": "(*args, **kwargs)"
     },
     "TaskLock": {
-      "()": "(name='default', *, backend=None, worker=None, min_hold_duration=None, lease_duration=None, env_prefix=None, env_load=None) -> None",
+      "()": "(name=None, *, backend=None, worker=None, min_hold_duration=None, lease_duration=None, env_prefix=None, env_load=None) -> None",
       ".from_config": "(name, config, *, backend=None) -> Self"
     },
     "TaskLockConfig": {
-      "()": "(*, worker=<factory>, min_hold_duration=1, lease_duration=60) -> None"
+      "()": "(*, worker=<factory>, min_hold_duration=datetime.timedelta(seconds=1), lease_duration=datetime.timedelta(seconds=60)) -> None"
     },
     "WouldBlockError": null,
     "WriteGrant": {
@@ -241,11 +244,11 @@
     "CheckResult": null,
     "HealthCheckFunc": null,
     "HealthChecks": {
-      "()": "(*, name='default', timeout=None, cache_ttl=None, env_prefix=None, env_load=None, auto_health=False) -> None",
-      ".from_config": "(config, *, name='default', auto_health=False) -> Self"
+      "()": "(*, name='default', timeout=None, cache_ttl=None, liveness=None, env_prefix=None, env_load=None, auto_health=False) -> None",
+      ".from_config": "(config, *, name='default', auto_health=False, liveness=None) -> Self"
     },
     "HealthChecksConfig": {
-      "()": "(*, timeout=5.0, cache_ttl=1.0) -> None"
+      "()": "(*, timeout=5.0, cache_ttl=datetime.timedelta(seconds=1)) -> None"
     },
     "HealthDetails": null,
     "HealthError": {
@@ -255,6 +258,9 @@
     "HealthStatus": {
       "()": "(*values)"
     },
+    "Liveness": {
+      "()": "(*, stall_timeout=None, interval=10.0, failure_threshold=3, shutdown_timeout=30.0) -> None"
+    },
     "health_asgi": {
       "()": "(component=None, *, prefix='', show_details=False) -> 'ASGIApp'"
     }
@@ -262,7 +268,7 @@
   "grelmicro.http": {
     "AuthenticatedRequests": {
       "()": "(verifier, *, exclude=(), bans=None, trusted=None, check=None, resource=None, authorization_servers=(), scopes=(), enduser=False, name='default', openapi=True) -> 'None'",
-      ".from_config": "(config, verifier, *, bans=None, trusted=None, check=None, name='default', openapi=True) -> 'Self'"
+      ".from_config": "(verifier, config, *, bans=None, trusted=None, check=None, name='default', openapi=True) -> 'Self'"
     },
     "AuthenticatedRequestsConfig": {
       "()": "(*, exclude=(), resource=None, authorization_servers=(), scopes=(), enduser=False) -> None"
@@ -271,14 +277,14 @@
       "()": "(app, *, verifier, exclude=(), bans=None, trusted=None, check=None, resource=None, authorization_servers=(), scopes=(), enduser=False, public=None) -> 'None'"
     },
     "CachedResponses": {
-      "()": "(*, ttl=None, include=None, exclude=None, vary_by_headers=None, vary_by_query=UNSET, key=None, skip=None, max_body_size=None, cache=None, namespace='http', name='default', env_prefix=None, env_load=None) -> 'None'",
-      ".from_config": "(config, *, name='default', namespace='http', cache=None, key=None, skip=None) -> 'CachedResponses'"
+      "()": "(*, ttl=None, include=None, exclude=None, vary_by_headers=None, vary_by_query=UNSET, key=None, skip=None, max_body_size=None, cache=None, namespace='http', lock='process', name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default', namespace='http', cache=None, key=None, skip=None, lock='process') -> 'CachedResponses'"
     },
     "CachedResponsesConfig": {
-      "()": "(*, ttl=60.0, include=(), exclude=(), vary_by_headers=(), vary_by_query=None, max_body_size=1048576) -> None"
+      "()": "(*, ttl=datetime.timedelta(seconds=60), include=(), exclude=(), vary_by_headers=(), vary_by_query=None, max_body_size=1048576) -> None"
     },
     "CachedResponsesMiddleware": {
-      "()": "(app, *, cache, policies=None, ttl=60.0, include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default', live=None) -> 'None'"
+      "()": "(app, *, cache, policies=None, ttl=datetime.timedelta(seconds=60), include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default', lock='process', live=None) -> 'None'"
     },
     "ConditionalRequests": {
       "()": "(*, etag_responses=None, require_precondition=None, include=None, exclude=None, max_body_size=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
@@ -300,14 +306,14 @@
       "()": "(*args, **kwargs)"
     },
     "IdempotencyMiddleware": {
-      "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, live=None) -> 'None'"
+      "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, max_wait=10.0, include=(), exclude=(), reused_status=422, live=None) -> 'None'"
     },
     "IdempotentRequests": {
-      "()": "(*, ttl=None, namespace='http', cache=None, requires=None, key_header=None, replay_header=None, methods=None, key_maker=None, skip=None, require_key=None, fingerprint_body=None, max_body_size=None, wait_timeout=None, include=None, exclude=None, reused_status=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
-      ".from_config": "(config, *, name='default', namespace='http', ttl=None, cache=None, requires=None, key_maker=None, skip=None, openapi=True) -> 'IdempotentRequests'"
+      "()": "(*, ttl=None, namespace='http', cache=None, requires=None, key_header=None, replay_header=None, methods=None, key=None, skip=None, require_key=None, fingerprint_body=None, max_body_size=None, max_wait=None, include=None, exclude=None, reused_status=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default', namespace='http', ttl=None, cache=None, requires=None, key=None, skip=None, openapi=True) -> 'IdempotentRequests'"
     },
     "IdempotentRequestsConfig": {
-      "()": "(*, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422) -> None"
+      "()": "(*, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), require_key=False, fingerprint_body=False, max_body_size=1048576, max_wait=10.0, include=(), exclude=(), reused_status=422) -> None"
     },
     "OpsServer": {
       "()": "(*, port=None, host=None, show_details=None, request_timeout=None, shutdown_timeout=None, max_connections=None, name='default', env_prefix=None, env_load=None) -> 'None'",
@@ -342,7 +348,7 @@
       "()": "(status, media_type, headers, body) -> None"
     },
     "RouteDeclaration": {
-      "()": "(path, *, methods=None, anonymous=False, scopes=frozenset(), own_checks=False, cache=False) -> None"
+      "()": "(path, *, methods=None, anonymous=False, scopes=frozenset(), own_checks=False, checked_above=False, cache=False, shared=False, precondition_required=False) -> None"
     },
     "StoredResponse": null,
     "TMFError": {
@@ -370,13 +376,13 @@
       ".from_config": "(name, config, *, fingerprint=None, cache=None, serializer=None, requires=None) -> 'Self'"
     },
     "IdempotencyConfig": {
-      "()": "(*, ttl=86400) -> None"
+      "()": "(*, ttl=datetime.timedelta(days=1)) -> None"
     },
     "IdempotencyConflictError": {
       "()": "(*, name, key) -> None"
     },
     "IdempotencyError": null,
-    "IdempotencyKeyMakerError": null,
+    "IdempotencyKeyFunctionError": null,
     "IdempotencyStateError": null,
     "IdempotencyWaitTimeoutError": {
       "()": "(*, name, key, timeout) -> None"
@@ -397,7 +403,7 @@
       "()": "(*, scopes=()) -> Any"
     },
     "CachedResponse": {
-      "()": "(*, ttl=None) -> Any"
+      "()": "(*, ttl=None, shared=False) -> Any"
     },
     "CheckResultResponse": {
       "()": "(*, status, critical=True, error=None, details=None) -> None"
@@ -428,18 +434,6 @@
     },
     "RateLimited": {
       "()": "(*limiters, cost=1, max_wait=0.0, key=None, trusted=None, legacy_headers=False) -> Any"
-    },
-    "document_authenticated_requests": {
-      "()": "(app) -> None"
-    },
-    "document_conditional_requests": {
-      "()": "(app) -> None"
-    },
-    "document_idempotency": {
-      "()": "(app, *, idempotency=None) -> None"
-    },
-    "document_rate_limited_requests": {
-      "()": "(app) -> None"
     },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
@@ -636,7 +630,7 @@
       "()": "(id, topic, key, data, payload, headers, attempts) -> None"
     },
     "Outbox": {
-      "()": "(source, *, requires=None, name='default', relay=None, table=None, poll_interval=None, batch_size=None, lease_duration=None, max_attempts=None, retry_base=None, retry_max=None, retry_jitter=None, concurrency=None, dead_letter=None, keep_delivered=None, auto_migrate=None, notify=None, env_load=None, shutdown_timeout=30.0) -> 'None'",
+      "()": "(source, *, requires=None, name='default', relay=None, table=None, poll_interval=None, batch_size=None, lease_duration=None, max_attempts=None, retry_base=None, retry_max=None, retry_jitter=None, concurrency=None, dead_letter=None, keep_delivered=UNSET, auto_migrate=None, notify=None, env_load=None, shutdown_timeout=30.0) -> 'None'",
       ".current": "(name='default') -> 'Outbox'",
       ".from_config": "(source, config, *, requires=None, name='default', shutdown_timeout=30.0) -> 'Self'"
     },
@@ -644,7 +638,7 @@
       "()": "(*args, **kwargs)"
     },
     "OutboxConfig": {
-      "()": "(*, table='grelmicro_outbox', relay=True, poll_interval=1.5, batch_size=100, lease_duration=30, max_attempts=10, retry_base=1, retry_max=300, retry_jitter=1, concurrency=50, dead_letter=True, keep_delivered=False, auto_migrate=True, notify=True) -> None"
+      "()": "(*, table='grelmicro_outbox', relay=True, poll_interval=1.5, batch_size=100, lease_duration=datetime.timedelta(seconds=30), max_attempts=10, retry_base=1, retry_max=300, retry_jitter=1, concurrency=50, dead_letter=True, keep_delivered=datetime.timedelta(0), auto_migrate=True, notify=True) -> None"
     },
     "OutboxError": null,
     "OutboxHandleError": null,
@@ -663,21 +657,21 @@
   },
   "grelmicro.resilience": {
     "ApiShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='api') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='api') -> None"
     },
     "Bulkhead": {
       "()": "(name, *, max_concurrent=None, max_wait=None, max_workers=None, uses=(), env_load=None) -> 'None'",
       ".from_config": "(name, config, *, uses=()) -> 'Self'"
     },
     "BulkheadConfig": {
-      "()": "(*, max_concurrent=None, max_wait=None, max_workers=None) -> None"
+      "()": "(*, max_concurrent=None, max_wait=0.0, max_workers=None) -> None"
     },
     "BulkheadFullError": {
       "()": "(*, name, max_concurrent) -> None"
     },
     "CircuitBreaker": {
       "()": "(name, *, backend=None, maxsize=1024, env_load=None) -> 'None'",
-      ".consecutive_count": "(name, *, ignore_exceptions=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
+      ".consecutive_count": "(name, *, when=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
       ".from_config": "(name, config, *, backend=None, maxsize=1024) -> 'Self'"
     },
     "CircuitBreakerBackend": {
@@ -705,7 +699,7 @@
       "()": "(*args, **kwargs)"
     },
     "ConsecutiveCountConfig": {
-      "()": "(*, kind='consecutive_count', ignore_exceptions=(), error_threshold=5, success_threshold=2, reset_timeout=30.0, half_open_capacity=1, log_level='WARNING') -> None"
+      "()": "(*, kind='consecutive_count', when=Match.exception(Exception), error_threshold=5, success_threshold=2, reset_timeout=datetime.timedelta(seconds=30), half_open_capacity=1, log_level='WARNING') -> None"
     },
     "ConstantBackoff": {
       "()": "(*, kind='constant', delay=1.0) -> None"
@@ -733,7 +727,7 @@
       "()": "(*, kind='fibonacci', base_delay=1.0, max_delay=30.0) -> None"
     },
     "InternalShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='internal') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='internal') -> None"
     },
     "LinearBackoff": {
       "()": "(*, kind='linear', base_delay=1.0, max_delay=30.0) -> None"
@@ -795,7 +789,7 @@
       "()": "(*args, **kwargs)"
     },
     "RateLimiterBinding": {
-      "()": "(limiter, /, *, key=None, key_maker=None, cost=1, max_wait=0.0) -> 'None'"
+      "()": "(limiter, /, *, key=None, key_template=None, cost=1, max_wait=0.0) -> 'None'"
     },
     "RateLimiterComponent": {
       "()": "(source, *, requires=None, name='default') -> 'None'"
@@ -838,11 +832,11 @@
       "()": "(*, provider=None, env_prefix='SQLITE_', prefix='', table_name='grelmicro_rate_limiter', auto_migrate=True) -> 'None'"
     },
     "Shield": {
-      "()": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
-      ".api": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
-      ".from_config": "(name, config) -> 'Self'",
-      ".internal": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
-      ".slow": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
+      "()": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
+      ".api": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".from_config": "(name, config, *, time_source=None, random_source=None) -> 'Self'",
+      ".internal": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".slow": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
     },
     "ShieldConfig": {
       "()": "(*args, **kwargs)"
@@ -851,7 +845,7 @@
       "()": "(*, fail_open=False, kind='sliding_window', limit, window) -> None"
     },
     "SlowShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
     },
     "Stack": {
       "()": "(name, *, patterns) -> 'None'"
@@ -878,9 +872,7 @@
     "retrying": {
       "()": "(*, when, attempts=3, backoff=None) -> 'AsyncIterator[RetryAttempt]'"
     },
-    "shield": {
-      "()": "(fn) -> '_AsyncFn'"
-    }
+    "shield": null
   },
   "grelmicro.resilience.backoffs": {
     "ConstantBackoff": {
@@ -905,7 +897,7 @@
   "grelmicro.resilience.circuitbreaker": {
     "CircuitBreaker": {
       "()": "(name, *, backend=None, maxsize=1024, env_load=None) -> 'None'",
-      ".consecutive_count": "(name, *, ignore_exceptions=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
+      ".consecutive_count": "(name, *, when=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
       ".from_config": "(name, config, *, backend=None, maxsize=1024) -> 'Self'"
     },
     "CircuitBreakerConfig": {
@@ -921,7 +913,7 @@
       "()": "(*values)"
     },
     "ConsecutiveCountConfig": {
-      "()": "(*, kind='consecutive_count', ignore_exceptions=(), error_threshold=5, success_threshold=2, reset_timeout=30.0, half_open_capacity=1, log_level='WARNING') -> None"
+      "()": "(*, kind='consecutive_count', when=Match.exception(Exception), error_threshold=5, success_threshold=2, reset_timeout=datetime.timedelta(seconds=30), half_open_capacity=1, log_level='WARNING') -> None"
     },
     "ErrorDetails": {
       "()": "(time, type, msg) -> None"
@@ -935,7 +927,7 @@
       ".token_bucket": "(name, *, capacity=None, refill_rate=None, fail_open=None, backend=None, env_load=None) -> 'Self'"
     },
     "RateLimiterBinding": {
-      "()": "(limiter, /, *, key=None, key_maker=None, cost=1, max_wait=0.0) -> 'None'"
+      "()": "(limiter, /, *, key=None, key_template=None, cost=1, max_wait=0.0) -> 'None'"
     },
     "RateLimiterConfig": {
       "()": "(*args, **kwargs)"
@@ -949,27 +941,25 @@
   },
   "grelmicro.resilience.shield": {
     "ApiShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='api') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='api') -> None"
     },
     "InternalShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='internal') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='internal') -> None"
     },
     "Shield": {
-      "()": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
-      ".api": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
-      ".from_config": "(name, config) -> 'Self'",
-      ".internal": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
-      ".slow": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
+      "()": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
+      ".api": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".from_config": "(name, config, *, time_source=None, random_source=None) -> 'Self'",
+      ".internal": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".slow": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
     },
     "ShieldConfig": {
       "()": "(*args, **kwargs)"
     },
     "SlowShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
     },
-    "shield": {
-      "()": "(fn) -> '_AsyncFn'"
-    }
+    "shield": null
   },
   "grelmicro.security": {
     "ABUSIVE_REASONS": null,
@@ -1000,7 +990,7 @@
       ".from_config": "(config, *, reasons=None, name='default') -> 'Self'"
     },
     "ClientBansConfig": {
-      "()": "(*, failures=10, window=60.0, duration=300.0, max_clients=10000) -> None"
+      "()": "(*, failures=10, window=datetime.timedelta(seconds=60), duration=datetime.timedelta(seconds=300), max_clients=10000) -> None"
     },
     "ClientCredentials": {
       "()": "(name, *, audience=None, resource=None, scopes=None, client=None, env_load=None) -> 'None'",
@@ -1013,13 +1003,13 @@
       "()": "(message, *, error=None, description=None) -> 'None'"
     },
     "DiscoveryConfig": {
-      "()": "(*, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0) -> None"
+      "()": "(*, ttl=datetime.timedelta(seconds=3600), retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=datetime.timedelta(seconds=300)) -> None"
     },
     "Fetcher": {
       "()": "(*args, **kwargs)"
     },
     "JWKSConfig": {
-      "()": "(*, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, url) -> None"
+      "()": "(*, ttl=datetime.timedelta(seconds=3600), retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=datetime.timedelta(seconds=300), url) -> None"
     },
     "JWTClaims": {
       "()": "(claims, subject, issuer, audience, expires_at, issued_at, token_id, scopes=frozenset()) -> None"
@@ -1031,16 +1021,16 @@
       ".secret": "(key, *, algorithm, kid=None) -> 'Self'"
     },
     "JWTKeysConfig": {
-      "()": "(*, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, keys) -> None",
+      "()": "(*, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=datetime.timedelta(seconds=300), keys) -> None",
       ".from_jwks": "(jwks, *, algorithm=None, **policy) -> 'JWTKeysConfig'"
     },
     "JWTPolicy": {
-      "()": "(*, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0) -> None"
+      "()": "(*, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=datetime.timedelta(seconds=300)) -> None"
     },
     "JWTVerifier": {
       "()": "(*args, **kwargs) -> 'None'",
       ".discover": "(issuer=None, *, audience=UNSET, algorithm=None, ttl=None, retry_interval=None, timeout=None, max_bytes=None, max_keys=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, fetch=None, name='default', env_load=None) -> 'Self'",
-      ".from_config": "(config, *, fetch=None) -> 'Self'",
+      ".from_config": "(config, *, fetch=None, name='default') -> 'Self'",
       ".jwks": "(url=None, *, audience=UNSET, issuer=None, algorithm=None, ttl=None, retry_interval=None, timeout=None, max_bytes=None, max_keys=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, fetch=None, name='default', env_load=None) -> 'Self'",
       ".keys": "(*keys, audience=UNSET, issuer=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, name='default', env_load=None) -> 'Self'"
     },
@@ -1051,7 +1041,7 @@
       ".from_config": "(config, *, client_auth, name='default') -> 'Self'"
     },
     "OAuthClientConfig": {
-      "()": "(*, client_id, issuer=None, token_endpoint=None, client_secret=None, assertion_file=None, refresh_before=60.0, default_lifetime=300.0, timeout=5.0, retry_interval=5.0, max_bytes=1048576) -> None"
+      "()": "(*, client_id, issuer=None, token_endpoint=None, client_secret=None, assertion_file=None, refresh_before=datetime.timedelta(seconds=60), default_lifetime=datetime.timedelta(seconds=300), timeout=5.0, retry_interval=5.0, max_bytes=1048576) -> None"
     },
     "Principal": {
       "()": "(*args, **kwargs)"
@@ -1150,7 +1140,7 @@
   "grelmicro.trace": {
     "Trace": {
       "()": "(*, name='default', service_name=None, exporter=None, endpoint=None, headers=None, basic_auth=None, processor=None, sampler=None, sample_ratio=None, resource_attributes=None, instrument=True, shutdown_timeout=None, env_load=None) -> 'None'",
-      ".from_config": "(config, *, name='default') -> 'Self'"
+      ".from_config": "(config, *, name='default', instrument=True) -> 'Self'"
     },
     "TraceConfig": {
       "()": "(*, service_name=None, exporter=<TraceExporterType.AUTO: 'auto'>, endpoint=None, headers={}, basic_auth_username=None, basic_auth_password=None, processor=<TraceProcessorType.BATCH: 'batch'>, sampler=<TraceSamplerType.PARENTBASED_ALWAYS_ON: 'parentbased_always_on'>, sample_ratio=1.0, resource_attributes={}, shutdown_timeout=5.0) -> None"

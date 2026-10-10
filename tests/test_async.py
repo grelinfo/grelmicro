@@ -3,7 +3,11 @@
 import asyncio
 import functools
 
-from grelmicro._async import is_async_callable
+import pytest
+
+from grelmicro._async import is_async_callable, run_to_completion
+
+ANSWER = 42
 
 
 async def _async_fn() -> None:
@@ -99,3 +103,74 @@ async def test_sleep_or_stop_none_is_plain_sleep() -> None:
     from grelmicro._async import sleep_or_stop  # noqa: PLC0415
 
     assert await sleep_or_stop(0.01, None) is False
+
+
+async def test_run_to_completion_returns_the_result() -> None:
+    """Uncancelled, the work's result comes back."""
+
+    async def work() -> int:
+        return ANSWER
+
+    assert await run_to_completion(work()) == ANSWER
+
+
+async def test_run_to_completion_raises_the_work_error() -> None:
+    """Uncancelled, the work's error is raised."""
+
+    async def work() -> None:
+        msg = "work failed"
+        raise ValueError(msg)
+
+    with pytest.raises(ValueError, match="work failed"):
+        await run_to_completion(work())
+
+
+async def test_run_to_completion_finishes_before_the_cancel() -> None:
+    """Cancelled twice, the caller still waits for the work, then is cancelled."""
+    resume = asyncio.Event()
+    done: list[bool] = []
+
+    async def work() -> None:
+        await resume.wait()
+        done.append(True)
+
+    task = asyncio.create_task(run_to_completion(work()))
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    resume.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert done == [True]
+
+
+async def test_run_to_completion_keeps_an_outer_timeout() -> None:
+    """An enclosing `asyncio.timeout` still reports its timeout once the work ends."""
+
+    async def work() -> None:
+        await asyncio.sleep(0.05)
+
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.01):
+            await run_to_completion(work())
+
+
+async def test_run_to_completion_keeps_the_cancel_over_a_work_error() -> None:
+    """A cancel the caller received wins over an error the work raises after it."""
+    resume = asyncio.Event()
+
+    async def work() -> None:
+        await resume.wait()
+        msg = "work failed"
+        raise ValueError(msg)
+
+    task = asyncio.create_task(run_to_completion(work()))
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
+    resume.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task

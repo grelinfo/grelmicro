@@ -504,7 +504,7 @@ def test_describe_idempotency_matches_dependency_gate_policy(
 ) -> None:
     """Default keys bypass dependency routes; custom identity keys may replay."""
     component = IdempotentRequests(
-        key_maker=(lambda scope, key: f"{scope['path']}:{key}")
+        key=(lambda scope, key: f"{scope['path']}:{key}")
         if key_kind == "custom"
         else None
     )
@@ -535,7 +535,7 @@ def test_describe_idempotency_matches_nested_runtime_gates(
 ) -> None:
     """Mounted auth and nested dependency gates use runtime's path policy."""
     component = IdempotentRequests(
-        key_maker=(lambda scope, key: f"{scope['path']}:{key}")
+        key=(lambda scope, key: f"{scope['path']}:{key}")
         if key_kind == "custom"
         else None
     )
@@ -808,7 +808,7 @@ def test_describe_counts_a_failing_factory_as_served() -> None:
         async def __aexit__(self, *args: object) -> None:
             return None
 
-        def cache(self, **kwargs: Any) -> CacheBackend:  # noqa: ANN401, ARG002
+        def cache_backend(self, **kwargs: Any) -> CacheBackend:  # noqa: ANN401, ARG002
             msg = "no pool yet"
             raise RuntimeError(msg)
 

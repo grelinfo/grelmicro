@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable
+from datetime import timedelta
 
 import pytest
 
@@ -19,17 +20,17 @@ type TaskFactory = Callable[..., IntervalTask]
 
 def _create_task(
     *,
-    seconds: float,
+    interval: int | timedelta,
     function: Callable[..., object],
     name: str,
     backend: LockBackend,
     worker: str,
-    min_hold_duration: float,
-    lease_duration: float,
+    min_hold_duration: int | timedelta,
+    lease_duration: int | timedelta,
 ) -> IntervalTask:
     """Create IntervalTask using the gate=TaskLock() API."""
     return IntervalTask(
-        seconds=seconds,
+        interval=interval,
         function=function,
         name=name,
         gate=TaskLock(

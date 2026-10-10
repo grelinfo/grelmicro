@@ -33,6 +33,7 @@ from grelmicro.resilience.ratelimiter.sliding_window import (
     SlidingWindowConfig,
 )
 from grelmicro.security import ClientAddressMiddleware, TrustedProxies
+from tests._logs import records_of
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
@@ -326,7 +327,7 @@ def test_a_caller_that_cannot_be_read_is_let_through_once_said(
 
     # Assert
     assert response.status_code == HTTP_200_OK
-    assert len(caplog.records) == 1
+    assert len(records_of(caplog, "grelmicro.http.ratelimit")) == 1
 
 
 def test_the_resolved_caller_is_left_where_the_next_reader_looks() -> None:
@@ -423,15 +424,22 @@ def test_a_websocket_scope_passes_through() -> None:
 def test_a_middleware_that_meters_nothing_is_refused() -> None:
     """It would let every request through while reporting a limit."""
     # Act / Assert
-    with pytest.raises(TypeError, match="at least one limiter"):
+    with pytest.raises(TypeError, match="at least one limiter") as caught:
         RateLimitedRequests(trusted=TrustedProxies(list(PROXIES)))
+    assert str(caught.value).startswith("RateLimitedRequests ")
+    assert "RateLimitMiddleware" not in str(caught.value)
 
 
 def test_a_middleware_with_no_caller_to_meter_is_refused() -> None:
     """The only key left would be the ingress rather than the caller."""
     # Act / Assert
-    with pytest.raises(TypeError, match="trusted= to resolve the caller"):
+    with pytest.raises(TypeError) as caught:
         RateLimitedRequests(_limiter("api", 1))
+    message = str(caught.value)
+    assert message.startswith("RateLimitedRequests ")
+    assert "RateLimitMiddleware" not in message
+    assert "trusted=TrustedProxies(" in message
+    assert "key=" in message
 
 
 @pytest.mark.parametrize(
@@ -813,7 +821,7 @@ def test_a_route_metering_nothing_says_so(
     # Assert
     assert response.status_code == HTTP_200_OK
     assert "metered not at all" in caplog.text
-    assert len(caplog.records) == 1
+    assert len(records_of(caplog, "grelmicro.integrations")) == 1
 
 
 def test_a_route_that_resolves_nobody_meters_nothing(
@@ -1107,7 +1115,7 @@ def test_a_degraded_bucket_is_reported_once_and_only_as_itself(
         client.get("/read", headers={"X-Forwarded-For": "10.9.9.9"})
 
     # Assert
-    assert len(caplog.records) == 1
+    assert len(records_of(caplog, "grelmicro.http.ratelimit")) == 1
     assert "share" in caplog.text
     assert "transport peer" not in caplog.text
 
@@ -1130,7 +1138,7 @@ def test_two_apps_each_report_their_own_misconfiguration(
             client.get("/read", headers=forwarded)
 
     # Assert
-    assert len(caplog.records) == TWO_METERS
+    assert len(records_of(caplog, "grelmicro.http.ratelimit")) == TWO_METERS
 
 
 def test_the_count_that_can_be_read_answers_for_the_pair() -> None:

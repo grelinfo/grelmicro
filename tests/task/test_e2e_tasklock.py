@@ -5,6 +5,7 @@ These tests build the task through a shared factory that wires a
 """
 
 import asyncio
+from datetime import timedelta
 from itertools import pairwise
 
 import pytest
@@ -14,6 +15,7 @@ from grelmicro.coordination import Coordination
 from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.task._interval import IntervalTask
+from tests._logs import records_of
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
 from tests.task.conftest import TaskFactory
@@ -29,12 +31,12 @@ async def test_tasklock_basic_execution(
 ) -> None:
     """Test IntervalTask executes with TaskLock."""
     task = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.set_event_1,
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=INTERVAL,
+        min_hold_duration=timedelta(seconds=INTERVAL),
         lease_duration=10,
     )
 
@@ -49,7 +51,7 @@ async def test_tasklock_two_workers(
 ) -> None:
     """Test only one worker executes when both use TaskLock on the same resource."""
     task_1 = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.set_event_1,
         name="e2e_task",
         backend=backend,
@@ -58,7 +60,7 @@ async def test_tasklock_two_workers(
         lease_duration=10,
     )
     task_2 = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.set_event_2,
         name="e2e_task",
         backend=backend,
@@ -84,21 +86,21 @@ async def test_tasklock_min_hold_duration(
     """Test min_hold_duration prevents re-execution on another worker."""
     min_lock = 0.5
     task_1 = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.set_event_1,
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=min_lock,
+        min_hold_duration=timedelta(seconds=min_lock),
         lease_duration=10,
     )
     task_2 = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.set_event_2,
         name="e2e_task",
         backend=backend,
         worker="worker_2",
-        min_hold_duration=min_lock,
+        min_hold_duration=timedelta(seconds=min_lock),
         lease_duration=10,
     )
 
@@ -125,22 +127,22 @@ async def test_tasklock_lease_renewed_while_the_body_runs(
     """A body running past lease_duration keeps its claim, so the peer waits."""
     max_lock = 0.2
     task_1 = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.worker_1_hold,
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=INTERVAL,
-        lease_duration=max_lock,
+        min_hold_duration=timedelta(seconds=INTERVAL),
+        lease_duration=timedelta(seconds=max_lock),
     )
     task_2 = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.set_event_2,
         name="e2e_task",
         backend=backend,
         worker="worker_2",
-        min_hold_duration=INTERVAL,
-        lease_duration=max_lock,
+        min_hold_duration=timedelta(seconds=INTERVAL),
+        lease_duration=timedelta(seconds=max_lock),
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -162,7 +164,7 @@ async def test_tasklock_would_block_debug_log(
     """Test WouldBlock from TaskLock logs at DEBUG, not ERROR."""
     caplog.set_level("DEBUG")
     task_1 = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.worker_1_hold,
         name="e2e_task",
         backend=backend,
@@ -171,7 +173,7 @@ async def test_tasklock_would_block_debug_log(
         lease_duration=10,
     )
     task_2 = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.noop,
         name="e2e_task",
         backend=backend,
@@ -210,12 +212,12 @@ async def test_tasklock_same_worker_blocked_by_min_lock(
     """
     min_lock = 1.0
     task = task_factory(
-        seconds=0.1,
+        interval=timedelta(milliseconds=100),
         function=samples.count_execution,
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=min_lock,
+        min_hold_duration=timedelta(seconds=min_lock),
         lease_duration=10,
     )
 
@@ -235,12 +237,12 @@ async def test_tasklock_sequential_executions(
 ) -> None:
     """Test same worker executes again after min_hold_duration expires."""
     task = task_factory(
-        seconds=INTERVAL,
+        interval=timedelta(seconds=INTERVAL),
         function=samples.set_event_1,
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=INTERVAL,
+        min_hold_duration=timedelta(seconds=INTERVAL),
         lease_duration=10,
     )
 
@@ -263,7 +265,7 @@ async def test_claim_runs_each_interval_once_across_offset_workers(
     interval = 0.2
     workers = [
         IntervalTask(
-            seconds=interval,
+            interval=timedelta(seconds=interval),
             function=samples.record_start,
             name="claimed",
             gate="claim",
@@ -285,16 +287,18 @@ async def test_claim_runs_each_interval_once_across_offset_workers(
     assert min(b - a for a, b in pairwise(starts)) >= interval * 0.8
 
 
-async def test_gate_lock_refreshes_from_the_body(
+async def test_gate_lock_extends_from_the_body(
     backend: LockBackend, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The handle passed as the gate is the one the task holds, so it renews."""
+    """The handle passed as the gate is the one the task holds, so it extends."""
     samples.gate_lock = TaskLock(
-        backend=backend, lease_duration=10, min_hold_duration=INTERVAL
+        backend=backend,
+        lease_duration=10,
+        min_hold_duration=timedelta(seconds=INTERVAL),
     )
     task = IntervalTask(
-        seconds=INTERVAL,
-        function=samples.refresh_gate_lock,
+        interval=timedelta(seconds=INTERVAL),
+        function=samples.extend_gate_lock,
         gate=samples.gate_lock,
     )
 
@@ -303,7 +307,9 @@ async def test_gate_lock_refreshes_from_the_body(
         await samples.e2e_event_1.wait()
         cancel_group(tg)
 
-    assert not any(r.levelname == "ERROR" for r in caplog.records)
+    assert not any(
+        r.levelname == "ERROR" for r in records_of(caplog, "grelmicro")
+    )
 
 
 async def test_claim_renews_while_a_long_body_runs(
@@ -314,7 +320,7 @@ async def test_claim_renews_while_a_long_body_runs(
     samples.long_body_seconds = INTERVAL * 6
     workers = [
         IntervalTask(
-            seconds=INTERVAL,
+            interval=timedelta(seconds=INTERVAL),
             function=samples.run_long_body,
             name="long",
             gate="claim",
@@ -332,4 +338,6 @@ async def test_claim_renews_while_a_long_body_runs(
         cancel_group(tg)
 
     assert samples.execution_count == 1
-    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+    assert not [
+        r for r in records_of(caplog, "grelmicro") if r.levelname == "WARNING"
+    ]

@@ -50,14 +50,10 @@ from grelmicro.http import (
     ERROR_DOCS_BASE,
     PROBLEM_MEDIA_TYPE,
     ErrorResponses,
-    IdempotencyMiddleware,
+    IdempotentRequests,
 )
 from grelmicro.http import ProblemDetail as GrelmicroProblem
-from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import (
-    document_idempotency,
-    error_response,
-)
+from grelmicro.integrations.fastapi import error_response
 from grelmicro.integrations.litestar import _field_errors
 from grelmicro.integrations.litestar import (
     error_response as litestar_error_response,
@@ -762,8 +758,10 @@ def test_no_body_schema_is_published_when_both_names_are_taken() -> None:
     }
 
 
-def test_documenting_before_install_still_publishes_the_right_format() -> None:
-    """The order of the two calls must not decide what the schema claims."""
+def test_idempotent_requests_registered_first_publishes_the_registered_format() -> (
+    None
+):
+    """The order of registration must not decide what the schema claims."""
     # Arrange
     memory = MemoryProvider()
     app = FastAPI()
@@ -772,9 +770,9 @@ def test_documenting_before_install_still_publishes_the_right_format() -> None:
     async def charge() -> dict[str, bool]:
         return {"ok": True}
 
-    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
-    document_idempotency(app)
-    Grelmicro(uses=[memory, Cache(memory), ErrorResponses.tmf()]).install(app)
+    Grelmicro(
+        uses=[memory, Cache(memory), IdempotentRequests(), ErrorResponses.tmf()]
+    ).install(app)
 
     # Act
     content = app.openapi()["paths"]["/charge"]["post"]["responses"]["409"][
@@ -1468,9 +1466,9 @@ def test_a_webhook_is_not_documented_as_idempotent() -> None:
     async def charge() -> dict[str, bool]:
         return {"ok": True}
 
-    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
-    Grelmicro(uses=[memory, Cache(memory), ErrorResponses()]).install(app)
-    document_idempotency(app)
+    Grelmicro(
+        uses=[memory, Cache(memory), ErrorResponses(), IdempotentRequests()]
+    ).install(app)
 
     # Act
     schema = app.openapi()

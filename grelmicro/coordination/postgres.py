@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
+from asyncpg.exceptions import LockNotAvailableError
 from typing_extensions import Doc
 
+from grelmicro._duration import microseconds
 from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
@@ -22,9 +25,12 @@ from grelmicro.providers.postgres import PostgresProvider
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from datetime import timedelta
     from types import TracebackType
 
     from grelmicro.types import BackendScope
+
+logger = getLogger("grelmicro.coordination")
 
 
 class PostgresLockAdapter(LockBackend):
@@ -40,6 +46,11 @@ class PostgresLockAdapter(LockBackend):
     same-holder extend, returning the value with `RETURNING fence`. Release
     clears the holder and expiry but keeps the row and its fence, so the
     fence is strictly monotonic per name across release and re-acquire cycles.
+
+    Expiries live in an `expire_at TIMESTAMPTZ` column, so every session
+    reads the same instant whatever its `TimeZone` setting. Setup converts
+    an `expire_at TIMESTAMP` column left by an earlier release, reading its
+    values in the session time zone.
     """
 
     scope: ClassVar[BackendScope] = "cluster"
@@ -49,18 +60,55 @@ class PostgresLockAdapter(LockBackend):
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     name TEXT PRIMARY KEY,
                     token TEXT,
-                    expire_at TIMESTAMP,
+                    expire_at TIMESTAMPTZ,
                     fence BIGINT NOT NULL DEFAULT 0
                 );
-                ALTER TABLE {table_name}
-                    ADD COLUMN IF NOT EXISTS fence BIGINT NOT NULL DEFAULT 0;
-                ALTER TABLE {table_name} ALTER COLUMN token DROP NOT NULL;
-                ALTER TABLE {table_name} ALTER COLUMN expire_at DROP NOT NULL;
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_attribute
+                        WHERE attrelid = '{table_name}'::regclass
+                            AND attname = 'fence' AND NOT attisdropped
+                    ) THEN
+                        ALTER TABLE {table_name}
+                            ADD COLUMN fence BIGINT NOT NULL DEFAULT 0;
+                    END IF;
+                    IF EXISTS (
+                        SELECT 1 FROM pg_attribute
+                        WHERE attrelid = '{table_name}'::regclass
+                            AND attname IN ('token', 'expire_at')
+                            AND attnotnull
+                    ) THEN
+                        ALTER TABLE {table_name}
+                            ALTER COLUMN token DROP NOT NULL,
+                            ALTER COLUMN expire_at DROP NOT NULL;
+                    END IF;
+                END
+                $$;
                 """
+
+    _SQL_MIGRATE_EXPIRE_AT_TIMESTAMPTZ = """
+                SET LOCAL lock_timeout = '{lock_timeout}';
+                DO $$
+                BEGIN
+                    IF (
+                        SELECT atttypid FROM pg_attribute
+                        WHERE attrelid = '{table_name}'::regclass
+                            AND attname = 'expire_at'
+                    ) = 'timestamp'::regtype THEN
+                        ALTER TABLE {table_name}
+                            ALTER COLUMN expire_at TYPE TIMESTAMPTZ;
+                    END IF;
+                END
+                $$;
+                """
+
+    _MIGRATE_LOCK_TIMEOUT = "2s"
+    """How long the expiry migration waits for the table lock."""
 
     _SQL_ACQUIRE_OR_EXTEND = """
                 INSERT INTO {table_name} (name, token, expire_at, fence)
-                VALUES ($1, $2, NOW() + make_interval(secs => $3), 1)
+                VALUES ($1, $2, NOW() + $3::bigint * INTERVAL '1 microsecond', 1)
                 ON CONFLICT (name) DO UPDATE
                 SET token = EXCLUDED.token,
                     expire_at = EXCLUDED.expire_at,
@@ -169,9 +217,16 @@ class PostgresLockAdapter(LockBackend):
     async def _migrate(self) -> None:
         """Install the schema, guarded so replicas do not race.
 
-        `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so
-        two workers starting together can both pass the check and one then
-        fails on the row type the table creates.
+        Setup holds an advisory lock on the table name, then creates the
+        table and adds what an earlier release left out. It takes a table
+        lock only when a step has work to do.
+
+        Setup then turns an `expire_at TIMESTAMP` column into `TIMESTAMPTZ`,
+        reading each stored value in the session time zone. In a `UTC`
+        session the column changes in place without rewriting the table.
+        When the table lock is not granted within `_MIGRATE_LOCK_TIMEOUT`,
+        setup logs a warning and keeps the column for this start. The next
+        start tries again.
         """
         async with (
             self._provider.client.acquire() as conn,
@@ -185,6 +240,22 @@ class PostgresLockAdapter(LockBackend):
                     table_name=self._table_name
                 ),
             )
+            try:
+                async with conn.transaction():
+                    await conn.execute(
+                        self._SQL_MIGRATE_EXPIRE_AT_TIMESTAMPTZ.format(
+                            table_name=self._table_name,
+                            lock_timeout=self._MIGRATE_LOCK_TIMEOUT,
+                        ),
+                    )
+            except LockNotAvailableError:
+                logger.warning(
+                    "Postgres lock table %r keeps its TIMESTAMP expiry"
+                    " column: the table lock was not granted within %s."
+                    " The next start retries.",
+                    self._table_name,
+                    self._MIGRATE_LOCK_TIMEOUT,
+                )
 
     async def __aexit__(
         self,
@@ -200,11 +271,11 @@ class PostgresLockAdapter(LockBackend):
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire a lock, returning the fencing token or `None`."""
         fence = await self._provider.client.fetchval(
-            self._acquire_sql, name, token, duration
+            self._acquire_sql, name, token, microseconds(duration)
         )
         return int(fence) if fence is not None else None
 
@@ -273,8 +344,8 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
     """
 
     _SQL_CREATE_FN_ACQUIRE_READ = """
-        CREATE OR REPLACE FUNCTION {table_name}_acquire_read(
-            p_name TEXT, p_token TEXT, p_duration DOUBLE PRECISION
+        CREATE OR REPLACE FUNCTION {table_name}_acquire_read_v2(
+            p_name TEXT, p_token TEXT, p_duration_us BIGINT
         ) RETURNS BIGINT AS $$
         DECLARE
             v_now TIMESTAMPTZ := NOW();
@@ -288,7 +359,7 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
             PERFORM pg_advisory_xact_lock(
                 hashtextextended(p_name, {lock_namespace})
             );
-            v_expire_at := v_now + make_interval(secs => p_duration);
+            v_expire_at := v_now + p_duration_us * INTERVAL '1 microsecond';
             DELETE FROM {table_name}_holders
                 WHERE name = p_name AND expire_at < v_now;
             INSERT INTO {table_name} (name) VALUES (p_name)
@@ -322,8 +393,8 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
     """
 
     _SQL_CREATE_FN_ACQUIRE_WRITE = """
-        CREATE OR REPLACE FUNCTION {table_name}_acquire_write(
-            p_name TEXT, p_token TEXT, p_duration DOUBLE PRECISION,
+        CREATE OR REPLACE FUNCTION {table_name}_acquire_write_v2(
+            p_name TEXT, p_token TEXT, p_duration_us BIGINT,
             p_intent BOOLEAN
         ) RETURNS TABLE(r_fence BIGINT, r_poisoned BOOLEAN) AS $$
         DECLARE
@@ -337,7 +408,7 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
             PERFORM pg_advisory_xact_lock(
                 hashtextextended(p_name, {lock_namespace})
             );
-            v_expire_at := v_now + make_interval(secs => p_duration);
+            v_expire_at := v_now + p_duration_us * INTERVAL '1 microsecond';
             DELETE FROM {table_name}_holders
                 WHERE name = p_name AND expire_at < v_now;
             INSERT INTO {table_name} (name) VALUES (p_name)
@@ -391,8 +462,8 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
     """
 
     _SQL_CREATE_FN_DOWNGRADE = """
-        CREATE OR REPLACE FUNCTION {table_name}_downgrade(
-            p_name TEXT, p_token TEXT, p_duration DOUBLE PRECISION
+        CREATE OR REPLACE FUNCTION {table_name}_downgrade_v2(
+            p_name TEXT, p_token TEXT, p_duration_us BIGINT
         ) RETURNS BIGINT AS $$
         DECLARE
             v_now TIMESTAMPTZ := NOW();
@@ -413,7 +484,7 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
             INSERT INTO {table_name}_holders (name, token, kind, expire_at)
                 VALUES (
                     p_name, p_token, 'r',
-                    v_now + make_interval(secs => p_duration)
+                    v_now + p_duration_us * INTERVAL '1 microsecond'
                 )
                 ON CONFLICT (name, token, kind)
                 DO UPDATE SET expire_at = EXCLUDED.expire_at;
@@ -422,11 +493,13 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
         $$ LANGUAGE plpgsql;
     """
 
-    _SQL_ACQUIRE_READ = "SELECT {table_name}_acquire_read($1, $2, $3);"
-    _SQL_ACQUIRE_WRITE = (
-        "SELECT * FROM {table_name}_acquire_write($1, $2, $3, $4);"
+    _SQL_ACQUIRE_READ = (
+        "SELECT {table_name}_acquire_read_v2($1, $2, $3::bigint);"
     )
-    _SQL_DOWNGRADE = "SELECT {table_name}_downgrade($1, $2, $3);"
+    _SQL_ACQUIRE_WRITE = (
+        "SELECT * FROM {table_name}_acquire_write_v2($1, $2, $3::bigint, $4);"
+    )
+    _SQL_DOWNGRADE = "SELECT {table_name}_downgrade_v2($1, $2, $3::bigint);"
 
     _SQL_RELEASE_READ = """
         DELETE FROM {table_name}_holders
@@ -597,20 +670,24 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
     async def acquire_read(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire a read lease, returning the generation or `None`."""
         generation = await self._provider.client.fetchval(
-            self._sql["acquire_read"], name, token, duration
+            self._sql["acquire_read"], name, token, microseconds(duration)
         )
         return int(generation) if generation is not None else None
 
     async def acquire_write(
-        self, *, name: str, token: str, duration: float, intent: bool = True
+        self, *, name: str, token: str, duration: timedelta, intent: bool = True
     ) -> WriteGrant | None:
         """Acquire the write lease, returning the grant or `None`."""
         row = await self._provider.client.fetchrow(
-            self._sql["acquire_write"], name, token, duration, intent
+            self._sql["acquire_write"],
+            name,
+            token,
+            microseconds(duration),
+            intent,
         )
         if row is None:
             return None
@@ -644,11 +721,11 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
         )
 
     async def downgrade(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Turn a held write lease into a read lease."""
         generation = await self._provider.client.fetchval(
-            self._sql["downgrade"], name, token, duration
+            self._sql["downgrade"], name, token, microseconds(duration)
         )
         return int(generation) if generation is not None else None
 
@@ -881,14 +958,14 @@ class PostgresLeaderElectionAdapter:
     """
 
     _SQL_CREATE_FN_ACQUIRE_OR_RENEW = """
-        CREATE OR REPLACE FUNCTION {table_name}_le_acquire_or_renew(
+        CREATE OR REPLACE FUNCTION {table_name}_le_acquire_or_renew_v2(
             p_name TEXT,
             p_token TEXT,
-            p_duration DOUBLE PRECISION,
+            p_duration_us BIGINT,
             p_metadata JSONB
         ) RETURNS TABLE(
             r_holder TEXT,
-            r_lease_duration DOUBLE PRECISION,
+            r_lease_duration INTERVAL,
             r_acquired_at TIMESTAMPTZ,
             r_renewed_at TIMESTAMPTZ,
             r_transitions INT,
@@ -903,6 +980,8 @@ class PostgresLeaderElectionAdapter:
             v_transitions INT;
             v_expired BOOLEAN;
             v_new_transitions INT;
+            v_duration INTERVAL := p_duration_us * INTERVAL '1 microsecond';
+            v_seconds DOUBLE PRECISION := p_duration_us / 1000000.0;
         BEGIN
             PERFORM pg_advisory_xact_lock(
                 hashtextextended(p_name, {lock_namespace})
@@ -919,7 +998,8 @@ class PostgresLeaderElectionAdapter:
 
             IF NOT v_expired AND v_holder <> p_token THEN
                 RETURN QUERY SELECT
-                    v_holder, v_lease_duration, v_acquired_at,
+                    v_holder, make_interval(secs => v_lease_duration),
+                    v_acquired_at,
                     v_renewed_at, v_transitions,
                     (SELECT t.metadata FROM {table_name} t
                         WHERE t.name = p_name);
@@ -929,11 +1009,11 @@ class PostgresLeaderElectionAdapter:
             IF NOT v_expired THEN
                 UPDATE {table_name}
                     SET renewed_at = v_now,
-                        lease_duration = p_duration,
+                        lease_duration = v_seconds,
                         metadata = p_metadata
                     WHERE name = p_name;
                 RETURN QUERY SELECT
-                    p_token, p_duration, v_acquired_at, v_now,
+                    p_token, v_duration, v_acquired_at, v_now,
                     v_transitions, p_metadata;
                 RETURN;
             END IF;
@@ -949,7 +1029,7 @@ class PostgresLeaderElectionAdapter:
                 renewed_at, transitions, metadata
             )
             VALUES (
-                p_name, p_token, p_duration, v_now,
+                p_name, p_token, v_seconds, v_now,
                 v_now, v_new_transitions, p_metadata
             )
             ON CONFLICT (name) DO UPDATE
@@ -960,7 +1040,7 @@ class PostgresLeaderElectionAdapter:
                     transitions = EXCLUDED.transitions,
                     metadata = EXCLUDED.metadata;
             RETURN QUERY SELECT
-                p_token, p_duration, v_now, v_now,
+                p_token, v_duration, v_now, v_now,
                 v_new_transitions, p_metadata;
         END;
         $$ LANGUAGE plpgsql;
@@ -974,15 +1054,16 @@ class PostgresLeaderElectionAdapter:
     """
 
     _SQL_GET = """
-        SELECT holder, lease_duration, acquired_at, renewed_at,
-               transitions, metadata
+        SELECT holder, make_interval(secs => lease_duration) AS lease_duration,
+               acquired_at, renewed_at, transitions, metadata
         FROM {table_name}
         WHERE name = $1
             AND NOW() < renewed_at + make_interval(secs => lease_duration);
     """
 
     _SQL_ACQUIRE_OR_RENEW = (
-        "SELECT * FROM {table_name}_le_acquire_or_renew($1, $2, $3, $4::jsonb);"
+        "SELECT * FROM {table_name}_le_acquire_or_renew_v2"
+        "($1, $2, $3::bigint, $4::jsonb);"
     )
 
     def __init__(
@@ -1106,13 +1187,17 @@ class PostgresLeaderElectionAdapter:
         *,
         name: str,
         token: str,
-        duration: float,
+        duration: timedelta,
         metadata: Mapping[str, str] | None = None,
     ) -> LeaderRecord:
         """Acquire or renew the lease, returning the resulting record."""
         payload = json.dumps(dict(metadata or {}))
         row = await self._provider.client.fetchrow(
-            self._acquire_or_renew_sql, name, token, duration, payload
+            self._acquire_or_renew_sql,
+            name,
+            token,
+            microseconds(duration),
+            payload,
         )
         return self._unpack(row)
 
@@ -1129,7 +1214,7 @@ class PostgresLeaderElectionAdapter:
             return None
         return LeaderRecord(
             holder=row["holder"],
-            lease_duration=float(row["lease_duration"]),
+            lease_duration=row["lease_duration"],
             acquired_at=row["acquired_at"],
             renewed_at=row["renewed_at"],
             transitions=int(row["transitions"]),
@@ -1141,7 +1226,7 @@ class PostgresLeaderElectionAdapter:
         """Build a `LeaderRecord` from a function result row."""
         return LeaderRecord(
             holder=row["r_holder"],
-            lease_duration=float(row["r_lease_duration"]),
+            lease_duration=row["r_lease_duration"],
             acquired_at=row["r_acquired_at"],
             renewed_at=row["r_renewed_at"],
             transitions=int(row["r_transitions"]),

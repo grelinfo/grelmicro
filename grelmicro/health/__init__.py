@@ -2,6 +2,7 @@
 
 from grelmicro.health._checks import HealthChecks, HealthChecksConfig
 from grelmicro.health._endpoints import health_asgi
+from grelmicro.health._liveness import Liveness
 from grelmicro.health._models import (
     CheckResult,
     HealthReport,
@@ -19,5 +20,6 @@ __all__ = [
     "HealthError",
     "HealthReport",
     "HealthStatus",
+    "Liveness",
     "health_asgi",
 ]

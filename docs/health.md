@@ -117,7 +117,7 @@ Timeout detection uses `asyncio.timeout`. The wrapper distinguishes the configur
 
 ### Caching
 
-`HealthChecks` caches each check's result for `cache_ttl` seconds (default `1.0`) and coalesces concurrent calls via single-flight per check. A given check runs at most once per TTL regardless of how many endpoints or concurrent requests are in flight. This prevents probe traffic from amplifying onto your database.
+`HealthChecks` caches each check's result for `cache_ttl` (default 1 second, in whole seconds or as a `timedelta`) and coalesces concurrent calls via single-flight per check. A given check runs at most once per TTL regardless of how many endpoints or concurrent requests are in flight. This prevents probe traffic from amplifying onto your database.
 
 ```python
 --8<-- "health/caching.py"
@@ -163,15 +163,17 @@ This creates three endpoints:
 
 | Endpoint | Purpose | Success | Failure | Body |
 |---|---|---|---|---|
-| `GET /livez` | Liveness probe. Never runs checks. | `200` | no response (timeout) | empty |
+| `GET /livez` | Liveness probe. Runs no check per request, and reflects the [liveness checks](#catch-a-stuck-worker) when set. | `200` | `503`, or no response (timeout) | empty |
 | `GET /readyz` | Readiness probe. Runs critical checks only. | `200` | `503` | empty |
 | `GET /healthz` | Aggregate JSON report for humans and dashboards. Runs all checks. | `200` | `503` | JSON `{status, checks}` |
 
-`/livez` runs no check on purpose. Kubernetes restarts the container whose liveness probe fails, so a check on a database there would restart every replica when the database goes down. `/livez` is served on the same event loop as your app, so a loop blocked by a long synchronous call stops answering it, and the probe times out and restarts the container. That holds per process: with several workers per pod, an idle worker answers the probe for a blocked one. A deadlock among coroutines, or among worker threads, that leaves the loop free does not stop `/livez`, so the probe does not catch it.
+`/livez` never checks a dependency. Kubernetes restarts the container whose liveness probe fails, so a check on a database there would restart every replica when the database goes down. [Catch a stuck worker](#catch-a-stuck-worker) shows what `/livez` catches and how to catch the rest.
 
 All three also accept `HEAD`. All responses set `Cache-Control: no-store`. Probe endpoints return an empty body. The HTTP status code is the entire signal.
 
 Paths follow the z-pages convention (`/livez`, `/readyz`, `/healthz`). The trailing `z` avoids collisions with application routes like `/health`.
+
+`micro.install(app)` does not mount these routes for you, so include the router yourself. A registered `HealthChecks` that nothing serves is reported at startup with the [`health-not-served`](diagnostics.md#health-not-served) warning.
 
 ### OpenAPI Schema
 
@@ -299,6 +301,24 @@ Mount the health endpoints under a custom prefix:
 ```python
 --8<-- "health/fastapi_prefix.py"
 ```
+
+## Catch a stuck worker
+
+A worker is stuck when its event loop is blocked by a long synchronous call, or when coroutines or threads deadlock while the loop still runs. With one worker per container, a blocked loop stops answering `/livez`, so the probe times out and the container restarts. A deadlock that leaves the loop free still answers `200`, and with several workers per container an idle worker answers the probe for a stuck one.
+
+Set `Liveness` to catch both, in every setup:
+
+```python
+--8<-- "health/liveness.py"
+```
+
+- **The loop watchdog.** With `stall_timeout`, a thread checks that the loop still runs callbacks, four times per `stall_timeout` and at most once a second. Past `stall_timeout`, it logs where the loop thread is stuck and exits the process. It pauses while the app opens or closes.
+- **Liveness checks.** A check with `liveness=True` runs every `interval` seconds (10 by default), never on `/readyz` or `/healthz`. `/livez` answers `503` from the first failed round. After `failure_threshold` failed rounds in a row, the worker stops itself with `SIGTERM`. A check with `critical=False` is logged when it fails, like a readiness check, and never counts as a failed round.
+
+Either way the worker exits, and whatever runs it starts another: Kubernetes restarts the container, Gunicorn replaces the worker, and so does the `uvicorn --workers` supervisor.
+
+!!! warning "Look inside the process only"
+    A liveness check that reads a database or another service restarts every replica when that service goes down. Check what only this worker knows, such as whether its consumer made progress.
 
 ## Without a Web Framework
 

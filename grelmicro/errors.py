@@ -103,6 +103,17 @@ class SentinelPasswordWarning(GrelmicroConfigWarning):
     code: ClassVar[str] = "sentinel-password"
 
 
+class HealthNotServedWarning(GrelmicroConfigWarning):
+    """A `HealthChecks` is registered but nothing serves its endpoints.
+
+    `micro.install(app)` mounts no health route, so a probe to `/livez` or
+    `/readyz` gets `404` until `health_router()`, `health_asgi()` or
+    `OpsServer` serves them.
+    """
+
+    code: ClassVar[str] = "health-not-served"
+
+
 class LeaderNotRunningWarning(GrelmicroConfigWarning):
     """A task is gated on a leader election that does not run.
 

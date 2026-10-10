@@ -18,14 +18,15 @@ from collections.abc import (
     Coroutine,
     Sequence,
 )
+from datetime import timedelta
 from typing import (
     Annotated,
     Any,
-    Literal,
     NamedTuple,
     ParamSpec,
     Protocol,
     TypeVar,
+    cast,
     overload,
 )
 
@@ -37,12 +38,14 @@ from grelmicro._async import (
     raise_backend_not_open,
     raise_event_loop_deadlock,
 )
+from grelmicro._duration import check_duration
+from grelmicro._key_checks import KeyFunction, check_key_choice
 from grelmicro._wrapping import refuse_registered
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache._stampede import (
     AsyncStampedeGuard,
-    _has_lock_backend,
-    _stampede_lock_name,
+    Fold,
+    check_fold,
     compute_with_stampede,
     stream_with_stampede,
 )
@@ -54,10 +57,10 @@ from grelmicro.cache.ttl import (
     CacheInfo,
     TTLCache,
 )
-from grelmicro.coordination.lock import Lock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
 from grelmicro.metrics._naming import callable_name
+from grelmicro.types import BackendScope
 
 # Decorator factories cannot use PEP 695 cleanly: the inner
 # ``decorator`` would inherit ``cached``'s type parameters instead
@@ -95,7 +98,8 @@ class CachedFunction(Protocol[P, R]):
         Each caller recomputes, so a refresh never returns a value
         computed before the call started. Under the default `lock`,
         refreshes for one key also serialize, within the process and,
-        with `lock=True` and a lock backend, across replicas. An error
+        with `lock="host"` or `lock="cluster"`, through the app's lock
+        backend. An error
         propagates, even under `stale_ttl`, because a caller asking for
         fresh data is not served the value it asked to bypass.
 
@@ -295,7 +299,9 @@ class _PrivateMemoryCacheAdapter(MemoryCacheAdapter):
         return await super().get(key=key)
 
 
-def _check_cache_choice(cache: TTLCache | None, ttl: float | None) -> None:
+def _check_cache_choice(
+    cache: TTLCache | None, ttl: int | timedelta | None
+) -> None:
     """Refuse both a cache and a `ttl=`, or neither.
 
     Raises:
@@ -318,7 +324,7 @@ def _check_cache_choice(cache: TTLCache | None, ttl: float | None) -> None:
 
 
 def _private_cache(
-    func: Callable[..., Any], ttl: float, maxsize: int
+    func: Callable[..., Any], ttl: timedelta, maxsize: int
 ) -> TTLCache:
     """Build the process-local cache `ttl=` asks for.
 
@@ -369,10 +375,11 @@ def cached(  # noqa: PLR0913, C901
     ] = None,
     *,
     ttl: Annotated[
-        float | None,
+        int | timedelta | None,
         Doc(
             """
-            TTL in seconds for the private process-local cache.
+            TTL for the private process-local cache, in whole seconds or
+            as a `timedelta`. A float is refused.
 
             Only valid when `cache` is omitted. It builds a private
             `TTLCache(maxsize=maxsize, ttl=ttl)` on a
@@ -394,29 +401,31 @@ def cached(  # noqa: PLR0913, C901
         ),
     ] = 0,
     key: Annotated[
+        KeyFunction | None,
+        Doc(
+            """
+            Derive the cache key from the call. Receives
+            ``(func, args, kwargs)`` and returns the key string. Use it
+            for the fully dynamic case. For a key rendered from the
+            arguments, pass `key_template=` instead. A string raises
+            `TypeError`, and so does passing both `key` and
+            `key_template`. A `key` function fully determines the key,
+            so `typed` does not apply.
+            """,
+        ),
+    ] = None,
+    key_template: Annotated[
         str | None,
         Doc(
             """
             Cache key template rendered from the call's arguments, so
-            ``key="user:{user_id}"`` keys the entry under ``user:42`` for
-            a call with ``user_id=42``. A literal template with no
-            placeholders keys every call under the same string. Use it
-            instead of the default argument-repr key when you want a
-            stable, readable key. A `key` template fully determines the
-            key, so `typed` does not apply. Passing both `key` and
-            `key_maker` raises `TypeError`.
-            """,
-        ),
-    ] = None,
-    key_maker: Annotated[
-        Callable[[Callable[..., Any], tuple[Any, ...], dict[str, Any]], str]
-        | None,
-        Doc(
-            """
-            Optional custom key generation function. Receives
-            ``(func, args, kwargs)`` and must return a string key. Use it
-            for the fully dynamic case. For a simple template, pass `key=`
-            instead. Passing both `key` and `key_maker` raises `TypeError`.
+            ``key_template="user:{user_id}"`` keys the entry under
+            ``user:42`` for a call with ``user_id=42``. A literal template
+            with no placeholders keys every call under the same string.
+            Use it instead of the default argument-repr key when you want
+            a stable, readable key. A template fully determines the key,
+            so `typed` does not apply. Passing both `key` and
+            `key_template` raises `TypeError`.
             """,
         ),
     ] = None,
@@ -439,25 +448,25 @@ def cached(  # noqa: PLR0913, C901
         ),
     ] = False,
     lock: Annotated[
-        bool | Literal["local"],
+        BackendScope | None,
         Doc(
             """
-            Protect against duplicate work when many callers miss the
-            same key at once (the "dog-pile" effect).
+            How far concurrent misses on one key share a single call of
+            the function.
 
-            - ``"local"`` (default): fold concurrent misses within the
-              worker through an in-process lock, with no backend round-trip
-              on a cold miss. Per-replica recompute is still possible.
-            - ``True``: fold concurrent misses to one execution. When the
-              active `Grelmicro` app has a lock backend, misses fold
-              across replicas through it. Otherwise an in-process lock
-              folds them within the worker. An in-process lock is always
-              applied first, so the backend is hit once per cold miss.
-            - ``False``: no protection. Every concurrent miss runs the
+            - ``"process"`` (default): misses fold in the process, with no
+              lock backend call. Each replica still calls the function once.
+            - ``"host"`` or ``"cluster"``: misses fold in the process, then
+              through the lock backend of the app's `Coordination`, so one
+              call serves every process the backend reaches. The backend
+              has to reach that far, and its absence raises
+              `OutOfContextError`. A lock backend that fails is logged,
+              and the misses fold in the process only.
+            - ``None``: no folding. Every concurrent miss calls the
               function.
             """,
         ),
-    ] = "local",
+    ] = "process",
     early: Annotated[
         float | None,
         Doc(
@@ -475,15 +484,16 @@ def cached(  # noqa: PLR0913, C901
         ),
     ] = None,
     stale_ttl: Annotated[
-        float | None,
+        int | timedelta | None,
         Doc(
             """
-            Serve-stale-on-error budget in seconds. When set, each cached
-            result is also kept as a fallback copy for ``ttl + stale_ttl``
-            seconds. If a later recompute (on a miss) raises, the most
-            recent value is served instead of propagating the error, for
-            up to ``stale_ttl`` seconds past its TTL. A flaky upstream then
-            degrades to slightly stale data instead of an error storm.
+            Serve-stale-on-error budget, in whole seconds or as a
+            `timedelta`. A float is refused. When set, each cached result
+            is also kept as a fallback copy for ``ttl + stale_ttl``. If a
+            later recompute (on a miss) raises, the most recent value is
+            served instead of propagating the error, for up to
+            ``stale_ttl`` past its TTL. A flaky upstream then degrades to
+            slightly stale data instead of an error storm.
 
             Composes with ``lock`` and ``early``. Leave ``None`` to
             propagate errors as usual.
@@ -534,45 +544,53 @@ def cached(  # noqa: PLR0913, C901
 
     Raises:
         TypeError: If both ``cache`` and ``ttl`` are given, if neither is
-            given, if both ``key`` and ``key_maker`` are given, if the
-            decorated function is a sync generator, or if the ``ttl=``
-            form decorates a sync function.
-        SettingsValidationError: If ``lock`` is not ``True``, ``False``, or
-            ``"local"``, if ``early`` is outside ``[0, 1)``, or if
-            ``stale_ttl`` is not positive.
+            given, if ``key`` is a string, if both ``key`` and
+            ``key_template`` are given, if the decorated function is a
+            sync generator, or if the ``ttl=`` form decorates a sync
+            function.
+        SettingsValidationError: If ``lock`` is not a backend scope or
+            ``None``, if ``lock`` reaches past the process with ``ttl=``,
+            if ``early`` is outside ``[0, 1)``, or if ``ttl`` or
+            ``stale_ttl`` is a float, not positive, or over 100 years.
 
     Returns:
         A decorator that caches function results.
     """
-    if key is not None and key_maker is not None:
-        msg = (
-            "cached() takes either key= or key_maker=, not both. Pass a "
-            "key= template for a stable key rendered from the arguments, "
-            "or a key_maker callable for the fully dynamic case."
-        )
-        raise TypeError(msg)
+    check_key_choice(key, key_template)
     is_private_cache = cache is None
     _check_cache_choice(cache, ttl)
-    if lock not in (True, False, "local"):
-        msg = "lock= must be True, False, or 'local'"
+    scope = check_fold(lock)
+    if is_private_cache and scope in {"host", "cluster"}:
+        msg = (
+            f"@cached(ttl=..., lock={scope!r}) keeps its entries in one "
+            "process, so folding misses across processes buys nothing. "
+            "Pass a TTLCache the app shares to fold across processes, or "
+            "leave lock='process'."
+        )
         raise SettingsValidationError(msg)
     if early is not None and not 0 <= early < 1:
         msg = "early= must be a float in [0, 1)"
         raise SettingsValidationError(msg)
-    if stale_ttl is not None and stale_ttl <= 0:
-        msg = "stale_ttl= must be positive"
-        raise SettingsValidationError(msg)
+    try:
+        private_ttl = check_duration(ttl, "ttl") if ttl is not None else None
+        stale_duration = (
+            check_duration(stale_ttl, "stale_ttl")
+            if stale_ttl is not None
+            else None
+        )
+    except ValueError as error:
+        raise SettingsValidationError(str(error)) from None
 
     def decorator(
         func: Callable[P, R],
     ) -> Any:  # noqa: ANN401
         refuse_registered(func, "@cached")
         resolved_cache = (
-            # `ttl` is set whenever no cache was passed, which
-            # `_check_cache_choice` has already refused otherwise.
-            _private_cache(func, ttl or 0.0, maxsize)
-            if cache is None
-            else cache
+            # `ttl` is set exactly when no cache was passed, which
+            # `_check_cache_choice` has already enforced.
+            _private_cache(func, private_ttl, maxsize)
+            if private_ttl is not None
+            else cast("TTLCache", cache)
         )
         if inspect.isgeneratorfunction(func):
             name = getattr(func, "__qualname__", repr(func))
@@ -583,16 +601,16 @@ def cached(  # noqa: PLR0913, C901
                 f"from the cache, or return a list to cache it whole."
             )
             raise TypeError(msg)
-        if key is None and key_maker is None and _takes_self(func):
+        if key is None and key_template is None and _takes_self(func):
             name = getattr(func, "__qualname__", repr(func))
             msg = (
-                f"@cached on {name} needs an explicit key= or key_maker=, "
+                f"@cached on {name} needs an explicit key= or key_template=, "
                 f"because the default key is built from repr() of every "
                 f"argument, and here that includes self. Two instances "
                 f"whose repr matches then share one entry, and a default "
                 f"repr carries a memory address, so the key changes on "
                 f"every restart. Name what identifies the entry, for "
-                f"example key='user:{{user_id}}'."
+                f"example key_template='user:{{user_id}}'."
             )
             raise TypeError(msg)
         is_async_gen_func = inspect.isasyncgenfunction(func)
@@ -605,65 +623,61 @@ def cached(  # noqa: PLR0913, C901
                 "functools.lru_cache for pure sync memoization."
             )
             raise TypeError(msg)
-        per_key = lock is not False
-        auto_distributed = lock is True
+        fold = None if scope is None else Fold(callable_name(func), scope)
         tag_spec = _TagSpec(tags, inspect.signature(func) if tags else None)
-        resolved_key_maker = key_maker
-        if key is not None and "{" in key:
-            key_spec = _TagSpec((key,), inspect.signature(func))
+        resolved_key_function = key
+        if key_template is not None and "{" in key_template:
+            key_spec = _TagSpec((key_template,), inspect.signature(func))
 
-            def resolved_key_maker(
+            def resolved_key_function(
                 _func: Callable[..., Any],
                 args: tuple[Any, ...],
                 kwargs: dict[str, Any],
             ) -> str:
                 return key_spec.render(args, kwargs)[0]
-        elif key is not None:
+        elif key_template is not None:
 
-            def resolved_key_maker(
+            def resolved_key_function(
                 _func: Callable[..., Any],
                 _args: tuple[Any, ...],
                 _kwargs: dict[str, Any],
             ) -> str:
-                return key
+                return key_template
 
         if is_async_gen_func:
             wrapper = _build_async_gen_wrapper(
                 func,
                 resolved_cache,
-                resolved_key_maker,
+                resolved_key_function,
                 skip,
                 typed=typed,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
                 early=early,
-                stale_ttl=stale_ttl,
+                stale_ttl=stale_duration,
                 tag_spec=tag_spec,
             )
         elif is_async_func:
             wrapper = _build_async_wrapper(
                 func,
                 resolved_cache,
-                resolved_key_maker,
+                resolved_key_function,
                 skip,
                 typed=typed,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
                 early=early,
-                stale_ttl=stale_ttl,
+                stale_ttl=stale_duration,
                 tag_spec=tag_spec,
             )
         else:
             wrapper = _build_sync_wrapper(
                 func,
                 resolved_cache,
-                resolved_key_maker,
+                resolved_key_function,
                 skip,
                 typed=typed,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
                 early=early,
-                stale_ttl=stale_ttl,
+                stale_ttl=stale_duration,
                 tag_spec=tag_spec,
             )
         wrapper.cache_info = resolved_cache.cache_info
@@ -776,17 +790,16 @@ def _serve_stale_sync(cache: TTLCache, key: str, loop: Any) -> tuple[bool, Any]:
 # --- Async function ---
 
 
-def _build_async_wrapper(  # noqa: C901, PLR0913
+def _build_async_wrapper(  # noqa: C901
     func: Any,  # noqa: ANN401
     cache: TTLCache,
-    key_maker: Any,  # noqa: ANN401
+    key_function: Any,  # noqa: ANN401
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    per_key: bool,
-    auto_distributed: bool,
+    fold: Fold | None,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
     guard: AsyncStampedeGuard | None = None,
 ) -> Any:  # noqa: ANN401
@@ -806,7 +819,7 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
 
     @functools.wraps(func)
     async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
         result = await cache.get(key, _SENTINEL)
         if result is not _SENTINEL:
             if early is not None:
@@ -844,8 +857,7 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
                 key,
                 compute,
                 guard,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
             )
 
         try:
@@ -854,8 +866,7 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
                 key,
                 compute,
                 guard,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
             )
         except Exception:  # serve stale on any recompute failure
             found, value = await _serve_stale_async(cache, key)
@@ -864,7 +875,7 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
             raise
 
     async def async_refresh(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
 
         async def recompute() -> Any:  # noqa: ANN401
             return await _compute_and_cache(
@@ -879,16 +890,13 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
                 tag_spec=tag_spec,
             )
 
-        if not per_key:
+        if fold is None:
             return await recompute()
         # Serialized, never folded: each caller runs the function itself,
         # so a refresh never returns a value computed before it started.
         # The locks nest in the same order as a miss, so the two never
         # deadlock against each other.
-        async with await guard.get_lock(key):
-            if auto_distributed and _has_lock_backend():
-                async with Lock(_stampede_lock_name(key)):
-                    return await recompute()
+        async with await guard.get_lock(key), fold.across(key):
             return await recompute()
 
     wrapper: Any = async_wrapper
@@ -904,14 +912,16 @@ async def _maybe_refresh_async(  # noqa: PLR0913, PLR0917
     key: str,
     skip: Callable[[Any], bool] | None,
     early: float,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     guard: AsyncStampedeGuard,
     tag_spec: _TagSpec,
     refresh_tasks: set[asyncio.Task[None]],
 ) -> None:
     """Schedule a background recompute when an entry is due for refresh."""
     meta = await _read_meta(cache, key)
-    if not _due_for_early_refresh(meta, cache.config.ttl, early):
+    if not _due_for_early_refresh(
+        meta, cache.config.ttl.total_seconds(), early
+    ):
         return
     the_lock = await guard.get_lock(key)
     if the_lock.locked():
@@ -983,7 +993,7 @@ async def _compute_and_cache(
     skip: Callable[[Any], bool] | None,
     *,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Execute async function and store result in cache."""
@@ -1008,14 +1018,13 @@ async def _compute_and_cache(
 def _build_async_gen_wrapper(
     func: Any,  # noqa: ANN401
     cache: TTLCache,
-    key_maker: Any,  # noqa: ANN401
+    key_function: Any,  # noqa: ANN401
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    per_key: bool,
-    auto_distributed: bool,
+    fold: Fold | None,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Build the wrapper for an async generator producer."""
@@ -1032,11 +1041,10 @@ def _build_async_gen_wrapper(
     buffered = _build_async_wrapper(
         collector,
         cache,
-        key_maker,
+        key_function,
         skip,
         typed=typed,
-        per_key=per_key,
-        auto_distributed=auto_distributed,
+        fold=fold,
         early=early,
         stale_ttl=stale_ttl,
         tag_spec=tag_spec,
@@ -1045,7 +1053,7 @@ def _build_async_gen_wrapper(
 
     @functools.wraps(func)
     async def stream_wrapper(*args: Any, **kwargs: Any) -> AsyncIterator[Any]:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
         result: Any = await cache.get(key, _SENTINEL)
         if result is not _SENTINEL:
             if early is not None:
@@ -1084,8 +1092,7 @@ def _build_async_gen_wrapper(
             key,
             produce,
             guard,
-            per_key=per_key,
-            auto_distributed=auto_distributed,
+            fold=fold,
         )
         if stale_ttl is not None:
             stream = _stream_stale_on_error(stream, cache, key)
@@ -1134,7 +1141,7 @@ async def _stream_and_store(
     skip: Callable[[Any], bool] | None,
     *,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> AsyncIterator[Any]:
     """Stream a producer live, storing the assembled list at the end.
@@ -1166,14 +1173,13 @@ async def _stream_and_store(
 def _build_sync_wrapper(  # noqa: C901
     func: Any,  # noqa: ANN401
     cache: TTLCache,
-    key_maker: Any,  # noqa: ANN401
+    key_function: Any,  # noqa: ANN401
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    per_key: bool,
-    auto_distributed: bool,
+    fold: Fold | None,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Build sync wrapper for cached decorator.
@@ -1210,7 +1216,7 @@ def _build_sync_wrapper(  # noqa: C901
             return the_lock
 
     def sync_refresh(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
         loop = backend_loop()
 
         def recompute() -> Any:  # noqa: ANN401
@@ -1227,10 +1233,10 @@ def _build_sync_wrapper(  # noqa: C901
                 tag_spec=tag_spec,
             )
 
-        if not per_key:
+        if fold is None:
             return recompute()
         with get_key_lock(key):
-            if auto_distributed and _has_lock_backend():
+            if fold.crosses:
                 return _run(
                     _distributed_orchestrate(
                         func,
@@ -1243,6 +1249,7 @@ def _build_sync_wrapper(  # noqa: C901
                         early=early,
                         stale_ttl=stale_ttl,
                         tag_spec=tag_spec,
+                        fold=fold,
                         peek=False,
                     ),
                     loop,
@@ -1251,7 +1258,7 @@ def _build_sync_wrapper(  # noqa: C901
 
     @functools.wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
         loop = backend_loop()
         result = _run(cache.get(key, _SENTINEL), loop)
         if result is not _SENTINEL:
@@ -1272,7 +1279,7 @@ def _build_sync_wrapper(  # noqa: C901
             return result
 
         def miss() -> Any:  # noqa: ANN401
-            if not per_key:
+            if fold is None:
                 return _compute_and_cache_sync(
                     func,
                     args,
@@ -1291,7 +1298,7 @@ def _build_sync_wrapper(  # noqa: C901
                 peeked = _run(cache._peek(key, _SENTINEL), loop)  # noqa: SLF001
                 if peeked is not _SENTINEL:
                     return peeked
-                if auto_distributed and _has_lock_backend():
+                if fold.crosses:
                     return _run(
                         _distributed_orchestrate(
                             func,
@@ -1304,6 +1311,7 @@ def _build_sync_wrapper(  # noqa: C901
                             early=early,
                             stale_ttl=stale_ttl,
                             tag_spec=tag_spec,
+                            fold=fold,
                         ),
                         loop,
                     )
@@ -1350,19 +1358,20 @@ async def _distributed_orchestrate(  # noqa: PLR0913
     loop: Any,  # noqa: ANN401
     *,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
+    fold: Fold,
     peek: bool = True,
 ) -> Any:  # noqa: ANN401
-    """Hold the cross-replica lock and recompute, all in one loop task.
+    """Hold the cross-process fold and recompute, all in one loop task.
 
     The blocking function runs in an executor so it does not stall the
     loop, while the `Lock` acquire and release stay on the same task so
     ownership holds. A refresh passes `peek=False`, so it recomputes
     instead of returning an entry another caller just stored.
     """
-    async with Lock(_stampede_lock_name(key)):
-        if peek:
+    async with fold.across(key) as crossed:
+        if peek and crossed:
             result = await cache._peek(key, _SENTINEL)  # noqa: SLF001
             if result is not _SENTINEL:
                 return result
@@ -1389,14 +1398,16 @@ def _maybe_refresh_sync(  # noqa: PLR0913, PLR0917
     key: str,
     skip: Callable[[Any], bool] | None,
     early: float,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     loop: Any,  # noqa: ANN401
     get_key_lock: Callable[[str], threading.Lock],
     tag_spec: _TagSpec,
 ) -> None:
     """Schedule a background recompute for a sync entry due for refresh."""
     meta = _run(_read_meta(cache, key), loop)
-    if not _due_for_early_refresh(meta, cache.config.ttl, early):
+    if not _due_for_early_refresh(
+        meta, cache.config.ttl.total_seconds(), early
+    ):
         return
     the_lock = get_key_lock(key)
     if not the_lock.acquire(blocking=False):
@@ -1450,7 +1461,7 @@ def _compute_and_cache_sync(
     loop: Any,  # noqa: ANN401
     *,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Execute sync function and store result in async cache."""
@@ -1475,17 +1486,14 @@ def _compute_and_cache_sync(
 # --- Shared helpers ---
 
 
-def _make_key(
+def _derive_key(
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-    key_maker: Callable[
-        [Callable[..., Any], tuple[Any, ...], dict[str, Any]], str
-    ]
-    | None,
+    key_function: KeyFunction | None,
     *,
     typed: bool,
 ) -> str:
-    if key_maker is not None:
-        return key_maker(func, args, kwargs)
+    if key_function is not None:
+        return key_function(func, args, kwargs)
     return make_cache_key(func, args, kwargs, typed=typed)

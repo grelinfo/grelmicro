@@ -14,10 +14,11 @@ import asyncio
 import json
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import timedelta
 from enum import StrEnum
 from logging import getLogger
 from math import floor
-from time import monotonic, time
+from time import monotonic, monotonic_ns, time, time_ns
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -37,6 +38,7 @@ from pydantic import (
     BeforeValidator,
     Field,
     SecretBytes,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -49,6 +51,15 @@ from grelmicro._config import (
     parse_csv_or_json,
     resolve_config,
 )
+from grelmicro._duration import (
+    NANOSECONDS_PER_SECOND,
+    Duration,
+    Retention,
+    check_positive_wait,
+    nanoseconds,
+    nanoseconds_from_seconds,
+)
+from grelmicro._unset import UNSET, Unset
 from grelmicro.errors import (
     DependencyNotFoundError,
     GrelmicroError,
@@ -516,14 +527,16 @@ class JWTPolicy(BaseModel, frozen=True):
         ),
     ] = "sha256"
     cache_ttl: Annotated[
-        float,
+        Retention,
         Doc(
-            "Seconds a verified token stays cached. An entry also never"
+            "How long a verified token stays cached, in whole seconds or as"
+            " a `timedelta`. A float is refused. Zero turns the cache off."
+            " An entry also never"
             " outlives the token's own `exp`, so this is the bound that"
             " matters for a long-lived token: it caps how long a token"
             " withdrawn upstream keeps being accepted from memory."
         ),
-    ] = 300.0
+    ] = timedelta(minutes=5)
 
     @field_validator("audience")
     @classmethod
@@ -555,7 +568,7 @@ class JWTPolicy(BaseModel, frozen=True):
             raise ValueError(msg)
         return value
 
-    @field_validator("leeway", "cache_size", "cache_ttl")
+    @field_validator("leeway", "cache_size")
     @classmethod
     def _check_not_negative(cls, value: Any) -> Any:  # noqa: ANN401
         """Refuse a negative count of seconds or entries."""
@@ -657,9 +670,12 @@ class _KeyPublishing(BaseModel, frozen=True):
     """How keys published over HTTP are fetched, for every remote key source."""
 
     ttl: Annotated[
-        float,
-        Doc("Seconds a fetched document is treated as current."),
-    ] = 3600.0
+        Duration,
+        Doc(
+            "How long a fetched document is treated as current, in whole"
+            " seconds or as a `timedelta`. A float is refused."
+        ),
+    ] = timedelta(hours=1)
     retry_interval: Annotated[
         float,
         Doc(
@@ -688,14 +704,11 @@ class _KeyPublishing(BaseModel, frozen=True):
         Doc("Algorithm to pin for keys that publish none, as Entra ID does."),
     ] = None
 
-    @field_validator("ttl", "retry_interval", "timeout")
+    @field_validator("retry_interval", "timeout")
     @classmethod
-    def _check_positive(cls, value: Any) -> Any:  # noqa: ANN401
-        """Refuse a duration that is zero or below."""
-        if value <= 0:
-            msg = "value must be greater than zero"
-            raise ValueError(msg)
-        return value
+    def _check_positive(cls, value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
+        """Refuse a wait that is not a finite number, or is zero or below."""
+        return check_positive_wait(value, info.field_name or "value")
 
     @field_validator("max_bytes", "max_keys")
     @classmethod
@@ -981,7 +994,7 @@ class _KeySet:
     """
 
     verify: Callable[[str], dict[str, Any]]
-    cache: dict[str | bytes, tuple[float, JWTClaims]] = field(
+    cache: dict[str | bytes, tuple[int, JWTClaims]] = field(
         default_factory=dict
     )
     order: deque[str | bytes] = field(default_factory=deque)
@@ -1022,22 +1035,6 @@ how the key set is fetched. None of them decides whose tokens are trusted or
 how long a withdrawn token keeps being accepted.
 """
 
-
-class _Unset:
-    """Stands for an audience the caller did not pass.
-
-    `None` cannot: it is what `audience` means by "answer to no audience", so
-    a caller writing it has said something, and `resolve_config` reads a
-    `None` keyword as one nobody passed.
-    """
-
-    def __repr__(self) -> str:
-        """Return the name it is published under."""
-        return "UNSET"
-
-
-_UNSET: Final = _Unset()
-"""The one instance of `_Unset`, so a caller can be told apart from a default."""
 
 _NO_AUDIENCE: Final = "\x00no-audience"
 """Stands in for the audience while the environment is read.
@@ -1113,14 +1110,14 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             Doc("Keys this verifier accepts, selected by the token's `kid`."),
         ],
         audience: Annotated[
-            str | Sequence[str] | _Unset | None,
+            str | Sequence[str] | Unset | None,
             Doc(
                 "Accepted `aud` values. `None` answers to no audience, which"
                 " refuses any token that names one, and only code can say it."
                 " Left out, it is read from the environment, where it is"
                 " required."
             ),
-        ] = _UNSET,
+        ] = UNSET,
         issuer: Annotated[
             str | Sequence[str] | None,
             Doc("Accepted `iss` values. Left out, nothing checks the issuer."),
@@ -1150,8 +1147,12 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             Doc("What the cache keys on: a digest, or the encoded token."),
         ] = None,
         cache_ttl: Annotated[
-            float | None,
-            Doc("Seconds a verified token stays cached."),
+            int | timedelta | None,
+            Doc(
+                "How long a verified token stays cached, in whole seconds or"
+                " as a `timedelta`. A float is refused. Zero turns the cache"
+                " off."
+            ),
         ] = None,
         name: Annotated[
             str,
@@ -1193,7 +1194,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             cache_key=cache_key,
             cache_ttl=cache_ttl,
         )
-        instance = cls.from_config(config)
+        instance = cls.from_config(config, name=name)
         instance._track_reconfigure(env_prefix)  # noqa: SLF001
         return instance
 
@@ -1209,14 +1210,14 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         *,
         audience: Annotated[
-            str | Sequence[str] | _Unset | None,
+            str | Sequence[str] | Unset | None,
             Doc(
                 "Accepted `aud` values. `None` answers to no audience, which"
                 " refuses any token that names one, and only code can say it."
                 " Left out, it is read from the environment, where it is"
                 " required."
             ),
-        ] = _UNSET,
+        ] = UNSET,
         issuer: Annotated[
             str | Sequence[str] | None,
             Doc("Accepted `iss` values. Left out, nothing checks the issuer."),
@@ -1229,8 +1230,11 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             ),
         ] = None,
         ttl: Annotated[
-            float | None,
-            Doc("Seconds a fetched document is treated as current."),
+            int | timedelta | None,
+            Doc(
+                "How long a fetched document is treated as current, in whole"
+                " seconds or as a `timedelta`. A float is refused."
+            ),
         ] = None,
         retry_interval: Annotated[
             float | None,
@@ -1273,8 +1277,12 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             Doc("What the cache keys on: a digest, or the encoded token."),
         ] = None,
         cache_ttl: Annotated[
-            float | None,
-            Doc("Seconds a verified token stays cached."),
+            int | timedelta | None,
+            Doc(
+                "How long a verified token stays cached, in whole seconds or"
+                " as a `timedelta`. A float is refused. Zero turns the cache"
+                " off."
+            ),
         ] = None,
         fetch: Annotated[
             Fetcher | None,
@@ -1327,7 +1335,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             cache_key=cache_key,
             cache_ttl=cache_ttl,
         )
-        instance = cls.from_config(config, fetch=fetch)
+        instance = cls.from_config(config, fetch=fetch, name=name)
         instance._track_reconfigure(env_prefix)  # noqa: SLF001
         return instance
 
@@ -1343,14 +1351,14 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         *,
         audience: Annotated[
-            str | Sequence[str] | _Unset | None,
+            str | Sequence[str] | Unset | None,
             Doc(
                 "Accepted `aud` values. `None` answers to no audience, which"
                 " refuses any token that names one, and only code can say it."
                 " Left out, it is read from the environment, where it is"
                 " required."
             ),
-        ] = _UNSET,
+        ] = UNSET,
         algorithm: Annotated[
             _AsymmetricAlgorithm | None,
             Doc(
@@ -1359,8 +1367,12 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             ),
         ] = None,
         ttl: Annotated[
-            float | None,
-            Doc("Seconds the metadata and the key set are treated as current."),
+            int | timedelta | None,
+            Doc(
+                "How long the metadata and the key set are treated as"
+                " current, in whole seconds or as a `timedelta`. A float is"
+                " refused."
+            ),
         ] = None,
         retry_interval: Annotated[
             float | None,
@@ -1403,8 +1415,12 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             Doc("What the cache keys on: a digest, or the encoded token."),
         ] = None,
         cache_ttl: Annotated[
-            float | None,
-            Doc("Seconds a verified token stays cached."),
+            int | timedelta | None,
+            Doc(
+                "How long a verified token stays cached, in whole seconds or"
+                " as a `timedelta`. A float is refused. Zero turns the cache"
+                " off."
+            ),
         ] = None,
         fetch: Annotated[
             Fetcher | None,
@@ -1469,7 +1485,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             cache_key=cache_key,
             cache_ttl=cache_ttl,
         )
-        instance = cls.from_config(config, fetch=fetch)
+        instance = cls.from_config(config, fetch=fetch, name=name)
         instance._track_reconfigure(env_prefix)  # noqa: SLF001
         return instance
 
@@ -1478,7 +1494,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         config_cls: type[C],
         name: str,
         *,
-        audience: str | Sequence[str] | _Unset | None,
+        audience: str | Sequence[str] | Unset | None,
         env_load: bool | None,
         **settings: object,
     ) -> tuple[C, str]:
@@ -1500,7 +1516,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         kwargs: dict[str, object] = dict(settings)
         if audience is None:
             kwargs["audience"] = [_NO_AUDIENCE]
-        elif not isinstance(audience, _Unset):
+        elif not isinstance(audience, Unset):
             kwargs["audience"] = audience
         for field_name in _ONE_OR_MANY:
             value = kwargs.get(field_name)
@@ -1546,6 +1562,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 " code."
             ),
         ] = None,
+        name: Annotated[str, Doc("Instance name.")] = "default",
     ) -> Self:
         """Build a verifier from a configuration that is already whole.
 
@@ -1557,7 +1574,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             TypeError: If `fetch` is given for keys held in code.
         """
         instance = cls.__new__(cls)
-        instance._setup(config, fetch=fetch)  # noqa: SLF001
+        instance._setup(config, fetch=fetch, name=name)  # noqa: SLF001
         return instance
 
     def _setup(
@@ -1565,6 +1582,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         config: JWTKeysConfig | JWKSConfig | DiscoveryConfig,
         *,
         fetch: Fetcher | None,
+        name: str,
     ) -> None:
         """Hold the policy, and load the keys when they are held in code."""
         if fetch is not None and isinstance(config, JWTKeysConfig):
@@ -1573,6 +1591,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 " are held in code, so there is nothing to fetch."
             )
             raise TypeError(msg)
+        self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         compiled = _core()
@@ -1582,24 +1601,27 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             compiled.sha256_digest if config.cache_key == "sha256" else None
         )
         self._cache_size = config.cache_size
-        self._cache_ttl = config.cache_ttl
+        self._cache_ttl = nanoseconds(config.cache_ttl)
         self._leeway = config.leeway
         self._scope_claims = tuple(config.scope_claims)
         self._fetch: Fetcher = fetch or fetch_with_httpx
         self._document: bytes | None = None
-        self._loaded_at: float | None = None
+        self._loaded_at: int | None = None
         self._attempted_at: float | None = None
         self._wants_keys = False
         self._inflight: asyncio.Task[bool] | None = None
         self._task: asyncio.Task[None] | None = None
         self._metadata_url: str | None = None
-        # When the metadata was read, and the JWKS URL it named.
-        self._discovered: tuple[float, str] | None = None
+        # When the metadata was read, in monotonic nanoseconds, and the JWKS
+        # URL it named.
+        self._discovered: tuple[int, str] | None = None
         if isinstance(config, JWTKeysConfig):
             self._source: JWKSConfig | DiscoveryConfig | None = None
+            self._ttl = 0
             self._keys: _KeySet | None = self._key_set(config)
             return
         self._source = config
+        self._ttl = nanoseconds(config.ttl)
         self._keys = None
 
     def _key_set(self, config: JWTKeysConfig) -> _KeySet:
@@ -1657,6 +1679,11 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         return self._key_set(config.model_copy(update={"keys": readable}))
 
     @property
+    def name(self) -> str:
+        """The instance name."""
+        return self._name
+
+    @property
     def ready(self) -> bool:
         """Whether a key set is loaded. Always true for keys held in code."""
         return self._keys is not None
@@ -1685,7 +1712,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             return True
         return (
             self._loaded_at is None
-            or monotonic() - self._loaded_at >= source.ttl
+            or monotonic_ns() - self._loaded_at >= self._ttl
         )
 
     async def refresh(
@@ -1764,7 +1791,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         document = await self._fetched(url, source)
         if document == self._document:
             # Same bytes, so the keys already loaded are the current ones.
-            self._loaded_at = monotonic()
+            self._loaded_at = monotonic_ns()
             self._wants_keys = False
             return False
 
@@ -1783,7 +1810,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         # call a document that failed to build a successful refresh, so a
         # provider serving a broken key set would stop the next attempt for a
         # whole `ttl` and clear the rotation signal that asked for it.
-        self._loaded_at = monotonic()
+        self._loaded_at = monotonic_ns()
         self._wants_keys = False
         return True
 
@@ -1801,7 +1828,8 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 `https` key set.
         """
         discovered = self._discovered
-        if discovered is not None and monotonic() - discovered[0] < source.ttl:
+        ttl = self._ttl
+        if discovered is not None and monotonic_ns() - discovered[0] < ttl:
             return discovered[1]
         issuer = source.issuer[0]
         failures: list[str] = []
@@ -1819,7 +1847,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 failures.append(f"{url}: {error}")
                 continue
             self._metadata_url = url
-            self._discovered = (monotonic(), jwks_uri)
+            self._discovered = (monotonic_ns(), jwks_uri)
             return jwks_uri
         if discovered is not None:
             # The metadata only says where the keys are, so its endpoint being
@@ -1836,7 +1864,9 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             # is tried again once `retry_interval` has passed, under whatever
             # `ttl` is in effect by then.
             self._discovered = (
-                monotonic() - source.ttl + source.retry_interval,
+                monotonic_ns()
+                - ttl
+                + nanoseconds_from_seconds(source.retry_interval),
                 discovered[1],
             )
             return discovered[1]
@@ -1982,6 +2012,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             keys.order.clear()
         if not isinstance(new_config, JWTKeysConfig):
             self._source = new_config
+            self._ttl = nanoseconds(new_config.ttl)
 
     def verify(
         self,
@@ -2004,7 +2035,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         cache = keys.cache
         cached = cache.get(key)
         if cached is not None:
-            if cached[0] > time():
+            if cached[0] > time_ns():
                 return cached[1]
             cache.pop(key, None)
         try:
@@ -2065,8 +2096,11 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         """
         if not self._cache_size or claims.expires_at is None:
             return
-        now = time()
-        deadline = min(claims.expires_at + self._leeway, now + self._cache_ttl)
+        now = time_ns()
+        deadline = min(
+            (claims.expires_at + self._leeway) * NANOSECONDS_PER_SECOND,
+            now + self._cache_ttl,
+        )
         if deadline <= now:
             return
         cache = keys.cache

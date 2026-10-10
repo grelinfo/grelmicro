@@ -12,7 +12,7 @@ async def last_known_price(exc: Exception) -> Decimal:
 
 @shield.api(
     "prices",
-    timeout_errors=(httpx.TimeoutException,),
+    when=httpx.TimeoutException,
     cache=TTLCache(ttl=300),
     fallback=last_known_price,
 )

@@ -5,6 +5,7 @@ consistent log output across all three logging backends.
 """
 
 import asyncio
+import logging
 
 import pytest
 
@@ -450,3 +451,33 @@ class TestContextIsolation:
 
         assert results["A"] == "A"
         assert results["B"] == "B"
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_instrument_foreign_warning_is_not_read_as_the_record(
+    backend: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    reset_backend: None,  # noqa: ARG001
+) -> None:
+    """A record OpenTelemetry or asyncio writes meanwhile is not taken for the test's own."""
+    # Arrange
+    _setup_json_logging(monkeypatch, backend)
+
+    @instrument
+    def inner(order_id: str) -> None:  # noqa: ARG001
+        logging.getLogger("opentelemetry.sdk.trace").warning(
+            "Processor is already shutdown, ignoring call"
+        )
+        logging.getLogger("asyncio").error("Task exception was never retrieved")
+        log_message(backend, "inside")
+
+    # Act
+    inner("ORD-1")
+    log_message(backend, "outside")
+
+    # Assert
+    logs = parse_json_logs(capsys.readouterr().out)
+    assert [log["msg"] for log in logs] == ["inside", "outside"]
+    assert logs[0]["order_id"] == "ORD-1"
+    assert "order_id" not in logs[1]

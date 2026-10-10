@@ -50,7 +50,7 @@ from grelmicro.http import (
     AuthenticatedRequestsMiddleware,
     ErrorResponses,
 )
-from grelmicro.http._authentication import _PublicRoutes, refusal_of
+from grelmicro.http._authentication import refusal_of
 from grelmicro.http._kinds import classify
 from grelmicro.http._requirement import recorded
 from grelmicro.integrations.fastapi import (
@@ -403,6 +403,31 @@ class TestRoute:
         [record] = events
         assert field(record, "http.route") is None
 
+    def test_a_litestar_middleware_added_by_hand_names_no_route(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """Behind the router too, without `install` no route was read."""
+
+        @litestar_get("/orders")
+        async def orders() -> str:
+            return "orders"  # pragma: no cover
+
+        app = Litestar(
+            [orders],
+            middleware=[
+                DefineMiddleware(
+                    cast("Any", AuthenticatedRequestsMiddleware),
+                    verifier=verifier(),
+                )
+            ],
+        )
+
+        with LitestarTestClient(app) as client:
+            client.get("/orders", headers=bearer(token(FORGER)))
+
+        [record] = events
+        assert field(record, "http.route") is None
+
 
 def orders() -> APIRouter:
     """Return a router whose `/{order_id}` route needs `orders:write`."""
@@ -504,12 +529,7 @@ class TestIncludedRoute:
                 "/api/v1/orders/7",
                 "/api/v1/orders/{order_id}",
             ),
-            (
-                under_starlette,
-                "",
-                "/api/v1/orders/7",
-                "/api/v1/orders/{order_id}",
-            ),
+            (under_starlette, "", "/api/v1/orders/7", "/v1/orders/{order_id}"),
             (
                 under_fastapi,
                 "",
@@ -528,7 +548,11 @@ class TestIncludedRoute:
         path: str,
         expected: str,
     ) -> None:
-        """Every prefix the route sits under is on the route both record."""
+        """Every prefix the route sits under is on the route both record.
+
+        Under a mount, the route is the one FastAPI's request span names:
+        from the outer FastAPI app, else from the root of this one.
+        """
         caplog.set_level(logging.INFO, logger="grelmicro.access")
 
         TestClient(build(), root_path=root_path).delete(
@@ -549,10 +573,10 @@ class TestIncludedRoute:
         ("build", "path", "expected"),
         [
             (on_the_app, "/7", "/{order_id}"),
-            (with_a_starlette_route, "/v1/ping", None),
+            (with_a_starlette_route, "/v1/ping", "/v1/ping"),
             (nested_prefixes, "/v1/orders/7", "/v1/orders/{order_id}"),
             (included_twice, "/b/7", "/b/{order_id}"),
-            (under_starlette, "/api/v1/orders/7", "/api/v1/orders/{order_id}"),
+            (under_starlette, "/api/v1/orders/7", "/v1/orders/{order_id}"),
         ],
     )
     def test_an_admitted_request_records_the_full_template(
@@ -563,7 +587,7 @@ class TestIncludedRoute:
         path: str,
         expected: str | None,
     ) -> None:
-        """A served route records its template with every prefix, a plain one none."""
+        """A served route records its template with every prefix."""
         caplog.set_level(logging.INFO, logger="grelmicro.access")
 
         response = TestClient(build()).delete(
@@ -821,7 +845,7 @@ class TestCaller:
         """`from_config` reads it like every other setting."""
         config = AuthenticatedRequestsConfig(enduser=True)
 
-        component = AuthenticatedRequests.from_config(config, verifier())
+        component = AuthenticatedRequests.from_config(verifier(), config)
 
         assert component.asgi_middleware()[1]["enduser"] is True
 
@@ -906,7 +930,7 @@ class TestBans:
         self, events: list[logging.LogRecord]
     ) -> None:
         """The ban is the event, and each refusal it answers is only counted."""
-        bans = ClientBans(failures=1, duration=60.0, name="edge")
+        bans = ClientBans(failures=1, duration=60, name="edge")
         client = TestClient(
             app_with(
                 AuthenticatedRequests(
@@ -945,7 +969,7 @@ class TestBans:
         self, events: list[logging.LogRecord]
     ) -> None:
         """Only a ban that starts is an event."""
-        bans = ClientBans(failures=1, duration=60.0)
+        bans = ClientBans(failures=1, duration=60)
 
         for _ in range(3):
             bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
@@ -960,12 +984,12 @@ class TestBans:
         """A new ban is a new event."""
         from grelmicro.security import bans as module  # noqa: PLC0415
 
-        clock = [1000.0]
-        monkeypatch.setattr(module, "monotonic", lambda: clock[0])
-        bans = ClientBans(failures=1, window=1.0, duration=5.0)
+        clock = [1_000_000_000_000]
+        monkeypatch.setattr(module, "monotonic_ns", lambda: clock[0])
+        bans = ClientBans(failures=1, window=1, duration=5)
 
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
-        clock[0] += 10.0
+        clock[0] += 10_000_000_000
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
 
         assert len(events) == 2  # noqa: PLR2004
@@ -976,17 +1000,17 @@ class TestBans:
         """A ban that ran out is not counted."""
         from grelmicro.security import bans as module  # noqa: PLC0415
 
-        clock = [1000.0]
-        monkeypatch.setattr(module, "monotonic", lambda: clock[0])
+        clock = [1_000_000_000_000]
+        monkeypatch.setattr(module, "monotonic_ns", lambda: clock[0])
         bans = ClientBans.from_config(
-            ClientBansConfig(failures=1, duration=5.0), name="edge"
+            ClientBansConfig(failures=1, duration=5), name="edge"
         )
 
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
         bans.record("203.0.113.8", TokenRejectedReason.SIGNATURE)
         assert bans.active() == 2  # noqa: PLR2004
         assert bans.name == "edge"
-        clock[0] += 10.0
+        clock[0] += 10_000_000_000
         assert bans.active() == 0
 
     def test_a_silenced_logger_still_counts_the_ban(
@@ -1457,12 +1481,12 @@ class TestMutationGaps:
         """A ban is over at its end, so a failure then starts a new one."""
         from grelmicro.security import bans as module  # noqa: PLC0415
 
-        clock = [1000.0]
-        monkeypatch.setattr(module, "monotonic", lambda: clock[0])
-        bans = ClientBans(failures=1, window=1.0, duration=5.0)
+        clock = [1_000_000_000_000]
+        monkeypatch.setattr(module, "monotonic_ns", lambda: clock[0])
+        bans = ClientBans(failures=1, window=1, duration=5)
 
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
-        clock[0] = 1005.0
+        clock[0] = 1_005_000_000_000
         assert bans.active() == 0
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
 
@@ -1472,7 +1496,7 @@ class TestMutationGaps:
         self, events: list[logging.LogRecord]
     ) -> None:
         """`until` is a UTC instant after the ban started."""
-        ClientBans(failures=1, duration=60.0).record(
+        ClientBans(failures=1, duration=60).record(
             ADDRESS, TokenRejectedReason.SIGNATURE
         )
 
@@ -1552,60 +1576,6 @@ class TestMutationGaps:
 
         [record] = events
         assert field(record, "http.route") == "/items/special"
-
-    @pytest.mark.parametrize(
-        ("extra", "expected"),
-        [
-            ({"path": "/whoami"}, "/whoami"),
-            ({"path": "/whoami", "root_path": "/api"}, "/whoami"),
-            ({"path": "/api/whoami", "root_path": "/api"}, "/api/whoami"),
-            ({"path": "/api/nowhere", "root_path": "/api"}, None),
-        ],
-    )
-    def test_the_template_before_routing(
-        self, extra: dict[str, str], expected: str | None
-    ) -> None:
-        """A missing root path, a stripped prefix and no route at all."""
-        app = Starlette(routes=[Route("/whoami", whoami)])
-        public = _PublicRoutes()
-        public.read(app)
-
-        template = public.template(
-            {"type": "http", "method": "GET", "app": app, **extra}
-        )
-
-        assert template == expected
-
-    @pytest.mark.parametrize(
-        ("root_path", "expected"), [("", "/orders"), ("/api", "/api/orders")]
-    )
-    def test_a_template_the_router_recorded_is_used_as_is(
-        self,
-        events: list[logging.LogRecord],
-        root_path: str,
-        expected: str,
-    ) -> None:
-        """A middleware behind a router reads what the router matched."""
-
-        @litestar_get("/orders")
-        async def orders() -> str:
-            return "orders"  # pragma: no cover
-
-        app = Litestar(
-            [orders],
-            middleware=[
-                DefineMiddleware(
-                    cast("Any", AuthenticatedRequestsMiddleware),
-                    verifier=verifier(),
-                )
-            ],
-        )
-
-        with LitestarTestClient(app, root_path=root_path) as client:
-            client.get(f"{root_path}/orders", headers=bearer(token(FORGER)))
-
-        [record] = events
-        assert field(record, "http.route") == expected
 
 
 async def _call(

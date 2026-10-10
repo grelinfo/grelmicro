@@ -12,6 +12,7 @@ from collections import OrderedDict, abc
 # field's annotation, which pydantic resolves from module globals.
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import timedelta
 from logging import getLogger
 from time import time as clock_time
 from typing import (
@@ -25,7 +26,7 @@ from typing import (
 )
 from urllib.parse import parse_qsl, unquote_plus
 
-from pydantic import AfterValidator, BaseModel, PositiveInt
+from pydantic import BaseModel, BeforeValidator, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._config import (
@@ -35,48 +36,47 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._duration import Duration, check_duration, read_duration
 from grelmicro._paths import (
     _PREFIX,
     BARE_STRING_MESSAGE,
     FieldNames,
     PathPatterns,
-    _bound_router,
-    _effective_dependency_call,
-    _inherited_dependency_overrides_context,
-    _is_starlette_routing_app,
-    _middleware_boundaries,
-    _nested_routing_app,
     _request_authority,
     _request_root_path,
     _request_scheme,
     _RouteTopologyState,
-    _routing_app,
-    _same_routing_root,
     as_patterns,
-    compile_route,
     declared_dependencies,
     holds_control_character,
     matches,
     names_route,
     route_path,
-    walk_routes,
 )
-from grelmicro.cache._stampede import compute_with_stampede
+from grelmicro.cache._stampede import (
+    Fold,
+    check_fold,
+    compute_with_stampede,
+)
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
-from grelmicro.http._authentication import is_anonymous_declaration
 from grelmicro.http._conditional import (
     _KEPT_ON_304,
     _matches_weak,
     _tags,
     etag_of,
 )
+from grelmicro.http._gate import DECLARATION_KEY
 from grelmicro.http._idempotency import (
     StoredResponse,
     _authenticated_scope,
-    _authentication_paths,
+    _declarations_of,
+    _declared_pattern,
+    _gate_path_matches,
+    _templates,
 )
-from grelmicro.http._requirement import declared_scopes, declares_optional
+from grelmicro.http._routes import RouteDeclaration, route_name
+from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -104,6 +104,9 @@ logger = getLogger("grelmicro.http.cache")
 _MARKER = "__grelmicro_response_cache__"
 """Attribute the declared dependency carries, holding the route's TTL."""
 
+_SHARED = "__grelmicro_response_cache_shared__"
+"""Attribute the declared dependency carries, saying the response is shared."""
+
 _UNMARKED: Any = object()
 """Marks a route that declared nothing, which a `None` TTL cannot."""
 
@@ -122,8 +125,8 @@ _HTTP_200_OK = 200
 _HTTP_304_NOT_MODIFIED = 304
 """Status answering a read whose entity tag the client already holds."""
 
-_DEFAULT_TTL = 60.0
-"""Seconds a response is kept when neither the route nor the component says."""
+_DEFAULT_TTL = timedelta(seconds=60)
+"""How long a response is kept when neither the route nor the component says."""
 
 _DEFAULT_MAX_BODY_SIZE = 1024 * 1024
 """Largest response body held in memory to store, in bytes."""
@@ -175,98 +178,48 @@ class _Entry(TypedDict):
     kept: float
 
 
-NOT_SECONDS = "is not a number of seconds a response is kept for."
-"""Why a lifetime was refused, without repeating what it was.
+def _durations_per_path(value: Any) -> Any:  # noqa: ANN401
+    """Read each lifetime a mapping of patterns gives, named by position.
 
-`SettingsValidationError` takes the rejected value back out of the
-message, so a validator that named it would be quoting a blank.
-"""
-
-_LEAVE_THE_PATH_OUT = (
-    " Leave the path out, or name it in exclude=, to cache it not at all."
-)
-"""How to say `never` about one path, which is not what a zero says.
-
-Only for a pattern. A component-wide `ttl` has no path to leave out, and
-telling its operator to find one sends them looking for something that
-is not there.
-"""
-
-
-def _seconds(value: float) -> float:
-    """Return `value`, refusing a lifetime a response cannot be kept for.
-
-    Written as `not value > 0` rather than `value <= 0`, so a NaN is
-    refused too. Every comparison with a NaN is false, so the negated
-    test is the one that turns it away.
+    A tuple of patterns passes through. A refusal names the pattern by
+    its position, never by the pattern itself.
 
     Raises:
-        ValueError: If it is not a positive number of seconds.
+        ValueError: If a pattern names a lifetime that is not a valid
+            duration.
     """
-    if not value > 0:
-        msg = f"ttl {NOT_SECONDS}"
-        raise ValueError(msg)
-    return value
-
-
-def _seconds_per_path(
-    value: tuple[str, ...] | Mapping[str, float],
-) -> tuple[str, ...] | Mapping[str, float]:
-    """Return `value`, refusing a pattern that names an impossible lifetime.
-
-    Raises:
-        ValueError: If a pattern names a lifetime that is not a positive
-            number of seconds. Located by its position, never by the
-            pattern: this mapping can arrive from a mounted source, and
-            a key there is as much operator input as a value, which is
-            why the reload path keeps key names out of its logs too.
-    """
-    if isinstance(value, abc.Mapping):
-        for position, ttl in enumerate(value.values(), start=1):
-            if not ttl > 0:
-                msg = (
-                    f"pattern {position} in include "
-                    f"{NOT_SECONDS}{_LEAVE_THE_PATH_OUT}"
-                )
-                raise ValueError(msg)
-    return value
-
-
-def check_ttl(
-    ttl: Annotated[float | None, Doc("What was given as a lifetime.")],
-    where: Annotated[str, Doc("The argument's name, for the message.")],
-) -> None:
-    """Refuse a lifetime a response cannot be kept for.
-
-    Raises:
-        ValueError: If `ttl` is not a positive number of seconds.
-    """
-    if ttl is None or ttl > 0:
-        return
-    msg = (
-        f"{where}={ttl!r} is not a number of seconds a response is kept "
-        "for. Leave the path out, or name it in exclude=, to cache it "
-        "not at all."
-    )
-    raise ValueError(msg)
+    if not isinstance(value, abc.Mapping):
+        return value
+    return {
+        pattern: read_duration(ttl, f"pattern {position} in include")
+        for position, (pattern, ttl) in enumerate(value.items(), start=1)
+    }
 
 
 def declare_cached(
     ttl: Annotated[
-        float | None, Doc("Seconds the route's response is served from.")
+        int | timedelta | None,
+        Doc("How long the route's response is served from the cache."),
     ],
+    *,
+    shared: Annotated[
+        bool,
+        Doc("Every caller the route admits is served the same response."),
+    ] = False,
 ) -> Callable[[], Awaitable[None]]:
     """Return the callable a route declares to have its response cached.
 
     `grelmicro.integrations.fastapi.CachedResponse` wraps it in a
-    `Depends`, which is how a route says so, and `micro.install(app)`
-    reads it back off the dependency tree. It computes nothing: what it
-    carries is the TTL, and where it is declared.
+    `Depends`, which is how a route says so, and the FastAPI integration
+    declares it as the route's `cache`, and `shared` as the route's
+    `shared`. It computes nothing: what it carries is the TTL, whether it
+    is shared, and where it is declared.
 
     Raises:
-        ValueError: If `ttl` is not a positive number of seconds.
+        ValueError: If `ttl` is not whole seconds or a `timedelta`, is not
+            greater than zero, or is over 100 years.
     """
-    check_ttl(ttl, "ttl")
+    duration = check_duration(ttl, "ttl") if ttl is not None else None
 
     async def cached_response() -> None:
         """Declare that this route's response is cached.
@@ -276,21 +229,26 @@ def declare_cached(
         declaration with nothing in it to run there.
         """
 
-    setattr(cached_response, _MARKER, ttl)
+    setattr(cached_response, _MARKER, duration)
+    setattr(cached_response, _SHARED, shared)
     return cached_response
 
 
-def declared_cache(call: object) -> bool | float:
+def declared_cache(call: object) -> bool | timedelta:
     """Return what a dependency declares of its route's response cache.
 
     `False` for one that is not `CachedResponse()`, `True` for one keeping
-    the response for the component's TTL, and the seconds of its own TTL
-    otherwise.
+    the response for the component's TTL, and its own TTL otherwise.
     """
     ttl = getattr(call, _MARKER, _UNMARKED)
     if ttl is _UNMARKED:
         return False
     return True if ttl is None else ttl
+
+
+def declares_shared(call: object) -> bool:
+    """Return whether a dependency is a `CachedResponse(shared=True)`."""
+    return bool(getattr(call, _SHARED, False))
 
 
 class _Unset:
@@ -317,46 +275,35 @@ UNSET = _Unset()
 """The one instance of `_Unset`, so a caller can be told apart from a default."""
 
 
-def _unique_policy_sources(
-    sources: tuple[tuple[Any, bool], ...],
-) -> tuple[tuple[Any, bool], ...]:
-    """Return routing roots once each, retaining the strictest boundary."""
-    found: list[tuple[Any, bool]] = []
-    for app, include_root in sources:
-        for index, (seen, strict) in enumerate(found):
-            if app is seen or _same_routing_root(app, seen):
-                found[index] = (seen, strict or include_root)
-                break
-        else:
-            found.append((app, include_root))
-    return tuple(found)
-
-
 class _Policies:
     """The paths a middleware caches, and for how long.
 
     Built from two sources that answer the same question. `include` names
     URLs and is written where the component is registered. The routes come
-    from `@cache_response`, and are read off the app at install and again
-    when the app starts, so a route added after `install` counts too.
+    from what the app's integration declares, read at install, again when
+    the app starts, and again on a request once a route was added.
+
+    At a route whose gate admitted the request, the declaration the gate
+    carries answers for that route instead, and nothing is matched against
+    the routes.
     """
 
     __slots__ = (
-        "_app",
-        "_base_sources",
+        "_declared",
         "_exclude",
         "_include",
         "_refused",
         "_refused_paths",
         "_refused_templates",
-        "_routes",
+        "_root",
+        "_source",
         "_topology",
     )
 
     def __init__(
         self,
         include: Annotated[
-            Mapping[str, float] | Sequence[str],
+            Mapping[str, timedelta] | Sequence[str],
             Doc(
                 "The paths cached. A sequence keeps each for the "
                 "component's own TTL, and a mapping gives each its own."
@@ -369,71 +316,64 @@ class _Policies:
     ) -> None:
         """Hold the path rules, with no routes read yet.
 
-        A bare string is refused before this: by the config on the
-        component's door, and by the middleware on the hand-wired one.
-
-        Raises:
-            ValueError: If a pattern names a lifetime a response cannot
-                be kept for.
+        A bare string, and a lifetime that is not a duration, are refused
+        before this: by the config on the component's door, and by the
+        middleware on the hand-wired one.
         """
-        # A sequence names the paths and leaves the seconds to the
+        # A sequence names the paths and leaves the lifetime to the
         # component, which is how every other middleware reads. `None`
         # stands for "whatever the component says", the same as a route
-        # that declared no seconds of its own.
-        items: list[tuple[str, float | None]] = (
+        # that declared no lifetime of its own.
+        items: list[tuple[str, timedelta | None]] = (
             [(pattern, None) for pattern in include]
             if not isinstance(include, abc.Mapping)
             else list(include.items())
         )
-        for pattern, ttl in items:
-            if ttl is not None:
-                check_ttl(ttl, f"include[{pattern!r}]")
         # Most specific first: an exact path beats a prefix, and a longer
         # prefix beats the shorter one it sits under, so a rule written
         # for one route is not answered by the one written for its router.
-        self._include: tuple[tuple[str, float | None], ...] = tuple(
+        self._include: tuple[tuple[str, timedelta | None], ...] = tuple(
             sorted(
                 items,
                 key=lambda item: (item[0].endswith("*"), -len(item[0])),
             )
         )
         self._exclude = exclude
-        self._routes: tuple[tuple[Pattern[str], float | None], ...] = ()
-        self._refused: tuple[Pattern[str], ...] = ()
+        self._declared: tuple[
+            tuple[str, Pattern[str], timedelta | None], ...
+        ] = ()
+        self._refused: tuple[tuple[str, Pattern[str]], ...] = ()
         self._refused_paths: frozenset[str] = frozenset()
         self._refused_templates: tuple[str, ...] = ()
-        self._app: Any = None
-        self._base_sources: tuple[tuple[Any, bool], ...] = ()
-        self._topology: tuple[tuple[bool, _RouteTopologyState], ...] = ()
+        self._source: Any = None
+        self._root = False
+        self._topology: _RouteTopologyState | None = None
 
     def _is_refused(self, path: str) -> bool:
         """Return whether the app refuses to have this path cached.
 
-        A write, and a read behind a security scheme. A hit is answered
-        before the handler runs, so caching either one answers over the
-        gate or hands back what was never a read.
+        A read whose route runs checks of its own, or sits under checks
+        between this middleware and the route. A hit is answered before
+        they run, so caching it answers over them.
         """
         # A path holding a control character is refused whatever it names:
         # Starlette's `$` matches before a final newline, so it can reach a
-        # literal route the set below holds without that newline. The regex
-        # is matched the way Starlette matches it, for the same reason.
+        # literal route the set below holds without that newline.
         return (
             path in self._refused_paths
             or holds_control_character(path)
-            or any(regex.match(path) for regex in self._refused)
+            or any(
+                _gate_path_matches(template, regex, path)
+                for template, regex in self._refused
+            )
         )
 
     def _refuses_template(self, path: str) -> bool:
         """Return whether a refusal covers a declared route template."""
-        for template in self._refused_templates:
-            if template == path:
-                return True
-            suffix = "/{path:path}"
-            if template.endswith(suffix):
-                prefix = template[: -len(suffix)]
-                if not prefix or path.startswith(f"{prefix}/"):
-                    return True
-        return False
+        return path in self._refused_templates or any(
+            _gate_path_matches(template, regex, path)
+            for template, regex in self._refused
+        )
 
     def read(
         self,
@@ -441,71 +381,91 @@ class _Policies:
         *,
         include_root_middleware: bool = False,
     ) -> None:
-        """Read every route the app declares that asked to be cached.
+        """Read what every route of the app declares, as its integration lists it.
+
+        Without `include_root_middleware`, the routes are read from the
+        app's router, so middleware the app runs around it, which runs
+        before this one, does not count as checks.
 
         Raises:
-            TypeError: If a marked route answers a method other than `GET`.
+            TypeError: If a route declaring a cache answers a method other
+                than `GET`, or runs checks of its own, or a path `include`
+                names answers no `GET`.
         """
-        self._app = app
-        self._base_sources = ((app, include_root_middleware),)
-        self._refresh(self._base_sources)
-
-    def bind(
-        self,
-        app: Annotated[Any, Doc("The ASGI source the middleware wraps.")],  # noqa: ANN401
-    ) -> None:
-        """Remember an opaque source without pretending its routes are visible."""
-        if self._app is None:
-            self._app = app
+        self._source = app
+        self._root = include_root_middleware
+        self._read()
 
     def refresh(
         self,
         *apps: Any,  # noqa: ANN401
-        source: Any = None,  # noqa: ANN401
+        source: Any = None,  # noqa: ANN401, ARG002
     ) -> None:
-        """Refresh policy metadata when a request exposes changed routes."""
-        expected = self._app if source is None else source
-        observed = tuple(
-            (app, False)
-            for app in apps
-            if app is not None
-            and expected is not None
-            and _same_routing_root(app, expected)
-        )
-        sources = _unique_policy_sources(
-            (
-                *self._base_sources,
-                *observed,
-            )
-        )
-        same_sources = len(sources) == len(self._topology) and all(
-            include_root == previous_root and app is snapshot.app
-            for (app, include_root), (previous_root, snapshot) in zip(
-                sources, self._topology, strict=True
-            )
-        )
-        if not same_sources or any(
-            snapshot.changed() for _include_root, snapshot in self._topology
-        ):
-            self._refresh(sources)
+        """Read the routes again once a route was added, moved or replaced.
 
-    def _refresh(
+        An app passed when none was read yet is read.
+        """
+        if self._source is None:
+            found = next((app for app in apps if app is not None), None)
+            if found is not None:
+                self.read(found)
+            return
+        topology = self._topology
+        if topology is None or topology.changed():
+            self._read()
+
+    def reread(self) -> None:
+        """Read the app again, for the routes added since install."""
+        if self._source is not None:
+            self._read()
+
+    def renewed(
         self,
-        sources: tuple[tuple[Any, bool], ...],
-    ) -> None:
-        """Read and publish routes from one coherent topology snapshot."""
-        found: list[tuple[Pattern[str], float | None]] = []
+        include: Mapping[str, timedelta] | Sequence[str],
+        exclude: tuple[str, ...],
+    ) -> _Policies:
+        """Return the rules `include` and `exclude` give, read off the same app.
+
+        Raises:
+            TypeError: If a path `include` names answers no `GET`.
+        """
+        policies = _Policies(include, exclude)
+        if self._source is not None:
+            policies.read(self._source, include_root_middleware=self._root)
+        return policies
+
+    def _read(self) -> None:
+        """Read and publish what the source declares, from one snapshot of its routes.
+
+        Raises:
+            TypeError: If a route declaring a cache answers a method other
+                than `GET`, or runs checks of its own, or a path `include`
+                names answers no `GET`.
+        """
+        source = self._source
+        listed = source if self._root else _router_of(source)
+        declarations = _declarations_of((listed,))
+        declared: list[tuple[str, Pattern[str], timedelta | None]] = []
         refused: list[tuple[str, Pattern[str]]] = []
-        for app, include_root in sources:
-            app_found, app_refused = _marked_routes(
-                app,
-                tuple(pattern for pattern, _ in self._include),
-                self._exclude,
-                include_root_middleware=include_root,
-            )
-            found.extend(app_found)
-            refused.extend(app_refused)
-        self._routes = tuple(found)
+        for declaration in declarations:
+            _refuse_uncacheable(declaration)
+            methods = declaration.methods
+            if methods is not None and methods.isdisjoint(_SAFE_METHODS):
+                continue
+            checked = declaration.own_checks or declaration.checked_above
+            for template in _templates(declaration):
+                regex = _declared_pattern(template)
+                if checked:
+                    refused.append((template, regex))
+                elif declaration.cache is not False:
+                    cache = declaration.cache
+                    declared.append(
+                        (template, regex, None if cache is True else cache)
+                    )
+        _refuse_named_write(
+            tuple(pattern for pattern, _ in self._include), declarations
+        )
+        self._declared = tuple(declared)
         # A route declared with no parameter answers one path, so it is
         # a set lookup. Only a template standing for many needs its
         # regex asked, and an app has few of those beside its literals.
@@ -514,23 +474,15 @@ class _Policies:
         )
         self._refused_templates = tuple(template for template, _ in refused)
         self._refused = tuple(
-            regex for template, regex in refused if "{" in template
+            (template, regex) for template, regex in refused if "{" in template
         )
-        self._topology = tuple(
-            (include_root, _RouteTopologyState(app))
-            for app, include_root in sources
-        )
-
-    def reread(self) -> None:
-        """Read the app again, for the routes added since install."""
-        if self._base_sources:
-            self._refresh(self._base_sources)
+        self._topology = _RouteTopologyState(source)
 
     def pattern_ttl(
         self,
         path: Annotated[str, Doc("The path the request is asking for.")],
-        default: Annotated[float, Doc("The component's own TTL.")],
-    ) -> float | None:
+        default: Annotated[timedelta, Doc("The component's own TTL.")],
+    ) -> timedelta | None:
         """Return how long `include` keeps this path, or `None` for never.
 
         The patterns only. A route's own declaration is read off the
@@ -544,25 +496,26 @@ class _Policies:
         be trusted to have seen them all.
 
         It is checked last, once a pattern would otherwise have said
-        yes. The refused set holds every gated read the app declares,
-        which on an authenticated API is most of them, and a request
-        that no pattern names is not about to be cached anyway.
+        yes, so a request that no pattern names costs no scan of it.
         """
+        ttl = self._named(path, default)
+        if ttl is None or self._is_refused(path):
+            return None
+        return ttl
+
+    def _named(self, path: str, default: timedelta) -> timedelta | None:
+        """Return how long the most specific pattern naming `path` keeps it."""
         for pattern, ttl in self._include:
             if matches(path, (pattern,)):
-                return (
-                    None
-                    if self._is_refused(path)
-                    else (default if ttl is None else ttl)
-                )
+                return default if ttl is None else ttl
         return None
 
     def ttl_for(
         self,
         path: Annotated[str, Doc("The path the request is asking for.")],
-        default: Annotated[float, Doc("The component's own TTL.")],
-    ) -> float | None:
-        """Return how long this path is cached, or `None` when it is not.
+        default: Annotated[timedelta, Doc("The component's own TTL.")],
+    ) -> timedelta | None:
+        """Return how long this path is cached before routing, or `None` when it is not.
 
         A route that declared one says more than a pattern naming it, so
         `include=` fills in for the routes that declared none.
@@ -570,8 +523,8 @@ class _Policies:
         The refusal is asked only once something would otherwise be
         kept, so a request nothing names costs no scan of it.
         """
-        for regex, marked in self._routes:
-            if regex.match(path):
+        for template, regex, marked in self._declared:
+            if _gate_path_matches(template, regex, path):
                 return (
                     None
                     if self._is_refused(path)
@@ -579,370 +532,71 @@ class _Policies:
                 )
         return self.pattern_ttl(path, default)
 
+    def ttl_at(
+        self,
+        declaration: Annotated[
+            RouteDeclaration,
+            Doc("What the route the gate admitted the request to declares."),
+        ],
+        path: Annotated[str, Doc("The path the request is asking for.")],
+        default: Annotated[timedelta, Doc("The component's own TTL.")],
+    ) -> timedelta | None:
+        """Return how long the route keeps this response, or `None` for never.
 
-def declared_ttl(
-    route: Annotated[Any, Doc("The route to read the declaration off.")],  # noqa: ANN401
-    contexts: Annotated[
-        tuple[Any, ...],
-        Doc("What was declared above it, outermost first."),
-    ],
-    declared: Annotated[str, Doc("The full path the route sits under.")],
-) -> tuple[bool, float | None]:
-    """Return whether this route declares a TTL, and the seconds it names.
-
-    The nearest declaration decides: the route's own beats the router it
-    sits in, and an inner router beats the one that includes it. `None`
-    seconds means the declaration named none, so the component's own TTL
-    applies.
-
-    Read off the route rather than matched against its path, because a
-    path is compiled before it matches anything: a route declared as
-    `/products/{pid:int}` is a pattern, not a URL, and matching one
-    against the other answers `no` for every typed converter.
-
-    A declaration a route inherited from the router that holds it counts
-    only where the cache may answer for it. A router holds more than
-    reads, so the write under it, and a read with another dependency, are
-    left to their handlers, and this says so too. A security scheme
-    declared on the route itself is refused outright at install.
-    """
-    ttl = _declared_ttl(route, _declaring_above(contexts))
-    for context in reversed(contexts):
-        if ttl is not _UNMARKED:
-            break
-        ttl = _inherited_ttl(context)
-    if ttl is _UNMARKED:
-        return False, None
-    if _unreadable(
-        route, contexts, declared
-    ) is not None or _has_non_cache_dependencies(route, contexts):
-        return False, None
-    return True, ttl
+        Its own `cache` decides. A route running checks of its own is
+        never cached by a pattern, and any other route is cached for as
+        long as the pattern naming the path says.
+        """
+        cache = declaration.cache
+        if cache is not False:
+            return default if cache is True else cache
+        if declaration.own_checks:
+            return None
+        return self._named(path, default)
 
 
-def _marked_routes(
-    app: Any,  # noqa: ANN401
-    named: tuple[str, ...] = (),
-    excluded: tuple[str, ...] = (),
-    *,
-    include_root_middleware: bool = False,
-) -> tuple[
-    list[tuple[Pattern[str], float | None]], list[tuple[str, Pattern[str]]]
-]:
-    """Return the routes that declared a TTL, and the ones refused.
+def _router_of(app: Any) -> Any:  # noqa: ANN401
+    """Return the router an app routes with, or the app when it has none."""
+    router = getattr(app, "router", None)
+    return app if router is None else router
 
-    The second list is every route a cache must not answer for, whether
-    a pattern named it or not, so the answer at request time does not
-    depend on how the path was written.
 
-    Walks what the app declares, mounts and included routers alike, and
-    compiles each full path with the framework's own compiler, off the
-    path the route was written with, so a converter such as `{rest:path}`
-    matches exactly what the router matches it with.
+def _refuse_uncacheable(declaration: RouteDeclaration) -> None:
+    """Refuse a route declaring a cache it cannot honor.
 
     Raises:
-        TypeError: If a route that declared one answers a method other
-            than `GET`, or gates itself behind a security scheme the
-            cache would answer over. A path pattern naming a gated read
-            is refused the same way, because a hit answers over the gate
-            whichever of the two put the path here.
+        TypeError: If the route answers a method other than `GET` or
+            `HEAD`, or runs checks of its own before the handler.
     """
-    found: list[tuple[Pattern[str], float | None]] = []
-    refused = [
-        *_middleware_refusals(app, include_root=include_root_middleware),
-        *_authentication_refusals(app, include_root=include_root_middleware),
-    ]
-    answered: list[tuple[str, Pattern[str], frozenset[str]]] = []
-    for prefix, route, contexts in walk_routes(app):
-        above = _declaring_above(contexts)
-        ttl = _declared_ttl(route, above)
-        on_the_route = ttl is not _UNMARKED
-        ttl = _inherited(ttl, contexts)
-        declared = f"{prefix}{route.path}"
-        compiled = compile_route(declared)
-        # Against the URL as well as the template. A route declared
-        # `/users/{uid}` answers `/users/me`, so a pattern naming that
-        # URL matches no template at all, and reading the template alone
-        # would let it put a gated read in the cache.
-        is_named, named_exactly = _named_by(named, declared, compiled)
-        if is_named and _named_by(excluded, declared, compiled)[0]:
-            # Carved out again, so no pattern is asking for this one.
-            # `exclude` wins over `include` everywhere else, and a
-            # refusal that ignored it would leave a prefix naming one
-            # gated read with no way to keep the rest.
-            is_named = named_exactly = False
-        refusal = _unreadable(route, contexts, declared)
-        if _dependency_bearing_read(
-            route, contexts
-        ) or _nested_read_has_dependencies(route):
-            # Kept whether a pattern named it or not, so the answer at
-            # request time does not depend on how it was named. Only a
-            # dependency-bearing read: a write is already passed through
-            # by the method guard, and one route's method must not speak
-            # for another declared on the same path.
-            refused.append((declared, compiled))
-        if named_exactly:
-            answered.append((declared, compiled, _methods_of(route)))
-        if ttl is _UNMARKED:
-            if is_named:
-                _refuse_named_gate(route, contexts, declared)
-            continue
-        if refusal is not None:
-            if on_the_route:
-                raise TypeError(refusal)
-            if is_named:
-                # A router declares it for what it holds and holds more
-                # than reads, so an inherited declaration is left alone.
-                # A pattern naming this route is not inherited: somebody
-                # wrote this path, and this path cannot be cached.
-                _refuse_named_gate(route, contexts, declared)
-            # What cannot be answered from a cache is left to its handler
-            # rather than refused.
-            continue
-        found.append((compiled, cast("float | None", ttl)))
-    _refuse_named_write(named, answered)
-    return found, refused
-
-
-def _middleware_refusals(
-    app: Any,  # noqa: ANN401
-    *,
-    include_root: bool = False,
-) -> list[tuple[str, Pattern[str]]]:
-    """Compile exact and descendant refusals for every middleware boundary."""
-    found: list[tuple[str, Pattern[str]]] = []
-    for boundary, nested, methods in _middleware_boundaries(
-        app, include_root=include_root
-    ):
-        if methods is not None and methods.isdisjoint(_SAFE_METHODS):
-            continue
-        exact = boundary or "/"
-        exact_pattern = compile_route(exact)
-        found.append((exact, exact_pattern))
-        if not nested:
-            continue
-        descendants = (
-            f"{boundary.rstrip('/')}/{{path:path}}"
-            if boundary
-            else "/{path:path}"
+    if declaration.cache is False:
+        return
+    route = route_name(declaration)
+    methods = declaration.methods
+    if methods is None or not methods <= _SAFE_METHODS:
+        answered = (
+            "every method" if methods is None else ", ".join(sorted(methods))
         )
-        descendant_pattern = compile_route(descendants)
-        found.append((descendants, descendant_pattern))
-    return found
-
-
-def _authentication_refusals(
-    app: Any,  # noqa: ANN401
-    *,
-    include_root: bool,
-) -> list[tuple[str, Pattern[str]]]:
-    """Compile exact and descendant refusals for authentication boundaries."""
-    found: list[tuple[str, Pattern[str]]] = []
-    for boundary, nested, methods in _authentication_paths(app):
-        if not include_root and not boundary:
-            continue
-        if methods is not None and methods.isdisjoint(_SAFE_METHODS):
-            continue
-        exact = boundary or "/"
-        exact_pattern = compile_route(exact)
-        found.append((exact, exact_pattern))
-        if not nested:
-            continue
-        descendants = (
-            f"{boundary.rstrip('/')}/{{path:path}}"
-            if boundary
-            else "/{path:path}"
+        msg = (
+            f"{route} declares a cached response and answers {answered}. "
+            "A response cache answers a read, and a method that changes "
+            "something must reach the handler every time. Declare it on "
+            "the GET route instead."
         )
-        descendant_pattern = compile_route(descendants)
-        found.append((descendants, descendant_pattern))
-    return found
-
-
-def _nested_read_has_dependencies(route: Any) -> bool:  # noqa: ANN401
-    """Return whether a leaf routing endpoint gates a GET or HEAD."""
-    nested = _nested_routing_app(route)
-    return nested is not None and any(
-        _routing_dependencies(nested, method) for method in _SAFE_METHODS
-    )
-
-
-def _routing_dependencies(
-    app: Any,  # noqa: ANN401
-    method: str,
-    ancestors: frozenset[int] = frozenset(),
-) -> bool:
-    """Find a dependency below a routing endpoint without composing paths."""
-    routed = _routing_app(app)
-    if routed is None or id(routed) in ancestors:
-        return False
-    nested_ancestors = ancestors | {id(routed)}
-    for _prefix, route, contexts in walk_routes(routed, unwrap_middleware=True):
-        methods = {
-            candidate.upper()
-            for candidate in (getattr(route, "methods", None) or ())
-        }
-        if method in methods and _has_non_cache_dependencies(route, contexts):
-            return True
-        nested = _nested_routing_app(route)
-        if nested is not None and _routing_dependencies(
-            nested, method, nested_ancestors
-        ):
-            return True
-    return False
-
-
-def _inherited(ttl: object, contexts: tuple[Any, ...]) -> object:
-    """Return the route's own declaration, or the nearest one above it.
-
-    The nearest wins, so a router beats the one that includes it.
-    """
-    if ttl is not _UNMARKED:
-        return ttl
-    for context in reversed(contexts):
-        found = _inherited_ttl(context)
-        if found is not _UNMARKED:
-            return found
-    return _UNMARKED
-
-
-def _named_by(
-    named: tuple[str, ...],
-    declared: str,
-    compiled: Pattern[str],
-) -> tuple[bool, bool]:
-    """Return whether a pattern names this route, and whether one is exact.
-
-    Exact means written for this path rather than a prefix that happens
-    to cover it. A prefix names a router, and a router holds more than
-    reads, so what it cannot cache is left to its handler. A path
-    written out is somebody saying they want this one cached.
-    """
-    hits = [
-        pattern for pattern in named if names_route(pattern, declared, compiled)
-    ]
-    return bool(hits), any(not pattern.endswith(_PREFIX) for pattern in hits)
-
-
-def _dependency_bearing_read(
-    route: Any,  # noqa: ANN401
-    contexts: tuple[Any, ...],
-) -> bool:
-    """Return whether a GET or HEAD runs a non-cache dependency."""
-    methods = {
-        method.upper() for method in (getattr(route, "methods", None) or ())
-    }
-    return bool(methods & _SAFE_METHODS) and _has_non_cache_dependencies(
-        route, contexts
-    )
-
-
-def _has_non_cache_dependencies(
-    route: Any,  # noqa: ANN401
-    contexts: tuple[Any, ...],
-) -> bool:
-    """Return whether FastAPI resolves anything besides a declaration.
-
-    `CachedResponse()` and `Anonymous()` compute nothing, so resolving either
-    first gates nothing a cached response would skip.
-    """
-    declared = getattr(route, "dependant", None)  # codespell:ignore
-    route_provider, provider_is_authoritative = (
-        _inherited_dependency_overrides_context(route, contexts)
-    )
-    pending = [
-        (dependency, route_provider, provider_is_authoritative)
-        for dependency in getattr(declared, "dependencies", ()) or ()
-    ]
-    seen: set[int] = set()
-    while pending:
-        dependency, provider, authoritative = pending.pop()
-        if id(dependency) in seen:
-            continue
-        seen.add(id(dependency))
-        call, effective, dependency_provider = _effective_dependency_call(
-            dependency,
-            provider,
-            provider_is_authoritative=authoritative,
+        raise TypeError(msg)
+    if declaration.own_checks:
+        msg = (
+            f"{route} declares a cached response and runs checks of its own "
+            "before the handler, such as a dependency or a security scheme. "
+            "A hit is answered before they run, so one caller's response "
+            "would be handed to whoever asks next. Cache a route that "
+            "answers everybody the same."
         )
-        if (
-            getattr(call, _MARKER, _UNMARKED) is _UNMARKED
-            and not is_anonymous_declaration(call)
-        ) or effective is not call:
-            return True
-        pending.extend(
-            (child, dependency_provider, authoritative)
-            for child in getattr(dependency, "dependencies", ()) or ()
-        )
-    for context in contexts:
-        for dependency in getattr(context, "dependencies", ()) or ():
-            call, effective, _ = _effective_dependency_call(
-                dependency,
-                route_provider,
-                provider_is_authoritative=provider_is_authoritative,
-            )
-            if (
-                getattr(call, _MARKER, _UNMARKED) is _UNMARKED
-                and not is_anonymous_declaration(call)
-            ) or effective is not call:
-                return True
-    return False
-
-
-def _runs_own_checks(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: ANN401
-    """Return whether a dependency that is not grelmicro's own runs before the route.
-
-    `CachedResponse()`, `Anonymous()`, `OptionalPrincipal` and what requires
-    the caller are grelmicro's own.
-    """
-    declared = getattr(route, "dependant", None)  # codespell:ignore
-    calls = [
-        dependency.call
-        for dependency in getattr(declared, "dependencies", ()) or ()
-    ]
-    calls.extend(
-        depends.dependency
-        for context in contexts
-        for depends in getattr(context, "dependencies", ()) or ()
-    )
-    return not all(map(_is_grelmicros, calls))
-
-
-def _is_grelmicros(call: object) -> bool:
-    """Return whether a dependency is one of grelmicro's own declarations."""
-    return (
-        getattr(call, _MARKER, _UNMARKED) is not _UNMARKED
-        or is_anonymous_declaration(call)
-        or declared_scopes(call) is not None
-        or declares_optional(call)
-    )
-
-
-def _methods_of(route: Any) -> frozenset[str]:  # noqa: ANN401
-    """Return the methods this route answers, upper case."""
-    return frozenset(
-        method.upper() for method in (getattr(route, "methods", None) or ())
-    )
-
-
-def _answered_by(
-    pattern: str,
-    answered: list[tuple[str, Pattern[str], frozenset[str]]],
-) -> set[str]:
-    """Return every method the routes this pattern names answer.
-
-    The union across the path, because a path declares several routes
-    and a write beside a read says nothing about the read.
-    """
-    found: set[str] = set()
-    for declared, compiled, answers in answered:
-        if names_route(pattern, declared, compiled):
-            found |= answers
-    return found
+        raise TypeError(msg)
 
 
 def _refuse_named_write(
     named: tuple[str, ...],
-    answered: list[tuple[str, Pattern[str], frozenset[str]]],
+    declarations: list[RouteDeclaration],
 ) -> None:
     """Refuse a pattern written for a path that answers no read.
 
@@ -959,7 +613,14 @@ def _refuse_named_write(
     for pattern in named:
         if pattern.endswith(_PREFIX):
             continue
-        methods = _answered_by(pattern, answered)
+        methods: set[str] = set()
+        for declaration in declarations:
+            template = declaration.path
+            if declaration.methods is None or not names_route(
+                pattern, template, _declared_pattern(template)
+            ):
+                continue
+            methods |= declaration.methods
         if not methods or "GET" in methods:
             continue
         listed = ", ".join(sorted(methods))
@@ -971,131 +632,41 @@ def _refuse_named_write(
         raise TypeError(msg)
 
 
-def _refuse_named_gate(
-    route: Any,  # noqa: ANN401
-    contexts: tuple[Any, ...],
-    declared: str,
-) -> None:
-    """Refuse a pattern that names a read the caller has to be let past.
+def declared_ttl(
+    route: Annotated[Any, Doc("The route to read the declaration off.")],  # noqa: ANN401
+    contexts: Annotated[
+        tuple[Any, ...],
+        Doc("What was declared above it, outermost first."),
+    ],
+    declared: Annotated[str, Doc("The full path the route sits under.")],  # noqa: ARG001
+) -> tuple[bool, timedelta | None]:
+    """Return whether this route declares a TTL, and the TTL it names.
 
-    Raises:
-        TypeError: If the route is gated by a security scheme.
+    The nearest declaration decides: the route's own beats the router it
+    sits in, and an inner router beats the one that includes it. `None`
+    seconds means the declaration named none, so the component's own TTL
+    applies.
+
+    Read off the route rather than matched against its path, because a
+    path is compiled before it matches anything: a route declared as
+    `/products/{pid:int}` is a pattern, not a URL, and matching one
+    against the other answers `no` for every typed converter.
+
+    A route answering anything but `GET` declares none, as the cache
+    leaves it to its handler. A read running checks of its own is left
+    out by what the app's routes declare, which the report asks first.
     """
-    methods = {
-        method.upper() for method in (getattr(route, "methods", None) or ())
-    }
-    if "GET" not in methods:
-        return
-    schemes = _gating_schemes(route, contexts)
-    if not schemes:
-        return
-    named = ", ".join(sorted(set(schemes)))
-    msg = (
-        f"include= names {declared!r}, which is gated by {named}. A hit "
-        "is answered before the handler runs, so the gate would not "
-        "run, and one caller's response would be handed to whoever asks "
-        "next. Name a path that answers everybody the same."
-    )
-    raise TypeError(msg)
-
-
-def _gating_schemes(
-    route: Any,  # noqa: ANN401
-    contexts: tuple[Any, ...],
-) -> list[str]:
-    """Return every security scheme standing in front of this route."""
-    gates = getattr(route, "dependant", None)  # codespell:ignore
-    schemes = _security_schemes(gates)
-    for context in contexts:
-        schemes.extend(_declared_schemes(context))
-    return schemes
-
-
-def _unreadable(
-    route: Any,  # noqa: ANN401
-    contexts: tuple[Any, ...],
-    declared: str,
-) -> str | None:
-    """Return why a response cache must not answer for this route.
-
-    `None` says it may. It must not for a route that answers anything but
-    a read, one gated by a security scheme, and one running a dependency
-    that is not grelmicro's own.
-    """
+    ttl = _declared_ttl(route, _declaring_above(contexts))
+    for context in reversed(contexts):
+        if ttl is not _UNMARKED:
+            break
+        ttl = _inherited_ttl(context)
     methods = {
         method.upper() for method in (getattr(route, "methods", None) or ())
     } - {"HEAD", "OPTIONS"}
-    if methods != {"GET"}:
-        listed = ", ".join(sorted(methods)) or "no method"
-        return (
-            f"CachedResponse() is declared on {declared!r}, which answers "
-            f"{listed}. A response cache answers a read, and a method that "
-            "changes something must reach the handler every time. Declare "
-            "it on the GET route instead."
-        )
-    schemes = _gating_schemes(route, contexts)
-    if schemes:
-        named = ", ".join(sorted(set(schemes)))
-        return (
-            f"CachedResponse() is declared on {declared!r}, which is gated by "
-            f"{named}. A hit is answered before the handler runs, so the gate "
-            "would not run, and one caller's response would be handed to "
-            "whoever asks next. Cache a route that answers everybody the same."
-        )
-    if _runs_own_checks(route, contexts):
-        return (
-            f"CachedResponse() is declared on {declared!r}, which runs a "
-            "dependency of its own before the handler. A hit is answered "
-            "before it runs, so one caller's response would be handed to "
-            "whoever asks next. Cache a route that answers everybody the same."
-        )
-    return None
-
-
-def _declared_schemes(context: Any) -> list[str]:  # noqa: ANN401
-    """Return the security schemes an included router gates everything with.
-
-    An include's dependencies are held as they were written rather than
-    resolved into each route, so each one is resolved here the way the
-    framework resolves it, and a scheme a dependency of its own declares
-    counts as much as one written on the include.
-    """
-    try:
-        from fastapi.dependencies.utils import get_dependant  # noqa: PLC0415
-        from fastapi.security.base import SecurityBase  # noqa: PLC0415
-    except ImportError:  # pragma: no cover - the reimport test walks this
-        return []
-    found: list[str] = []
-    for dependency in getattr(context, "dependencies", ()) or ():
-        call = getattr(dependency, "dependency", None)
-        if call is None:
-            continue
-        if isinstance(call, SecurityBase):
-            found.append(type(call).__name__)
-            continue
-        found.extend(_security_schemes(get_dependant(path="/", call=call)))
-    return found
-
-
-def _security_schemes(gates: Any) -> list[str]:  # noqa: ANN401
-    """Return the security schemes a route is gated by, by name.
-
-    Walks the whole dependency tree, because a scheme declared inside a
-    dependency of a dependency gates the route just as much as one
-    written on it.
-    """
-    try:
-        from fastapi.security.base import SecurityBase  # noqa: PLC0415
-    except ImportError:  # pragma: no cover - the reimport test walks this
-        return []
-    found: list[str] = []
-    pending = list(getattr(gates, "dependencies", ()))
-    while pending:
-        dependency = pending.pop()
-        if isinstance(dependency.call, SecurityBase):
-            found.append(type(dependency.call).__name__)
-        pending.extend(getattr(dependency, "dependencies", ()))
-    return found
+    if ttl is _UNMARKED or methods != {"GET"}:
+        return False, None
+    return True, ttl
 
 
 def _declared_ttl(route: Any, above: set[int]) -> Any:  # noqa: ANN401
@@ -1153,21 +724,25 @@ class CachedResponsesConfig(BaseModel, frozen=True, extra="forbid"):
     `include` is the one field in the HTTP family whose patterns carry a
     value, because the cache is the one rule with something to say per
     path. A tuple names the paths at the component's own `ttl`, and a
-    mapping gives each its own seconds.
+    mapping gives each its own lifetime.
     """
 
     ttl: Annotated[
-        float,
-        AfterValidator(_seconds),
-        Doc("Seconds a response is kept when its route names none."),
+        Duration,
+        Doc(
+            "How long a response is kept when its route names none, in "
+            "whole seconds or as a `timedelta`. A float is refused. From "
+            'text it reads whole seconds (`"60"`) or an ISO 8601 duration '
+            '(`"PT0.5S"`).'
+        ),
     ] = _DEFAULT_TTL
     include: Annotated[
-        PathPatterns | Mapping[str, float],
-        AfterValidator(_seconds_per_path),
+        PathPatterns | Mapping[str, Duration],
+        BeforeValidator(_durations_per_path),
         Doc(
             "The paths cached. A tuple keeps each for `ttl`, and a "
             'mapping such as `{"/products/*": 60}` gives each its own '
-            "seconds. The most specific pattern decides."
+            "lifetime, read like `ttl`. The most specific pattern decides."
         ),
     ] = ()
     exclude: Annotated[
@@ -1259,6 +834,14 @@ class CachedResponsesMiddleware:
     never reads the cache and never fills it. Neither does one an outer
     ASGI authentication middleware has already marked as authenticated.
 
+    At a route whose gate admitted the request, the route's declaration
+    decides. A protected route declaring `cache` shares its response
+    among every caller it admits, a credential included, keyed by the
+    protection it declares. A request carrying a credential to an
+    anonymous route is answered by its handler. A route running checks of
+    its own is never cached by a pattern. A `Cookie` still keeps a request
+    out.
+
     A request's own `Cache-Control` is not read. This answers for the
     resource rather than for one caller, so a caller that could ask for
     the handler could spend it at will.
@@ -1287,14 +870,17 @@ class CachedResponsesMiddleware:
             ),
         ] = None,
         ttl: Annotated[
-            float,
-            Doc("Seconds a response is kept when its route names none."),
+            int | timedelta,
+            Doc(
+                "How long a response is kept when its route names none, "
+                "in whole seconds or as a `timedelta`."
+            ),
         ] = _DEFAULT_TTL,
         include: Annotated[
-            Mapping[str, float] | tuple[str, ...] | None,
+            Mapping[str, int | timedelta] | tuple[str, ...] | None,
             Doc(
                 "The paths cached. A tuple keeps each for `ttl`, and a "
-                "mapping gives each its own seconds. Exact match unless "
+                "mapping gives each its own lifetime. Exact match unless "
                 "the pattern ends with `*`."
             ),
         ] = None,
@@ -1343,6 +929,17 @@ class CachedResponsesMiddleware:
             str,
             Doc("Tag every entry carries, so `purge()` deletes them all."),
         ] = "grelmicro:http:default",
+        lock: Annotated[
+            BackendScope | None,
+            Doc(
+                "How far concurrent misses on one response share a single "
+                'call of the handler. `"process"` (default) folds them in '
+                'the process. `"host"` or `"cluster"` also fold them '
+                "through the lock backend of the app's `Coordination`, the "
+                "same as `@cached(lock=...)`. `None` turns folding off. Not "
+                "live: it is read when the middleware is built."
+            ),
+        ] = "process",
         live: Annotated[
             Live[_State] | None,
             Doc(
@@ -1390,24 +987,15 @@ class CachedResponsesMiddleware:
             owned_policies = (
                 policies
                 if policies is not None
-                else _Policies(
-                    include or {}, as_patterns(exclude, name="exclude")
-                )
+                else _Policies(config.include, config.exclude)
             )
-            owned_policies.bind(app)
-            if _is_starlette_routing_app(app):
-                # A bound Router.app is the entry point below that Router's
-                # own stack. Its current cache and any outer middleware do
-                # not run below this instance and therefore are not
-                # boundaries; route middleware still is.
-                owned_policies.read(
-                    app,
-                    include_root_middleware=_bound_router(app) is None,
-                )
+            owned_policies.read(app, include_root_middleware=True)
             self._live = Live(_state_of(config, owned_policies))
         self._warned: set[str] = set()
         self._reported: dict[str, float] = {}
         self._unstorable: OrderedDict[str, None] = OrderedDict()
+        scope = check_fold(lock)
+        self._fold = None if scope is None else Fold("CachedResponses", scope)
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
@@ -1426,11 +1014,23 @@ class CachedResponsesMiddleware:
             await self.app(scope, receive, send)
             return
         authentication = _authentication_snapshot(scope)
-        if _carries_credentials(scope) or _asks_for_part(scope):
-            await self.app(scope, receive, send)
-            return
-        state.policies.refresh(scope.get("app"), source=self.app)
-        ttl = state.policies.ttl_for(path, config.ttl)
+        declaration: RouteDeclaration | None = scope.get(DECLARATION_KEY)
+        if declaration is None:
+            if _carries_credentials(scope) or _asks_for_part(scope):
+                await self.app(scope, receive, send)
+                return
+            state.policies.refresh(scope.get("app"), source=self.app)
+            ttl = state.policies.ttl_for(path, config.ttl)
+        else:
+            shared = declaration.shared and declaration.cache is not False
+            if (
+                _carries_cookie(scope)
+                if shared
+                else _carries_credentials(scope)
+            ) or _asks_for_part(scope):
+                await self.app(scope, receive, send)
+                return
+            ttl = state.policies.ttl_at(declaration, path, config.ttl)
         if ttl is None:
             await self.app(scope, receive, send)
             return
@@ -1447,7 +1047,9 @@ class CachedResponsesMiddleware:
             receive,
             send,
             state=state,
-            key=built,
+            key=built
+            if declaration is None
+            else _protected(declaration, built),
             ttl=ttl,
             path=path,
             authentication=authentication,
@@ -1461,7 +1063,7 @@ class CachedResponsesMiddleware:
         *,
         state: _State,
         key: str,
-        ttl: float,
+        ttl: timedelta,
         path: str,
         authentication: _AuthenticationSnapshot,
     ) -> None:
@@ -1506,7 +1108,7 @@ class CachedResponsesMiddleware:
             await self._write(
                 storage_key,
                 attempt.entry,
-                ttl=min(ttl, attempt.entry["kept"]),
+                ttl=_kept_for(ttl, attempt.entry["kept"]),
             )
             return attempt.entry
 
@@ -1549,8 +1151,7 @@ class CachedResponsesMiddleware:
                     storage_key,
                     compute,
                     self._cache._stampede,  # noqa: SLF001
-                    per_key=True,
-                    auto_distributed=True,
+                    fold=self._fold,
                 ),
             )
         except _NotStored:
@@ -1594,7 +1195,7 @@ class CachedResponsesMiddleware:
             return None
 
     async def _write(
-        self, storage_key: str, entry: _Entry, *, ttl: float
+        self, storage_key: str, entry: _Entry, *, ttl: timedelta
     ) -> None:
         """Keep the response, and let the caller have it either way."""
         try:
@@ -1662,7 +1263,11 @@ class CachedResponsesMiddleware:
         path: str,
         authentication: _AuthenticationSnapshot,
     ) -> _Entry | None:
-        """Return the entry this response is stored as, or `None` to skip it."""
+        """Return the entry this response is stored as, or `None` to skip it.
+
+        An `Age` the response carries is not stored, so a hit answers the
+        one it counts itself.
+        """
         start = capture.start
         if start is None or capture.released or not capture.complete:
             return None
@@ -1676,7 +1281,11 @@ class CachedResponsesMiddleware:
             return None
         if start["status"] != _HTTP_200_OK:
             return None
-        headers = list(start["headers"])
+        headers = [
+            (name, value)
+            for name, value in start["headers"]
+            if name.lower() != b"age"
+        ]
         kept = self._storable(headers, state=state, path=path)
         if kept is None:
             return None
@@ -1946,6 +1555,18 @@ async def _serve(entry: _Entry, scope: Scope, send: Send) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+def _kept_for(ttl: timedelta, kept: float) -> timedelta:
+    """Return how long a response is stored: its TTL, or less if it says so.
+
+    `kept` is the freshness the response names, in seconds, or `inf` when
+    it names none. A freshness shorter than the TTL is rounded up to the
+    second, and never past the TTL.
+    """
+    if kept >= ttl.total_seconds():
+        return ttl
+    return min(ttl, timedelta(seconds=math.ceil(kept)))
+
+
 def _named_freshness(directives: set[str]) -> float | None:
     """Return the seconds a response says it stays fresh for.
 
@@ -1996,6 +1617,22 @@ def _carries_credentials(scope: Scope) -> bool:
     return _authenticated_scope(scope) or any(
         name.lower() in _PRIVATE_REQUEST_HEADERS for name, _ in scope["headers"]
     )
+
+
+def _carries_cookie(scope: Scope) -> bool:
+    """Return whether the request carries a cookie."""
+    return any(name.lower() == b"cookie" for name, _ in scope["headers"])
+
+
+def _protected(declaration: RouteDeclaration, key: str) -> str:
+    """Return `key` under the protection the route declares.
+
+    A response stored while the route was anonymous, or required other
+    scopes, is never read once it requires a caller or these scopes.
+    """
+    if declaration.anonymous:
+        return f"anonymous\x00{key}"
+    return f"authenticated {' '.join(sorted(declaration.scopes))}\x00{key}"
 
 
 def _authentication_attribute(value: Any, name: str) -> Any:  # noqa: ANN401
@@ -2113,7 +1750,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
 
     The bare form caches nothing until a route declares it. `include=` names
     URLs instead, for a router whose routes you cannot touch and for a
-    framework that resolves no dependencies grelmicro can read.
+    framework that declares no cache on its routes.
 
     It rides the registered `Cache`, so a response one replica computed
     answers the callers of every other one. Pass a `TTLCache` of your own
@@ -2137,18 +1774,19 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         self,
         *,
         ttl: Annotated[
-            float | None,
+            int | timedelta | None,
             Doc(
-                "Seconds a response is kept when its route names none. "
+                "How long a response is kept when its route names none, in "
+                "whole seconds or as a `timedelta`. A float is refused. "
                 "`CachedResponse(ttl=...)` overrides it per route."
             ),
         ] = None,
         include: Annotated[
-            Mapping[str, float] | tuple[str, ...] | None,
+            Mapping[str, int | timedelta] | tuple[str, ...] | None,
             Doc(
                 "The paths cached, for a route that declares none. A "
                 "tuple keeps each for `ttl`, and a mapping gives each its "
-                'own seconds, as `{"/products/*": 60}`. Exact match '
+                'own lifetime, as `{"/products/*": 60}`. Exact match '
                 "unless the pattern ends with `*`."
             ),
         ] = None,
@@ -2206,6 +1844,17 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
                 "of every stored key, so it is not live."
             ),
         ] = "http",
+        lock: Annotated[
+            BackendScope | None,
+            Doc(
+                "How far concurrent misses on one response share a single "
+                'call of the handler. `"process"` (default) folds them in '
+                'the process. `"host"` or `"cluster"` also fold them '
+                "through the lock backend of the app's `Coordination`, the "
+                "same as `@cached(lock=...)`. `None` turns folding off. Not "
+                "live: it is read when the middleware is built."
+            ),
+        ] = "process",
         name: Annotated[
             str,
             Doc("Registration name, for a second set of rules on one app."),
@@ -2229,7 +1878,8 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
 
         Raises:
             SettingsValidationError: If `ttl`, or one a pattern names, is
-                not a positive number of seconds.
+                not whole seconds or a `timedelta`, is not greater than
+                zero, or is over 100 years.
         """
         resolved_env_prefix, kind_prefix = env_prefixes(
             "CACHED_RESPONSES", name, env_prefix
@@ -2263,6 +1913,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             cache=cache,
             key=key,
             skip=skip,
+            lock=lock,
         )
         self._track_reconfigure(resolved_env_prefix)
 
@@ -2294,6 +1945,10 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             Callable[[StoredResponse], bool] | None,
             Doc("Returns whether one response is left unstored."),
         ] = None,
+        lock: Annotated[
+            BackendScope | None,
+            Doc("How far concurrent misses on one response fold."),
+        ] = "process",
     ) -> CachedResponses:
         """Build the component from a configuration that is already whole.
 
@@ -2310,6 +1965,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             cache=cache,
             key=key,
             skip=skip,
+            lock=lock,
         )
         return instance
 
@@ -2322,8 +1978,15 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         cache: TTLCache[Any] | None,
         key: Callable[[Scope], str | None] | None,
         skip: Callable[[StoredResponse], bool] | None,
+        lock: BackendScope | None,
     ) -> None:
-        """Hold the configuration, the store, and the middleware's cell."""
+        """Hold the configuration, the store, and the middleware's cell.
+
+        Raises:
+            SettingsValidationError: If `lock` is not a backend scope or
+                `None`.
+        """
+        self._lock = check_fold(lock)
         self._name = name
         self._key = key
         self._skip = skip
@@ -2331,7 +1994,9 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             cache
             if cache is not None
             else TTLCache(
-                ttl=config.ttl, name=name, serializer=JsonSerializer()
+                ttl=config.ttl,
+                name=name,
+                serializer=JsonSerializer(),
             )
         )
         self._tag = f"grelmicro:{namespace}:{name}"
@@ -2345,17 +2010,16 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
     ) -> None:
         """Publish the snapshot the next request reads.
 
-        The new patterns are read against the app's own routes first, the
-        same reading `micro.install(app)` does. A pattern naming a write
-        or a read behind a security scheme is refused at install, and a
-        read with another dependency is left uncached. Reload has to
-        preserve both decisions: a mounted file must not be able to start
-        caching what the static path would not.
+        The new patterns are read against what the app's routes declare
+        first, the same reading `micro.install(app)` does. A path written
+        out that answers no read is refused, and a read running checks of
+        its own is left uncached. Reload has to preserve both decisions: a
+        mounted file must not be able to start caching what the static
+        path would not.
         """
-        policies = _Policies(new_config.include, new_config.exclude)
-        app = self._policies._app  # noqa: SLF001
-        if app is not None:
-            policies.read(app)
+        policies = self._policies.renewed(
+            new_config.include, new_config.exclude
+        )
         self._policies = policies
         self._live.state = _state_of(new_config, policies)
 
@@ -2390,6 +2054,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             "key": self._key,
             "skip": self._skip,
             "tag": self._tag,
+            "lock": self._lock,
             "live": self._live,
         }
 
@@ -2397,11 +2062,16 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         self,
         app: Annotated[Any, Doc("The application to read the rules off.")],  # noqa: ANN401
     ) -> None:
-        """Read `CachedResponse()` off every route the app declares.
+        """Read what every route of the app declares, as its integration lists it.
 
         Called by the integration after the middleware is added. The app
         is read again when it starts, so a route added between the two
         counts as well.
+
+        Raises:
+            TypeError: If a route declaring a cache answers a method other
+                than `GET`, or runs checks of its own, or a path `include`
+                names answers no `GET`.
         """
         self._policies.read(app)
 

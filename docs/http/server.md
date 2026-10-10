@@ -92,6 +92,8 @@ the port without touching the code:
 GREL_OPS_PORT=9100
 ```
 
+--8<-- "env_gate.md"
+
 Two servers on one app take a name each, and a named one reads
 `GREL_OPS_{NAME}_`:
 

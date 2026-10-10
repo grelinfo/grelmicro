@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from time import monotonic
+from datetime import timedelta
+from time import monotonic_ns
 from unittest.mock import patch
 
 import pytest
@@ -105,7 +106,7 @@ class TestInit:
         # Assert
         assert isinstance(cache.config, TTLCacheConfig)
         expected_maxsize = 50
-        expected_ttl = 30
+        expected_ttl = timedelta(seconds=30)
         assert cache.config.maxsize == expected_maxsize
         assert cache.config.ttl == expected_ttl
 
@@ -238,7 +239,7 @@ class TestGetSet:
         cache = TTLCache(maxsize=10, ttl=60, backend=backend)
 
         # Act / Assert
-        with pytest.raises(ValueError, match="ttl must be positive"):
+        with pytest.raises(ValueError, match="ttl must be greater than zero"):
             await cache.set("key", b"v", ttl=0)
 
     async def test_set_invalid_per_entry_ttl_negative_raises(
@@ -249,7 +250,7 @@ class TestGetSet:
         cache = TTLCache(maxsize=10, ttl=60, backend=backend)
 
         # Act / Assert
-        with pytest.raises(ValueError, match="ttl must be positive"):
+        with pytest.raises(ValueError, match="ttl must be greater than zero"):
             await cache.set("key", b"v", ttl=-5)
 
 
@@ -267,17 +268,21 @@ class TestExpiry:
         """Test that an entry is gone once the TTL has elapsed."""
         # Arrange
         cache = TTLCache(maxsize=10, ttl=5, backend=backend)
-        now = monotonic()
+        now = monotonic_ns()
 
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             await cache.set("key", b"value")
 
         # Assert: still present just before expiry
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 4):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 4 * 10**9
+        ):
             assert await cache.get("key") == b"value"
 
         # Assert: gone at exactly the TTL boundary
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 5):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 5 * 10**9
+        ):
             assert await cache.get("key") is None
 
     async def test_per_entry_ttl_override(
@@ -286,17 +291,21 @@ class TestExpiry:
         """Test that a per-entry TTL overrides the cache-level default."""
         # Arrange
         cache = TTLCache(maxsize=10, ttl=60, backend=backend)
-        now = monotonic()
+        now = monotonic_ns()
 
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             await cache.set("key", b"value", ttl=10)
 
         # Assert: still alive before override expiry
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 9):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 9 * 10**9
+        ):
             assert await cache.get("key") == b"value"
 
         # Assert: expired at override boundary (not the 60 s default)
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 10):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 10 * 10**9
+        ):
             assert await cache.get("key") is None
 
     async def test_expired_entry_counts_as_miss(
@@ -305,17 +314,21 @@ class TestExpiry:
         """Test that a get on an expired entry increments misses, not hits."""
         # Arrange
         cache = TTLCache(maxsize=10, ttl=5, backend=backend)
-        now = monotonic()
+        now = monotonic_ns()
 
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             await cache.set("key", b"value")
 
         # Act: hit before expiry
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 4):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 4 * 10**9
+        ):
             await cache.get("key")
 
         # Act: miss after expiry
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 5):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 5 * 10**9
+        ):
             await cache.get("key")
 
         # Assert
@@ -840,7 +853,7 @@ class TestSetMany:
         """Test that a non-positive ttl raises."""
         cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
 
-        with pytest.raises(ValueError, match="ttl must be positive"):
+        with pytest.raises(ValueError, match="ttl must be greater than zero"):
             await cache.set_many({"a": {"v": 1}}, ttl=0)
 
     async def test_stores_tags(self, backend: MemoryCacheAdapter) -> None:
@@ -975,8 +988,8 @@ class TestStaleReserve:
         """A failing factory serves the stale reserve within `stale_ttl`."""
         cache = self._cache()
 
-        now = monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             assert (
                 await cache.get_or_set("k", lambda: "v1", stale_ttl=100) == "v1"
             )
@@ -985,15 +998,17 @@ class TestStaleReserve:
             msg = "down"
             raise RuntimeError(msg)
 
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 10):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 10 * 10**9
+        ):
             assert await cache.get_or_set("k", boom, stale_ttl=100) == "v1"
 
     async def test_get_or_set_propagates_without_stale_ttl(self) -> None:
         """Without `stale_ttl`, a failing factory propagates."""
         cache = self._cache()
 
-        now = monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             assert await cache.get_or_set("k", lambda: "v1") == "v1"
 
         def boom() -> str:
@@ -1001,7 +1016,10 @@ class TestStaleReserve:
             raise RuntimeError(msg)
 
         with (
-            patch("grelmicro.cache.memory.monotonic", return_value=now + 10),
+            patch(
+                "grelmicro.cache.memory.monotonic_ns",
+                return_value=now + 10 * 10**9,
+            ),
             pytest.raises(RuntimeError, match="down"),
         ):
             await cache.get_or_set("k", boom)
@@ -1010,8 +1028,8 @@ class TestStaleReserve:
         """An explicit delete drops the reserve, so no later stale serve."""
         cache = self._cache()
 
-        now = monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             await cache.get_or_set("k", lambda: "v1", stale_ttl=100)
 
         await cache.delete("k")
@@ -1021,7 +1039,10 @@ class TestStaleReserve:
             raise RuntimeError(msg)
 
         with (
-            patch("grelmicro.cache.memory.monotonic", return_value=now + 10),
+            patch(
+                "grelmicro.cache.memory.monotonic_ns",
+                return_value=now + 10 * 10**9,
+            ),
             pytest.raises(RuntimeError, match="down"),
         ):
             await cache.get_or_set("k", boom, stale_ttl=100)

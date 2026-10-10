@@ -49,10 +49,12 @@ that is not authenticated. A bearer token that is sent is verified as on any
 other route: a valid one is the caller, and one that does not verify is answered
 `401`. On an excluded path the caller is never authenticated, token or not.
 
-A route that requires a caller, through `Authenticated`, `CurrentPrincipal` or
-`Claims`, is refused by `micro.install(app)` when it declares `Anonymous()` or
-sits in `exclude`. It could never serve the requests it was written for. Read
-`OptionalPrincipal` on a public route instead.
+A route that declares `Anonymous()` and requires a caller, through
+`Authenticated`, `CurrentPrincipal` or `Claims`, is refused by
+`micro.install(app)`. So is a route in `exclude` that requires scopes. Neither
+could serve the requests it was written for. Read `OptionalPrincipal` on a
+public route instead. A route in `exclude` that requires a caller and no scope
+installs, and answers `401` to every request.
 
 HTTP requests and websocket handshakes are both covered.
 

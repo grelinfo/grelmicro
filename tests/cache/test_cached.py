@@ -6,6 +6,8 @@ import logging
 import threading
 import time
 from contextlib import suppress
+from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -17,7 +19,8 @@ from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
-from grelmicro.errors import EventLoopDeadlockError
+from grelmicro.errors import EventLoopDeadlockError, OutOfContextError
+from tests._logs import records_of
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -30,7 +33,7 @@ EXPECTED_MISSES_2 = 2
 EXPECTED_CURRSIZE_2 = 2
 
 
-def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
+def _make_cache(maxsize: int = 10, ttl: int | timedelta = 60) -> TTLCache:
     """Create a TTLCache with the in-memory backend and a serializer.
 
     Captures the running loop on the backend so the sync ``@cached``
@@ -321,16 +324,16 @@ class TestAsyncCachedFunctionMetadata:
         assert documented.__doc__ == "Return nothing."
 
 
-class TestAsyncCachedKeyMaker:
-    """Test @cached with custom key_maker on async functions."""
+class TestAsyncCachedKeyFunction:
+    """Test @cached with a custom key function on async functions."""
 
-    async def test_custom_key_maker(self) -> None:
-        """Custom key_maker is used for cache keys."""
+    async def test_cached_key_function_keys_the_entry(self) -> None:
+        """Custom key function is used for cache keys."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key_maker=lambda _func, args, _kwargs: str(args[0]))
+        @cached(cache, key=lambda _func, args, _kwargs: str(args[0]))
         async def fetch(user_id: int) -> dict:
             nonlocal call_count
             call_count += 1
@@ -343,20 +346,22 @@ class TestAsyncCachedKeyMaker:
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_1
 
-    async def test_custom_key_maker_isolates_entries(self) -> None:
-        """Custom key_maker can collapse different args to the same key."""
+    async def test_cached_key_function_folds_calls_into_one_entry(
+        self,
+    ) -> None:
+        """Custom key function can collapse different args to the same key."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
         # Always return the same key regardless of args
-        @cached(cache, key_maker=lambda _func, _args, _kwargs: "fixed")
+        @cached(cache, key=lambda _func, _args, _kwargs: "fixed")
         async def fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
             return x
 
-        # Act: different args, but key_maker collapses them
+        # Act: different args, but the key function collapses them
         await fetch(1)
         await fetch(2)
 
@@ -368,13 +373,13 @@ class TestAsyncCachedStampede:
     """Test @cached stampede protection on async functions."""
 
     async def test_lock_true_prevents_duplicate_computation(self) -> None:
-        """lock='local' ensures only one coroutine computes on concurrent miss."""
+        """lock='process' ensures only one coroutine computes on concurrent miss."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
 
-        @cached(cache, lock="local")
+        @cached(cache, lock="process")
         async def slow_fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -397,14 +402,14 @@ class TestAsyncCachedStampede:
     async def test_lock_true_per_key_allows_parallel_different_keys(
         self,
     ) -> None:
-        """lock='local' uses per-key locks: different keys run in parallel."""
+        """lock='process' uses per-key locks: different keys run in parallel."""
         # Arrange
         cache = _make_cache()
         order: list[str] = []
         barrier_a = asyncio.Event()
         barrier_b = asyncio.Event()
 
-        @cached(cache, lock="local")
+        @cached(cache, lock="process")
         async def fetch(key: str) -> str:
             if key == "a":
                 order.append("a:start")
@@ -553,13 +558,13 @@ class TestAsyncCachedStampede:
             held.release()
 
     async def test_stampede_none_allows_duplicate_computation(self) -> None:
-        """lock=False runs the function for every concurrent miss."""
+        """lock=None runs the function for every concurrent miss."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
 
-        @cached(cache, lock=False)
+        @cached(cache, lock=None)
         async def slow_fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -582,7 +587,7 @@ class TestAsyncCachedStampede:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, lock="local")
+        @cached(cache, lock="process")
         async def fetch(x: int) -> int:
             return x
 
@@ -597,12 +602,12 @@ class TestAsyncCachedStampede:
         assert cache.cache_info().hits == EXPECTED_HITS_1
 
     async def test_lock_false_disables_protection(self) -> None:
-        """lock=False disables protection but still caches."""
+        """lock=None disables protection but still caches."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock=False)
+        @cached(cache, lock=None)
         async def fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -830,16 +835,16 @@ class TestSyncCachedFunctionMetadata:
         assert documented.__doc__ == "Return nothing."
 
 
-class TestSyncCachedKeyMaker:
-    """Test @cached with custom key_maker on sync functions."""
+class TestSyncCachedKeyFunction:
+    """Test @cached with a custom key function on sync functions."""
 
-    async def test_custom_key_maker(self) -> None:
-        """Custom key_maker is used for cache keys."""
+    async def test_cached_key_function_keys_the_entry(self) -> None:
+        """Custom key function is used for cache keys."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key_maker=lambda _func, args, _kwargs: str(args[0]))
+        @cached(cache, key=lambda _func, args, _kwargs: str(args[0]))
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -857,12 +862,12 @@ class TestSyncCachedStampede:
     """Test @cached stampede protection on sync functions."""
 
     async def test_lock_true_prevents_duplicate_computation(self) -> None:
-        """lock='local' with threading.Lock prevents redundant computation."""
+        """lock='process' with threading.Lock prevents redundant computation."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock="local")
+        @cached(cache, lock="process")
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -880,7 +885,7 @@ class TestSyncCachedStampede:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, lock="local")
+        @cached(cache, lock="process")
         def compute(x: int) -> int:
             return x * 2
 
@@ -891,14 +896,14 @@ class TestSyncCachedStampede:
         await asyncio.to_thread(lambda: compute(7))
 
     async def test_local_prevents_stampede_under_concurrency(self) -> None:
-        """lock='local' folds concurrent same-key sync misses to one run."""
+        """lock='process' folds concurrent same-key sync misses to one run."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         # started is set the first time slow_compute begins executing
         started = threading.Event()
 
-        @cached(cache, lock="local")
+        @cached(cache, lock="process")
         def slow_compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -926,12 +931,12 @@ class TestSyncCachedStampede:
         assert sorted(results) == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
 
     async def test_lock_true_per_key_sync(self) -> None:
-        """lock='local' uses per-key threading.Lock: same key serialized, different keys not."""
+        """lock='process' uses per-key threading.Lock: same key serialized, different keys not."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock="local")
+        @cached(cache, lock="process")
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -948,12 +953,12 @@ class TestSyncCachedStampede:
         assert call_count == EXPECTED_CALL_COUNT_2  # 5 once, 6 once
 
     async def test_lock_false_still_caches(self) -> None:
-        """lock=False disables protection but still caches."""
+        """lock=None disables protection but still caches."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock=False)
+        @cached(cache, lock=None)
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -984,7 +989,7 @@ def _shared_cache(loop: asyncio.AbstractEventLoop) -> TTLCache:
 
 
 class TestDistributedStampede:
-    """Test @cached(lock=True) across simulated replicas."""
+    """Test @cached(lock="cluster") across simulated replicas."""
 
     async def test_two_replicas_fold_to_one_execution(self) -> None:
         """Concurrent distributed misses on the same key run once."""
@@ -1004,8 +1009,8 @@ class TestDistributedStampede:
             return impl
 
         impl = impl_factory()
-        replica_a = cached(cache, lock=True)(impl)
-        replica_b = cached(cache, lock=True)(impl)
+        replica_a = cached(cache, lock="cluster")(impl)
+        replica_b = cached(cache, lock="cluster")(impl)
 
         async with micro:
             task_a = asyncio.create_task(replica_a(5))
@@ -1032,8 +1037,8 @@ class TestDistributedStampede:
             time.sleep(0.03)
             return x * 2
 
-        replica_a = cached(cache, lock=True)(impl)
-        replica_b = cached(cache, lock=True)(impl)
+        replica_a = cached(cache, lock="cluster")(impl)
+        replica_b = cached(cache, lock="cluster")(impl)
 
         async with micro:
             results: list[int] = []
@@ -1050,57 +1055,19 @@ class TestDistributedStampede:
         assert sorted(results) == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
 
 
-class TestLockTrueAutoSelect:
-    """Test lock=True auto-selects distributed vs in-process by backend."""
+class TestClusterWithoutLockBackend:
+    """Test lock="cluster" refuses to run without a lock backend."""
 
-    async def test_lock_true_without_backend_folds_in_process(self) -> None:
-        """lock=True with no lock backend folds concurrent misses locally."""
+    async def test_sync_without_backend_raises(self) -> None:
+        """A sync function folding past the process needs a lock backend."""
         cache = _make_cache()
-        call_count = 0
-        barrier = asyncio.Event()
 
-        @cached(cache, lock=True)
-        async def fetch(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
-            await barrier.wait()
-            return x * 2
-
-        task_a = asyncio.create_task(fetch(5))
-        task_b = asyncio.create_task(fetch(5))
-        await asyncio.sleep(0.02)
-        barrier.set()
-
-        assert await task_a == EXPECTED_DOUBLE_5
-        assert await task_b == EXPECTED_DOUBLE_5
-        assert call_count == EXPECTED_CALL_COUNT_1
-
-    async def test_lock_true_sync_without_backend_folds_in_process(
-        self,
-    ) -> None:
-        """lock=True sync with no lock backend folds via the threading lock."""
-        cache = _make_cache()
-        call_count = 0
-
-        @cached(cache, lock=True)
+        @cached(cache, lock="cluster")
         def compute(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
-            time.sleep(0.03)
             return x * 2
 
-        results: list[int] = []
-
-        async def run() -> None:
-            results.append(await asyncio.to_thread(lambda: compute(5)))
-
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(run())
-            await asyncio.sleep(0.01)
-            tg.create_task(run())
-
-        assert call_count == EXPECTED_CALL_COUNT_1
-        assert results == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
+        with pytest.raises(OutOfContextError):
+            await asyncio.to_thread(lambda: compute(5))
 
 
 # ---------------------------------------------------------------------------
@@ -1150,7 +1117,7 @@ class TestEarlyRefresh:
         """An unknown lock value raises at decoration time."""
         cache = _make_cache()
         with pytest.raises(ValueError, match="lock"):
-            cached(cache, lock="global")  # ty: ignore[invalid-argument-type]
+            cached(cache, lock="global")  # type: ignore[arg-type] # ty: ignore[invalid-argument-type]
 
     async def test_early_outside_window_does_not_refresh(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1246,7 +1213,7 @@ class TestEarlyRefresh:
         cache = _make_cache(ttl=60)
         call_count = 0
 
-        from grelmicro.cache.cached import _make_key  # noqa: PLC0415
+        from grelmicro.cache.cached import _derive_key  # noqa: PLC0415
 
         async def impl(x: int) -> int:
             nonlocal call_count
@@ -1255,7 +1222,7 @@ class TestEarlyRefresh:
 
         fetch = cached(cache, early=0.5)(impl)
         # Seed the value directly so no XFetch meta exists for the key.
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         await cache.set(key, 10)
         await fetch(5)  # hit, meta is None
         await asyncio.sleep(0.02)
@@ -1372,7 +1339,7 @@ class TestEarlyRefresh:
     async def test_distributed_sync_early_writes_meta(self) -> None:
         """A sync distributed cold miss with early= stores XFetch metadata."""
         from grelmicro.cache.cached import (  # noqa: PLC0415
-            _make_key,
+            _derive_key,
             _read_meta,
         )
 
@@ -1383,10 +1350,10 @@ class TestEarlyRefresh:
         def impl(x: int) -> int:
             return x * 2
 
-        fetch = cached(cache, lock=True, early=0.5)(impl)
+        fetch = cached(cache, lock="cluster", early=0.5)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
-            key = _make_key(impl, (5,), {}, None, typed=False)
+            key = _derive_key(impl, (5,), {}, None, typed=False)
             meta = await _read_meta(cache, key)
         assert meta is not None
 
@@ -1402,7 +1369,7 @@ class TestEarlyRefresh:
             call_count += 1
             return x * 2
 
-        fetch = cached(cache, lock=True, skip=lambda _: True)(impl)
+        fetch = cached(cache, lock="cluster", skip=lambda _: True)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
             await asyncio.to_thread(lambda: fetch(5))
@@ -1543,13 +1510,13 @@ class TestCachedTags:
 
 
 class TestCachedKeyTemplate:
-    """Tests for @cached key= string templating."""
+    """Tests for @cached key_template= string templating."""
 
     async def test_key_template_renders_from_positional_arg(self) -> None:
-        """A key= template renders from a positional argument."""
+        """A key_template= renders from a positional argument."""
         cache = _make_cache()
 
-        @cached(cache, key="user:{user_id}")
+        @cached(cache, key_template="user:{user_id}")
         async def fetch(user_id: int) -> dict:
             return {"id": user_id}
 
@@ -1558,10 +1525,10 @@ class TestCachedKeyTemplate:
         assert await cache.get("user:42") == {"id": 42}
 
     async def test_key_template_renders_from_keyword_arg(self) -> None:
-        """A key= template renders from a keyword argument."""
+        """A key_template= renders from a keyword argument."""
         cache = _make_cache()
 
-        @cached(cache, key="user:{user_id}")
+        @cached(cache, key_template="user:{user_id}")
         async def fetch(user_id: int) -> dict:
             return {"id": user_id}
 
@@ -1570,10 +1537,10 @@ class TestCachedKeyTemplate:
         assert await cache.get("user:7") == {"id": 7}
 
     async def test_key_template_renders_from_default_argument(self) -> None:
-        """A key= template uses a default when the argument is omitted."""
+        """A key_template= uses a default when the argument is omitted."""
         cache = _make_cache()
 
-        @cached(cache, key="page:{page}")
+        @cached(cache, key_template="page:{page}")
         async def fetch(page: int = 1) -> dict:
             return {"page": page}
 
@@ -1586,7 +1553,7 @@ class TestCachedKeyTemplate:
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key="user:{user_id}")
+        @cached(cache, key_template="user:{user_id}")
         async def fetch(user_id: int, _trace: str) -> dict:
             nonlocal call_count
             call_count += 1
@@ -1598,11 +1565,11 @@ class TestCachedKeyTemplate:
         assert call_count == EXPECTED_CALL_COUNT_1
 
     async def test_key_template_literal_no_placeholders(self) -> None:
-        """A literal key= with no placeholders keys every call the same."""
+        """A literal key_template= with no placeholders keys every call the same."""
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key="all-users")
+        @cached(cache, key_template="all-users")
         async def fetch(user_id: int) -> dict:
             nonlocal call_count
             call_count += 1
@@ -1615,11 +1582,11 @@ class TestCachedKeyTemplate:
         assert await cache.get("all-users") is not None
 
     def test_key_template_sync(self) -> None:
-        """A key= template keys a sync cached function."""
+        """A key_template= keys a sync cached function."""
         backend = MemoryCacheAdapter()
         cache = TTLCache(ttl=60, backend=backend, serializer=PickleSerializer())
 
-        @cached(cache, key="user:{user_id}")
+        @cached(cache, key_template="user:{user_id}")
         def fetch(user_id: int) -> dict:
             return {"id": user_id}
 
@@ -1630,14 +1597,70 @@ class TestCachedKeyTemplate:
 
         assert asyncio.run(run()) == {"id": 5}
 
-    def test_key_and_key_maker_raises(self) -> None:
-        """Passing both key and key_maker raises TypeError."""
+
+class TestCachedKeyFunction:
+    """Tests for @cached key= function and the key_template= split."""
+
+    async def test_cached_key_function_derives_the_key(self) -> None:
+        """A key= function receives `(func, args, kwargs)` and names the entry."""
+        # Arrange
+        cache = _make_cache()
+
+        @cached(cache, key=lambda _func, args, _kwargs: f"user:{args[0]}")
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        # Act
+        await fetch(42)
+
+        # Assert
+        assert await cache.get("user:42") == {"id": 42}
+
+    async def test_cached_key_template_renders_the_key(self) -> None:
+        """A key_template= string renders the entry's key from the call."""
+        # Arrange
+        cache = _make_cache()
+
+        @cached(cache, key_template="user:{user_id}")
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        # Act
+        await fetch(user_id=7)
+
+        # Assert
+        assert await cache.get("user:7") == {"id": 7}
+
+    def test_cached_key_string_is_refused_with_a_template_hint(self) -> None:
+        """A string passed to key= is refused at decoration."""
+        # Arrange
+        template: object = "user:{user_id}"
+
+        # Act / Assert
+        with pytest.raises(
+            TypeError,
+            match="key must be a function, use key_template= for a template",
+        ):
+            cached(TTLCache(ttl=5), key=template)  # type: ignore[arg-type] # ty: ignore[invalid-argument-type]
+
+    def test_cached_key_and_key_template_together_are_refused(self) -> None:
+        """Passing both key= and key_template= is refused."""
+        # Act / Assert
         with pytest.raises(TypeError, match="not both"):
             cached(
                 TTLCache(ttl=5),
-                key="user:{user_id}",
-                key_maker=lambda _f, _a, _k: "x",
+                key=lambda _f, _a, _k: "x",
+                key_template="user:{user_id}",
             )
+
+    def test_cached_key_maker_is_an_unknown_argument(self) -> None:
+        """`key_maker=` is no longer accepted."""
+        # Arrange
+        legacy: dict[str, Any] = {"key_maker": lambda _f, _a, _k: "x"}
+
+        # Act / Assert
+        with pytest.raises(TypeError, match="key_maker"):
+            cached(TTLCache(ttl=5), **legacy)
 
 
 class TestCachedStaleOnError:
@@ -1671,13 +1694,15 @@ class TestCachedStaleOnError:
                 raise RuntimeError(msg)
             return calls
 
-        now = time.monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = time.monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             assert await fetch() == EXPECTED_CALL_COUNT_1
 
         fail = True
         # Primary entry expired (ttl=5), stale reserve alive (ttl=105).
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 10):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 10 * 10**9
+        ):
             assert await fetch() == EXPECTED_CALL_COUNT_1
 
     async def test_propagates_when_reserve_also_expired(self) -> None:
@@ -1692,13 +1717,16 @@ class TestCachedStaleOnError:
                 raise RuntimeError(msg)
             return 1
 
-        now = time.monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = time.monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             assert await fetch() == EXPECTED_CALL_COUNT_1
 
         fail = True
         with (
-            patch("grelmicro.cache.memory.monotonic", return_value=now + 200),
+            patch(
+                "grelmicro.cache.memory.monotonic_ns",
+                return_value=now + 200 * 10**9,
+            ),
             pytest.raises(RuntimeError, match="down"),
         ):
             await fetch()
@@ -1715,13 +1743,16 @@ class TestCachedStaleOnError:
                 raise RuntimeError(msg)
             return 1
 
-        now = time.monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = time.monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             assert await fetch() == EXPECTED_CALL_COUNT_1
 
         fail = True
         with (
-            patch("grelmicro.cache.memory.monotonic", return_value=now + 10),
+            patch(
+                "grelmicro.cache.memory.monotonic_ns",
+                return_value=now + 10 * 10**9,
+            ),
             pytest.raises(RuntimeError, match="down"),
         ):
             await fetch()
@@ -1760,14 +1791,16 @@ class TestSyncCachedStaleOnError:
                 raise RuntimeError(msg)
             return calls
 
-        now = time.monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = time.monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             first = await asyncio.to_thread(fetch)
         assert first == EXPECTED_CALL_COUNT_1
 
         fail = True
         # Primary entry expired (ttl=5), stale reserve alive (ttl=105).
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 10):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 10 * 10**9
+        ):
             served = await asyncio.to_thread(fetch)
         assert served == EXPECTED_CALL_COUNT_1
 
@@ -2007,12 +2040,12 @@ class TestAsyncCachedRefresh:
         assert sorted(results) == list(range(1, EXPECTED_REFRESH_FLEET + 1))
 
     async def test_refresh_without_lock_still_recomputes(self) -> None:
-        """`lock=False` opts out of serializing, and refresh still writes."""
+        """`lock=None` opts out of serializing, and refresh still writes."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock=False)
+        @cached(cache, lock=None)
         async def compute(_x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -2073,7 +2106,7 @@ class TestAsyncCachedRefresh:
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key="v:{x}", tags=["all"])
+        @cached(cache, key_template="v:{x}", tags=["all"])
         async def compute(x: int) -> int:  # noqa: ARG001
             nonlocal call_count
             call_count += 1
@@ -2116,12 +2149,12 @@ class TestSyncCachedRefresh:
         assert after == EXPECTED_CALL_COUNT_2
 
     async def test_refresh_without_lock_still_recomputes(self) -> None:
-        """`lock=False` skips the per-key lock on the sync path too."""
+        """`lock=None` skips the per-key lock on the sync path too."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock=False)
+        @cached(cache, lock=None)
         def compute(_x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -2154,13 +2187,13 @@ class TestCachedRefreshDistributed:
     """Test refresh under a cross-replica lock backend."""
 
     async def test_refresh_serializes_across_replicas(self) -> None:
-        """With `lock=True`, refreshes take the cross-replica lock too."""
+        """With `lock="cluster"`, refreshes take the cross-replica lock too."""
         # Arrange
         cache = _make_cache()
         micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
         call_count = 0
 
-        @cached(cache, lock=True)
+        @cached(cache, lock="cluster")
         async def compute(_x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -2184,7 +2217,7 @@ class TestCachedRefreshDistributed:
         micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
         call_count = 0
 
-        @cached(cache, lock=True)
+        @cached(cache, lock="cluster")
         def compute(_x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -2266,7 +2299,7 @@ class TestEarlyRefreshFailureIsObservable:
         cache = _make_cache(ttl=60)
         fail = False
 
-        @cached(cache, key="k", early=0.5)
+        @cached(cache, key_template="k", early=0.5)
         async def compute() -> int:
             if fail:
                 msg = "upstream down"
@@ -2305,7 +2338,7 @@ class TestEarlyRefreshFailureIsObservable:
         cache = _make_cache(ttl=60)
         fail = False
 
-        @cached(cache, key="k", early=0.5)
+        @cached(cache, key_template="k", early=0.5)
         def compute() -> int:
             if fail:
                 msg = "upstream down"
@@ -2347,4 +2380,4 @@ class TestEarlyRefreshFailureIsObservable:
             cached_mod._report_refresh_failure(TTLCache(), "k", task)
 
         # Assert
-        assert not caplog.records
+        assert not records_of(caplog, "grelmicro.cache.cached")

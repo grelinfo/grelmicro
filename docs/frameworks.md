@@ -6,17 +6,17 @@ grelmicro is not a web framework. It plugs into the one you picked, and
 **Every pattern and every component works on every framework grelmicro
 supports.** A `Lock`, a `RateLimiter`, `@cached`, the outbox, the scheduler,
 health checks, logging, tracing, and metrics behave the same whichever one you
-picked. What differs is the wiring `install` does for you, and three pieces
-that only FastAPI can have. Both halves of that are named below, and a test
-holds them.
+picked. What differs is the wiring `install` does for you, and two routers
+that only FastAPI has. Both halves of that are named below, and a test holds
+them.
 
 ## What `install` wires
 
 | Framework | Extra | What `install` wires | Not portable |
 |---|---|---|---|
 | [FastAPI](https://fastapi.tiangolo.com/) | `grelmicro[fastapi]` | The lifespan, the per-request binding, the error responses, the middleware you registered, and the OpenAPI schema. | Nothing. |
-| [Starlette](https://www.starlette.io/) | `grelmicro[starlette]` | The lifespan, the per-request binding, the error responses, and the middleware you registered. | The [health router](health.md), the metrics router, and the OpenAPI annotations. |
-| [Litestar](https://litestar.dev/) | `grelmicro[litestar]` | The startup and shutdown hooks, the per-request binding, the error responses, and the middleware you registered. | The same three, and request auto-instrumentation, which Litestar does with its own plugin. |
+| [Starlette](https://www.starlette.io/) | `grelmicro[starlette]` | The lifespan, the per-request binding, the error responses, and the middleware you registered. | The [health router](health.md) and the metrics router. Starlette builds no OpenAPI schema. |
+| [Litestar](https://litestar.dev/) | `grelmicro[litestar]` | The startup and shutdown hooks, the per-request binding, the error responses, the middleware you registered, and the OpenAPI schema. | The same two routers, and request auto-instrumentation, which Litestar does with its own plugin. |
 | [FastStream](https://faststream.airt.ai/) | `grelmicro[faststream]` | The startup and shutdown hooks, the per-message binding, and the broker telemetry middleware. | Everything HTTP, because FastStream serves none. |
 
 `install` also wires what you registered. `ErrorResponses()` has grelmicro's
@@ -39,17 +39,16 @@ The extra installs the framework itself. grelmicro imports nothing from it
 until you call `install`, so an app that already depends on FastAPI needs no
 extra at all.
 
-## The one exception
+## The OpenAPI schema
 
-Only FastAPI builds an OpenAPI schema, so one piece stops at its door:
+FastAPI and Litestar build an OpenAPI schema, and `install` describes every
+registered component in it the same way on both: the bearer token, the `429`
+of a rate limit, the `Idempotency-Key` header, and the precondition headers.
+Starlette builds no schema, so there is nothing to describe. A route marks
+`If-Match` required with `ConditionalRequired` on FastAPI, and with
+`require_precondition=` on every framework.
 
-| Piece | Why | Where it is going |
-|---|---|---|
-| `document_idempotency(app)` | Annotates an OpenAPI schema. | Nowhere. A framework that builds no schema has nothing to annotate. |
-
-The middleware behind it is portable. `IdempotentRequests()` wires on FastAPI,
-Starlette, and Litestar alike, and only the schema annotation is skipped where
-there is no schema.
+## The routers
 
 [`health_router()`](health.md) and [`metrics_router()`](metrics.md) build a
 FastAPI `APIRouter`, so they are FastAPI's door onto the endpoints rather than
@@ -60,12 +59,12 @@ own port with [`OpsServer`](http/server.md). All three doors render through
 one set of functions, and `tests/test_endpoint_parity.py` holds them to one
 status, one set of headers, and one body.
 
-FastStream is not a second exception, it is a different axis. It serves no
-HTTP, so every HTTP-shaped behaviour is out of scope for it by definition. It
-carries no HTTP-facing hook, so `micro.install(app)` skips those without any
-code anywhere reading a framework's name. Everything else, the locks, the
-cache, the outbox, the scheduler, and the resilience patterns, behaves inside a
-subscriber exactly as it does inside a request handler.
+FastStream is a different axis. It serves no HTTP, so every HTTP-shaped
+behaviour is out of scope for it by definition. It carries no HTTP-facing
+hook, so `micro.install(app)` skips those without any code anywhere reading
+a framework's name. Everything else, the locks, the cache, the outbox, the
+scheduler, and the resilience patterns, behaves inside a subscriber exactly as
+it does inside a request handler.
 
 ## How the claim is held
 

@@ -37,7 +37,7 @@ class FireOutcome(StrEnum):
     - ``SKIPPED``: another worker handled the fire, so this one stood
       down. The peer either ran it or recorded it as missed.
     - ``MISSED``: the fire was dropped and no worker ran it. Either it
-      came back too late to replay, past ``misfire_grace_seconds``, or
+      came back too late to replay, past ``misfire_grace``, or
       this worker claimed it and then could not admit the body.
     - ``COORDINATION_ERROR``: the fire never reached the body because
       coordination itself failed, such as an unreachable schedule backend

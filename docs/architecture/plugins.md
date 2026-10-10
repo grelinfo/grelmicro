@@ -17,8 +17,9 @@ A Provider covers the vendor axis: one Provider per vendor. An Adapter covers
 the algorithm axis within a kind, so several adapters can share one Provider
 (a Redis lock and a Redis cache both run on `RedisProvider`).
 
-The component kinds are `coordination`, `coordination.election`, `coordination.schedule`, `cache`,
-`ratelimiter`, and `circuitbreaker`.
+The component kinds are `coordination`, `coordination.readwritelock`,
+`coordination.leaderelection`, `coordination.schedule`, `cache`, `ratelimiter`,
+and `circuitbreaker`.
 
 ## Publish a third-party integration
 
@@ -80,8 +81,11 @@ request. Your integration tells it what each route requires with a
 | `methods` | The methods the router answers on this route, in capitals. A router that answers `HEAD` for a `GET` lists both. `None` is every method, as a mount or a websocket route answers | `None` |
 | `anonymous` | The route serves a caller with no credential | `False` |
 | `scopes` | The scopes the caller must hold, every one of them | empty |
-| `own_checks` | The route runs checks of its own before the handler, so its answer can depend on the caller: a dependency, a guard, or middleware on the route or on a mount around it. A response is never cached or replayed across callers | `False` |
-| `cache` | `CachedResponses` may store the route's response. `True` keeps it for the TTL the component is configured with, and a number for that many seconds | `False` |
+| `own_checks` | The route runs checks of its own before the handler, so its answer can depend on the caller: a dependency, a guard, or middleware on the route. A response is never cached or replayed across callers | `False` |
+| `checked_above` | Checks that are not the route's own run before it, such as middleware on a router or a mount around it, so its answer can depend on the caller. A response is never replayed across callers, and a `cache` the route declares still holds | `False` |
+| `cache` | `CachedResponses` may store the route's response. `True` keeps it for the TTL the component is configured with, a `timedelta` keeps it that long, and a number is refused | `False` |
+| `shared` | The route requires a caller and answers every caller it admits the same, so one stored response serves all of them, a credential included. Without it, a request carrying a credential is answered by the handler | `False` |
+| `precondition_required` | The route answers `428` to a request carrying neither `If-Match` nor `If-None-Match`. The OpenAPI document marks `If-Match` required on its methods. FastAPI sets it from `ConditionalRequired`. Starlette and Litestar have no per-route form, so `require_precondition=` describes them | `False` |
 
 A declaration is frozen. Pass `path` first and every other field by keyword.
 A route whose methods declare differently, such as a public `GET` beside a
@@ -122,10 +126,16 @@ A router included more than once is gated at every path it is included under.
 `route_declarations(app)` lists the same declarations. `micro.install(app)`
 refuses to start an app with a listed route that carries no gate, so a route
 added after install never serves ungated. `grelmicro check`,
-`micro.describe(app)` and the OpenAPI document read the list too. Build both
+`micro.describe(app)` and the OpenAPI document read the list too, and name a
+route's scopes in alphabetical order. Build both
 from one function, so they cannot disagree. Test them against real routes:
 an included router, a mount and a class-based endpoint are where a missed
 `scopes` hides, and it lets any authenticated caller in.
+
+Idempotency calls `route_declarations` on each object of your framework it
+meets between its middleware and the routes, or only on those your
+`_lists_routes(obj)` accepts when the integration carries it. An exception
+`route_declarations` raises fails the request.
 
 For Starlette, where your own decorators set `anonymous` and `scopes` on the
 endpoint:
@@ -203,13 +213,17 @@ mounts it can read, and declares each `HTTPEndpoint` method on its own.
   declares nothing. Every route stays authenticated, and `CachedResponses`
   caches only the paths `include=` names.
 - **Some declarations are refused.** These fail at install, naming the
-  route: `anonymous=True` with `scopes`, `cache` with `own_checks`, `cache` on
-  a route answering a method other than `GET` or `HEAD`, an empty `methods`,
-  and a method in lower case. A `CachedResponse` declared on a router covers
-  the reads under it that run no checks of their own, so its writes and those
-  reads declare no `cache`.
-- **A cached protected route is shared.** Its response is served to every
-  caller the route admits, so declare `cache` only where each of them gets the
+  route: `anonymous=True` with `scopes`, `scopes` on a path in `exclude=`,
+  `cache` with `own_checks`, `cache` on a route answering a method other than
+  `GET` or `HEAD`, `shared` without `cache` or with `anonymous=True`, an empty
+  `methods`, and a method in lower case. A `CachedResponse` declared on a
+  router covers the reads under it that run no checks of their own, so its
+  writes and those reads declare no `cache`. On FastAPI,
+  `CachedResponse(shared=True)` on a router or the app, and on a route whose
+  handler takes the caller as a parameter, fail at install too.
+- **A cached protected route is shared only when it says so.** A request
+  carrying a credential is answered by the handler unless the route declares
+  `shared=True`. Declare it only where every caller the route admits gets the
   same answer.
 
 ## Publish a third-party adapter

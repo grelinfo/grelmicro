@@ -1,12 +1,7 @@
 """Module-level `shield` decorator.
 
-Supports:
-
-- `@shield` (no parens): wraps with the `api` profile and default
-  `timeout_errors=(TimeoutError,)`. The Shield name is the wrapped
-  function's `__qualname__`.
-- `@shield.internal(...)` / `@shield.api(...)` / `@shield.slow(...)`:
-  builds a Shield with the matching profile and decorates.
+`@shield.internal(...)` / `@shield.api(...)` / `@shield.slow(...)`
+builds a Shield with the matching profile and decorates.
 """
 
 from __future__ import annotations
@@ -23,6 +18,8 @@ from grelmicro.resilience.shield._shield import Shield
 
 if TYPE_CHECKING:
     from pydantic import PositiveFloat
+
+    from grelmicro.resilience._when import WhenInput
 
 __all__ = ["shield"]
 
@@ -49,7 +46,7 @@ def _build_profile_decorator(
             ),
         ] = None,
         *,
-        timeout_errors: tuple[type[BaseException], ...] | None = None,
+        when: WhenInput | None = None,
         max_rate: PositiveFloat | None = None,
         cache: Any = None,  # noqa: ANN401
         cache_key: Callable[..., str] | None = None,
@@ -57,7 +54,18 @@ def _build_profile_decorator(
         | Callable[[BaseException], Awaitable[Any]]
         | None = None,
     ) -> Callable[[_AsyncFn], _AsyncFn]:
-        """Return a decorator that wraps a function with the chosen profile."""
+        """Return a decorator that wraps a function with the chosen profile.
+
+        Raises:
+            TypeError: If called with the function itself, as a bare
+                `@shield.api` without parentheses would.
+        """
+        if callable(name):
+            msg = (
+                f"@shield.{profile} needs parentheses and when=, such as "
+                f"@shield.{profile}(when=httpx.HTTPError)"
+            )
+            raise TypeError(msg)
 
         def wrap(fn: _AsyncFn) -> _AsyncFn:
             refuse_registered(fn, f"@shield.{profile}")
@@ -65,7 +73,7 @@ def _build_profile_decorator(
             factory_method = getattr(Shield, profile)
             instance: Shield = factory_method(
                 shield_name,
-                timeout_errors=timeout_errors,
+                when=when,
                 max_rate=max_rate,
                 cache=cache,
                 cache_key=cache_key,
@@ -80,19 +88,11 @@ def _build_profile_decorator(
 
 
 class _ShieldDecorator:
-    """Callable object exposed as the module-level `shield`.
+    """Namespace exposed as the module-level `shield`.
 
-    Supports `@shield` (no parens) for the `api`-profile default and
-    `@shield.internal(...)` / `@shield.api(...)` / `@shield.slow(...)`
-    for the explicit forms.
+    Holds `@shield.internal(...)`, `@shield.api(...)` and
+    `@shield.slow(...)`, one per profile.
     """
-
-    def __call__(self, fn: _AsyncFn) -> _AsyncFn:
-        """Wrap `fn` with the `api` profile and default `timeout_errors`."""
-        refuse_registered(fn, "@shield")
-        instance = Shield.api(callable_name(fn))
-        wrapped = instance(fn)
-        return functools.wraps(fn)(wrapped)
 
     internal = staticmethod(_build_profile_decorator("internal"))
     api = staticmethod(_build_profile_decorator("api"))

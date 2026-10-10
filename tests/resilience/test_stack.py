@@ -45,8 +45,8 @@ TIMEOUT = 5.0
 DOUBLE = 21
 DOUBLED = 42
 SLOW_REFILL = 0.0001
-RESET_TIMEOUT = 30.0
-INTERVAL = 60.0
+RESET_TIMEOUT = 30
+INTERVAL = 60
 SLOW_DELAY = 0.2
 
 
@@ -139,7 +139,7 @@ def test_a_bound_limiter_and_a_bare_one_are_two_limiters() -> None:
     """A binding fills the same slot as the limiter it wraps."""
     limiter = RateLimiter.token_bucket("recs", capacity=CAPACITY, refill_rate=1)
     with pytest.raises(ValueError, match="at most one RateLimiter"):
-        Stack("recs", patterns=[limiter, limiter(key="u:{uid}")])
+        Stack("recs", patterns=[limiter, limiter(key_template="u:{uid}")])
 
 
 def test_an_empty_stack_is_refused() -> None:
@@ -163,7 +163,7 @@ def test_something_that_is_not_a_pattern_is_refused() -> None:
 @pytest.mark.parametrize(
     ("item", "match"),
     [
-        (Shield("sh"), "Shield is a stack of its own"),
+        (Shield("sh", when=TimeoutError), "Shield is a stack of its own"),
         (LeaderElection("le"), "runs as a service"),
         (Lock("lk"), "held around a block"),
         (ReadWriteLock("rw"), "held around a block"),
@@ -305,7 +305,11 @@ async def test_run_refuses_a_key_the_target_does_not_take() -> None:
         )
         stack = Stack(
             "recs",
-            patterns=[a_fallback(), a_retry(), limiter(key="user:{user_id}")],
+            patterns=[
+                a_fallback(),
+                a_retry(),
+                limiter(key_template="user:{user_id}"),
+            ],
         )
         calls = 0
 
@@ -695,7 +699,7 @@ async def test_a_bound_limiter_meters_by_its_key() -> None:
         limiter = RateLimiter.token_bucket(
             "recs", capacity=1, refill_rate=SLOW_REFILL, backend=backend
         )
-        binding = limiter(key="u:{user_id}")
+        binding = limiter(key_template="u:{user_id}")
         assert isinstance(binding, RateLimiterBinding)
         stack = Stack("recs", patterns=[binding])
 
@@ -891,7 +895,7 @@ async def test_a_key_error_is_not_a_dependency_failure() -> None:
             msg = "tenant"
             raise KeyError(msg)
 
-        stack = Stack("recs", patterns=[breaker, limiter(key_maker=explode)])
+        stack = Stack("recs", patterns=[breaker, limiter(key=explode)])
 
         @stack
         async def work() -> str:
@@ -980,7 +984,7 @@ async def stacked_job() -> None:
 def test_a_function_already_registered_as_a_task_is_refused() -> None:
     """The schedule holds what it registered, so the stack goes above."""
     tasks = Tasks()
-    registered = tasks.every(seconds=INTERVAL)(scheduled_job)
+    registered = tasks.every(interval=INTERVAL)(scheduled_job)
     stack = Stack("job", patterns=[a_retry("job")])
 
     with pytest.raises(TypeError, match="already registered as a task"):
@@ -1002,7 +1006,7 @@ async def test_a_task_registered_above_the_stack_runs_through_it() -> None:
     _task_calls.clear()
     tasks = Tasks()
     stack = Stack("job", patterns=[a_retry("job")])
-    tasks.every(seconds=INTERVAL)(stack(stacked_job))
+    tasks.every(interval=INTERVAL)(stack(stacked_job))
 
     task = cast("Any", tasks.tasks[0])
     await task._run_with_sync([])
@@ -1134,7 +1138,7 @@ def test_one_pattern_without_a_list_says_so() -> None:
 def test_a_pattern_over_a_registered_task_is_refused_at_the_mistake() -> None:
     """Every pattern refuses, so the error names the decorator that erred."""
     tasks = Tasks()
-    registered = tasks.every(seconds=INTERVAL)(scheduled_job)
+    registered = tasks.every(interval=INTERVAL)(scheduled_job)
 
     with pytest.raises(TypeError, match="already registered as a task"):
         Fallback("job", when=Exception, default=None)(registered)
@@ -1143,7 +1147,7 @@ def test_a_pattern_over_a_registered_task_is_refused_at_the_mistake() -> None:
 def test_a_foreign_wrapper_over_a_registered_task_is_refused_too() -> None:
     """A decorator grelmicro does not own still leaves the schedule behind."""
     tasks = Tasks()
-    registered = tasks.every(seconds=INTERVAL)(scheduled_job)
+    registered = tasks.every(interval=INTERVAL)(scheduled_job)
 
     @functools.wraps(registered)
     async def foreign() -> None:
@@ -1242,7 +1246,7 @@ class Service:
 def test_a_bound_method_registered_as_a_task_is_refused() -> None:
     """A bound method carries no mark, so the function under it does."""
     tasks = Tasks()
-    tasks.every(seconds=INTERVAL, name="bound")(Service.job)
+    tasks.every(interval=INTERVAL, name="bound")(Service.job)
     stack = Stack("job", patterns=[a_retry("job")])
     service = Service()
 

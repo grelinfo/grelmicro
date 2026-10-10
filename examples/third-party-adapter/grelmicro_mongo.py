@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Self
 from grelmicro.providers import Provider
 
 if TYPE_CHECKING:
+    from datetime import timedelta
     from types import TracebackType
 
 
@@ -44,7 +45,7 @@ class MongoLockAdapter:
         """Close the adapter."""
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire the lock (implement with a MongoDB upsert + TTL index).
 
@@ -75,7 +76,7 @@ class MongoProvider(Provider):
         """Store the connection URL (open the real client in `__aenter__`)."""
         self._url = url
 
-    def lock(self, **kwargs: Any) -> MongoLockAdapter:  # noqa: ANN401, ARG002
+    def lock_backend(self, **kwargs: Any) -> MongoLockAdapter:  # noqa: ANN401, ARG002
         """Build the matching lock adapter bound to this provider."""
         return MongoLockAdapter(self)
 
