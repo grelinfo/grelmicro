@@ -12,8 +12,12 @@ from loguru import logger as loguru_logger
 BACKENDS = ["loguru", "structlog", "stdlib"]
 
 
-_FOREIGN_LOGGERS = ("opentelemetry",)
-"""Loggers whose records a test never asked for, such as a shut-down provider's."""
+_FOREIGN_LOGGERS = ("opentelemetry", "asyncio")
+"""Loggers that write when another test's objects are collected.
+
+A shut-down OpenTelemetry provider, or an asyncio task another test left
+behind, logs in the middle of whatever test runs then.
+"""
 
 
 def _own(record: dict[str, Any]) -> bool:
