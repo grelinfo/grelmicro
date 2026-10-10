@@ -77,6 +77,7 @@ __all__ = [
     "litestar_route_handler",
     "matches",
     "names_route",
+    "path_format",
     "read_route",
     "refuse_bare_method",
     "refuse_bare_name",
@@ -299,6 +300,18 @@ def compile_mount(
 
     compiled, _, _ = compile_path(f"{_renamed(template)}/{{path:path}}")
     return compiled
+
+
+def path_format(
+    template: Annotated[
+        str, Doc("A route's path, such as `/items/{item_id:int}`.")
+    ],
+) -> str:
+    """Return the path with each parameter's converter left out.
+
+    `/items/{item_id:int}` reads `/items/{item_id}`, as the schema names it.
+    """
+    return _ROUTE_PARAMETER.sub(r"{\1}", template)
 
 
 def _renamed(template: str) -> str:

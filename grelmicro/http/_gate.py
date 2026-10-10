@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import functools
 from collections import Counter
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
 
-from grelmicro._paths import ROUTE_KEY, route_path, selects
+from grelmicro._paths import ROUTE_KEY, path_format, route_path, selects
 from grelmicro.errors import AuthenticationRequiredError, InsufficientScopeError
 from grelmicro.http._component import ErrorResponses, raw_headers_of, send_error
 from grelmicro.http._kinds import AUTHENTICATION_REQUIRED, INSUFFICIENT_SCOPE
@@ -626,6 +627,33 @@ def _admission(
     return admit
 
 
+def _refuse_excluded_scopes(
+    declaration: RouteDeclaration, exclude: tuple[str, ...]
+) -> None:
+    """Refuse a declaration requiring scopes on a path in `exclude`.
+
+    The gate lets every request on that path through unchecked, so no
+    scope it declares is ever checked. The route is named by its path
+    with each converter left out.
+
+    Raises:
+        ValueError: Naming the route and its scopes.
+    """
+    if not declaration.scopes or not exclude:
+        return
+    path = path_format(declaration.path)
+    if selects(path, include=(), exclude=exclude):
+        return
+    route = route_name(replace(declaration, path=path))
+    msg = (
+        f"{route} is in exclude, so a token is never read there, and "
+        f"declares the scopes {' '.join(sorted(declaration.scopes))}, which no "
+        f"request there is checked for. Take the path out of exclude, or "
+        f"drop the scopes."
+    )
+    raise ValueError(msg)
+
+
 def _refuse_overlap(declarations: tuple[RouteDeclaration, ...]) -> None:
     """Refuse declarations that answer one request twice.
 
@@ -768,11 +796,13 @@ class RouteGate:
         Raises:
             TypeError: If there is no declaration, or a `cache` is neither
                 a boolean nor a `timedelta`.
-            ValueError: If a declaration cannot hold, or two declarations
-                answer the same method, naming the route.
+            ValueError: If a declaration cannot hold, requires scopes on a
+                path in `exclude`, or two declarations answer the same
+                method, naming the route.
         """
         for declaration in declarations:
             refuse_impossible(declaration)
+            _refuse_excluded_scopes(declaration, self.policy.exclude)
         _refuse_overlap(declarations)
         self._gated.update(declarations)
         if any(declaration.anonymous for declaration in declarations):

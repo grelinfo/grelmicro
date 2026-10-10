@@ -37,6 +37,7 @@ from grelmicro.http._authentication import (
     document_operations,
     metadata_path_of,
     operation_authentication,
+    refuse_anonymous_caller,
     refuse_routes_at_metadata,
     resource_metadata_of,
     serves_anonymous_routes,
@@ -922,19 +923,27 @@ def _declaration(template: str, handler: Any) -> RouteDeclaration:  # noqa: ANN4
 
     The route grelmicro adds for the protected resource metadata is not
     anonymous.
+
+    Raises:
+        TypeError: If the handler declares `Anonymous()` and an
+            `Authenticated` guard, naming it.
     """
     methods = getattr(handler, "http_methods", None)
     guards = handler.resolve_guards()
-    return RouteDeclaration(
+    required = [declared_scopes(guard) for guard in guards]
+    declaration = RouteDeclaration(
         template,
         methods=frozenset(methods) if methods else None,
         anonymous=bool(handler.opt.get(ANONYMOUS_OPT))
         and not getattr(handler.fn, METADATA_MARKER, False),
         scopes=frozenset(
-            scope for guard in guards for scope in declared_scopes(guard) or ()
+            scope for scopes in required for scope in scopes or ()
         ),
         own_checks=_runs_own_checks(handler, guards),
     )
+    if declaration.anonymous and any(scopes is not None for scopes in required):
+        refuse_anonymous_caller(declaration)
+    return declaration
 
 
 def _runs_own_checks(handler: Any, guards: Sequence[Any]) -> bool:  # noqa: ANN401

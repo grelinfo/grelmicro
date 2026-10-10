@@ -124,7 +124,8 @@ A router included more than once is gated at every path it is included under.
 `route_declarations(app)` lists the same declarations. `micro.install(app)`
 refuses to start an app with a listed route that carries no gate, so a route
 added after install never serves ungated. `grelmicro check`,
-`micro.describe(app)` and the OpenAPI document read the list too. Build both
+`micro.describe(app)` and the OpenAPI document read the list too, and name a
+route's scopes in alphabetical order. Build both
 from one function, so they cannot disagree. Test them against real routes:
 an included router, a mount and a class-based endpoint are where a missed
 `scopes` hides, and it lets any authenticated caller in.
@@ -210,11 +211,11 @@ mounts it can read, and declares each `HTTPEndpoint` method on its own.
   declares nothing. Every route stays authenticated, and `CachedResponses`
   caches only the paths `include=` names.
 - **Some declarations are refused.** These fail at install, naming the
-  route: `anonymous=True` with `scopes`, `cache` with `own_checks`, `cache` on
-  a route answering a method other than `GET` or `HEAD`, an empty `methods`,
-  and a method in lower case. A `CachedResponse` declared on a router covers
-  the reads under it that run no checks of their own, so its writes and those
-  reads declare no `cache`.
+  route: `anonymous=True` with `scopes`, `scopes` on a path in `exclude=`,
+  `cache` with `own_checks`, `cache` on a route answering a method other than
+  `GET` or `HEAD`, an empty `methods`, and a method in lower case. A
+  `CachedResponse` declared on a router covers the reads under it that run no
+  checks of their own, so its writes and those reads declare no `cache`.
 - **A cached protected route is shared.** Its response is served to every
   caller the route admits, so declare `cache` only where each of them gets the
   same answer.
