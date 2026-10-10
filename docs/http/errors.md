@@ -214,9 +214,9 @@ ErrorResponses.tmf(reference_error="https://docs.example.com/errors/")
 ErrorResponses.tmf(reference_error=None)
 ```
 
-`document_idempotency(app)` follows whichever format is registered, so the
-OpenAPI schema publishes `TMFError` rather than `ProblemDetail` when this one
-is.
+A registered component describes its own refusals in whichever format is
+registered, so the OpenAPI schema publishes `TMFError` rather than
+`ProblemDetail` when this one is.
 
 ## Writing your own errors
 
@@ -315,8 +315,8 @@ republished with the registered media type and model, and the models it
 published for that shape are dropped once nothing points at them. A response
 you declared yourself keeps its schema.
 
-`document_idempotency(app)` does the same for the middleware's own responses,
-publishing `ProblemDetail` or `TMFError` to match.
+A registered component does the same for the responses its middleware
+answers, publishing `ProblemDetail` or `TMFError` to match.
 
 For a route that raises a rejection itself, declare it:
 

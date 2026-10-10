@@ -55,6 +55,16 @@ from grelmicro.http._kinds import (
     Kind,
     Occurrence,
 )
+from grelmicro.http._openapi import (
+    add_error_schema,
+    add_parameter,
+    declaration_of,
+    declared_operations,
+    error_format,
+    mark_required,
+    merge_response,
+    operations_of,
+)
 from grelmicro.http.errors import (
     PreconditionError,
     PreconditionFailedError,
@@ -62,8 +72,16 @@ from grelmicro.http.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, MutableMapping, Sequence
+    from collections.abc import (
+        Awaitable,
+        Callable,
+        Iterable,
+        MutableMapping,
+        Sequence,
+    )
     from types import TracebackType
+
+    from grelmicro.http._routes import RouteDeclaration
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -1225,9 +1243,7 @@ class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
                 "Describe `If-Match`, `If-None-Match` and the responses "
                 "they lead to in the OpenAPI schema, so a client built "
                 "from it sends the headers and Swagger offers the fields. "
-                "Only FastAPI builds one, and every other framework "
-                "ignores this. Read once when the schema is built, so it "
-                "is not live."
+                "Read once when the schema is built, so it is not live."
             ),
         ] = True,
         name: Annotated[
@@ -1331,22 +1347,53 @@ class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
         """
         return ConditionalRequestsMiddleware, {"live": self._live}
 
-    def document_openapi(
+    def _document_openapi(
         self,
-        app: Annotated[Any, Doc("The FastAPI application to describe.")],  # noqa: ANN401
-    ) -> None:
-        """Describe the conditional headers in the app's OpenAPI schema.
+        schema: Annotated[
+            dict[str, Any],
+            Doc("The OpenAPI schema to describe the component in."),
+        ],
+        *,
+        routes: Annotated[
+            Iterable[RouteDeclaration],
+            Doc(
+                "The app's route declarations. A route declaring "
+                "`precondition_required` gets `If-Match` marked required."
+            ),
+        ] = (),
+        errors: Annotated[
+            ErrorResponses | None,
+            Doc(
+                "The registered format refusals are answered in. `None` "
+                "publishes RFC 9457 problem details."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Describe the conditional headers and responses, and return the schema.
 
-        Called by the FastAPI integration after the middleware is added. A
-        framework that builds no schema never calls it.
+        Every operation the middleware covers, by `include` and `exclude`:
+
+        - A `GET` or `HEAD` gains `If-None-Match` and the `304` it can
+          answer.
+        - A `PUT`, `PATCH` or `DELETE` gains `If-Match`, the `412` a stale
+          one gets, and the `428` a missing one gets. So does any other
+          method named in `require_precondition` or declared
+          `precondition_required`, where `If-Match` is marked required.
+
+        The schema is edited in place, and a second call changes nothing.
+        With `openapi=False` it is returned untouched.
+
+        `micro.install(app)` calls it when FastAPI or Litestar builds the
+        schema.
         """
-        if not self._openapi:
-            return
-        from grelmicro.integrations.fastapi import (  # noqa: PLC0415
-            document_conditional_requests,
-        )
-
-        document_conditional_requests(app)
+        if self._openapi:
+            describe_conditional(
+                schema,
+                self._live.state.config,
+                declared_operations(routes),
+                *error_format(errors),
+            )
+        return schema
 
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
         """Return what this component answers rather than letting through.
@@ -1375,3 +1422,119 @@ class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
     ) -> bool | None:
         """Close the component. Nothing to close."""
         return None
+
+
+_PRECONDITION_REQUIRED: Final = "__grelmicro_precondition_required__"
+"""Set on a dependency that answers `428` to a request without a precondition."""
+
+
+def declare_precondition_required[T](target: T) -> T:
+    """Mark `target` as answering `428` to a request carrying no precondition."""
+    setattr(target, _PRECONDITION_REQUIRED, True)
+    return target
+
+
+def declares_precondition_required(target: object) -> bool:
+    """Return whether `target` answers `428` to a request carrying no precondition."""
+    return bool(getattr(target, _PRECONDITION_REQUIRED, False))
+
+
+_CREATE_CASE: Final = (
+    "Required, unless the request creates with `If-None-Match: *`."
+)
+"""What `required` alone cannot say: either header satisfies the rule."""
+
+_READ_METHODS: Final = ("get", "head")
+"""Methods a `304` may answer."""
+
+_WRITE_METHODS: Final = ("put", "patch", "delete")
+"""Methods a precondition guards unless a route or the rules name another."""
+
+
+def describe_conditional(
+    schema: dict[str, Any],
+    config: ConditionalRequestsConfig,
+    declared: dict[tuple[str, str | None], RouteDeclaration],
+    media_type: str,
+    model: type[BaseModel],
+) -> None:
+    """Add the conditional headers and responses to covered operations."""
+    required = {method.lower() for method in config.require_precondition}
+
+    def declares(path: str, method: str) -> bool:
+        found = declaration_of(declared, path, method)
+        return found is not None and found.precondition_required
+
+    covered = [
+        (path, path_item, operation, method)
+        for path, path_item, operation, method in operations_of(schema)
+        if selects(path, include=config.include, exclude=config.exclude)
+    ]
+    reads = [entry for entry in covered if entry[3] in _READ_METHODS]
+    writes = [
+        (entry, entry[3] in required or declares(entry[0], entry[3]))
+        for entry in covered
+        if entry[3] in _WRITE_METHODS
+        or entry[3] in required
+        or declares(entry[0], entry[3])
+    ]
+    if not reads and not writes:
+        return
+    ref = add_error_schema(schema, model)
+    for _path, path_item, operation, _method in reads:
+        add_parameter(
+            operation,
+            path_item,
+            {
+                "name": "If-None-Match",
+                "in": "header",
+                "required": False,
+                "schema": {"type": "string"},
+                "description": (
+                    "Entity tag the client already holds, from the `ETag` "
+                    "of an earlier read. The service answers `304 Not "
+                    "Modified` while it still matches."
+                ),
+            },
+        )
+        merge_response(
+            operation,
+            "304",
+            "The entity tag still matches, so the body is not sent again.",
+            "",
+            media_type,
+        )
+    for (_path, path_item, operation, _method), needed in writes:
+        if needed:
+            mark_required(operation, "If-Match", _CREATE_CASE)
+        add_parameter(
+            operation,
+            path_item,
+            {
+                "name": "If-Match",
+                "in": "header",
+                "required": needed,
+                "schema": {"type": "string"},
+                "description": (
+                    "Entity tag of the version being updated, from the "
+                    "`ETag` of an earlier read. The write is refused if "
+                    "the resource changed since."
+                    + (f" {_CREATE_CASE}" if needed else "")
+                ),
+            },
+        )
+        merge_response(
+            operation,
+            "412",
+            "The entity tag in `If-Match` is not the one the resource "
+            "carries now.",
+            ref,
+            media_type,
+        )
+        merge_response(
+            operation,
+            "428",
+            "This request must carry a precondition.",
+            ref,
+            media_type,
+        )

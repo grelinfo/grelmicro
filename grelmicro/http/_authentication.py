@@ -90,10 +90,16 @@ from grelmicro.http._kinds import (
     SIGNING_KEYS_UNAVAILABLE,
     TOKEN_REJECTED,
 )
-from grelmicro.http._openapi import add_error_schema
+from grelmicro.http._openapi import (
+    add_error_schema,
+    declaration_of,
+    declared_operations,
+    error_format,
+    operations_of,
+)
 from grelmicro.http._ratelimit import bucket_of
 from grelmicro.http._requirement import TOKEN_SCOPE_KEY
-from grelmicro.http._routes import route_name
+from grelmicro.http._routes import RouteDeclaration, route_name
 from grelmicro.security._events import SCOPE_KEY, SecurityEvents
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
@@ -118,7 +124,6 @@ if TYPE_CHECKING:
 
     from grelmicro.http._component import RenderedError
     from grelmicro.http._gate import Answering
-    from grelmicro.http._routes import RouteDeclaration
     from grelmicro.security.bans import ClientBans
     from grelmicro.security.clientip import TrustedProxies
     from grelmicro.security.jwt import TokenVerifier
@@ -1334,33 +1339,46 @@ _TOO_MANY_REQUESTS: Final = "429"
 """Status a banned caller is answered with."""
 
 
-def operation_authentication(
+def operation_declarations(
     app: Any,  # noqa: ANN401
     *,
     anonymous: bool,
-) -> tuple[set[tuple[str, str]], dict[tuple[str, str], list[str]]]:
-    """Return the public operations, and the scopes each covered one needs.
+) -> list[RouteDeclaration]:
+    """Return one declaration per operation the app's routes publish.
 
-    Keyed by the path the schema publishes and the lowercased method, so
-    both read straight against the schema's paths. Each is read off the
-    route's declaration, as `route_authentication` reads it. With
-    `anonymous` false no declaration is public, as for a middleware added
-    by hand.
+    Whether an operation is served without a
+    credential, and the scopes it needs, are read as `route_authentication`
+    reads them, so a public route the router never dispatches to is
+    described as authenticated. `precondition_required` is the one the
+    route's own declaration carries. With `anonymous` false no operation is
+    public, as for a middleware added by hand.
     """
     read = route_authentication(app)
-    public: set[tuple[str, str]] = set()
-    scopes: dict[tuple[str, str], list[str]] = {}
+    listed = getattr(load_integration(app), "route_declarations", None)
+    declared = _Declared(
+        () if listed is None else listed(app),
+        loose=getattr(app, "asgi_router", None) is not None,
+    )
+    found: list[RouteDeclaration] = []
     for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
         path = f"{prefix}{getattr(route, 'path_format', route.path)}"
         # `None` for an endpoint class, which answers whatever it defines.
         for method in getattr(route, "methods", None) or ():
-            key = (path, method.lower())
             served, required = read(route, method, prefix)
-            if anonymous and served:
-                public.add(key)
-            else:
-                scopes[key] = list(required)
-    return public, scopes
+            own = declared.of(f"{prefix}{route.path}" or "/", method)
+            public = anonymous and served
+            found.append(
+                RouteDeclaration(
+                    path,
+                    methods=frozenset({method.upper()}),
+                    anonymous=public,
+                    scopes=frozenset(() if public else required),
+                    precondition_required=(
+                        own is not None and own.precondition_required
+                    ),
+                )
+            )
+    return found
 
 
 def document_operations(
@@ -2522,8 +2540,7 @@ class AuthenticatedRequests:
             bool,
             Doc(
                 "Describe the security scheme, and the `401` and `403` a "
-                "covered operation answers, in the OpenAPI schema. Only "
-                "FastAPI builds one."
+                "covered operation answers, in the OpenAPI schema."
             ),
         ] = True,
     ) -> None:
@@ -2597,8 +2614,7 @@ class AuthenticatedRequests:
             bool,
             Doc(
                 "Describe the security scheme, and the `401` and `403` a "
-                "covered operation answers, in the OpenAPI schema. Only "
-                "FastAPI builds one."
+                "covered operation answers, in the OpenAPI schema."
             ),
         ] = True,
     ) -> Self:
@@ -2688,29 +2704,68 @@ class AuthenticatedRequests:
         """Return the middleware class and the arguments to build it with."""
         return AuthenticatedRequestsMiddleware, self._options()
 
-    def document_openapi(
+    def _document_openapi(
         self,
-        app: Annotated[Any, Doc("The FastAPI application to describe.")],  # noqa: ANN401
-    ) -> None:
-        """Describe the security scheme and its refusals in the schema.
+        schema: Annotated[
+            dict[str, Any],
+            Doc("The OpenAPI schema to describe the component in."),
+        ],
+        *,
+        routes: Annotated[
+            Iterable[RouteDeclaration],
+            Doc(
+                "The app's route declarations. A route declaring "
+                "`anonymous` lists the scheme as optional, and one naming "
+                "`scopes` requires them."
+            ),
+        ] = (),
+        errors: Annotated[
+            ErrorResponses | None,
+            Doc(
+                "The registered format refusals are answered in. `None` "
+                "publishes RFC 9457 problem details."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Describe the security scheme and its refusals, and return the schema.
 
-        Called by the FastAPI and Litestar integrations after the middleware
-        is added. A framework that builds no schema never calls it.
+        The scheme is published, and required on every operation outside
+        `exclude`, with the scopes its route declares. Each gains the `401`
+        it answers, the `403` where scopes are required, and the `429` when
+        `bans` is set. An operation a route declares `anonymous` lists the
+        scheme as optional. The schema is edited in place, and a second
+        call changes nothing. With `openapi=False` it is returned untouched.
+
+        `micro.install(app)` calls it when FastAPI or Litestar builds the
+        schema.
         """
         if not self._openapi:
-            return
-        if getattr(app, "asgi_router", None) is not None:
-            from grelmicro.integrations.litestar import (  # noqa: PLC0415
-                _document_authentication,
-            )
-
-            _document_authentication(app, self._options())
-            return
-        from grelmicro.integrations.fastapi import (  # noqa: PLC0415
-            document_authenticated_requests,
+            return schema
+        media_type, model = error_format(errors)
+        declared = declared_operations(routes)
+        public: set[tuple[str, str]] = set()
+        scopes: dict[tuple[str, str], list[str]] = {}
+        for path, _item, _operation, method in operations_of(schema):
+            found = declaration_of(declared, path, method)
+            if found is None:
+                continue
+            if found.anonymous:
+                public.add((path, method))
+            else:
+                scopes[path, method] = sorted(found.scopes)
+        options = self._options()
+        document_operations(
+            schema,
+            verifier=options["verifier"],
+            bans=options["bans"] is not None,
+            exclude=tuple(options["exclude"]),
+            public=public,
+            scopes=scopes,
+            media_type=media_type,
+            model=model,
+            metadata_path=metadata_path_of(options),
         )
-
-        document_authenticated_requests(app)
+        return schema
 
     def read_routes(
         self,

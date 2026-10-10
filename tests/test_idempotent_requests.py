@@ -836,7 +836,7 @@ class _Marker:
 class _Marked:
     """A component asking for a middleware and nothing else.
 
-    No `document_openapi`, which is the case of a middleware that has
+    No `_document_openapi`, which is the case of a middleware that has
     nothing to say about an OpenAPI schema, and of every component a third
     party ships against a released `Integration` protocol.
     """
@@ -861,7 +861,7 @@ class _Marked:
 
 
 def test_a_component_that_documents_nothing_is_still_wired() -> None:
-    """`document_openapi` is optional, like every feature-detected hook."""
+    """`_document_openapi` is optional, like every feature-detected hook."""
     # Arrange
     app, _micro = _charge_app(_Marked())
 

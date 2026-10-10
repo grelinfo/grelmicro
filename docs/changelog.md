@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking
+* 💥 `document_idempotency`, `document_conditional_requests`, `document_rate_limited_requests` and `document_authenticated_requests` are removed from `grelmicro.integrations.fastapi`. Register the component and `micro.install(app)` describes it. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))
 * 💥 `grelmicro check`, `micro.describe(app)` and the OpenAPI document read each route's authentication from its declaration, and list its scopes in alphabetical order. ([#917](https://github.com/grelinfo/grelmicro/issues/917))
 * 💥 A route in `exclude` that requires scopes fails at install with `ValueError`, and one that requires a caller and no scope installs and answers `401`. ([#917](https://github.com/grelinfo/grelmicro/issues/917))
 * 💥 A route declaring `Anonymous()` that requires a caller fails with `TypeError` when the route is added, not when the app starts. ([#917](https://github.com/grelinfo/grelmicro/issues/917))
@@ -141,6 +142,8 @@
 
 ### Added
 * ✨ `CachedResponse(shared=True)` serves one stored response to every caller a route requiring a caller admits, a credential included. ([#918](https://github.com/grelinfo/grelmicro/issues/918))
+* ✨ A Litestar app publishes the same `429`, `Idempotency-Key` and precondition headers in its OpenAPI schema as the same FastAPI app. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))
+* ✨ `RouteDeclaration.precondition_required` says a route answers `428` to a request carrying neither `If-Match` nor `If-None-Match`. FastAPI sets it from `ConditionalRequired`. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))
 * ✨ A registered `HealthChecks` that no `health_router()`, `health_asgi()` or `OpsServer` serves warns `HealthNotServedWarning` once the app opens, and `describe()` reports it. Quiet in `development` and `test`. ([#1033](https://github.com/grelinfo/grelmicro/issues/1033))
 * ✨ `async with lock.hold(timeout=5) as held:` waits at most `timeout` seconds for the lock, then holds it for the body. `ReadWriteLock.read`, `ReadWriteLock.write` and every `from_thread` adapter have it too. ([#1032](https://github.com/grelinfo/grelmicro/issues/1032))
 * ✨ `JWTVerifier.from_config` takes `name=` like `keys`, `jwks` and `discover`, and `JWTVerifier.name` returns it. ([#999](https://github.com/grelinfo/grelmicro/issues/999))
@@ -194,6 +197,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 A `POST` route injecting `ConditionalRequired`, or named in `require_precondition`, marks `If-Match` required in the OpenAPI schema with its `412` and `428`. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))
 * 🐛 A `Lock`, `ReadWriteLock` or `TaskLock` release finishes on the backend when its task is cancelled, so a client disconnect or a shutdown no longer leaves the lease held until it expires. A release the backend never answers gives up after `lease_duration`, and so does a `TaskLock` extend. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 🐛 A `ReadWriteLock` writer cancelled while it waits withdraws its intent, even when cancelled again, so readers no longer wait for the intent to expire. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 🐛 The `grelmicro.lock.holders` gauge drops when a task is cancelled while it releases its lock. ([#883](https://github.com/grelinfo/grelmicro/issues/883))

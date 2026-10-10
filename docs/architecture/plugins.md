@@ -85,6 +85,7 @@ request. Your integration tells it what each route requires with a
 | `checked_above` | Checks that are not the route's own run before it, such as middleware on a router or a mount around it, so its answer can depend on the caller. A response is never replayed across callers, and a `cache` the route declares still holds | `False` |
 | `cache` | `CachedResponses` may store the route's response. `True` keeps it for the TTL the component is configured with, a `timedelta` keeps it that long, and a number is refused | `False` |
 | `shared` | The route requires a caller and answers every caller it admits the same, so one stored response serves all of them, a credential included. Without it, a request carrying a credential is answered by the handler | `False` |
+| `precondition_required` | The route answers `428` to a request carrying neither `If-Match` nor `If-None-Match`. The OpenAPI document marks `If-Match` required on its methods. FastAPI sets it from `ConditionalRequired`. Starlette and Litestar have no per-route form, so `require_precondition=` describes them | `False` |
 
 A declaration is frozen. Pass `path` first and every other field by keyword.
 A route whose methods declare differently, such as a public `GET` beside a

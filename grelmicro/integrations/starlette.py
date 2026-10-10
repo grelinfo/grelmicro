@@ -2,7 +2,8 @@
 
 Everything here is pure ASGI, so it works on a plain Starlette app and on
 anything built from one. `grelmicro.integrations.fastapi` builds on it and
-adds what only FastAPI has, an OpenAPI schema and a health router.
+adds what FastAPI has and Starlette lacks, an OpenAPI schema and a health
+router.
 """
 
 from __future__ import annotations

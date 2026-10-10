@@ -51,6 +51,7 @@ from grelmicro.http._authentication import (
     refuse_anonymous_caller,
     template_under_root,
 )
+from grelmicro.http._conditional import declares_precondition_required
 from grelmicro.http._requirement import declared_scopes, declares_optional
 from grelmicro.http._response_cache import declared_cache, declares_shared
 from grelmicro.http._routes import RouteDeclaration, route_name
@@ -503,7 +504,8 @@ def _read_dependant(
     `OptionalPrincipal`. A `CachedResponse()` written on the route is
     declared as it is, and one a router declares caches a read that runs
     no check of its own. `CachedResponse(shared=True)` written on a route
-    declares `shared` on a route that requires a caller.
+    declares `shared` on a route that requires a caller. A
+    `ConditionalRequired` it runs declares `precondition_required`.
 
     Raises:
         TypeError: If the route declares `Anonymous()` and a dependency
@@ -529,10 +531,14 @@ def _read_dependant(
     scopes: set[str] = set()
     own_checks = False
     caller = False
+    precondition_required = False
     pending = list(declared)
     while pending:
         dependency = pending.pop()
         call = dependency.call
+        precondition_required = (
+            precondition_required or declares_precondition_required(call)
+        )
         if declared_scopes(call) is not None:
             caller = True
             scopes.update(dependency.parent_oauth_scopes or ())
@@ -558,6 +564,7 @@ def _read_dependant(
         own_checks=own_checks,
         cache=cache,
         shared=shared,
+        precondition_required=precondition_required,
     )
     if anonymous and caller:
         refuse_anonymous_caller(declaration)

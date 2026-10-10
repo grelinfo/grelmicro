@@ -107,6 +107,14 @@ class RouteDeclaration:
             "carrying a credential is answered by the handler."
         ),
     ] = False
+    precondition_required: Annotated[
+        bool,
+        Doc(
+            "The route answers `428` to a request carrying neither "
+            "`If-Match` nor `If-None-Match`. The OpenAPI schema marks the "
+            "header required on its methods."
+        ),
+    ] = False
 
     def __post_init__(self) -> None:
         """Hold `methods` and `scopes` as frozen sets, whatever set was passed.

@@ -81,6 +81,7 @@ that a client library used to accept.
 | `AttributeError: 'Coordination' object has no attribute 'rwlock_backend'` or `'election_backend'` | 0.42 | [Read `readwritelock_backend`](#0-42-backend-names) |
 | `TypeError: Coordination.__init__() got an unexpected keyword argument 'rwlock'` or `'election'` | 0.42 | [Pass `readwritelock=` or `leaderelection=`](#0-42-backend-names) |
 | `TypeError: Rename MyProvider.lock() to lock_backend()` | 0.42 | [Rename it `lock_backend()`](#0-42-backend-names) |
+| `ImportError: cannot import name 'document_idempotency'`, or `'document_conditional_requests'`, `'document_rate_limited_requests'` and `'document_authenticated_requests'` | 0.42 | [Register the component](#0-42-document-functions) |
 
 ## 0.42
 
@@ -260,6 +261,22 @@ from grelmicro.integrations.fastapi import metrics_router
 ```
 
 `metrics_asgi` stays in `grelmicro.metrics`, since it needs no framework.
+
+### The `document_*` functions are removed {#0-42-document-functions}
+
+`document_idempotency`, `document_conditional_requests`, `document_rate_limited_requests` and `document_authenticated_requests` are gone from `grelmicro.integrations.fastapi`. A registered component needs nothing: `micro.install(app)` describes it in the OpenAPI schema on FastAPI and Litestar.
+
+A middleware you added by hand and documented with one of them is registered as its component instead, with the same options:
+
+```python
+# Before
+app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
+document_idempotency(app)
+
+# After
+micro = Grelmicro(uses=[cache, IdempotentRequests()])
+micro.install(app)
+```
 
 ### `CacheError` is removed {#0-42-cache-error}
 

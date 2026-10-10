@@ -52,12 +52,10 @@ from grelmicro.http import (
     RateLimitedRequests,
     RateLimitedRequestsConfig,
 )
+from grelmicro.http._ratelimit import describe_rate_limit
 from grelmicro.http._response_cache import _Policies
 from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import (
-    CachedResponse,
-    _annotate_rate_limited,
-)
+from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.log import AccessLog, AccessLogConfig
 from grelmicro.resilience import RateLimiter
 from grelmicro.security import TrustedProxies
@@ -1120,7 +1118,7 @@ def test_a_path_item_that_is_not_an_operation_is_left_alone() -> None:
     }
 
     # Act
-    _annotate_rate_limited(schema, "application/problem+json", ProblemDetail)
+    describe_rate_limit(schema, "application/problem+json", ProblemDetail)
 
     # Assert
     item: dict[str, Any] = schema["paths"]["/products"]
