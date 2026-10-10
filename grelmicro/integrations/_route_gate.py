@@ -52,8 +52,8 @@ from grelmicro.http._authentication import (
     template_under_root,
 )
 from grelmicro.http._requirement import declared_scopes, declares_optional
-from grelmicro.http._response_cache import declared_cache
-from grelmicro.http._routes import RouteDeclaration
+from grelmicro.http._response_cache import declared_cache, declares_shared
+from grelmicro.http._routes import RouteDeclaration, route_name
 from grelmicro.integrations import _fastapi_internals as fastapi
 from grelmicro.log import AccessLogMiddleware
 from grelmicro.security import ClientAddressMiddleware
@@ -374,8 +374,8 @@ def _mount_runs_checks(mount: Mount | Host) -> bool:
     """Return whether a mount or a host runs checks before the routes under it.
 
     Middleware on it is one, except the body limit `max_body_size` adds
-    and grelmicro's own, and so is Starlette's authentication on the app
-    it serves. An app the walk cannot read runs checks of its own.
+    and grelmicro's own, and so is middleware the app it serves declares.
+    An app the walk cannot read runs checks of its own.
     """
     app = mount.app
     seen: set[int] = set()
@@ -385,7 +385,13 @@ def _mount_runs_checks(mount: Mount | Host) -> bool:
             return True
         seen.add(id(app))
         app = inner
-    return isinstance(app, Starlette) and _authenticates(app)
+    return isinstance(app, Starlette) and any(
+        not (isinstance(cls, type) and issubclass(cls, _PASSIVE))
+        for cls in (
+            getattr(middleware, "cls", None)
+            for middleware in app.user_middleware
+        )
+    )
 
 
 def _authenticates(app: Starlette) -> bool:
@@ -476,6 +482,19 @@ def _dependant_declaration(
 ) -> RouteDeclaration:
     """Return what a FastAPI route declares through the dependencies it runs.
 
+    See `_read_dependant`.
+    """
+    return _read_dependant(owner, route, path, router)[0]
+
+
+def _read_dependant(
+    owner: Any,  # noqa: ANN401
+    route: Any,  # noqa: ANN401
+    path: str,
+    router: Any,  # noqa: ANN401
+) -> tuple[RouteDeclaration, bool]:
+    """Return what a FastAPI route declares, and whether it wrote its own cache.
+
     `owner` is the route, or the context an include dispatches it through,
     and `router` the router holding the route. It is anonymous when one of
     its own dependencies is `Anonymous()`, and requires the scopes of every
@@ -483,11 +502,15 @@ def _dependant_declaration(
     dependency is a check of its own, except `CachedResponse()` and
     `OptionalPrincipal`. A `CachedResponse()` written on the route is
     declared as it is, and one a router declares caches a read that runs
-    no check of its own.
+    no check of its own. `CachedResponse(shared=True)` written on a route
+    declares `shared` on a route that requires a caller.
 
     Raises:
         TypeError: If the route declares `Anonymous()` and a dependency
             requiring the caller, naming it.
+        ValueError: If a router or the app declares
+            `CachedResponse(shared=True)`, or a route declaring it takes
+            the caller as a parameter of its handler.
     """
     declared = owner.dependant.dependencies  # codespell:ignore
     above = {
@@ -498,19 +521,11 @@ def _dependant_declaration(
         id(dependency.call)
         for dependency in route.dependant.dependencies  # codespell:ignore
     } - above
-    anonymous = False
-    cache: bool | timedelta = False
-    kept_here: bool | timedelta = False
-    for dependency in declared:
-        call = dependency.call
-        anonymous = anonymous or is_anonymous_declaration(call)
-        kept = declared_cache(call)
-        if kept is False:
-            continue
-        if id(call) in written:
-            kept_here = kept
-        else:
-            cache = kept
+    anonymous = any(
+        is_anonymous_declaration(dependency.call) for dependency in declared
+    )
+    cache, kept_here, shared_here = _caches_of(declared, written, path, router)
+    shared = False
     scopes: set[str] = set()
     own_checks = False
     caller = False
@@ -530,8 +545,9 @@ def _dependant_declaration(
             own_checks = True
             pending.extend(dependency.dependencies)
     methods = fastapi.methods_of(owner)
-    if kept_here is not False:
-        cache = kept_here
+    here = kept_here is not False
+    if here:
+        cache, shared = kept_here, shared_here
     elif own_checks or methods is None or not methods <= _READS:
         cache = False
     declaration = RouteDeclaration(
@@ -541,10 +557,84 @@ def _dependant_declaration(
         scopes=frozenset(scopes),
         own_checks=own_checks,
         cache=cache,
+        shared=shared,
     )
     if anonymous and caller:
         refuse_anonymous_caller(declaration)
-    return declaration
+    if shared:
+        _refuse_shared_reader(declaration, route)
+    return declaration, here
+
+
+def _caches_of(
+    declared: Any,  # noqa: ANN401
+    written: set[int],
+    path: str,
+    router: Any,  # noqa: ANN401
+) -> tuple[bool | timedelta, bool | timedelta, bool]:
+    """Return the cache a router declares, the one the route writes, and whether it is shared.
+
+    Raises:
+        ValueError: If a router or the app declares
+            `CachedResponse(shared=True)`.
+    """
+    cache: bool | timedelta = False
+    kept_here: bool | timedelta = False
+    shared_here = False
+    for dependency in declared:
+        call = dependency.call
+        kept = declared_cache(call)
+        if kept is False:
+            continue
+        if id(call) in written:
+            kept_here, shared_here = kept, declares_shared(call)
+        elif declares_shared(call):
+            _refuse_shared_above(path, router)
+        else:
+            cache = kept
+    return cache, kept_here, shared_here
+
+
+def _refuse_shared_above(path: str, router: Any) -> None:  # noqa: ANN401
+    """Refuse `CachedResponse(shared=True)` a router or the app declares.
+
+    Raises:
+        ValueError: Always, naming the route under it and the router's
+            prefix.
+    """
+    prefix = getattr(router, "prefix", "")
+    under = f" with the prefix {prefix!r}" if prefix else ""
+    msg = (
+        f"A router{under} declares CachedResponse(shared=True) over {path}. "
+        f"Only a route may say its own response is the same for every "
+        f"caller it admits. Declare CachedResponse() on the router, and "
+        f"CachedResponse(shared=True) on each route it holds for."
+    )
+    raise ValueError(msg)
+
+
+def _refuse_shared_reader(declaration: RouteDeclaration, route: Any) -> None:  # noqa: ANN401
+    """Refuse a shared route whose handler takes the caller as a parameter.
+
+    Raises:
+        ValueError: If a parameter of the handler is `CurrentPrincipal`,
+            `OptionalPrincipal`, `Claims`, `CurrentToken` or one annotated
+            with `Authenticated()`, naming the route and the parameter.
+    """
+    for dependency in route.dependant.dependencies:  # codespell:ignore
+        call = dependency.call
+        if dependency.name is None or not (
+            declared_scopes(call) is not None or declares_optional(call)
+        ):
+            continue
+        msg = (
+            f"{route_name(declaration)} declares CachedResponse(shared=True) "
+            f"and its handler takes the caller as {dependency.name!r}, so "
+            f"every caller would be handed the first caller's response. "
+            f"Cache per caller with @cached keyed by the caller, or remove "
+            f"CachedResponse()."
+        )
+        raise ValueError(msg)
 
 
 class _Listing:
@@ -986,12 +1076,32 @@ class _Gating:
         context FastAPI routed it through, or of the route itself. A
         refusal names the route by its own path, under the root path the
         request arrived at, as the access log does.
+
+        Raises:
+            ValueError: If the route writes a `CachedResponse()` that is not
+                `shared` and requires a caller, so a request carrying its
+                credential would never be answered from the cache.
         """
+        owner = route if context is None else context
+        if (
+            declaration.cache is not False
+            and not declaration.anonymous
+            and not declaration.shared
+            and _read_dependant(owner, route, declaration.path, router)[1]
+        ):
+            msg = (
+                f"{route_name(declaration)} declares CachedResponse() and "
+                f"requires a caller, so a request carrying its credential is "
+                f"never answered from the cache. Cache per caller with "
+                f"@cached keyed by the caller, or remove CachedResponse(). "
+                f"Pass CachedResponse(shared=True) only when the response is "
+                f"the same for every caller the route admits."
+            )
+            raise ValueError(msg)
         held, new = self._hold(route, "")
         held.router = router
         if new:
             route.handle = _chosen(route, held)
-        owner = route if context is None else context
         owner.__dict__[_TARGET] = self._gated(
             owner.__dict__.get(_TARGET, held.handle),
             [declaration],

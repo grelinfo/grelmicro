@@ -550,6 +550,16 @@ def CachedResponse(  # noqa: N802
             "carries."
         ),
     ] = None,
+    shared: Annotated[
+        bool,
+        Doc(
+            "On a route that requires a caller, serve one stored response "
+            "to every caller the route admits, a credential included. Pass "
+            "it only when the response is the same for each of them. "
+            "Without it, a request carrying a credential is answered by "
+            "the handler."
+        ),
+    ] = False,
 ) -> Any:  # noqa: ANN401
     """Declare that this route's response is cached.
 
@@ -589,7 +599,7 @@ def CachedResponse(  # noqa: N802
         )
 
         raise DependencyNotFoundError(module="fastapi")
-    return _Depends(declare_cached(ttl))
+    return _Depends(declare_cached(ttl, shared=shared))
 
 
 async def _current_principal(

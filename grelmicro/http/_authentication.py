@@ -78,6 +78,7 @@ from grelmicro.http._gate import (
     crossed,
     deny_websocket,
     edge_of,
+    handed_on,
     refuse_websocket,
     wrapped,
 )
@@ -1954,7 +1955,7 @@ class AuthenticatedRequestsMiddleware:
         it, they run here, once the route's check admitted the request.
         """
         if policy.behind:
-            self._below = wrapped(self.app, policy.answering)
+            self._below = wrapped(handed_on(self.app), policy.answering)
             return
         edge = self._edge = edge_of(self.app, policy)
         self._below = edge.below

@@ -53,11 +53,7 @@ from grelmicro.http._response_cache import (
     _WARNED_LIMIT,
     UNSET,
     _authentication_state,
-    _declared_schemes,
-    _has_non_cache_dependencies,
     _Policies,
-    _routing_dependencies,
-    _unique_policy_sources,
     declare_cached,
     declared_ttl,
 )
@@ -103,34 +99,6 @@ async def _request_principal(request: Request) -> str:
     if identity is None:
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
     return identity
-
-
-async def _identity_override(request: Request) -> None:
-    """Authenticate an overridden cache marker through `X-Identity`."""
-    identity = request.headers.get("x-identity")
-    if identity is None:
-        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
-    request.state.identity = identity
-
-
-async def _prefixed_identity_override(request: Request) -> None:
-    """Authenticate through a distinct override callable."""
-    await _identity_override(request)
-    request.state.identity = f"changed:{request.state.identity}"
-
-
-async def _who_override(request: Request) -> None:
-    """Authenticate an overridden cache marker through `X-Who`."""
-    identity = request.headers.get("x-who")
-    if identity is None:
-        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
-    request.state.identity = identity
-
-
-async def _prefixed_who_override(request: Request) -> None:
-    """Authenticate through a distinct `X-Who` override callable."""
-    await _who_override(request)
-    request.state.identity = f"changed:{request.state.identity}"
 
 
 class _RoutingProxy:
@@ -963,17 +931,6 @@ def test_explicit_include_still_caches_an_opaque_mounted_child() -> None:
     assert "age" in replayed.headers
 
 
-def test_binding_does_not_replace_an_explicit_policy_source() -> None:
-    """A supplied policy keeps the routing root it already read."""
-    app = FastAPI()
-    policies = _Policies(())
-    policies.read(app)
-
-    policies.bind(object())
-
-    assert policies._app is app
-
-
 def test_opaque_child_authentication_is_observed_before_storing() -> None:
     """Runtime authentication hidden by an opaque child keeps responses private."""
 
@@ -1535,22 +1492,8 @@ def test_fastapi_add_middleware_cache_ignores_framework_exit_stack() -> None:
     assert calls == 1
 
 
-def test_cache_policy_sources_deduplicate_identical_routing_roots() -> None:
-    """The same source keeps one entry and the strictest root boundary."""
-    app = FastAPI()
-    other = FastAPI()
-
-    same_object = _unique_policy_sources(((app, False), (app, True)))
-    wrapped_source = _unique_policy_sources(
-        ((app, False), (app.router.app, True))
-    )
-    after_unrelated = _unique_policy_sources(
-        ((other, False), (app, False), (app.router.app, True))
-    )
-
-    assert same_object == ((app, True),)
-    assert wrapped_source == ((app, True),)
-    assert after_unrelated == ((other, False), (app, True))
+def test_unset_reads_as_the_name_it_is_published_under() -> None:
+    """The default an editor completes from says what it is."""
     assert repr(UNSET) == "UNSET"
 
 
@@ -1680,7 +1623,6 @@ def test_public_leaf_router_remains_cacheable() -> None:
     assert first.text == replayed.text == "1"
     assert "age" in replayed.headers
     assert calls == 1
-    assert not _routing_dependencies(None, "GET")
 
 
 def test_cache_marker_is_not_a_leaf_router_dependency_boundary() -> None:
@@ -1713,17 +1655,6 @@ def test_cache_marker_is_not_a_leaf_router_dependency_boundary() -> None:
     assert first.text == replayed.text == "1"
     assert replayed.headers["age"] == "0"
     assert calls == 1
-
-
-def test_cache_marker_dependency_cycles_remain_public() -> None:
-    """A malformed marker cycle terminates without inventing a dependency."""
-    dependency = SimpleNamespace(call=declare_cached(TTL), dependencies=[])
-    dependency.dependencies.append(dependency)
-    route = SimpleNamespace()
-    dependency_tree = SimpleNamespace(dependencies=[dependency])
-    route.__dict__["dependant"] = dependency_tree  # codespell:ignore
-
-    assert not _has_non_cache_dependencies(route, ())
 
 
 @pytest.mark.parametrize(
@@ -1840,8 +1771,46 @@ def test_route_transparent_mounted_wrapper_is_a_cache_boundary(
     assert second.json() == {"calls": 2}
 
 
+def test_a_policy_never_read_reads_nothing_until_it_is_handed_an_app() -> None:
+    """A request carrying no app leaves the patterns to answer alone."""
+    # Arrange
+    policies = _Policies({"/reads": TTL})
+
+    # Act
+    policies.refresh(None)
+
+    # Assert
+    assert policies.ttl_for("/reads", TTL) == TTL
+
+
+def test_the_report_reads_the_nearest_declaration_past_other_dependencies() -> (
+    None
+):
+    """A router's own dependencies before its declaration are passed over."""
+
+    # Arrange
+    async def audit() -> None:
+        """Stand in for a check the router runs."""
+
+    router = APIRouter(dependencies=[Depends(audit), CachedResponse(ttl=TTL)])
+
+    @router.get("/reads")
+    async def reads() -> None:
+        """Answer nothing."""  # pragma: no cover
+
+    (route,) = router.routes
+
+    # Act
+    declared = declared_ttl(route, (router,), "/reads")
+
+    # Assert
+    assert declared == (True, TTL)
+
+
 def test_a_router_caching_a_read_beside_another_dependency_leaves_it() -> None:
     """A read its router caches that runs a dependency of its own is left alone."""
+    # Arrange
+    calls = 0
 
     async def audit() -> None:
         """Stand in for the check a route runs."""
@@ -1849,12 +1818,24 @@ def test_a_router_caching_a_read_beside_another_dependency_leaves_it() -> None:
     router = APIRouter(dependencies=[CachedResponse(ttl=TTL)])
 
     @router.get("/reads", dependencies=[Depends(audit)])
-    async def reads() -> None:
-        """Answer nothing."""  # pragma: no cover
+    async def reads() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
 
-    (route,) = router.routes
+    app = FastAPI()
+    app.include_router(router)
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
 
-    assert declared_ttl(route, (router,), "/reads") == (False, None)
+    # Act
+    with TestClient(app) as client:
+        first = client.get("/reads")
+        second = client.get("/reads")
+
+    # Assert
+    assert first.json() == {"calls": 1}
+    assert second.json() == {"calls": 2}
 
 
 def test_a_route_caching_beside_another_dependency_fails_at_startup() -> None:
@@ -1874,397 +1855,13 @@ def test_a_route_caching_beside_another_dependency_fails_at_startup() -> None:
         return {"read": True}  # pragma: no cover
 
     with (
-        pytest.raises(TypeError, match=r"declared on '/reads', which runs"),
+        pytest.raises(
+            TypeError,
+            match=r"GET /reads declares a cached response and runs checks",
+        ),
         TestClient(app),
     ):
         pass  # pragma: no cover
-
-
-@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
-def test_cache_marker_override_before_first_request_is_private(
-    wiring: str,
-) -> None:
-    """An override replacing the marker is a dependency the cache cannot skip."""
-    app = FastAPI()
-    marker = CachedResponse(ttl=TTL)
-    calls = 0
-
-    @app.get("/private", dependencies=[marker])
-    async def private(request: Request) -> dict[str, str | int]:
-        nonlocal calls
-        calls += 1
-        return {"user": request.state.identity, "calls": calls}
-
-    app.dependency_overrides[marker.dependency] = _identity_override
-    if wiring == "component":
-        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
-        micro.install(app)
-        served: Any = app
-    else:
-        served = CachedResponsesMiddleware(app, cache=_cache())
-
-    with TestClient(served) as client:
-        alice = client.get("/private", headers={"X-Identity": "alice"})
-        bob = client.get("/private", headers={"X-Identity": "bob"})
-        anonymous = client.get("/private")
-
-    assert alice.json() == {"user": "alice", "calls": 1}
-    assert bob.json() == {"user": "bob", "calls": 2}
-    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
-    assert all(
-        "age" not in response.headers for response in (alice, bob, anonymous)
-    )
-
-
-@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
-def test_cache_marker_override_changes_invalidate_public_policy(
-    wiring: str,
-) -> None:
-    """Adding, changing, and removing an override refreshes cache privacy."""
-    app = FastAPI()
-    marker = CachedResponse(ttl=TTL)
-    calls = 0
-
-    @app.get("/identity", dependencies=[marker])
-    async def identity(request: Request) -> dict[str, str | int]:
-        nonlocal calls
-        calls += 1
-        return {
-            "user": getattr(request.state, "identity", "public"),
-            "calls": calls,
-        }
-
-    if wiring == "component":
-        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
-        micro.install(app)
-        served: Any = app
-    else:
-        served = CachedResponsesMiddleware(app, cache=_cache())
-
-    with TestClient(served) as client:
-        public = client.get("/identity")
-        public_hit = client.get("/identity")
-
-        app.dependency_overrides[marker.dependency] = _identity_override
-        alice = client.get("/identity", headers={"X-Identity": "alice"})
-        bob = client.get("/identity", headers={"X-Identity": "bob"})
-
-        app.dependency_overrides[marker.dependency] = marker.dependency
-        same_marker = client.get("/identity", headers={"X-Identity": "ignored"})
-
-        app.dependency_overrides[marker.dependency] = (
-            _prefixed_identity_override
-        )
-        changed = client.get("/identity", headers={"X-Identity": "alice"})
-
-        del app.dependency_overrides[marker.dependency]
-        removed = client.get("/identity")
-
-    assert public.json() == public_hit.json() == {"user": "public", "calls": 1}
-    assert public_hit.headers["age"] == "0"
-    assert alice.json() == {"user": "alice", "calls": 2}
-    assert bob.json() == {"user": "bob", "calls": 3}
-    assert "age" not in alice.headers
-    assert "age" not in bob.headers
-    assert same_marker.json() == {"user": "public", "calls": 1}
-    assert same_marker.headers["age"] == "0"
-    assert changed.json() == {"user": "changed:alice", "calls": 4}
-    assert "age" not in changed.headers
-    assert removed.json() == {"user": "public", "calls": 1}
-    assert removed.headers["age"] == "0"
-
-
-@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
-@pytest.mark.parametrize("placement", ["route", "include"])
-def test_included_cache_marker_override_before_first_request_is_private(
-    wiring: str,
-    placement: str,
-) -> None:
-    """An app override reaches route and include cache declarations."""
-    app = FastAPI()
-    router = APIRouter()
-    marker = CachedResponse(ttl=TTL)
-    calls = 0
-
-    @router.get(
-        "/private",
-        dependencies=[marker] if placement == "route" else None,
-    )
-    async def private(request: Request) -> dict[str, str | int]:
-        nonlocal calls
-        calls += 1
-        return {"user": request.state.identity, "calls": calls}
-
-    app.include_router(
-        router,
-        dependencies=[marker] if placement == "include" else None,
-    )
-    app.dependency_overrides[marker.dependency] = _identity_override
-    if wiring == "component":
-        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
-        micro.install(app)
-        served: Any = app
-    else:
-        served = CachedResponsesMiddleware(app, cache=_cache())
-
-    with TestClient(served) as client:
-        alice = client.get("/private", headers={"X-Identity": "alice"})
-        bob = client.get("/private", headers={"X-Identity": "bob"})
-        anonymous = client.get("/private")
-
-    assert alice.json() == {"user": "alice", "calls": 1}
-    assert bob.json() == {"user": "bob", "calls": 2}
-    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
-    assert all(
-        "age" not in response.headers for response in (alice, bob, anonymous)
-    )
-
-
-@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
-def test_included_cache_marker_override_changes_refresh_public_policy(
-    wiring: str,
-) -> None:
-    """Included routes track override mutation, replacement, and removal."""
-    app = FastAPI()
-    router = APIRouter()
-    marker = CachedResponse(ttl=TTL)
-    calls = 0
-
-    @router.get("/identity", dependencies=[marker])
-    async def identity(request: Request) -> dict[str, str | int]:
-        nonlocal calls
-        calls += 1
-        return {
-            "user": getattr(request.state, "identity", "public"),
-            "calls": calls,
-        }
-
-    app.include_router(router)
-    app.include_router(router)
-    if wiring == "component":
-        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
-        micro.install(app)
-        served: Any = app
-    else:
-        served = CachedResponsesMiddleware(app, cache=_cache())
-
-    with TestClient(served) as client:
-        public = client.get("/identity")
-        public_hit = client.get("/identity")
-
-        app.dependency_overrides[marker.dependency] = _identity_override
-        alice = client.get("/identity", headers={"X-Identity": "alice"})
-        bob = client.get("/identity", headers={"X-Identity": "bob"})
-        anonymous = client.get("/identity")
-
-        app.dependency_overrides = {
-            marker.dependency: _prefixed_identity_override
-        }
-        changed = client.get("/identity", headers={"X-Identity": "alice"})
-
-        app.dependency_overrides.clear()
-        removed = client.get("/identity")
-
-    assert public.json() == public_hit.json() == {"user": "public", "calls": 1}
-    assert public_hit.headers["age"] == "0"
-    assert alice.json() == {"user": "alice", "calls": 2}
-    assert bob.json() == {"user": "bob", "calls": 3}
-    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
-    assert all(
-        "age" not in response.headers for response in (alice, bob, anonymous)
-    )
-    assert changed.json() == {"user": "changed:alice", "calls": 4}
-    assert "age" not in changed.headers
-    assert removed.json() == {"user": "public", "calls": 1}
-    assert removed.headers["age"] == "0"
-
-
-@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
-def test_included_fastapi_uses_outer_override_provider(wiring: str) -> None:
-    """A parent app override wins over the child app's conflicting provider."""
-    child = FastAPI()
-    marker = CachedResponse(ttl=TTL)
-    calls = 0
-
-    @child.get("/private", dependencies=[marker])
-    async def private(request: Request) -> dict[str, str | int]:
-        nonlocal calls
-        calls += 1
-        return {"user": request.state.identity, "calls": calls}
-
-    child.dependency_overrides[marker.dependency] = marker.dependency
-    app = FastAPI()
-    app.include_router(child.router)
-    app.dependency_overrides[marker.dependency] = _who_override
-    if wiring == "component":
-        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
-        micro.install(app)
-        served: Any = app
-    else:
-        served = CachedResponsesMiddleware(app, cache=_cache())
-
-    with TestClient(served) as client:
-        alice = client.get("/private", headers={"X-Who": "alice"})
-        bob = client.get("/private", headers={"X-Who": "bob"})
-        anonymous = client.get("/private")
-
-    assert alice.json() == {"user": "alice", "calls": 1}
-    assert bob.json() == {"user": "bob", "calls": 2}
-    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
-    assert all(
-        "age" not in response.headers for response in (alice, bob, anonymous)
-    )
-
-
-@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
-def test_included_fastapi_outer_override_changes_refresh_policy(
-    wiring: str,
-) -> None:
-    """Outer override mutation and removal preserve a public child marker."""
-    child = FastAPI()
-    marker = CachedResponse(ttl=TTL)
-    calls = 0
-
-    @child.get("/identity", dependencies=[marker])
-    async def identity(request: Request) -> dict[str, str | int]:
-        nonlocal calls
-        calls += 1
-        return {
-            "user": getattr(request.state, "identity", "public"),
-            "calls": calls,
-        }
-
-    child.dependency_overrides[marker.dependency] = _identity_override
-    app = FastAPI()
-    app.include_router(child.router)
-    if wiring == "component":
-        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
-        micro.install(app)
-        served: Any = app
-    else:
-        served = CachedResponsesMiddleware(app, cache=_cache())
-
-    with TestClient(served) as client:
-        public = client.get("/identity")
-        public_hit = client.get("/identity")
-
-        app.dependency_overrides[marker.dependency] = _who_override
-        alice = client.get("/identity", headers={"X-Who": "alice"})
-        bob = client.get("/identity", headers={"X-Who": "bob"})
-
-        app.dependency_overrides = {marker.dependency: _prefixed_who_override}
-        changed = client.get("/identity", headers={"X-Who": "alice"})
-
-        app.dependency_overrides.clear()
-        removed = client.get("/identity")
-
-    assert public.json() == public_hit.json() == {"user": "public", "calls": 1}
-    assert public_hit.headers["age"] == "0"
-    assert alice.json() == {"user": "alice", "calls": 2}
-    assert bob.json() == {"user": "bob", "calls": 3}
-    assert "age" not in alice.headers
-    assert "age" not in bob.headers
-    assert changed.json() == {"user": "changed:alice", "calls": 4}
-    assert "age" not in changed.headers
-    assert removed.json() == {"user": "public", "calls": 1}
-    assert removed.headers["age"] == "0"
-
-
-@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
-def test_nested_included_fastapi_keeps_outer_override_provider(
-    wiring: str,
-) -> None:
-    """Nested child providers cannot replace the outer inclusion provider."""
-    grandchild = FastAPI()
-    marker = CachedResponse(ttl=TTL)
-    calls = 0
-
-    @grandchild.get("/private", dependencies=[marker])
-    async def private(request: Request) -> dict[str, str | int]:
-        nonlocal calls
-        calls += 1
-        return {"user": request.state.identity, "calls": calls}
-
-    grandchild.dependency_overrides[marker.dependency] = marker.dependency
-    child = FastAPI()
-    child.include_router(grandchild.router, prefix="/nested")
-    child.dependency_overrides[marker.dependency] = marker.dependency
-    app = FastAPI()
-    app.include_router(child.router, prefix="/api")
-    app.dependency_overrides[marker.dependency] = _who_override
-    if wiring == "component":
-        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
-        micro.install(app)
-        served: Any = app
-    else:
-        served = CachedResponsesMiddleware(app, cache=_cache())
-
-    with TestClient(served) as client:
-        alice = client.get("/api/nested/private", headers={"X-Who": "alice"})
-        bob = client.get("/api/nested/private", headers={"X-Who": "bob"})
-
-    assert alice.json() == {"user": "alice", "calls": 1}
-    assert bob.json() == {"user": "bob", "calls": 2}
-    assert "age" not in alice.headers
-    assert "age" not in bob.headers
-
-
-def test_multiple_nested_includes_keep_private_and_public_policies() -> None:
-    """Nested override inheritance leaves a public sibling safe."""
-    private_marker = CachedResponse(ttl=TTL)
-    public_marker = CachedResponse(ttl=TTL)
-    calls = {"direct": 0, "nested": 0, "public": 0}
-
-    direct = APIRouter()
-
-    @direct.get("/direct", dependencies=[private_marker])
-    async def direct_private(request: Request) -> dict[str, str | int]:
-        calls["direct"] += 1
-        return {"user": request.state.identity, "calls": calls["direct"]}
-
-    inner = APIRouter()
-
-    @inner.get("/nested", dependencies=[private_marker])
-    async def nested_private(request: Request) -> dict[str, str | int]:
-        calls["nested"] += 1
-        return {"user": request.state.identity, "calls": calls["nested"]}
-
-    @inner.get("/public", dependencies=[public_marker])
-    async def public() -> dict[str, int]:
-        calls["public"] += 1
-        return {"calls": calls["public"]}
-
-    middle = APIRouter()
-    middle.include_router(inner, prefix="/inner")
-    app = FastAPI()
-    app.include_router(direct, prefix="/one")
-    app.include_router(middle, prefix="/two")
-    app.dependency_overrides[private_marker.dependency] = _identity_override
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
-    micro.install(app)
-
-    with TestClient(app) as client:
-        direct_alice = client.get(
-            "/one/direct", headers={"X-Identity": "alice"}
-        )
-        direct_bob = client.get("/one/direct", headers={"X-Identity": "bob"})
-        nested_alice = client.get(
-            "/two/inner/nested", headers={"X-Identity": "alice"}
-        )
-        nested_bob = client.get(
-            "/two/inner/nested", headers={"X-Identity": "bob"}
-        )
-        public_first = client.get("/two/inner/public")
-        public_hit = client.get("/two/inner/public")
-
-    assert direct_alice.json() == {"user": "alice", "calls": 1}
-    assert direct_bob.json() == {"user": "bob", "calls": 2}
-    assert nested_alice.json() == {"user": "alice", "calls": 1}
-    assert nested_bob.json() == {"user": "bob", "calls": 2}
-    assert public_first.json() == public_hit.json() == {"calls": 1}
-    assert "age" not in direct_bob.headers
-    assert "age" not in nested_bob.headers
-    assert public_hit.headers["age"] == "0"
 
 
 @pytest.mark.parametrize(
@@ -2286,7 +1883,10 @@ def test_a_route_caching_beside_a_dependency_of_its_own_fails_install(
 
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
 
-    with pytest.raises(TypeError, match=r"declared on '/private', which runs"):
+    with pytest.raises(
+        TypeError,
+        match=r"GET /private declares a cached response and runs checks",
+    ):
         micro.install(app)
 
 
@@ -2314,7 +1914,10 @@ def test_a_route_caching_under_a_router_dependency_fails_install(
     )
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
 
-    with pytest.raises(TypeError, match=r"declared on '/private', which runs"):
+    with pytest.raises(
+        TypeError,
+        match=r"GET /private declares a cached response and runs checks",
+    ):
         micro.install(app)
 
 
@@ -2429,6 +2032,7 @@ def test_a_route_added_after_install_is_read_when_the_app_starts() -> None:
 def test_hand_wired_cache_revalidates_routes_added_after_a_request() -> None:
     """A late FastAPI gate cannot inherit stale hand-wired cache policy."""
     app = FastAPI()
+    calls = 0
 
     @app.get("/public")
     async def public() -> dict[str, bool]:
@@ -2446,8 +2050,10 @@ def test_hand_wired_cache_revalidates_routes_added_after_a_request() -> None:
     ) -> str:
         return key
 
-    async def private() -> dict[str, bool]:
-        return {"private": True}
+    async def private() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
 
     with TestClient(wrapped) as client:
         assert client.get("/public").status_code == HTTP_200_OK
@@ -2457,8 +2063,14 @@ def test_hand_wired_cache_revalidates_routes_added_after_a_request() -> None:
             methods=["GET"],
             dependencies=[Depends(require_key)],
         )
-        with pytest.raises(TypeError, match="gated by APIKeyHeader"):
-            client.get("/private", headers={"X-API-Key": "alice"})
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"calls": 1}
+    assert bob.json() == {"calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
 
 
 def test_cache_revalidates_same_length_route_replacement() -> None:
@@ -2575,8 +2187,12 @@ def test_hand_wired_cache_revalidates_a_lifespan_added_route() -> None:
     ) -> str:
         return key
 
-    async def private() -> dict[str, bool]:
-        return {"private": True}
+    calls = 0
+
+    async def private() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -2595,11 +2211,13 @@ def test_hand_wired_cache_revalidates_a_lifespan_added_route() -> None:
         include={"/private": TTL},
     )
 
-    with (
-        TestClient(wrapped) as client,
-        pytest.raises(TypeError, match="gated by APIKeyHeader"),
-    ):
-        client.get("/private", headers={"X-API-Key": "alice"})
+    with TestClient(wrapped) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+
+    assert alice.json() == {"calls": 1}
+    assert bob.json() == {"calls": 2}
+    assert "age" not in bob.headers
 
 
 # --- What is not stored ---
@@ -3900,7 +3518,7 @@ def test_a_route_behind_a_security_scheme_is_refused() -> None:
         return {"secret": 1}
 
     # Act / Assert
-    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+    with pytest.raises(TypeError, match="runs checks of its own"):
         micro.install(app)
 
 
@@ -3920,7 +3538,7 @@ def test_a_router_gate_is_refused_like_a_route_one() -> None:
     )
 
     # Act / Assert
-    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+    with pytest.raises(TypeError, match="runs checks of its own"):
         micro.install(app)
 
 
@@ -4004,19 +3622,8 @@ def test_a_gate_inside_a_router_dependency_is_refused_too() -> None:
     app.include_router(router, dependencies=[Depends(require_key)])
 
     # Act / Assert
-    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+    with pytest.raises(TypeError, match="runs checks of its own"):
         micro.install(app)
-
-
-def test_a_declaration_with_nothing_to_call_gates_nothing() -> None:
-    """What names no callable declares no scheme to walk."""
-    # Act
-    schemes = _declared_schemes(
-        SimpleNamespace(dependencies=[SimpleNamespace(dependency=None)])
-    )
-
-    # Assert
-    assert schemes == []
 
 
 async def _require_key(
@@ -4101,7 +3708,7 @@ def test_a_gated_read_is_refused_however_the_gate_is_spelled(
     app = _gated_app(spelling)
 
     # Act / Assert
-    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+    with pytest.raises(TypeError, match="runs checks of its own"):
         micro.install(app)
 
 
@@ -4139,29 +3746,44 @@ def test_an_app_built_with_it_leaves_its_writes_alone() -> None:
     assert writes == TWICE
 
 
-def test_a_pattern_naming_a_gated_read_is_refused_too() -> None:
-    """`include=` reaches the same route by another road, and the same gate."""
+@pytest.mark.parametrize("pattern", ["/admin/*", "/admin/reports"])
+def test_a_pattern_naming_a_gated_read_leaves_it_to_its_handler(
+    pattern: str,
+) -> None:
+    """`include=` reaches the same route by another road, and the same gate runs."""
     # Arrange
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            CachedResponses(include={"/admin/*": TTL}),
+            CachedResponses(include={pattern: TTL}),
         ]
     )
     app = FastAPI()
     router = APIRouter(prefix="/admin")
+    calls = 0
 
     @router.get("/reports")
     async def reports() -> dict[str, int]:
-        return {"reports": 1}
+        nonlocal calls
+        calls += 1
+        return {"reports": calls}
 
     app.include_router(
         router, dependencies=[Security(APIKeyHeader(name="X-API-Key"))]
     )
+    micro.install(app)
 
-    # Act / Assert
-    with pytest.raises(TypeError, match="include= names"):
-        micro.install(app)
+    # Act
+    with TestClient(app) as client:
+        first = client.get("/admin/reports", headers={"X-API-Key": "alice"})
+        second = client.get("/admin/reports", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/admin/reports")
+
+    # Assert
+    assert first.json() == {"reports": 1}
+    assert second.json() == {"reports": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in second.headers
 
 
 def test_a_pattern_naming_a_gated_write_is_left_alone() -> None:

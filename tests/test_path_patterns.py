@@ -17,7 +17,6 @@ from litestar import Litestar
 from litestar import Request as LitestarRequest
 from litestar import get as litestar_get
 from litestar.testing import TestClient as LitestarTestClient
-from starlette.applications import Starlette
 from starlette.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -26,13 +25,8 @@ from starlette.middleware.exceptions import ExceptionMiddleware
 from starlette.routing import Mount, Route, Router, compile_path
 
 from grelmicro._paths import (
-    _is_starlette_routing_app,
-    _middleware_boundaries,
-    _nested_routing_app,
     _request_authority,
     _RouteTopologyState,
-    _routing_root,
-    _same_routing_root,
     _TopologyWatch,
     _transparent_routing_source,
     _watch_dependency_topology,
@@ -51,7 +45,6 @@ from grelmicro.http import (
     IdempotentRequests,
     RateLimitedRequests,
 )
-from grelmicro.http._response_cache import _authentication_paths
 from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.log import AccessLog, AccessLogMiddleware
@@ -63,51 +56,13 @@ async def app(scope: object, receive: object, send: object) -> None:
     """Stand in for the app a middleware wraps."""
 
 
-def test_route_walkers_treat_wrappers_and_middleware_as_boundaries() -> None:
-    """Boundary discovery terminates on wrappers, includes, and cycles."""
-
-    class CustomExceptionMiddleware(ExceptionMiddleware):
-        """A user wrapper must not inherit the built-in routing exemption."""
-
-    class Backend(AuthenticationBackend):
-        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
-            return None
-
+def test_route_walker_reads_nothing_through_a_wrapper() -> None:
+    """A wrapper it cannot see into hides its routes."""
     # Arrange
     wrapped = SimpleNamespace(app=Router())
-    builtin_exception = ExceptionMiddleware(Router())
-    custom_exception = CustomExceptionMiddleware(Router())
-    protected_exception = ExceptionMiddleware(
-        AuthenticationMiddleware(Router(), backend=Backend())
-    )
-    included = Router(
-        middleware=[
-            Middleware(CORSMiddleware, allow_origins=["https://example.test"])
-        ]
-    )
-    inclusion = SimpleNamespace(
-        original_router=included,
-        include_context=SimpleNamespace(prefix="/api"),
-    )
-    root = SimpleNamespace(routes=[inclusion])
-    loop = SimpleNamespace()
-    loop.routes = [
-        SimpleNamespace(
-            original_router=None,
-            routes=[],
-            path="/loop",
-            app=loop,
-        )
-    ]
 
     # Act / Assert
-    assert _middleware_boundaries(wrapped) == {("", True, None)}
-    assert _middleware_boundaries(builtin_exception) == set()
-    assert _middleware_boundaries(custom_exception) == {("", True, None)}
-    assert _middleware_boundaries(protected_exception) == {("", True, None)}
     assert walk_routes(wrapped) == []
-    assert _middleware_boundaries(root) == {("/api", True, None)}
-    assert _middleware_boundaries(loop) == set()
 
 
 def test_direct_mount_and_bound_router_keep_their_routing_context() -> None:
@@ -130,7 +85,6 @@ def test_direct_mount_and_bound_router_keep_their_routing_context() -> None:
     )
 
     # Act / Assert
-    assert _middleware_boundaries(mounted) == set()
     assert [
         (prefix, found.path) for prefix, found, _ in walk_routes(mounted)
     ] == [("/api", "/items")]
@@ -143,20 +97,47 @@ def test_direct_mount_and_bound_router_keep_their_routing_context() -> None:
     assert walk_routes(protected) == []
 
 
-def test_routing_shape_helpers_handle_mounts_and_broken_endpoints() -> None:
-    """Optional route discovery recognizes mounts and rejects unusable leaves."""
+def test_transparent_routing_source_stops_at_what_it_cannot_unwrap() -> None:
+    """Nothing, and an exception router wrapping nothing, are read as they are."""
     # Arrange
-    mounted = Mount("/api", app=Router())
-    recursive = SimpleNamespace(routes=None)
-    recursive.app = recursive
+    broken_exception = ExceptionMiddleware(cast("Any", None))
 
     # Act / Assert
-    assert not _is_starlette_routing_app(None)
-    assert _is_starlette_routing_app(mounted)
-    assert _nested_routing_app(recursive) is None
     assert _transparent_routing_source(None) is None
-    broken_exception = ExceptionMiddleware(cast("Any", None))
     assert _transparent_routing_source(broken_exception) is broken_exception
+
+
+def test_route_walker_reads_through_plumbing_and_a_bound_router() -> None:
+    """An exception router is looked through, and a wrapped bound router is read."""
+    # Arrange
+    router = Router(routes=[Route("/items", app)])
+
+    # Act
+    unwrapped = _transparent_routing_source(ExceptionMiddleware(router))
+    walked = walk_routes(
+        SimpleNamespace(app=router.app), unwrap_middleware=True
+    )
+
+    # Assert
+    assert unwrapped is router
+    assert [(prefix, found.path) for prefix, found, _ in walked] == [
+        ("", "/items")
+    ]
+
+
+def test_route_walker_stops_at_a_mounted_router_with_middleware() -> None:
+    """Routes behind middleware of their own are not read from above it."""
+    # Arrange
+    guarded = Router(
+        routes=[Route("/items", app)],
+        middleware=[
+            Middleware(CORSMiddleware, allow_origins=["https://example.test"])
+        ],
+    )
+    root = Router(routes=[Mount("/private", app=guarded)])
+
+    # Act / Assert
+    assert walk_routes(root) == []
 
 
 def test_dependency_walk_stops_a_cycle_instead_of_recursing() -> None:
@@ -171,20 +152,6 @@ def test_dependency_walk_stops_a_cycle_instead_of_recursing() -> None:
     assert len(entries) == 1
     assert entries[0][0] == id(dependency)
     assert entries[0][3] == (id(dependency),)
-
-
-def test_routing_root_distinguishes_mount_coordinates_from_wrapped_sources() -> (
-    None
-):
-    """Wrapped app entry points share a root; a mount is a different root."""
-    router = Router(routes=[Route("/x", app)])
-    mounted = Mount("/api", app=router)
-    web = FastAPI()
-
-    assert _routing_root(router.app) is router
-    assert _routing_root(mounted) is mounted
-    assert _same_routing_root(web, web.router.app)
-    assert not _same_routing_root(web, router)
 
 
 def test_topology_generation_collects_router_declared_dependencies() -> None:
@@ -570,78 +537,6 @@ def test_request_authority_is_canonical_and_uses_server_fallback(
 ) -> None:
     """Authority follows Host routing and normalizes equivalent spellings."""
     assert _request_authority(scope) == expected
-
-
-def test_direct_route_authentication_flattens_nested_router_boundaries() -> (
-    None
-):
-    """A direct Route keeps protected leaf routers exact and public ones open."""
-
-    class Backend(AuthenticationBackend):
-        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
-            return None
-
-    protected = Router(
-        routes=[
-            Route(
-                "/private",
-                app,
-                middleware=[
-                    Middleware(
-                        AuthenticationMiddleware,
-                        backend=Backend(),
-                    )
-                ],
-            )
-        ]
-    )
-    public = Router(routes=[Route("/public", app)])
-
-    assert _authentication_paths(Route("/private", protected)) == {
-        ("/private", False, None)
-    }
-    assert _authentication_paths(Route("/public", public)) == set()
-
-
-def test_authentication_around_a_single_route_keeps_its_methods() -> None:
-    """Authentication over one route protects that path for its methods only."""
-
-    class Backend(AuthenticationBackend):
-        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
-            return None
-
-    route = Route("/private", app, methods=["GET"])
-    guarded = AuthenticationMiddleware(route, backend=Backend())
-
-    assert _authentication_paths(guarded) == {
-        ("/private", False, frozenset({"GET", "HEAD"}))
-    }
-
-
-def test_authentication_paths_mount_reads_its_app_under_its_path() -> None:
-    """A mount handed in directly is read under its own path, and a cycle stops."""
-
-    class Backend(AuthenticationBackend):
-        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
-            return None
-
-    # Arrange
-    protected = Starlette(
-        middleware=[Middleware(AuthenticationMiddleware, backend=Backend())]
-    )
-    nested = Mount("/api", routes=[Mount("/in", app=protected)])
-    looped = Router()
-    looped.routes.append(Mount("/again", app=looped))
-
-    # Act
-    found = _authentication_paths(Mount("/api", app=protected))
-    under = _authentication_paths(nested)
-    cycle = _authentication_paths(Mount("/loop", app=looped))
-
-    # Assert
-    assert found == {("/api", True, None)}
-    assert under == {("/api/in", True, None)}
-    assert cycle == set()
 
 
 def test_route_walker_stops_cycles_per_path_not_globally() -> None:

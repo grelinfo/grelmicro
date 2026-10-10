@@ -82,8 +82,9 @@ of them is that mistake.
 
 | Not stored | Why |
 |---|---|
-| A request carrying `Authorization` or `Cookie` | it was answered for one caller |
-| A request whose ASGI scope carries an authenticated user or authentication scopes | an outer authentication middleware identified one caller |
+| A request carrying `Cookie` | it was answered for one caller |
+| A request carrying `Authorization`, unless its route declares `CachedResponse(shared=True)` | it was answered for one caller |
+| A request whose ASGI scope carries an authenticated user or authentication scopes, unless its route declares `CachedResponse(shared=True)` | an authentication middleware identified one caller |
 | A response carrying `Set-Cookie` | it is one caller's session |
 | A response carrying `Cache-Control: no-store`, `no-cache` or `private` | it said so |
 | A response carrying `Cache-Control: max-age=0` or `s-maxage=0` | it is stale already |
@@ -94,6 +95,43 @@ of them is that mistake.
 
 A `HEAD` still reads what a `GET` stored, and is answered with the same
 headers and no body.
+
+With `AuthenticatedRequests` registered, the cache runs at the route, once
+its gate admitted the request. A request the route refuses never reaches the
+cache, so a hit is never served to a caller without a credential on a
+protected route, or to a caller lacking a scope the route requires. A request
+carrying a credential is answered by its handler, on every route, unless the
+route declares `CachedResponse(shared=True)`.
+
+`CachedResponse(shared=True)` on a route that requires a caller keeps one
+response for every caller the route admits, a credential included. The stored
+key carries what the route requires, so callers of another scope never read it.
+`CachedResponse()` without it on a route that requires a caller fails install,
+naming the route, because such a route would never answer from the cache.
+`shared=True` on an `Anonymous()` route fails install too: a request carrying a
+credential there is answered by its handler, so nothing is shared.
+
+Only a route declares `shared=True`, for itself. `CachedResponse(shared=True)`
+on a router, an include or the app fails install, naming the router's prefix,
+and so does a route added later under it. A plain `CachedResponse()` there
+still covers the reads under it.
+
+!!! warning "Never set `shared=True` on a per-caller handler"
+    A shared response is the same for every caller the route admits. A route
+    that answers each caller differently, such as `/me` or one reading
+    `CurrentPrincipal`, `Claims` or the caller's scopes, must never declare
+    it: the next caller would be handed the first caller's response. Cache the
+    data behind such a route with [`@cached`](../cache/cached.md), keyed by the
+    caller.
+
+    A shared route whose handler takes `CurrentPrincipal`, `OptionalPrincipal`,
+    `Claims`, `CurrentToken` or a parameter annotated with `Authenticated()`
+    fails install, naming the route and the parameter. A handler reading the
+    caller off the raw `Request` is not caught: keep `shared=True` off it.
+
+The route's declaration decides, as it does for the gate and idempotency.
+`app.dependency_overrides` does not change what the cache does, so overriding
+`CachedResponse()` in a test leaves the route cached.
 
 Only `GET` is cached. `CachedResponse()` on a route that answers anything
 else is refused when `micro.install(app)` reads it, naming the path.
@@ -152,6 +190,12 @@ The host and the prefix are in it so an app answering for two hostnames, and
 two services behind one gateway sharing one store, never hand out each other's
 responses.
 
+At a route behind `AuthenticatedRequests`, the stored key also carries what the
+route requires: no credential, or a caller and the scopes it names. A route
+turned from anonymous to protected, or given another scope, never serves what
+was stored before, even from a store shared across a restart. That holds for a
+`key=` of your own too.
+
 Name the parameters that matter and the rest is ignored, so a tracking
 parameter does not turn one resource into a thousand:
 
@@ -189,12 +233,15 @@ it is written. The nearest declaration decides, so a route beats the router
 it sits in, an inner router beats the one that includes it, and a route that
 declared one is not overridden by an `include` pattern naming it.
 
-A middleware around a mounted application, or configured on that application
-or its router, is a cache boundary. A `CachedResponse()` declaration behind it
-is not consumed by a cache on the parent, because a parent hit would answer
-before the mounted middleware ran. An explicit parent `include` rule stops at
-the same boundary. Install `CachedResponses` inside that application when its
-own routes should be cached.
+Without `AuthenticatedRequests`, the cache answers before routing. A
+middleware around a mounted application, or configured on that application
+or its router, is then a cache boundary. A `CachedResponse()` declaration
+behind it is not consumed by a cache on the parent, because a parent hit would
+answer before the mounted middleware ran. An explicit parent `include` rule
+stops at the same boundary. Install `CachedResponses` inside that application
+when its own routes should be cached. With `AuthenticatedRequests`, the cache
+runs at the route, after that middleware, so the route's own declaration
+decides.
 
 Middleware configured on an individual Starlette route is an exact boundary
 for that route as well, so an explicit cache rule cannot answer before it runs.
@@ -226,12 +273,11 @@ CachedResponses(ttl=60, include=("/products/*", "/catalog"))
 
 `exclude=` carves a path out again, whatever a route or a pattern says.
 
-A pattern naming a read that sits behind a security scheme is refused where
-it is written, the same as declaring it on the route would be. A read with an
-ordinary FastAPI dependency is left uncached too, whether the dependency was
-declared on the route, router, app, or include. On a framework grelmicro
-cannot read the routes of, nothing can check that for you: name paths that
-answer everybody the same.
+A pattern naming a read that runs checks of its own leaves it uncached: a
+FastAPI security scheme or ordinary dependency, whether declared on the route,
+router, app, or include, a Litestar guard, dependency or hook, and middleware
+on the route. On a framework grelmicro cannot read the routes of, nothing can
+check that for you: name paths that answer everybody the same.
 
 ## Invalidating
 
@@ -269,13 +315,12 @@ can answer.
     A hit is answered once the route admitted the request, before its handler
     runs. A plain `Depends` that reads `Request` or `Header` never runs on a
     hit, so a route that runs one fails install or stays uncached, as
-    [What is never stored](#what-is-never-stored) describes. A cached route
-    that needs a caller is shared: every caller it admits gets the same
-    response.
+    [What is never stored](#what-is-never-stored) describes.
 
-    A FastAPI security scheme, such as `APIKeyHeader` or `HTTPBearer`, remains
-    a configuration error and is refused when `micro.install(app)` reads it,
-    naming the path. Cache what answers everybody the same, and use
+    `CachedResponse()` on a route behind a FastAPI security scheme, such as
+    `APIKeyHeader` or `HTTPBearer`, remains a configuration error and is
+    refused when `micro.install(app)` reads it, naming the route. Cache what
+    answers everybody the same, and use
     [`@cached`](../cache/cached.md) on the data behind the ones that do not.
 
 ## Changing it while it runs
@@ -294,7 +339,7 @@ grel:
 
 A pattern arriving that way is checked against the app's routes the same way
 `micro.install(app)` checks one, so a file cannot start caching a write or a
-read behind a security scheme. Read [Where a rule applies](where.md).
+read that runs checks of its own. Read [Where a rule applies](where.md).
 
 ## Options
 

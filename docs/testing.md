@@ -119,6 +119,12 @@ production, so the `401` and its challenge are tested too. To test the verifier
 itself, sign a real token as
 [Test with a real token](security/jwt.md#test-with-a-real-token) shows.
 
+`app.dependency_overrides` changes what a dependency returns, never what a
+route declares, so the response cache still answers a route declaring
+`CachedResponse()`. To reach the handler on every request, leave
+`CachedResponses()` out of the test's `uses`, or name the path in its
+`exclude=`.
+
 ## Going deeper
 
 The [Testing architecture](architecture/testing.md) page covers override
