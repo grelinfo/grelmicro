@@ -194,7 +194,7 @@ dev = [
     "testcontainers[postgres,redis]>=4.15.0",
     "pytest-timeout>=2.4.0",
     "pytest-mock>=3.15.1",
-    "pytest-randomly>=4.1.0",
+    "pytest-randomly>=5.0.0",
     "pre-commit>=4.6.2",
     "fastapi>=0.142.1",
     "fastapi-cli>=0.0.32",
@@ -227,15 +227,15 @@ dev = [
     "syrupy>=6.0.0",
     "pyyaml>=6.0.3",
     "litestar>=2.24.0",
-    "sqlalchemy[asyncio]>=2.0.51",
+    "sqlalchemy[asyncio]>=2.1.2",
     "sqlmodel>=0.0.42",
 ]
 docs = [
     "mkdocs-material>=9.5.44",
-    "mkdocstrings[python]>=0.27.0",
+    "mkdocstrings[python]>=1.0.6",
     "griffe-typingdoc>=0.2.7",
     "pygments>=2.18.0",
-    "pymdown-extensions>=10.12",
+    "pymdown-extensions>=12.1",
     "mdx-include>=1.4.2",
 ]
 mutation = [
@@ -243,7 +243,7 @@ mutation = [
 ]
 
 [build-system]
-requires = ["hatchling>=1.25,<2", "hatch-fancy-pypi-readme>=24,<26"]
+requires = ["hatchling>=1.32.4,<2", "hatch-fancy-pypi-readme>=25.1.0,<26"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
