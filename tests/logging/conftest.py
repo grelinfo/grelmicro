@@ -12,14 +12,25 @@ from loguru import logger as loguru_logger
 BACKENDS = ["loguru", "structlog", "stdlib"]
 
 
+_FOREIGN_LOGGERS = ("opentelemetry",)
+"""Loggers whose records a test never asked for, such as a shut-down provider's."""
+
+
+def _own(record: dict[str, Any]) -> bool:
+    """Return whether `record` came from the code under test."""
+    return not str(record.get("logger", "")).startswith(_FOREIGN_LOGGERS)
+
+
 def parse_json_log(output: str) -> dict[str, Any]:
-    """Parse JSON log output."""
-    return json.loads(output.strip())
+    """Parse the one JSON log record the code under test wrote."""
+    [record] = parse_json_logs(output)
+    return record
 
 
 def parse_json_logs(output: str) -> list[dict[str, Any]]:
-    """Parse multi-line JSON log output."""
-    return [json.loads(line) for line in output.strip().splitlines() if line]
+    """Parse the JSON log records the code under test wrote, in order."""
+    records = (json.loads(line) for line in output.strip().splitlines() if line)
+    return [record for record in records if _own(record)]
 
 
 def log_message(backend: str, msg: str, **kwargs: object) -> None:
