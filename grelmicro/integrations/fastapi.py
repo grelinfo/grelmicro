@@ -99,6 +99,7 @@ from grelmicro.http._requirement import (
 )
 from grelmicro.http._response_cache import declare_cached
 from grelmicro.idempotency import Idempotency
+from grelmicro.integrations import _fastapi_internals as _fastapi
 from grelmicro.integrations._fastapi_internals import telemetry_of
 from grelmicro.integrations._request_telemetry import (
     exceptions_on_spans,
@@ -117,6 +118,9 @@ from grelmicro.integrations.starlette import (
     is_bound,
 )
 from grelmicro.integrations.starlette import _wire as _wire_starlette
+from grelmicro.integrations.starlette import (
+    _wire_route_reading as _wire_route_reading_starlette,
+)
 from grelmicro.integrations.starlette import (
     install_error_responses as _install_error_responses_starlette,
 )
@@ -191,13 +195,70 @@ def install(
     """Wire `micro` into a FastAPI app.
 
     The Starlette wiring, plus FastAPI's request telemetry exported through
-    the `Trace` and `Metrics` components.
+    the `Trace` and `Metrics` components. The access record and the
+    security event of a request name the route FastAPI's request span
+    names.
 
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
     """
     _wire_starlette(app, micro, ambient=ambient)
+    _wire_route_reading_starlette(app, _route_reader)
     _wire_telemetry(app, micro)
+
+
+def _route_reader(app: FastAPI) -> Callable[..., str | None]:
+    """Return the route reader of `app`, naming the route FastAPI's request span names.
+
+    The template starts with the root path the outermost app was reached
+    under, then the route FastAPI's router selected, with the prefix of
+    every router it was included by. A mount reads as `{path}` under its
+    template, unless a FastAPI app or router serves it, whose route then
+    follows the mount. Under a FastAPI app this one is mounted in, the
+    route reads from that app's router, which names the span. A `Host`
+    names no route. A request a router redirects to add or drop a trailing
+    slash reads the route it is redirected to, and a frontend route reads
+    as `{path}` under the frontend's path. A request no router reached
+    names no route, unless `reach` asks for the route its path would reach.
+
+    Raises:
+        RuntimeError: When FastAPI no longer has a part of its router the
+            reader reads.
+    """
+    held = weakref.ref(app.router)
+    _fastapi.require(app.router)
+
+    def route(
+        scope: Scope,
+        root_path: str,
+        path: str,
+        status: int | None,  # noqa: ARG001
+        /,
+        *,
+        reach: bool = False,
+    ) -> str | None:
+        root = scope.get("app_root_path", root_path)
+        outer = scope.get("router")
+        start = router = held()
+        if outer is None:
+            if not reach:
+                return None
+        elif outer is not router and isinstance(outer, _fastapi.ROUTERS):
+            start, root_path = outer, root
+        else:
+            matched = scope.get("route")
+            if (
+                _fastapi.is_route(matched)
+                and scope.get("root_path", "") == root_path
+            ):
+                return root.rstrip("/") + _fastapi.template_of(scope, matched)
+        return _fastapi.selected_route(
+            start,
+            {**scope, "path": path, "root_path": root_path, "path_params": {}},
+            root.rstrip("/"),
+        )
+
+    return route
 
 
 def install_error_responses(

@@ -985,7 +985,7 @@ class _Gating:
         owner.__dict__[_TARGET] = self._gated(
             owner.__dict__.get(_TARGET, held.handle),
             [declaration],
-            functools.partial(template_under_root, _own_path(route, context)),
+            functools.partial(_route_under_root, _own_path(route, context)),
         )
 
 
@@ -1024,15 +1024,24 @@ def gate_routes(app: Starlette, gate: Gate) -> None:
 def _path_under_mounts(own: str, scope: Scope) -> str:
     """Return the route the request reached.
 
-    On an installed Starlette app, the route its route reader names, as
-    the request span names it. Otherwise the route's own path, under the
-    mounts the request came through.
+    On an installed app, the route its route reader names, as the request
+    span names it. Otherwise the route's own path, under the mounts the
+    request came through.
     """
     return read_route(scope) or f"{scope.get(_PREFIX_KEY, '')}{own}" or "/"
 
 
 _UNDER_MOUNTS: Final = functools.partial(_path_under_mounts, "")
 """Names a mount's refusal by the mounts the request came through."""
+
+
+def _route_under_root(own: str, scope: Scope) -> str:
+    """Return the route the request reached.
+
+    On an installed app, the route its route reader names, as the request
+    span names it. Otherwise the route's own template under the root path.
+    """
+    return read_route(scope) or template_under_root(own, scope)
 
 
 def _regate(owner: Any, held: _Held) -> None:  # noqa: ANN401

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import httpx
 import pytest
-from fastapi import FastAPI
 from litestar import Litestar, asgi, get
 from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
@@ -19,7 +18,7 @@ from starlette.applications import Starlette
 from starlette.authentication import SimpleUser
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import PlainTextResponse
-from starlette.routing import Mount, Route
+from starlette.routing import Route
 
 from grelmicro import Grelmicro
 from grelmicro.errors import (
@@ -34,7 +33,6 @@ from tests.security.jwt_signing import Signer
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
-    from starlette.types import Receive, Scope, Send
 
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
@@ -473,24 +471,6 @@ async def test_a_websocket_is_not_a_request_to_log(
 # --- The route template, per framework -----------------------------------
 
 
-async def test_fastapi_records_the_route_template(
-    capture: Callable[[], list[logging.LogRecord]],
-) -> None:
-    """FastAPI carries the route it matched, so the record groups by it."""
-    app = FastAPI()
-
-    @app.get("/orders/{order_id}")
-    async def order(order_id: str) -> str:
-        return order_id
-
-    app.add_middleware(AccessLogMiddleware)
-
-    async with client_for(app) as client:
-        await client.get("/orders/7")
-
-    assert capture()[0].__dict__["http.route"] == "/orders/{order_id}"
-
-
 async def test_a_litestar_app_under_a_litestar_mount_names_no_route_it_missed(
     capture: Callable[[], list[logging.LogRecord]],
 ) -> None:
@@ -538,98 +518,12 @@ async def test_an_installed_app_records_the_route_its_reader_names(
     assert capture()[0].__dict__["http.route"] == "/items/{item_id}"
 
 
-async def test_a_mount_is_on_both_the_path_and_the_route(
-    capture: Callable[[], list[logging.LogRecord]],
-) -> None:
-    """The path the caller asked for, and the route it grouped under."""
-    inner = FastAPI()
-
-    @inner.get("/orders/{order_id}")
-    async def order(order_id: str) -> str:
-        return order_id
-
-    app = Starlette(routes=[Mount("/api", app=inner)])
-    app.add_middleware(AccessLogMiddleware)
-
-    async with client_for(app) as client:
-        await client.get("/api/orders/7")
-
-    record = capture()[0]
-
-    assert record.__dict__["url.path"] == "/api/orders/7"
-    assert record.__dict__["http.route"] == "/api/orders/{order_id}"
-
-
-async def _file(scope: Scope, receive: Receive, send: Send) -> None:
-    await PlainTextResponse("file")(scope, receive, send)
-
-
-def _fastapi_mounting(inner: Any, at: str = "/t/{tenant}") -> Any:  # noqa: ANN401
-    app = FastAPI()
-    app.mount(at, inner)
-    return app
-
-
 def _litestar_shop() -> Any:  # noqa: ANN401
     @get("/items/{item_id:int}")
     async def item(item_id: Annotated[int, Parameter()]) -> int:
         return item_id
 
     return Litestar(route_handlers=[item], logging_config=None)
-
-
-def _litestar_files() -> Any:  # noqa: ANN401
-    @asgi("/files", is_mount=True, copy_scope=True)
-    async def files(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
-        await _file(scope, receive, send)
-
-    return Litestar(route_handlers=[files], logging_config=None)
-
-
-@pytest.mark.parametrize(
-    ("build", "path", "route"),
-    [
-        (
-            lambda: _fastapi_mounting(
-                Starlette(routes=[Route("/docs/{d}", ok)])
-            ),
-            "/t/acme/nowhere",
-            "/t/{tenant}/{path}",
-        ),
-        (
-            lambda: _fastapi_mounting(_file),
-            "/t/acme/a/b.txt",
-            "/t/{tenant}/{path}",
-        ),
-        (
-            lambda: _fastapi_mounting(_litestar_shop(), at=""),
-            "/items/3",
-            "/items/{item_id}",
-        ),
-        (
-            lambda: _fastapi_mounting(_litestar_files(), at="/s"),
-            "/s/files/a.txt",
-            "/s/files/{path}",
-        ),
-    ],
-    ids=[
-        "fastapi-unknown-path",
-        "fastapi-asgi-app",
-        "litestar-app-at-the-fastapi-root",
-        "litestar-asgi-app-under-fastapi",
-    ],
-)
-async def test_a_mounted_app_reads_as_the_mount_template(
-    capture: Callable[[], list[logging.LogRecord]],
-    build: Callable[[], Any],
-    path: str,
-    route: str,
-) -> None:
-    """A mount reads as its template, whatever it holds and whoever routed it."""
-    async with client_for(AccessLogMiddleware(build())) as client:
-        await client.get(path)
-
-    assert capture()[0].__dict__["http.route"] == route
 
 
 # --- The component -------------------------------------------------------
@@ -1201,41 +1095,3 @@ async def test_the_route_carries_the_root_path_as_the_request_span_does(
     [record] = capture()
     assert record.__dict__["url.path"] == path
     assert record.__dict__["http.route"] == "/proxy/items/{item_id}"
-
-
-async def test_fastapi_keeps_the_prefix_where_the_path_carries_it(
-    capture: Callable[[], list[logging.LogRecord]],
-) -> None:
-    """On FastAPI, the route carries the same prefix as the path.
-
-    A mount adds its prefix to both, and so does a proxy that keeps it. A
-    proxy that strips its own prefix leaves `root_path` set and the path
-    without it, and the route leaves it off too.
-    """
-    inner = FastAPI(root_path="/api")
-
-    @inner.get("/orders/{order_id}")
-    async def order(order_id: str) -> str:
-        return order_id
-
-    stripped = AccessLogMiddleware(inner)
-    mounted = Starlette(routes=[Mount("/api", app=inner)])
-    mounted.add_middleware(AccessLogMiddleware)
-
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=stripped, root_path="/api"),
-        base_url="http://probe",
-    ) as client:
-        await client.get("/orders/7")
-        await client.get("/api/orders/7")
-    async with client_for(mounted) as client:
-        await client.get("/api/orders/7")
-
-    behind_proxy, kept, under_mount = capture()
-
-    assert behind_proxy.__dict__["url.path"] == "/orders/7"
-    assert behind_proxy.__dict__["http.route"] == "/orders/{order_id}"
-    assert kept.__dict__["url.path"] == "/api/orders/7"
-    assert kept.__dict__["http.route"] == "/api/orders/{order_id}"
-    assert under_mount.__dict__["url.path"] == "/api/orders/7"
-    assert under_mount.__dict__["http.route"] == "/api/orders/{order_id}"

@@ -49,7 +49,7 @@ the log and the trace instead of a mapping between two, and `trace_id` and
 | `url.path` | The path the caller asked for, mount prefix and all. |
 | `url.query` | Query parameter names with every value redacted. Turn it off with `query=False`. |
 | `url.scheme` | `http` or `https`. |
-| `http.route` | The route template, when the framework records one. |
+| `http.route` | The route template, on an app `install` wired. |
 | `http.response.status_code` | The status the caller got. |
 | `client.address` | The caller, resolved. |
 | `user_agent.original` | The `User-Agent` header. Turn it off with `user_agent=False`. |
@@ -178,8 +178,11 @@ the components already emit.
 `http.route` is the template, not the path that matched it, so a dashboard
 groups `/orders/7` and `/orders/9` under `/orders/{order_id}`.
 
-There is no standard ASGI key for it, so each framework is read the way it
-records it. FastAPI, Litestar and Starlette all do.
+It is the route the request span names, so a log line and its span group
+under the same route. On FastAPI, that is the route FastAPI's own request span
+names. A request answered before routing, such as a refused token, a cached
+response or a CORS preflight, names the route its path would reach, and its
+span names none.
 
 | Framework | `http.route` |
 |---|---|
@@ -197,3 +200,5 @@ from grelmicro.log import AccessLogMiddleware
 
 app = AccessLogMiddleware(app, quiet=("/healthz",))
 ```
+
+Without `install`, the record names no route.

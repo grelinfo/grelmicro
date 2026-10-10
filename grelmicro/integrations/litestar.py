@@ -281,7 +281,8 @@ def _route_reader(app: Litestar) -> RouteReader:
     the mount. A request Litestar refused for its method reads the route
     its path matched. One answered before routing, such as a CORS
     preflight, reads no route, unless `reach` asks for the route its path
-    would reach.
+    would reach. There, a mount reads as `{path}` under it, whatever app
+    its handler passes the request to.
     """
 
     def route(

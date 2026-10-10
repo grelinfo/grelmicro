@@ -1415,96 +1415,25 @@ def read_route(scope: MutableMapping[str, Any]) -> str | None:
 
 
 def route_template(
-    scope: MutableMapping[str, Any],
-    asked: str,
-    status: int | None = None,
-    *,
-    reach: bool = False,
+    scope: MutableMapping[str, Any], status: int | None = None
 ) -> str | None:
     """Return the route template of the request, when there is one.
 
     A refused request reads the route its refusal named. A request to an
-    installed Starlette or Litestar app reads the route its route reader
-    names, the one its request span names. A request through several
-    installed apps reads the outermost one's. `status` names the route a
-    slash redirect sends the request to.
-
-    A FastAPI app reads the route its router recorded, read after the
-    router has run, with every router prefix. A request that went through
-    a mount reads as `starlette_route` reads it, with the template of
-    each mount, and a mounted Litestar app's own route under it. A mount
-    prefix goes back on, so the route reads as the path it grouped, which
-    is what `asked` carries. On FastAPI, a proxy that strips its own
-    prefix leaves `root_path` set and the path without it, and there the
-    prefix stays off.
-
-    A request no router reached names no route, unless `reach` is set:
-    it then names the route its path would reach, matched against the
-    routes of the app serving it.
+    installed app reads the route its route reader names, through several
+    installed apps the outermost one's. A request a router reached names
+    the route its request span names, and `status` names the route a slash
+    redirect sends it to. One answered before routing, such as a refusal,
+    a cached response or a CORS preflight, names the route its path would
+    reach. A request to an app nothing installed names no route.
     """
     if ROUTE_KEY in scope:
         return scope[ROUTE_KEY]
     reading = scope.get(ROUTE_READER_KEY)
-    if reading is not None:
-        reader, root_path, path = reading
-        return reader(scope, root_path, path, status, reach=reach)
-    root = scope.get("root_path", "")
-    router = scope.get("router")
-    if router is None and reach:
-        app_router = getattr(scope.get("app"), "router", None)
-        template = (
-            None
-            if app_router is None
-            else starlette_route(
-                app_router,
-                scope,
-                root,
-                asked,
-                status,
-                mounted=_litestar_template,
-                reach=True,
-            )
-        )
-    elif "app_root_path" in scope and router is not None:
-        root = scope["app_root_path"]
-        template = starlette_route(
-            router, scope, root, asked, status, mounted=_litestar_template
-        )
-    else:
-        route = scope.get("route")
-        template = getattr(
-            _included(scope, route) or route, "path_format", None
-        ) or getattr(route, "path", None)
-    if not isinstance(template, str):
+    if reading is None:
         return None
-    root = root.rstrip("/")
-    if not root or not asked.startswith(root):
-        return template
-    return f"{root}{template}"
-
-
-def _litestar_template(scope: MutableMapping[str, Any]) -> str | None:
-    """Return the template of the handler a Litestar app mounted under FastAPI matched.
-
-    A mounted ASGI app reads as `{path}` under its mount.
-    """
-    handler = litestar_route_handler(scope)
-    if handler is None:
-        return None
-    if getattr(handler, "is_mount", False):
-        mount = litestar_mount(_serving_litestar(scope), handler)
-        return mount.rstrip("/") + "/{path}"
-    template = scope.get("path_template")
-    return template if isinstance(template, str) else None
-
-
-def _included(scope: MutableMapping[str, Any], route: object) -> Any | None:  # noqa: ANN401
-    """Return the include FastAPI dispatched `route` through, if any."""
-    fastapi = scope.get("fastapi")
-    included = fastapi.get("effective_route_context") if fastapi else None
-    return (
-        included if getattr(included, "original_route", None) is route else None
-    )
+    reader, root_path, path = reading
+    return reader(scope, root_path, path, status, reach=True)
 
 
 def starlette_route(  # noqa: C901
@@ -1520,6 +1449,13 @@ def starlette_route(  # noqa: C901
         Callable[[MutableMapping[str, Any]], str | None],
         Doc("Reads the route a mounted app of another framework matched."),
     ],
+    reaching: Annotated[
+        Callable[[Any, MutableMapping[str, Any]], str | None] | None,
+        Doc(
+            "Reads the route a mounted app of another framework would "
+            "route a request to, given the app and the scope under its mount."
+        ),
+    ] = None,
     reach: Annotated[
         bool,
         Doc("Name the route a request no router reached would reach."),
@@ -1539,8 +1475,10 @@ def starlette_route(  # noqa: C901
     route it is redirected to.
 
     A request no router reached names no route. With `reach`, its path is
-    matched against the routes of `router` as the router would match it,
-    and a mount nothing inside matches reads as `{path}` under it.
+    matched against the routes of `router` as the router would match it.
+    Under a mount of an app of another framework, the route `reaching`
+    reads follows the mount. A mount nothing inside matches reads as
+    `{path}` under it.
     """
     from starlette.routing import BaseRoute, Host, Match, Mount  # noqa: PLC0415
     from starlette.status import HTTP_307_TEMPORARY_REDIRECT  # noqa: PLC0415
@@ -1550,18 +1488,23 @@ def starlette_route(  # noqa: C901
     )
 
     def template(scope: MutableMapping[str, Any], route: object) -> str | None:
-        found = getattr(_included(scope, route) or route, "path_format", None)
+        context = fastapi.context_of(scope, route)
+        found = getattr(context or route, "path_format", None)
         return found if isinstance(found, str) else None
 
     def through_mounts(
-        routes: Sequence[Any], scope: MutableMapping[str, Any]
+        routes: Sequence[Any],
+        scope: MutableMapping[str, Any],
+        foreign: Callable[[Any, MutableMapping[str, Any]], str | None]
+        | None = None,
     ) -> tuple[str | None, str | None]:
         """Return the templates of the mounts `scope` goes through, and of its route.
 
         Matches as Starlette's router does: the first full match, else the
         first partial one. The mounts are `None` when the request goes
         through none. The route is `None` when nothing inside the last
-        mount matches, or when that mount holds an app of another framework.
+        mount matches. When that mount holds an app of another framework,
+        it is the one `foreign` reads, `None` without it.
         """
         found = None
         for candidate in routes:
@@ -1589,8 +1532,10 @@ def starlette_route(  # noqa: C901
         if not inner or not all(
             isinstance(entry, BaseRoute) for entry in inner
         ):
-            return prefix, None
-        mounts, leaf = through_mounts(inner, {**scope, **child})
+            if foreign is None:
+                return prefix, None
+            return prefix, foreign(candidate.app, {**scope, **child})
+        mounts, leaf = through_mounts(inner, {**scope, **child}, foreign)
         return prefix + (mounts or ""), leaf
 
     def start(at: str) -> dict[str, Any]:
@@ -1606,7 +1551,7 @@ def starlette_route(  # noqa: C901
 
     def reached() -> str | None:
         """Return the route the request's path would reach, if any."""
-        mounts, leaf = through_mounts(router.routes, start(path))
+        mounts, leaf = through_mounts(router.routes, start(path), reaching)
         if leaf is not None:
             return (mounts or "") + leaf
         return None if mounts is None else mounts + "/{path}"
