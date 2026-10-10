@@ -65,10 +65,7 @@ from grelmicro.errors import (
     _AmbientMissError,
 )
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
-from grelmicro.http._idempotency import (
-    _default_storage_key,
-    _dependency_methods,
-)
+from grelmicro.http._idempotency import _default_storage_key
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyFunctionError
 from grelmicro.integrations.fastapi import document_idempotency
@@ -980,7 +977,6 @@ def test_public_leaf_router_remains_replayable() -> None:
     assert first.json() == replayed.json() == {"call": 1}
     assert replayed.headers["idempotent-replayed"] == "true"
     assert calls == 1
-    assert _dependency_methods(None) == frozenset()
 
 
 def test_router_middleware_preserves_bound_route_context() -> None:

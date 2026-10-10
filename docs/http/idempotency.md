@@ -234,24 +234,35 @@ the exact stored key.
 Without a custom `key=` function, a request carrying `Authorization` or `Cookie`
 bypasses idempotency and runs the handler every time. This safe default keeps
 private responses out of a shared entry and ensures authentication inside the
-application still runs. On FastAPI, a route with any dependency also bypasses
-the default, including ordinary `Depends` authentication that reads an API key
-from a custom header. This applies when FastAPI is wrapped directly or mounted
-under another ASGI application. Dependency-free public requests continue to
-use the route-scoped default key. Required keys are validated before this
-bypass. The built-in key format is versioned, so an upgraded process cannot
-replay an unscoped entry written by an older release. Custom `key=` values
-remain unchanged.
+application still runs. A route that runs checks before its handler bypasses
+the default too, on every framework:
+
+| Framework | Checks before the handler |
+|---|---|
+| FastAPI | A dependency, such as `Depends` authentication that reads an API key from a custom header |
+| Starlette | Middleware on the route, on a router or on a mount around it, `AuthenticationMiddleware` on the app, and a mounted app of another framework |
+| Litestar | A guard, a dependency the handler asks for, a `before_request` hook, middleware on the handler, its controller or a router, and a mounted ASGI app |
+
+`Anonymous()`, `Authenticated`, `CachedResponse()`, a body limit and
+grelmicro's own middleware are not checks. Middleware on the app is not
+either, on Starlette or on Litestar, except Starlette's
+`AuthenticationMiddleware`. The same holds for middleware on a mounted
+Starlette sub-app. This applies when the app is wrapped directly or mounted
+under another ASGI application. A route running no check keeps the
+route-scoped default key. Required keys are validated before this bypass.
+The built-in key format is versioned, so an upgraded process cannot replay an
+unscoped entry written by an older release. Custom `key=` values remain
+unchanged.
 
 An authenticated Starlette scope bypasses the default too, including when
 `AuthenticationMiddleware` reads a custom header. Put authentication outside
 idempotency so it establishes `scope["user"]` first. A directly wrapped
-Starlette `AuthenticationMiddleware`, one configured lazily on the wrapped
-application, and one inside a mounted application are also detected and
-bypassed. Mounted detection follows the path, so authentication on one
-sub-application does not disable public idempotency on its siblings. An
-application-specific authentication middleware cannot be identified by class;
-keep it outside this middleware or configure an identity-aware `key=` function.
+Starlette `AuthenticationMiddleware`, one configured on the wrapped
+application, and one inside a mounted application bypass it as well. A mount
+covers only the routes under it, so authentication on one sub-application
+leaves public idempotency on its siblings. Middleware of your own on the app
+is not read as a check. Keep it outside this middleware, or configure an
+identity-aware `key=` function.
 
 !!! warning "Set `key=` for authenticated replay"
     To make authenticated requests idempotent, fold the caller identity into

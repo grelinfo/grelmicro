@@ -45,15 +45,19 @@ from grelmicro._paths import (
     _bound_router,
     _effective_dependency_call,
     _inherited_dependency_overrides_context,
+    _is_mount,
+    _is_route,
     _is_starlette_routing_app,
     _middleware_boundaries,
     _nested_routing_app,
     _request_authority,
     _request_root_path,
     _request_scheme,
+    _route_methods,
     _RouteTopologyState,
     _routing_app,
     _same_routing_root,
+    _wrapped_app,
     as_patterns,
     compile_route,
     declared_dependencies,
@@ -80,7 +84,6 @@ from grelmicro.http._conditional import (
 from grelmicro.http._idempotency import (
     StoredResponse,
     _authenticated_scope,
-    _authentication_paths,
 )
 from grelmicro.http._requirement import declared_scopes, declares_optional
 from grelmicro.types import BackendScope
@@ -2421,3 +2424,131 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
     ) -> bool | None:
         """Close the component. Nothing to close."""
         return None
+
+
+def _is_authentication_middleware(value: Any) -> bool:  # noqa: ANN401
+    """Return whether a class or instance is Starlette authentication."""
+    classes = value.__mro__ if isinstance(value, type) else type(value).__mro__
+    return any(
+        klass.__module__ == "starlette.middleware.authentication"
+        and klass.__name__ == "AuthenticationMiddleware"
+        for klass in classes
+    )
+
+
+def _authentication_here(app: Any) -> bool:  # noqa: ANN401
+    """Return whether this application boundary authenticates requests."""
+    if _authentication_chain(app):
+        return True
+    routed = _routing_app(app)
+    if routed is None:
+        return False
+    if any(
+        _is_authentication_middleware(getattr(middleware, "cls", middleware))
+        for middleware in getattr(routed, "user_middleware", ())
+    ):
+        return True
+    return _authentication_chain(getattr(routed, "middleware_stack", None))
+
+
+def _authentication_chain(app: Any) -> bool:  # noqa: ANN401
+    """Return whether an instantiated ASGI chain contains authentication."""
+    seen: set[int] = set()
+    while app is not None and id(app) not in seen:
+        seen.add(id(app))
+        if _is_authentication_middleware(app):
+            return True
+        app = _wrapped_app(app)
+    return False
+
+
+def _authentication_paths(  # noqa: C901, PLR0915
+    app: Any,  # noqa: ANN401
+) -> set[tuple[str, bool, frozenset[str] | None]]:
+    """Return exact or nested paths protected by Starlette authentication."""
+    found: set[tuple[str, bool, frozenset[str] | None]] = set()
+
+    def visit(  # noqa: C901, PLR0912
+        current: Any,  # noqa: ANN401
+        prefix: str,
+        ancestors: frozenset[int],
+        target: set[tuple[str, bool, frozenset[str] | None]],
+    ) -> None:
+        routed = _routing_app(current)
+        if routed is None or id(routed) in ancestors:
+            return
+        if _authentication_here(current):
+            if _is_route(routed):
+                target.add(
+                    (
+                        f"{prefix}{getattr(routed, 'path', '')}",
+                        False,
+                        _route_methods(routed),
+                    )
+                )
+            else:
+                target.add((prefix, True, None))
+            return
+        nested_ancestors = ancestors | {id(routed)}
+        if _is_mount(routed):
+            path = f"{prefix}{getattr(routed, 'path', '')}"
+            nested = getattr(routed, "app", None)
+            if _authentication_here(nested):
+                target.add((path, True, None))
+            else:
+                visit(nested, path, nested_ancestors, target)
+            return
+        if _is_route(routed):
+            path = f"{prefix}{getattr(routed, 'path', '')}"
+            nested = getattr(routed, "app", None)
+            if _authentication_here(nested):
+                target.add((path, False, _route_methods(routed)))
+                return
+            leaf = _nested_routing_app(routed)
+            if leaf is None:
+                return
+            direct_found: set[tuple[str, bool, frozenset[str] | None]] = set()
+            visit(leaf, "", nested_ancestors, direct_found)
+            if direct_found:
+                target.add((path, False, _route_methods(routed)))
+            return
+        router = getattr(routed, "router", None)
+        for route in getattr(router or routed, "routes", ()) or ():
+            included = getattr(route, "original_router", None)
+            if included is not None:
+                context = getattr(route, "include_context", None)
+                visit(
+                    included,
+                    f"{prefix}{getattr(context, 'prefix', '')}",
+                    nested_ancestors,
+                    target,
+                )
+                continue
+            path = f"{prefix}{getattr(route, 'path', '')}"
+            nested = getattr(route, "app", None)
+            if _authentication_here(nested):
+                nested_boundary = getattr(route, "routes", None) is not None
+                target.add(
+                    (
+                        path,
+                        nested_boundary,
+                        None if nested_boundary else _route_methods(route),
+                    )
+                )
+                continue
+            if getattr(route, "routes", None) is not None:
+                visit(nested, path, nested_ancestors, target)
+                continue
+            leaf = _nested_routing_app(route)
+            if leaf is None:
+                continue
+            nested_found: set[tuple[str, bool, frozenset[str] | None]] = set()
+            visit(leaf, "", nested_ancestors, nested_found)
+            if nested_found:
+                # A leaf router receives the unchanged outer scope, unlike
+                # a Mount. Its protected inner paths therefore collapse to
+                # the exact path matched by the outer Route.
+                target.add((path, False, _route_methods(route)))
+
+    visit(app, "", frozenset(), found)
+    return found

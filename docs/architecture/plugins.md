@@ -81,7 +81,8 @@ request. Your integration tells it what each route requires with a
 | `methods` | The methods the router answers on this route, in capitals. A router that answers `HEAD` for a `GET` lists both. `None` is every method, as a mount or a websocket route answers | `None` |
 | `anonymous` | The route serves a caller with no credential | `False` |
 | `scopes` | The scopes the caller must hold, every one of them | empty |
-| `own_checks` | The route runs checks of its own before the handler, so its answer can depend on the caller: a dependency, a guard, or middleware on the route or on a mount around it. A response is never cached or replayed across callers | `False` |
+| `own_checks` | The route runs checks of its own before the handler, so its answer can depend on the caller: a dependency, a guard, or middleware on the route. A response is never cached or replayed across callers | `False` |
+| `checked_above` | Checks that are not the route's own run before it, such as middleware on a router or a mount around it, so its answer can depend on the caller. A response is never replayed across callers, and a `cache` the route declares still holds | `False` |
 | `cache` | `CachedResponses` may store the route's response. `True` keeps it for the TTL the component is configured with, a `timedelta` keeps it that long, and a number is refused | `False` |
 
 A declaration is frozen. Pass `path` first and every other field by keyword.
@@ -127,6 +128,11 @@ added after install never serves ungated. `grelmicro check`,
 from one function, so they cannot disagree. Test them against real routes:
 an included router, a mount and a class-based endpoint are where a missed
 `scopes` hides, and it lets any authenticated caller in.
+
+Idempotency calls `route_declarations` on each object of your framework it
+meets between its middleware and the routes, or only on those your
+`_lists_routes(obj)` accepts when the integration carries it. An exception
+`route_declarations` raises fails the request.
 
 For Starlette, where your own decorators set `anonymous` and `scopes` on the
 endpoint:

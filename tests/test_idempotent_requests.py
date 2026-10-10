@@ -5,19 +5,36 @@ from __future__ import annotations
 import warnings
 from contextlib import asynccontextmanager
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Self, cast
 
 import pytest
 from fastapi import APIRouter, FastAPI, Response
+from fastapi import Request as FastAPIRequest
 from fastapi.testclient import TestClient
-from litestar import Litestar, post
+from litestar import Litestar, asgi, post
+from litestar import Request as LitestarRequest
 from litestar import Response as LitestarResponse
-from litestar.exceptions import HTTPException, ValidationException
+from litestar import Router as LitestarRouter
+from litestar.connection import ASGIConnection
+from litestar.di import NamedDependency, Provide
+from litestar.exceptions import (
+    HTTPException,
+    NotAuthorizedException,
+    ValidationException,
+)
+from litestar.handlers import BaseRouteHandler
 from litestar.middleware import DefineMiddleware
+from litestar.params import FromPath
+from litestar.response.base import ASGIResponse
 from litestar.testing import TestClient as LitestarTestClient
+from litestar.types import Receive as LitestarReceive
+from litestar.types import Scope as LitestarScope
+from litestar.types import Send as LitestarSend
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.responses import JSONResponse
-from starlette.routing import BaseRoute, Route, Router
+from starlette.routing import BaseRoute, Mount, Route, Router
 
 from grelmicro import (
     Grelmicro,
@@ -26,23 +43,24 @@ from grelmicro import (
     Usable,
 )
 from grelmicro._paths import _routing_app
+from grelmicro.cache import Cache
+from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
+    CachedResponses,
     IdempotencyMiddleware,
     IdempotentRequests,
     IdempotentRequestsConfig,
 )
 from grelmicro.http._idempotency import (
-    _authentication_paths,
     _checked_key,
-    _contains_fastapi,
     _GatedRoutes,
 )
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyFunctionError
-from grelmicro.integrations.litestar import (
-    install_middleware as install_litestar_middleware,
-)
+from grelmicro.integrations import litestar as litestar_integration
+from grelmicro.integrations.fastapi import CachedResponse
+from grelmicro.integrations.litestar import Anonymous
 from grelmicro.integrations.starlette import install_middleware
 from grelmicro.providers.memory import MemoryProvider
 from tests.test_route_gate_litestar import Passing
@@ -721,7 +739,7 @@ def test_litestar_install_middleware_alone_never_replays_a_crash() -> None:
     app.asgi_handler = cast(
         "Any", GrelmicroMiddleware(cast("Any", app.asgi_handler), micro=micro)
     )
-    install_litestar_middleware(app, [component])
+    litestar_integration.install_middleware(app, [component])
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -1139,27 +1157,46 @@ def test_litestar_warns_when_the_wrap_sits_outside_app_middleware() -> None:
 def test_litestar_security_probe_needs_no_starlette(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A non-FastAPI app never imports FastAPI's Starlette route compiler."""
+    """A Litestar app's checks are matched without Starlette's route compiler."""
     # Arrange
     import sys  # noqa: PLC0415
 
-    app = Litestar(route_handlers=[])
-    monkeypatch.setitem(sys.modules, "starlette.routing", None)
+    @post("/items/{item_id:int}", guards=[_caller_guard])
+    async def item(item_id: FromPath[int]) -> int:
+        return item_id
 
-    # Act / Assert
-    _GatedRoutes().read(app)
+    @post("/files/{name:path}", guards=[_caller_guard])
+    async def file(name: FromPath[str]) -> str:
+        return name
+
+    app = Litestar(route_handlers=[item, file])
+    monkeypatch.setitem(sys.modules, "starlette.routing", None)
+    gated = _GatedRoutes()
+
+    # Act
+    gated.read(app)
+
+    # Assert
+    assert gated.matches_route("POST", "/items/7")
+    assert gated.matches_route("POST", "/files/a/b.txt")
+    assert not gated.matches_route("POST", "/items/7/more")
+    assert not gated.matches_route("GET", "/items/7")
 
 
 def test_security_probe_handles_repeated_mounted_application() -> None:
-    """The same mounted app is traversed once and cannot form a loop."""
+    """The same mounted app is read once and cannot form a loop."""
     # Arrange
     child = Starlette()
     app = Starlette()
     app.mount("/one", child)
     app.mount("/two", child)
+    gated = _GatedRoutes()
 
-    # Act / Assert
-    assert not _contains_fastapi(app)
+    # Act
+    gated.read(app)
+
+    # Assert
+    assert not gated.matches_route("POST", "/one")
 
 
 def test_security_probe_handles_an_asgi_middleware_loop() -> None:
@@ -1173,9 +1210,10 @@ def test_security_probe_handles_an_asgi_middleware_loop() -> None:
     loop.app = loop
 
     # Act / Assert
+    gated = _GatedRoutes()
+    gated.read(loop)
     assert _routing_app(loop) is loop
-    assert not _contains_fastapi(None)
-    assert not _authentication_paths(None)
+    assert not gated.matches_route("POST", "/")
 
 
 def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:
@@ -1532,3 +1570,467 @@ def test_idempotency_key_that_is_not_a_function_is_refused(
     # Act / Assert
     with pytest.raises(TypeError, match=r"^key must be a function$"):
         build(key)
+
+
+class _CallerCheck:
+    """A route middleware refusing a request that names no caller."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        if b"x-api-key" not in dict(scope["headers"]):
+            refusal = JSONResponse({}, status_code=HTTP_401_UNAUTHORIZED)
+            await refusal(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+async def _starlette_caller(request: Request) -> JSONResponse:
+    """Answer the caller the request names."""
+    return JSONResponse({"caller": request.headers.get("x-api-key")})
+
+
+def _starlette_caller_app(**route: Any) -> Starlette:  # noqa: ANN401
+    """Return an installed Starlette app answering the caller at `/whoami`."""
+    app = Starlette(
+        routes=[Route("/whoami", _starlette_caller, methods=["POST"], **route)]
+    )
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    return app
+
+
+def test_idempotent_requests_starlette_route_middleware_never_replays_across_callers() -> (
+    None
+):
+    """Middleware on a Starlette route is a check of its own, so each caller runs."""
+    # Arrange
+    app = _starlette_caller_app(middleware=[Middleware(_CallerCheck)])
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
+        bob = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "b"})
+        anonymous = client.post("/whoami", headers={HEADER: "k"})
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert bob.json() == {"caller": "b"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert REPLAY_HEADER not in bob.headers
+    assert REPLAY_HEADER not in anonymous.headers
+
+
+def test_idempotent_requests_starlette_body_limit_route_stays_replayable() -> (
+    None
+):
+    """A body limit on the route checks no caller, so the default key replays."""
+    # Arrange
+    app = _starlette_caller_app(max_body_size=MAX_BODY_SIZE)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
+        second = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "b"})
+
+    # Assert
+    assert first.json() == second.json() == {"caller": "a"}
+    assert second.headers[REPLAY_HEADER] == "true"
+
+
+def _caller_guard(connection: ASGIConnection, _: BaseRouteHandler) -> None:
+    """Refuse a request that names no caller."""
+    if "x-api-key" not in connection.headers:
+        raise NotAuthorizedException
+
+
+async def _caller_of(request: LitestarRequest) -> str | None:
+    """Return the caller the request names."""
+    return request.headers.get("x-api-key")
+
+
+def _litestar_caller_app(**handler: Any) -> Litestar:  # noqa: ANN401
+    """Return an installed Litestar app answering the caller at `/whoami`."""
+
+    @post("/whoami", status_code=200, **handler)
+    async def whoami(request: LitestarRequest) -> dict[str, str | None]:
+        return {"caller": request.headers.get("x-api-key")}
+
+    app = Litestar(route_handlers=[whoami])
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    return app
+
+
+def _litestar_dependent_app() -> Litestar:
+    """Return an installed Litestar app whose handler runs a dependency."""
+
+    @post(
+        "/whoami",
+        status_code=200,
+        dependencies={"caller": Provide(_caller_of)},
+    )
+    async def whoami(
+        caller: NamedDependency[str | None],
+    ) -> dict[str, str | None]:
+        return {"caller": caller}
+
+    app = Litestar(route_handlers=[whoami])
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    return app
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda: _litestar_caller_app(guards=[_caller_guard]), id="guard"
+        ),
+        pytest.param(_litestar_dependent_app, id="dependency"),
+    ],
+)
+def test_idempotent_requests_litestar_handler_checks_never_replay_across_callers(
+    build: Callable[[], Litestar],
+) -> None:
+    """A guard or a dependency runs before the handler, so each caller runs."""
+    # Arrange
+    app = build()
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        alice = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
+        bob = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "b"})
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert bob.json() == {"caller": "b"}
+    assert REPLAY_HEADER not in bob.headers
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        pytest.param({"opt": Anonymous()}, id="anonymous"),
+        pytest.param({}, id="no checks"),
+    ],
+)
+def test_idempotent_requests_litestar_handler_without_checks_stays_replayable(
+    handler: dict[str, Any],
+) -> None:
+    """A handler declaring only `Anonymous()` runs no check, so it replays."""
+    # Arrange
+    app = _litestar_caller_app(**handler)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        first = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
+        second = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "b"})
+
+    # Assert
+    assert first.json() == second.json() == {"caller": "a"}
+    assert second.headers[REPLAY_HEADER] == "true"
+
+
+def test_idempotent_requests_litestar_unused_dependency_stays_replayable() -> (
+    None
+):
+    """A dependency the handler never asks for never runs, so it replays."""
+
+    # Arrange
+    @post("/whoami", status_code=200)
+    async def whoami(request: LitestarRequest) -> dict[str, str | None]:
+        return {"caller": request.headers.get("x-api-key")}
+
+    app = Litestar(
+        route_handlers=[whoami], dependencies={"caller": Provide(_caller_of)}
+    )
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        first = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
+        second = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "b"})
+
+    # Assert
+    assert first.json() == second.json() == {"caller": "a"}
+    assert second.headers[REPLAY_HEADER] == "true"
+
+
+@asgi("/files", is_mount=True, copy_scope=True, guards=[_caller_guard])
+async def _caller_files(
+    scope: LitestarScope,
+    receive: LitestarReceive,
+    send: LitestarSend,
+) -> None:
+    """Answer the caller a request to any file names."""
+    caller = dict(scope["headers"]).get(b"x-api-key", b"")
+    await ASGIResponse(body=caller)(scope, receive, send)
+
+
+def test_idempotent_requests_litestar_mount_never_replays_across_callers() -> (
+    None
+):
+    """A guarded mount runs its guard on every path under it, so each caller runs."""
+    # Arrange
+    app = Litestar(route_handlers=[_caller_files])
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        replies = [
+            client.post(path, headers={HEADER: path, "X-API-Key": caller})
+            for path in ("/files/a/b", "/files")
+            for caller in ("a", "b")
+        ]
+
+    # Assert
+    assert [reply.text for reply in replies] == ["a", "b", "a", "b"]
+    assert all(REPLAY_HEADER not in reply.headers for reply in replies)
+
+
+def test_idempotent_requests_litestar_path_parameter_never_replays_across_callers() -> (
+    None
+):
+    """A guarded route's `path` parameter spans segments, so each caller runs."""
+
+    # Arrange
+    @post("/files/{name:path}", status_code=200, guards=[_caller_guard])
+    async def files(
+        name: FromPath[str], request: LitestarRequest
+    ) -> dict[str, str | None]:
+        return {"caller": request.headers.get("x-api-key"), "name": name}
+
+    app = Litestar(route_handlers=[files])
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        alice = client.post(
+            "/files/a/b", headers={HEADER: "k", "X-API-Key": "a"}
+        )
+        bob = client.post("/files/a/b", headers={HEADER: "k", "X-API-Key": "b"})
+
+    # Assert
+    assert alice.json()["caller"] == "a"
+    assert bob.json()["caller"] == "b"
+    assert REPLAY_HEADER not in bob.headers
+
+
+def test_idempotent_requests_litestar_handler_registered_later_never_replays_across_callers() -> (
+    None
+):
+    """A guarded handler registered after the first request is read again."""
+    # Arrange
+    app = _litestar_caller_app()
+
+    @post("/later", status_code=200, guards=[_caller_guard])
+    async def later(request: LitestarRequest) -> dict[str, str | None]:
+        return {"caller": request.headers.get("x-api-key")}
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        client.post("/whoami", headers={HEADER: "first", "X-API-Key": "a"})
+        app.register(later)
+        alice = client.post("/later", headers={HEADER: "k", "X-API-Key": "a"})
+        bob = client.post("/later", headers={HEADER: "k", "X-API-Key": "b"})
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert bob.json() == {"caller": "b"}
+    assert REPLAY_HEADER not in bob.headers
+
+
+def test_idempotent_requests_starlette_mount_middleware_never_replays_across_callers() -> (
+    None
+):
+    """Middleware on a mount runs before the routes under it, so each caller runs."""
+    # Arrange
+    app = Starlette(
+        routes=[
+            Mount(
+                "/api",
+                routes=[Route("/whoami", _starlette_caller, methods=["POST"])],
+                middleware=[Middleware(_CallerCheck)],
+            )
+        ]
+    )
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post(
+            "/api/whoami", headers={HEADER: "k", "X-API-Key": "a"}
+        )
+        bob = client.post(
+            "/api/whoami", headers={HEADER: "k", "X-API-Key": "b"}
+        )
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert bob.json() == {"caller": "b"}
+    assert REPLAY_HEADER not in bob.headers
+
+
+def test_idempotency_middleware_listing_error_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An integration failing to list the routes of its app fails the request."""
+
+    # Arrange
+    def broken(app: object) -> list[object]:  # noqa: ARG001
+        msg = "routes moved"
+        raise AttributeError(msg)
+
+    integration = SimpleNamespace(route_declarations=broken)
+    monkeypatch.setattr(
+        "grelmicro.http._idempotency.load_integration",
+        lambda app: integration,  # noqa: ARG005
+    )
+    app = _starlette_caller_app()
+
+    # Act / Assert
+    with (
+        TestClient(app) as client,
+        pytest.raises(AttributeError, match="routes moved"),
+    ):
+        client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
+
+
+def test_idempotent_requests_starlette_router_middleware_never_replays_across_callers() -> (
+    None
+):
+    """Middleware on a mounted router runs before its routes, so each caller runs."""
+    # Arrange
+    router = Router(
+        routes=[Route("/whoami", _starlette_caller, methods=["POST"])],
+        middleware=[Middleware(_CallerCheck)],
+    )
+    app = Starlette(routes=[Mount("/m", app=router)])
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post(
+            "/m/whoami", headers={HEADER: "k", "X-API-Key": "a"}
+        )
+        bob = client.post("/m/whoami", headers={HEADER: "k", "X-API-Key": "b"})
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert bob.json() == {"caller": "b"}
+    assert REPLAY_HEADER not in bob.headers
+
+
+def _guarded_litestar() -> Any:  # noqa: ANN401
+    """Return a Litestar app whose router guards `/r/whoami`."""
+
+    @post("/whoami", status_code=200)
+    async def whoami(request: LitestarRequest) -> dict[str, str | None]:
+        return {"caller": request.headers.get("x-api-key")}
+
+    return Litestar(
+        route_handlers=[
+            LitestarRouter(
+                "/r", route_handlers=[whoami], guards=[_caller_guard]
+            )
+        ]
+    )
+
+
+def _starlette_over_litestar() -> tuple[Any, str]:
+    """Return a Starlette app mounting a guarded Litestar app."""
+    return Starlette(
+        routes=[Mount("/ls", app=_guarded_litestar())]
+    ), "/ls/r/whoami"
+
+
+def _fastapi_over_litestar() -> tuple[Any, str]:
+    """Return a FastAPI app mounting a guarded Litestar app."""
+    app = FastAPI()
+    app.mount("/ls", _guarded_litestar())
+    return app, "/ls/r/whoami"
+
+
+def _litestar_over_fastapi() -> tuple[Any, str]:
+    """Return a Litestar app mounting a FastAPI app that checks its caller."""
+    inner = FastAPI()
+
+    @inner.post("/whoami/")
+    async def whoami(request: FastAPIRequest) -> dict[str, str | None]:
+        caller = request.headers.get("x-api-key")
+        if caller is None:
+            return {"caller": None}
+        return {"caller": caller}
+
+    @asgi("/fa", is_mount=True, copy_scope=True)
+    async def mounted(
+        scope: LitestarScope, receive: LitestarReceive, send: LitestarSend
+    ) -> None:
+        await inner(cast("Any", scope), cast("Any", receive), cast("Any", send))
+
+    return Litestar(route_handlers=[mounted]), "/fa/whoami"
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_starlette_over_litestar, id="starlette>litestar"),
+        pytest.param(_fastapi_over_litestar, id="fastapi>litestar"),
+        pytest.param(_litestar_over_fastapi, id="litestar>fastapi"),
+    ],
+)
+def test_idempotent_requests_mounted_app_of_another_framework_never_replays_across_callers(
+    build: Callable[[], tuple[Any, str]],
+) -> None:
+    """An app the walk cannot read checks its callers after the replay decision."""
+    # Arrange
+    app, path = build()
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    client = (
+        LitestarTestClient(app=app)
+        if isinstance(app, Litestar)
+        else TestClient(app)
+    )
+
+    # Act
+    with client:
+        alice = client.post(path, headers={HEADER: "k", "X-API-Key": "a"})
+        bob = client.post(path, headers={HEADER: "k", "X-API-Key": "b"})
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert bob.json() == {"caller": "b"}
+    assert REPLAY_HEADER not in bob.headers
+
+
+def test_idempotent_requests_cached_route_under_checked_mount_never_replays_across_callers() -> (
+    None
+):
+    """A cached route under a checking mount installs and runs for each caller."""
+    # Arrange
+    api = FastAPI()
+
+    @api.get("/feed", dependencies=[CachedResponse()])
+    async def feed(request: FastAPIRequest) -> dict[str, str | None]:
+        return {"caller": request.headers.get("x-api-key")}
+
+    app = Starlette(
+        routes=[Mount("/v1", app=api, middleware=[Middleware(_CallerCheck)])]
+    )
+    Grelmicro(
+        uses=[
+            MemoryProvider(),
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(),
+            IdempotentRequests(methods=["GET", "POST"]),
+        ]
+    ).install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.get("/v1/feed", headers={HEADER: "k", "X-API-Key": "a"})
+        nobody = client.get("/v1/feed", headers={HEADER: "k"})
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert nobody.status_code == HTTP_401_UNAUTHORIZED
+    assert REPLAY_HEADER not in nobody.headers
