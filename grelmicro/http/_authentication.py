@@ -2019,9 +2019,7 @@ class AuthenticatedRequestsMiddleware:
         if found is None:
             return
         if ROUTE_KEY not in scope:
-            scope[ROUTE_KEY] = route_template(
-                scope, arrived_path(scope), reach=self._public is not None
-            )
+            scope[ROUTE_KEY] = route_template(scope)
         self._events.refused(
             scope,
             refusal=found[0],

@@ -160,16 +160,20 @@ def _wire(app: Starlette, micro: Grelmicro, *, ambient: bool) -> None:
         _keep_binding_outermost(app)
 
 
-def _wire_route_reading(app: Starlette) -> RouteReader:
+def _wire_route_reading(
+    app: Starlette,
+    read: Callable[[Any], RouteReader] | None = None,
+) -> RouteReader:
     """Leave the route reader of `app` in the scope of every request, and return it.
 
-    The reading wraps the whole stack, and every layer reads the same one.
-    The first install wires it, and a later one returns the same reader.
+    `read` builds the reader, the Starlette one by default. The reading
+    wraps the whole stack, and every layer reads the same one. The first
+    install wires it, and a later one returns the same reader.
     """
     reader = _ROUTE_READERS.get(app)
     if reader is not None:
         return reader
-    reader = _ROUTE_READERS[app] = _route_reader(app)
+    reader = _ROUTE_READERS[app] = (read or _route_reader)(app)
     build = app.build_middleware_stack
 
     def build_middleware_stack() -> ASGIApp:
@@ -239,7 +243,8 @@ def _route_reader(app: Starlette) -> RouteReader:
     `starlette_route` reads it: each mount the request went through, then
     the route the innermost router matched. A mounted Litestar app reads
     its own route under the mount. A request no router reached names no
-    route, unless `reach` asks for the route its path would reach.
+    route, unless `reach` asks for the route its path would reach, a
+    mounted Litestar app's own route included.
     """
     router = app.router
 
@@ -259,6 +264,7 @@ def _route_reader(app: Starlette) -> RouteReader:
             path,
             status,
             mounted=_litestar_route,
+            reaching=_litestar_reached,
             reach=reach,
         )
         return None if found is None else root_path.rstrip("/") + found
@@ -280,6 +286,26 @@ def _litestar_route(scope: Scope) -> str | None:
         return mount.rstrip("/") + "/{path}"
     template = scope.get("path_template")
     return template if isinstance(template, str) else None
+
+
+def _litestar_reached(app: Any, scope: Scope) -> str | None:  # noqa: ANN401
+    """Return the route a Litestar app mounted under this one would route a request to.
+
+    Read through any middleware wrapping the app, before it routed the
+    request. `None` when the mount holds no Litestar app, or when no route
+    of it matches the path.
+    """
+    while app is not None and not hasattr(app, "asgi_router"):
+        app = getattr(app, "app", None)
+    if app is None:
+        return None
+    from grelmicro.integrations.litestar import (  # noqa: PLC0415
+        _reached_template,
+    )
+
+    return _reached_template(
+        app, scope.get("root_path", ""), scope["path"], scope.get("method")
+    )
 
 
 def install_error_responses(

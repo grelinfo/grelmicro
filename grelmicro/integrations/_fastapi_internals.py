@@ -36,6 +36,7 @@ __all__ = [
     "gate_low_priority",
     "is_dispatched_as_itself",
     "is_included",
+    "is_route",
     "is_websocket_route",
     "low_priority_routes",
     "methods_of",
@@ -43,7 +44,9 @@ __all__ = [
     "path_of",
     "require",
     "router_of",
+    "selected_route",
     "telemetry_of",
+    "template_of",
     "track",
     "watch",
 ]
@@ -58,6 +61,8 @@ _WEBSOCKET_ROUTE: Final[Any] = getattr(routing, "APIWebSocketRoute", None)
 _INCLUDED: Final[Any] = getattr(routing, "_IncludedRouter", None)
 _CONTEXT: Final[Any] = getattr(routing, "_EffectiveRouteContext", None)
 _FRONTEND: Final[Any] = getattr(routing, "_FrontendRouteGroup", None)
+_JOIN_FRONTEND: Final[Any] = getattr(routing, "_join_frontend_paths", None)
+_ROUTE_PATH: Final[Any] = getattr(routing, "get_route_path", None)
 _SCOPE_KEY: Final[Any] = getattr(routing, "_FASTAPI_SCOPE_KEY", None)
 _CONTEXT_KEY: Final[Any] = getattr(
     routing, "_FASTAPI_EFFECTIVE_ROUTE_CONTEXT_KEY", None
@@ -106,34 +111,39 @@ _TELEMETRY_MOVED: Final = (
 
 
 def require(router: object) -> None:
-    """Fail when FastAPI no longer has a part the route gates read of `router`.
+    """Fail when FastAPI no longer has a part the route gates or the route reader read of `router`.
 
     Raises:
         RuntimeError: Naming each missing part.
     """
+    frontend = _FRONTEND is not None
     missing = [
         name
-        for name, found in (
-            ("_IncludedRouter", _INCLUDED),
-            ("_EffectiveRouteContext", _CONTEXT),
-            ("_FASTAPI_SCOPE_KEY", _SCOPE_KEY),
-            ("_FASTAPI_EFFECTIVE_ROUTE_CONTEXT_KEY", _CONTEXT_KEY),
+        for needed, name, found in (
+            (True, "_IncludedRouter", _INCLUDED),
+            (True, "_EffectiveRouteContext", _CONTEXT),
+            (True, "_FASTAPI_SCOPE_KEY", _SCOPE_KEY),
+            (True, "_FASTAPI_EFFECTIVE_ROUTE_CONTEXT_KEY", _CONTEXT_KEY),
+            (frontend, "_join_frontend_paths", _JOIN_FRONTEND),
+            (True, "get_route_path", _ROUTE_PATH),
         )
-        if found is None
+        if needed and found is None
     ]
-    frontend = _FRONTEND is not None
     attributes = (
         (_INCLUDED, "_IncludedRouter", _CANDIDATES),
         (_INCLUDED, "_IncludedRouter", "_match"),
         (_INCLUDED if frontend else None, "_IncludedRouter", _LOW_PRIORITY),
         (router, "APIRouter", "_mark_routes_changed"),
         (router if frontend else None, "APIRouter", "_low_priority_routes"),
+        (router if frontend else None, "APIRouter", "_match_low_priority"),
+        (_FRONTEND, "_FrontendRouteGroup", "_match"),
     )
     fields = (
         (_INCLUDED, "_IncludedRouter", "original_router"),
         (_CONTEXT, "_EffectiveRouteContext", "original_route"),
         (_CONTEXT, "_EffectiveRouteContext", "starlette_route"),
         (_CONTEXT, "_EffectiveRouteContext", "path"),
+        (_CONTEXT, "_EffectiveRouteContext", "path_format"),
         (_CONTEXT, "_EffectiveRouteContext", "dependant"),  # codespell:ignore
         (_CONTEXT, "_EffectiveRouteContext", "methods"),
         (
@@ -156,8 +166,8 @@ def require(router: object) -> None:
     if missing:
         msg = (
             f"FastAPI's router has no {', '.join(missing)}, which "
-            f"micro.install(app) gates each route through. Install a FastAPI "
-            f"release grelmicro supports."
+            "micro.install(app) gates and names each route through. "
+            "Install a FastAPI release grelmicro supports."
         )
         raise RuntimeError(msg)
 
@@ -433,3 +443,121 @@ def dispatched(included: Any, scope: Scope) -> tuple[Any | None, Scope]:  # noqa
         added = {**added, **child}
         found = route if context is None else context.starlette_route or context
     return found, added
+
+
+def is_route(route: object) -> bool:
+    """Return whether `route` is a FastAPI route, HTTP or websocket."""
+    return any(
+        kind is not None and isinstance(route, kind)
+        for kind in (_ROUTE, _WEBSOCKET_ROUTE)
+    )
+
+
+def template_of(scope: Scope, route: Any) -> str:  # noqa: ANN401
+    """Return the template FastAPI names `route` by, under every include's prefix."""
+    context = context_of(scope, route)
+    return route.path_format if context is None else context.path_format
+
+
+def selected_route(router: Any, scope: Scope, prefix: str) -> str | None:  # noqa: ANN401
+    """Return the route FastAPI's request telemetry names for a request to `router`.
+
+    Matched as FastAPI's router matches it: the first full match, else the
+    first partial one, through every include, then the route a slash
+    redirect sends the request to, then the frontend routes. A mount adds
+    its template to `prefix` and names the request `{path}` under it, and
+    the router of a FastAPI app or router mounted there goes on from it. A
+    `Host` names no route. `None` when the request reaches no route.
+    """
+    from starlette.routing import Host, Match, Mount  # noqa: PLC0415
+
+    scope = {**scope, _SCOPE_KEY: {}}
+    route: str | None = None
+    current: Any = router
+    while current is not None:
+        found = _first_match(current.routes, scope, Match)
+        if found is None:
+            return _unmatched(current, scope, prefix, route, Match)
+        candidate, child = found
+        scope = {**scope, **child}
+        if is_included(candidate):
+            candidate, added = dispatched(candidate, scope)
+            scope = {**scope, **added}
+        path = getattr(candidate, "path_format", None)
+        if path is not None and isinstance(candidate, Mount):
+            prefix += path.removesuffix("/{path}")
+            route = prefix + "/{path}"
+        elif path is not None:
+            route = prefix + path
+        current = (
+            _router_inside(candidate.app)
+            if isinstance(candidate, Mount | Host)
+            else None
+        )
+    return route
+
+
+def _first_match(routes: list[Any], scope: Scope, kind: Any) -> Any:  # noqa: ANN401
+    """Return the first route fully matching `scope` and its scope, else the first partial one."""
+    partial = None
+    for route in routes:
+        match, child = route.matches(scope)
+        if match is kind.FULL:
+            return route, child
+        if match is kind.PARTIAL and partial is None:
+            partial = route, child
+    return partial
+
+
+def _router_inside(app: Any) -> Any | None:  # noqa: ANN401
+    """Return FastAPI's router behind a mounted app, `None` when another router serves it."""
+    while app is not None:
+        if isinstance(app, ROUTERS):
+            return app
+        router = getattr(app, "router", None)
+        if isinstance(router, ROUTERS):
+            return router
+        app = getattr(app, "app", None)
+    return None
+
+
+def _unmatched(
+    router: Any,  # noqa: ANN401
+    scope: Scope,
+    prefix: str,
+    route: str | None,
+    kind: Any,  # noqa: ANN401
+) -> str | None:
+    """Return the route FastAPI names for a request no route of `router` matched.
+
+    The route a slash redirect sends it to, else its frontend route, read
+    as `{path}` under the frontend's path, else `route`, the one named
+    before.
+    """
+    path: str = scope["path"]
+    if (
+        scope["type"] == "http"
+        and router.redirect_slashes
+        and _ROUTE_PATH(scope) != "/"
+    ):
+        toggled = {
+            **scope,
+            "path": path.rstrip("/") if path.endswith("/") else path + "/",
+        }
+        for candidate in router.routes:
+            match, _ = candidate.matches(toggled)
+            if match is kind.NONE:
+                continue
+            target, _ = dispatched(candidate, toggled)
+            template = getattr(target, "path_format", None)
+            return route if template is None else prefix + template
+    _, child, found, context = (
+        router._match_low_priority(scope)  # noqa: SLF001
+        if _FRONTEND is not None
+        else (kind.NONE, {}, None, None)
+    )
+    if found is None:
+        return route
+    front = "" if context is None else context.frontend_prefix
+    _, _, page = found._match({**scope, **child}, prefix=front)  # noqa: SLF001
+    return prefix + _JOIN_FRONTEND(front, page.path).rstrip("/") + "/{path}"

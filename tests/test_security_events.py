@@ -39,7 +39,6 @@ from starlette.testclient import WebSocketDenialResponse
 
 from grelmicro import Grelmicro
 from grelmicro._caller import subject_of
-from grelmicro._paths import route_template
 from grelmicro.errors import (
     AmbiguousCredentialsError,
     AuthenticationRequiredError,
@@ -530,12 +529,7 @@ class TestIncludedRoute:
                 "/api/v1/orders/7",
                 "/api/v1/orders/{order_id}",
             ),
-            (
-                under_starlette,
-                "",
-                "/api/v1/orders/7",
-                "/api/v1/orders/{order_id}",
-            ),
+            (under_starlette, "", "/api/v1/orders/7", "/v1/orders/{order_id}"),
             (
                 under_fastapi,
                 "",
@@ -554,7 +548,11 @@ class TestIncludedRoute:
         path: str,
         expected: str,
     ) -> None:
-        """Every prefix the route sits under is on the route both record."""
+        """Every prefix the route sits under is on the route both record.
+
+        Under a mount, the route is the one FastAPI's request span names:
+        from the outer FastAPI app, else from the root of this one.
+        """
         caplog.set_level(logging.INFO, logger="grelmicro.access")
 
         TestClient(build(), root_path=root_path).delete(
@@ -575,10 +573,10 @@ class TestIncludedRoute:
         ("build", "path", "expected"),
         [
             (on_the_app, "/7", "/{order_id}"),
-            (with_a_starlette_route, "/v1/ping", None),
+            (with_a_starlette_route, "/v1/ping", "/v1/ping"),
             (nested_prefixes, "/v1/orders/7", "/v1/orders/{order_id}"),
             (included_twice, "/b/7", "/b/{order_id}"),
-            (under_starlette, "/api/v1/orders/7", "/api/v1/orders/{order_id}"),
+            (under_starlette, "/api/v1/orders/7", "/v1/orders/{order_id}"),
         ],
     )
     def test_an_admitted_request_records_the_full_template(
@@ -589,7 +587,7 @@ class TestIncludedRoute:
         path: str,
         expected: str | None,
     ) -> None:
-        """A served route records its template with every prefix, a plain one none."""
+        """A served route records its template with every prefix."""
         caplog.set_level(logging.INFO, logger="grelmicro.access")
 
         response = TestClient(build()).delete(
@@ -1578,32 +1576,6 @@ class TestMutationGaps:
 
         [record] = events
         assert field(record, "http.route") == "/items/special"
-
-    @pytest.mark.parametrize(
-        ("extra", "expected"),
-        [
-            ({"path": "/whoami"}, "/whoami"),
-            ({"path": "/whoami", "root_path": "/api"}, "/whoami"),
-            ({"path": "/api/whoami", "root_path": "/api"}, "/api/whoami"),
-            ({"path": "/api/nowhere", "root_path": "/api"}, None),
-        ],
-    )
-    def test_the_template_before_routing(
-        self, extra: dict[str, str], expected: str | None
-    ) -> None:
-        """A missing root path, a stripped prefix and no route at all.
-
-        On an app with no route reader, such as FastAPI, the routes of the
-        app serving the request are matched.
-        """
-        app = FastAPI()
-        app.add_route("/whoami", whoami)
-        scope: dict[str, Any] = {"type": "http", "method": "GET", "app": app}
-        scope.update(extra)
-
-        template = route_template(scope, extra["path"], reach=True)
-
-        assert template == expected
 
 
 async def _call(
