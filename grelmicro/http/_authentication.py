@@ -33,7 +33,6 @@ from grelmicro._caller import is_authenticated, subject_of
 from grelmicro._config import build_config
 from grelmicro._discovery import load_integration
 from grelmicro._paths import (
-    ROUTE_READER_KEY,
     PathPatterns,
     _has_configured_middleware,
     _is_mount,
@@ -470,37 +469,27 @@ class _Routes:
     redirects: bool = False
     templates: tuple[tuple[str, _Reach], ...] = ()
     """Every route with its template, in the order the router tries them."""
-    router: Any = None
-    """A Litestar app, whose own router names the template a request routes to."""
     snapshot: _Snapshot = field(default_factory=_Snapshot)
     """What the routes were read off, as it was then."""
     routers: tuple[Any, ...] = ()
     """Each router the routes were read off."""
 
     def template_of(
-        self,
-        kind: str,
-        method: str | None,
-        path: str,
-        root_path: str = "",
+        self, kind: str, method: str | None, path: str
     ) -> str | None:
         """Return the template of the route the router serves the URL with.
 
         The first route answering the URL and its method, as the router
-        picks it. Without one, the first route answering the URL whatever
-        its method, which is the route a `405` is about.
+        picks it. `None` when no route answers it.
         """
-        fallback = None
-        for template, reach in self.templates:
-            if reach.answers(kind, method, path, root_path):
-                return template
-            if (
-                fallback is None
-                and kind in reach.kinds
-                and reach.reaches(path, root_path)
-            ):
-                fallback = template
-        return fallback
+        return next(
+            (
+                template
+                for template, reach in self.templates
+                if reach.answers(kind, method, path)
+            ),
+            None,
+        )
 
     def serves(
         self,
@@ -659,38 +648,6 @@ class _PublicRoutes:
             return True
         self.read(app)
         return _serves_publicly(self._apps[app], scope)
-
-    def template(self, scope: Scope) -> str | None:
-        """Return the template of the route a request is served by, before routing.
-
-        For a refusal the middleware answers before the router runs, so the
-        record names the route rather than the path. On an installed
-        Starlette or Litestar app the root path goes on, as the request
-        span names the route. On FastAPI a prefix a proxy stripped stays
-        off, as it does once the router has run. Inside a mount the root
-        path the request arrived with is read, since the mount has added
-        its own prefix to `root_path`.
-        """
-        routes = self._apps.get(scope.get("app"))
-        path = scope["path"]
-        if routes is None or holds_control_character(path):
-            return None
-        root_path = scope.get("app_root_path", scope.get("root_path", ""))
-        template = (
-            _litestar_template(routes.router, scope)
-            if routes.router is not None
-            else routes.template_of(
-                scope["type"], scope.get("method"), path, root_path
-            )
-        )
-        root = root_path.rstrip("/")
-        if (
-            template is None
-            or not root
-            or not (ROUTE_READER_KEY in scope or path.startswith(root))
-        ):
-            return template
-        return f"{root}{template}"
 
 
 def _serves_publicly(routes: _Routes, scope: Scope) -> bool:
@@ -1139,25 +1096,7 @@ def _litestar_routes(app: Any) -> _Routes:  # noqa: ANN401
         for _, route, _ in walk_routes(app)
         for handler in _litestar_handlers(route) or ()
     )
-    return _Routes(litestar=app if declared else None, router=app)
-
-
-def _litestar_template(app: Any, scope: Scope) -> str | None:  # noqa: ANN401
-    """Return the template Litestar's router routes the request to, or `None`.
-
-    `None` for a request its router refuses, such as one no handler
-    answers or one asking a method its route does not serve.
-    """
-    from litestar.exceptions import HTTPException  # noqa: PLC0415
-    from litestar.utils import normalize_path  # noqa: PLC0415
-
-    try:
-        routed = app.asgi_router.handle_routing(
-            path=normalize_path(route_path(scope)), method=scope.get("method")
-        )
-    except HTTPException, KeyError:
-        return None
-    return routed[4]
+    return _Routes(litestar=app if declared else None)
 
 
 _STARLETTE_PARAMETER = re.compile(
@@ -2069,21 +2008,20 @@ class AuthenticatedRequestsMiddleware:
 
         A gate names the route it refused on, and a request no route took
         names none. Otherwise the route is read the way the router records
-        it, and then off the routes the app declares, which is how a refusal
-        before routing is named. The route is left in the scope for the
-        access record to name. A refusal `check` or a route raised
-        names the `caller` its token verified. `authenticated` says the
-        request already counted as one that authenticated.
+        it. On an installed app, a refusal before routing names the route
+        the request would reach, as the app's route reader matches it. The
+        route is left in the scope for the access record to name. A
+        refusal `check` or a route raised names the `caller` its token
+        verified. `authenticated` says the request already counted as one
+        that authenticated.
         """
         found = refusal_of(error)
         if found is None:
             return
         if ROUTE_KEY not in scope:
-            template = route_template(scope, arrived_path(scope))
-            public = self._public
-            if template is None and public is not None:
-                template = public.template(scope)
-            scope[ROUTE_KEY] = template
+            scope[ROUTE_KEY] = route_template(
+                scope, arrived_path(scope), reach=self._public is not None
+            )
         self._events.refused(
             scope,
             refusal=found[0],

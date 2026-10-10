@@ -1411,7 +1411,13 @@ def test_request_telemetry_failing_route_reader_still_records(
     exporter = InMemorySpanExporter()
 
     def unreadable(
-        _scope: Scope, _root_path: str, _path: str, _status: int | None
+        _scope: Scope,
+        _root_path: str,
+        _path: str,
+        _status: int | None,
+        /,
+        *,
+        reach: bool = False,  # noqa: ARG001
     ) -> str | None:
         msg = "unreadable"
         raise LookupError(msg)

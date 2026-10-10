@@ -280,18 +280,29 @@ def _route_reader(app: Litestar) -> RouteReader:
     under its mount, and a mounted Litestar app as its own route under
     the mount. A request Litestar refused for its method reads the route
     its path matched. One answered before routing, such as a CORS
-    preflight, reads no route.
+    preflight, reads no route, unless `reach` asks for the route its path
+    would reach.
     """
 
     def route(
-        scope: Scope, root_path: str, path: str, status: int | None
+        scope: Scope,
+        root_path: str,
+        path: str,
+        status: int | None,
+        /,
+        *,
+        reach: bool = False,
     ) -> str | None:
         handler = litestar_owned_handler(app, scope.get("route_handler"))
-        template: str | None = (
-            _handler_template(app, handler, scope["path_template"])
-            if scope.get("litestar_app") is app and handler is not None
-            else _routed_template(app, scope, root_path, path, status)
-        )
+        template: str | None = None
+        if scope.get("litestar_app") is app and handler is not None:
+            template = _handler_template(app, handler, scope["path_template"])
+        elif "route_handler" in scope:
+            template = _mounted_template(app, scope, root_path, path)
+        elif reach or status == HTTP_405_METHOD_NOT_ALLOWED:
+            template = _reached_template(
+                app, root_path, path, scope.get("method")
+            )
         if template is None:
             return None
         return root_path.rstrip("/") + template
@@ -306,45 +317,49 @@ def _handler_template(app: Litestar, handler: Any, template: str) -> str:  # noq
     return litestar_mount(app, handler).rstrip("/") + "/{path}"
 
 
-def _routed_template(
-    app: Litestar,
-    scope: Scope,
-    root_path: str,
-    path: str,
-    status: int | None,
+def _mounted_template(
+    app: Litestar, scope: Scope, root_path: str, path: str
 ) -> str | None:
-    """Return the template of the route `app` routes the request's path to.
+    """Return the template of the mount of `app` a mounted app took the request over at.
 
-    For a request the scope does not describe as `app` routed it: one a
-    mounted app took over, one refused for its method, or one answered
-    before routing. A mounted Litestar app adds the route it matched.
-    `None` when no route of `app` matched the request.
+    A mounted Litestar app adds the route it matched under the mount.
+    Any other reads as `{path}` under it.
     """
-    routed = path.split(root_path, maxsplit=1)[-1] if root_path else path
-    routed = normalize_path(routed)
-    router = app.asgi_router
-    try:
-        _, handler, _, _, _ = router.handle_routing(routed, scope.get("method"))
-    except MethodNotAllowedException:
-        if status != HTTP_405_METHOD_NOT_ALLOWED:
-            return None
-        return _template_matching(app, routed)
-    except Exception:  # noqa: BLE001
-        return None
-    if not getattr(handler, "is_mount", False):
-        return None
-    mount = litestar_mount(app, handler)
+    template = _reached_template(app, root_path, path, scope.get("method"))
     inner = scope.get("litestar_app")
     inner_handler = litestar_owned_handler(inner, scope.get("route_handler"))
     inner_template = scope.get("path_template")
     if (
-        inner is not app
+        template is not None
+        and inner is not app
         and inner_handler is not None
         and isinstance(inner_template, str)
         and not getattr(inner_handler, "is_mount", False)
     ):
-        return mount.rstrip("/") + inner_template
-    return mount.rstrip("/") + "/{path}"
+        return template.removesuffix("/{path}") + inner_template
+    return template
+
+
+def _reached_template(
+    app: Litestar, root_path: str, path: str, method: str | None
+) -> str | None:
+    """Return the template of the route `app` routes the request's path to.
+
+    Matched as Litestar's router matches it. A path refused for its
+    method reads the route it matched, and a mount reads as `{path}`
+    under it. `None` when no route of `app` matches the path.
+    """
+    routed = path.split(root_path, maxsplit=1)[-1] if root_path else path
+    routed = normalize_path(routed)
+    try:
+        _, handler, _, _, template = app.asgi_router.handle_routing(
+            routed, method
+        )
+    except MethodNotAllowedException:
+        return _template_matching(app, routed)
+    except Exception:  # noqa: BLE001
+        return None
+    return _handler_template(app, handler, template)
 
 
 def _template_matching(app: Litestar, path: str) -> str:

@@ -153,6 +153,10 @@ def _state_of(config: AccessLogConfig) -> _State:
     )
 
 
+_REFUSED: Final = 400
+"""The lowest status that refuses a request."""
+
+
 class AccessLogMiddleware:
     """Write one structured record per request.
 
@@ -227,6 +231,7 @@ class AccessLogMiddleware:
     ) -> None:
         """Initialize the middleware with what to log and what to leave out."""
         self.app = app
+        self._installed = live is not None
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way and the
         # request path has one shape rather than a branch.
@@ -371,7 +376,12 @@ class AccessLogMiddleware:
         }
         if status is not None:
             fields["http.response.status_code"] = status
-        template = route_template(scope, asked, status)
+        template = route_template(
+            scope,
+            asked,
+            status,
+            reach=self._installed and status is not None and status >= _REFUSED,
+        )
         if template is not None:
             fields["http.route"] = template
         client = client_address(scope)

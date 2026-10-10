@@ -234,15 +234,28 @@ def _route_reader(app: Starlette) -> RouteReader:
     The template starts with the request's root path, then reads as
     `starlette_route` reads it: each mount the request went through, then
     the route the innermost router matched. A mounted Litestar app reads
-    its own route under the mount.
+    its own route under the mount. A request no router reached names no
+    route, unless `reach` asks for the route its path would reach.
     """
     router = app.router
 
     def route(
-        scope: Scope, root_path: str, path: str, status: int | None
+        scope: Scope,
+        root_path: str,
+        path: str,
+        status: int | None,
+        /,
+        *,
+        reach: bool = False,
     ) -> str | None:
         found = starlette_route(
-            router, scope, root_path, path, status, mounted=_litestar_route
+            router,
+            scope,
+            root_path,
+            path,
+            status,
+            mounted=_litestar_route,
+            reach=reach,
         )
         return None if found is None else root_path.rstrip("/") + found
 

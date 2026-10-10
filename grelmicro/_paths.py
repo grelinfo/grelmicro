@@ -10,7 +10,7 @@ import functools
 import itertools
 import re
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Annotated, Any, Final
+from typing import TYPE_CHECKING, Annotated, Any, Final, Protocol
 
 from pydantic import BeforeValidator
 from typing_extensions import Doc
@@ -30,12 +30,30 @@ if TYPE_CHECKING:
     Receive = Callable[[], Awaitable[Message]]
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
-    RouteReader = Callable[[Scope, str, str, int | None], str | None]
-    """How an app names the route template of a request it answers.
 
-    Called with the scope, the root path and the path the request arrived
-    with, and the status it was answered with, `None` before one started.
-    """
+    class RouteReader(Protocol):
+        """How an app names the route template of a request it answers."""
+
+        def __call__(
+            self,
+            scope: Scope,
+            root_path: str,
+            path: str,
+            status: int | None,
+            /,
+            *,
+            reach: bool = False,
+        ) -> str | None:
+            """Return the route template of the request, `None` without one.
+
+            Called with the scope, the root path and the path the request
+            arrived with, and the status it was answered with, `None`
+            before one started. A request no router reached names no
+            route, unless `reach` is set: it then names the route its
+            path would reach, matched against the app's routes.
+            """
+            ...
+
 
 __all__ = [
     "ACCESS_RECORDED_KEY",
@@ -1400,6 +1418,8 @@ def route_template(
     scope: MutableMapping[str, Any],
     asked: str,
     status: int | None = None,
+    *,
+    reach: bool = False,
 ) -> str | None:
     """Return the route template of the request, when there is one.
 
@@ -1417,16 +1437,35 @@ def route_template(
     is what `asked` carries. On FastAPI, a proxy that strips its own
     prefix leaves `root_path` set and the path without it, and there the
     prefix stays off.
+
+    A request no router reached names no route, unless `reach` is set:
+    it then names the route its path would reach, matched against the
+    routes of the app serving it.
     """
     if ROUTE_KEY in scope:
         return scope[ROUTE_KEY]
     reading = scope.get(ROUTE_READER_KEY)
     if reading is not None:
         reader, root_path, path = reading
-        return reader(scope, root_path, path, status)
+        return reader(scope, root_path, path, status, reach=reach)
     root = scope.get("root_path", "")
     router = scope.get("router")
-    if "app_root_path" in scope and router is not None:
+    if router is None and reach:
+        app_router = getattr(scope.get("app"), "router", None)
+        template = (
+            None
+            if app_router is None
+            else starlette_route(
+                app_router,
+                scope,
+                root,
+                asked,
+                status,
+                mounted=_litestar_template,
+                reach=True,
+            )
+        )
+    elif "app_root_path" in scope and router is not None:
         root = scope["app_root_path"]
         template = starlette_route(
             router, scope, root, asked, status, mounted=_litestar_template
@@ -1481,6 +1520,10 @@ def starlette_route(  # noqa: C901
         Callable[[MutableMapping[str, Any]], str | None],
         Doc("Reads the route a mounted app of another framework matched."),
     ],
+    reach: Annotated[
+        bool,
+        Doc("Name the route a request no router reached would reach."),
+    ] = False,
 ) -> str | None:
     """Return the route template a Starlette router matched, under the root path.
 
@@ -1494,9 +1537,17 @@ def starlette_route(  # noqa: C901
     route reached through included routers reads with every prefix. A
     request a router redirects to add or drop a trailing slash reads the
     route it is redirected to.
+
+    A request no router reached names no route. With `reach`, its path is
+    matched against the routes of `router` as the router would match it,
+    and a mount nothing inside matches reads as `{path}` under it.
     """
     from starlette.routing import BaseRoute, Host, Match, Mount  # noqa: PLC0415
     from starlette.status import HTTP_307_TEMPORARY_REDIRECT  # noqa: PLC0415
+
+    from grelmicro.integrations import (  # noqa: PLC0415
+        _fastapi_internals as fastapi,
+    )
 
     def template(scope: MutableMapping[str, Any], route: object) -> str | None:
         found = getattr(_included(scope, route) or route, "path_format", None)
@@ -1523,6 +1574,8 @@ def starlette_route(  # noqa: C901
         if found is None:
             return None, None
         candidate, child = found
+        if fastapi.is_included(candidate):
+            candidate, child = fastapi.dispatched(candidate, {**scope, **child})
         if not isinstance(candidate, (Mount, Host)):
             return None, template(scope, candidate)
         prefix = (
@@ -1551,6 +1604,15 @@ def starlette_route(  # noqa: C901
         mounts, leaf = through_mounts(router.routes, start(toggled))
         return None if leaf is None else (mounts or "") + leaf
 
+    def reached() -> str | None:
+        """Return the route the request's path would reach, if any."""
+        mounts, leaf = through_mounts(router.routes, start(path))
+        if leaf is not None:
+            return (mounts or "") + leaf
+        return None if mounts is None else mounts + "/{path}"
+
+    if scope.get("router") is None:
+        return reached() if reach else None
     matched = scope.get("route")
     route = matched is not None and not isinstance(matched, Mount)
     if route and scope.get("root_path", "") == root_path:
