@@ -1833,9 +1833,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         schema.
         """
         if self._openapi:
-            describe_idempotency(
-                schema, self._live.state.config, *error_format(errors)
-            )
+            describe_idempotency(schema, self._live.state.config, errors)
         return schema
 
     async def __aenter__(self) -> Self:
@@ -1860,10 +1858,10 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
 def describe_idempotency(
     schema: dict[str, Any],
     config: IdempotentRequestsConfig,
-    media_type: str,
-    model: type[BaseModel],
+    errors: ErrorResponses | None,
 ) -> None:
     """Add the key header and the middleware's responses to covered operations."""
+    media_type, model = error_format(errors)
     methods = {method.lower() for method in config.methods}
     header = config.key_header
     parameter = {

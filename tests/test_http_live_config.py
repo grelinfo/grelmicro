@@ -48,7 +48,6 @@ from grelmicro.http import (
     IdempotencyMiddleware,
     IdempotentRequests,
     IdempotentRequestsConfig,
-    ProblemDetail,
     RateLimitedRequests,
     RateLimitedRequestsConfig,
 )
@@ -1118,7 +1117,7 @@ def test_a_path_item_that_is_not_an_operation_is_left_alone() -> None:
     }
 
     # Act
-    describe_rate_limit(schema, "application/problem+json", ProblemDetail)
+    describe_rate_limit(schema, None)
 
     # Assert
     item: dict[str, Any] = schema["paths"]["/products"]

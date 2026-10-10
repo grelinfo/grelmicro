@@ -1328,7 +1328,7 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         schema.
         """
         if self._openapi:
-            describe_rate_limit(schema, *error_format(errors))
+            describe_rate_limit(schema, errors)
         return schema
 
     async def __aenter__(self) -> Self:
@@ -1362,10 +1362,10 @@ _RATE_LIMIT_HEADERS: Final = {
 
 def describe_rate_limit(
     schema: dict[str, Any],
-    media_type: str,
-    model: type[BaseModel],
+    errors: ErrorResponses | None,
 ) -> None:
     """Add the `429` and the `RateLimit` fields to every operation."""
+    media_type, model = error_format(errors)
     ref = add_error_schema(schema, model)
     for _path, _item, operation, _method in operations_of(schema):
         responses = operation.setdefault("responses", {})

@@ -42,7 +42,11 @@ from grelmicro.http._authentication import (
     template_under_root,
 )
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED, UNHANDLED_KEY
-from grelmicro.http._openapi import add_error_schema
+from grelmicro.http._openapi import (
+    add_error_schema,
+    describe_schema,
+    describing,
+)
 from grelmicro.http._requirement import (
     AUTHENTICATED,
     Requirement,
@@ -1460,11 +1464,7 @@ def _document_components(app: Litestar, components: Sequence[Any]) -> None:
     registered error format. A handler declaring `Anonymous()` lists the
     scheme as optional when `micro.install(app)` added authentication.
     """
-    documenting = [
-        component
-        for component in components
-        if hasattr(component, "_document_openapi")
-    ]
+    documenting = describing(components)
     if not documenting:
         return
 
@@ -1482,10 +1482,7 @@ def _document_components(app: Litestar, components: Sequence[Any]) -> None:
         routes = operation_declarations(
             app, anonymous=serves_anonymous_routes(app)
         )
-        for component in documenting:
-            component._document_openapi(  # noqa: SLF001
-                schema, routes=routes, errors=errors
-            )
+        describe_schema(schema, documenting, routes=routes, errors=errors)
 
     app.on_startup.append(document)
 

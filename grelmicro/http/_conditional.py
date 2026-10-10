@@ -1391,7 +1391,7 @@ class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
                 schema,
                 self._live.state.config,
                 declared_operations(routes),
-                *error_format(errors),
+                errors,
             )
         return schema
 
@@ -1455,10 +1455,10 @@ def describe_conditional(
     schema: dict[str, Any],
     config: ConditionalRequestsConfig,
     declared: dict[tuple[str, str | None], RouteDeclaration],
-    media_type: str,
-    model: type[BaseModel],
+    errors: ErrorResponses | None,
 ) -> None:
     """Add the conditional headers and responses to covered operations."""
+    media_type, model = error_format(errors)
     required = {method.lower() for method in config.require_precondition}
 
     def declares(path: str, method: str) -> bool:
@@ -1466,17 +1466,17 @@ def describe_conditional(
         return found is not None and found.precondition_required
 
     covered = [
-        (path, path_item, operation, method)
-        for path, path_item, operation, method in operations_of(schema)
-        if selects(path, include=config.include, exclude=config.exclude)
+        entry
+        for entry in operations_of(schema)
+        if selects(entry.path, include=config.include, exclude=config.exclude)
     ]
-    reads = [entry for entry in covered if entry[3] in _READ_METHODS]
+    reads = [entry for entry in covered if entry.method in _READ_METHODS]
     writes = [
-        (entry, entry[3] in required or declares(entry[0], entry[3]))
+        (entry, entry.method in required or declares(entry.path, entry.method))
         for entry in covered
-        if entry[3] in _WRITE_METHODS
-        or entry[3] in required
-        or declares(entry[0], entry[3])
+        if entry.method in _WRITE_METHODS
+        or entry.method in required
+        or declares(entry.path, entry.method)
     ]
     if not reads and not writes:
         return

@@ -76,7 +76,12 @@ from grelmicro.http._conditional import (
     _check_sent_precondition,
     declare_precondition_required,
 )
-from grelmicro.http._openapi import add_error_schema, referenced
+from grelmicro.http._openapi import (
+    add_error_schema,
+    describe_schema,
+    describing,
+    referenced,
+)
 from grelmicro.http._ratelimit import (
     bucket_of,
     check_route_limiters,
@@ -945,11 +950,7 @@ def _document_components(app: FastAPI, components: Sequence[Any]) -> None:
     object, so serving it again edits nothing, and a schema built anew is
     edited anew.
     """
-    documenting = [
-        component
-        for component in components
-        if hasattr(component, "_document_openapi")
-    ]
+    documenting = describing(components)
     if not documenting:
         return
     original = app.openapi
@@ -965,10 +966,7 @@ def _document_components(app: FastAPI, components: Sequence[Any]) -> None:
         routes = operation_declarations(
             app, anonymous=serves_anonymous_routes(app)
         )
-        for component in documenting:
-            component._document_openapi(  # noqa: SLF001
-                schema, routes=routes, errors=errors
-            )
+        describe_schema(schema, documenting, routes=routes, errors=errors)
         # One slot, so serving the schema per request holds one reference.
         edited[:] = [schema]
         return schema
