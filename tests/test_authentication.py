@@ -97,6 +97,7 @@ from grelmicro.http import (
     AuthenticatedRequestsMiddleware,
     CachedResponses,
     ErrorResponses,
+    IdempotentRequests,
     RateLimitedRequests,
 )
 from grelmicro.http._authentication import (
@@ -104,7 +105,6 @@ from grelmicro.http._authentication import (
     document_operations,
     routes_of,
 )
-from grelmicro.http._idempotency import _has_dependencies
 from grelmicro.integrations.fastapi import (
     Anonymous,
     Authenticated,
@@ -3019,27 +3019,46 @@ class TestDeclarationsElsewhere:
         assert len(calls) == 1
 
     def test_an_anonymous_route_gates_no_idempotent_replay(self) -> None:
-        """Declared on the route or on its router, it is not a dependency."""
+        """Declared on the route or on its router, the default key replays."""
+        # Arrange
+        calls: list[str] = []
         app = FastAPI()
 
         @app.post("/signup", dependencies=[Anonymous()])
-        async def signup() -> dict[str, bool]:
-            return {"ok": True}
+        async def signup() -> dict[str, int]:
+            calls.append("signup")
+            return {"call": len(calls)}
 
         public = APIRouter(dependencies=[Anonymous()])
 
         @public.post("/newsletter")
-        async def newsletter() -> dict[str, bool]:
-            return {"ok": True}
+        async def newsletter() -> dict[str, int]:
+            calls.append("newsletter")
+            return {"call": len(calls)}
 
         app.include_router(public)
-        routes = {
-            route.path: (route, contexts)
-            for _, route, contexts in walk_routes(app)
-        }
+        micro = Grelmicro(
+            uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()]
+        )
+        micro.install(app)
 
-        assert not _has_dependencies(*routes["/signup"])
-        assert not _has_dependencies(*routes["/newsletter"])
+        # Act
+        with TestClient(app) as client:
+            replays = [
+                client.post(path, headers={"Idempotency-Key": "k"})
+                for path in ("/signup", "/signup", "/newsletter", "/newsletter")
+            ]
+
+        # Assert
+        assert [
+            reply.headers.get("idempotent-replayed") for reply in replays
+        ] == [
+            None,
+            "true",
+            None,
+            "true",
+        ]
+        assert calls == ["signup", "newsletter"]
 
 
 class TestRouting:

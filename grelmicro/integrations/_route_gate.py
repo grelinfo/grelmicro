@@ -12,7 +12,10 @@ them before dispatching.
 
 from __future__ import annotations
 
+import copy
 import functools
+import inspect
+from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -24,6 +27,8 @@ from typing import (
 
 from starlette.applications import Starlette
 from starlette.endpoints import HTTPEndpoint
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 from starlette.routing import (
     BaseRoute,
     Host,
@@ -33,7 +38,14 @@ from starlette.routing import (
     WebSocketRoute,
 )
 
+from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._paths import read_route
+from grelmicro.http import (
+    CachedResponsesMiddleware,
+    ConditionalRequestsMiddleware,
+    IdempotencyMiddleware,
+    RateLimitMiddleware,
+)
 from grelmicro.http._authentication import (
     is_anonymous_declaration,
     template_under_root,
@@ -42,6 +54,8 @@ from grelmicro.http._requirement import declared_scopes, declares_optional
 from grelmicro.http._response_cache import declared_cache
 from grelmicro.http._routes import RouteDeclaration
 from grelmicro.integrations import _fastapi_internals as fastapi
+from grelmicro.log import AccessLogMiddleware
+from grelmicro.security import ClientAddressMiddleware
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, MutableMapping
@@ -55,7 +69,7 @@ if TYPE_CHECKING:
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
-__all__ = ["declarations_of", "gate_routes"]
+__all__ = ["declarations_of", "gate_routes", "lists_routes"]
 
 _ENDPOINT_METHODS: Final = (
     "GET",
@@ -83,12 +97,27 @@ _READS: Final = frozenset({"GET", "HEAD"})
 _ROUTERS: Final = (Router, *fastapi.ROUTERS)
 """The routers whose routes are read, of their framework's own class."""
 
+_PASSIVE: Final = (
+    RequestBodyLimitMiddleware,
+    GrelmicroMiddleware,
+    AccessLogMiddleware,
+    CachedResponsesMiddleware,
+    ClientAddressMiddleware,
+    ConditionalRequestsMiddleware,
+    IdempotencyMiddleware,
+    RateLimitMiddleware,
+)
+"""Middleware that checks no caller: the body limit, and grelmicro's own."""
+
 
 class _Visitor(Protocol):
     """What a walk hands each thing it finds."""
 
-    def router(self, router: Router, prefix: str) -> None:
-        """Take a router, found under `prefix`, before its routes."""
+    def router(self, router: Router, prefix: str) -> _Visitor:
+        """Take a router, found under `prefix`, before its routes.
+
+        Returns what takes its routes.
+        """
 
     def mount(self, mount: Mount | Host, prefix: str) -> _Visitor:
         """Take a mount or a host, before what is under it.
@@ -154,13 +183,13 @@ def _walk_router(
     if isinstance(router, fastapi.ROUTERS):
         fastapi.require(router)
         last = list(fastapi.low_priority_routes(router))
-    visit.router(router, prefix)
+    within = visit.router(router, prefix)
     opens = False
     for route in list(router.routes):
-        opens |= _walk_route(route, prefix, visit, ancestry, router)
-    _walk_default(router, prefix, visit)
+        opens |= _walk_route(route, prefix, within, ancestry, router)
+    _walk_default(router, prefix, within)
     for route in last:
-        opens |= _walk_route(route, prefix, visit, ancestry, router)
+        opens |= _walk_route(route, prefix, within, ancestry, router)
     return opens
 
 
@@ -200,7 +229,7 @@ def _walk_route(
     declarations = (
         [_dependant_declaration(route, route, path, router)]
         if fastapi.is_websocket_route(route)
-        else _declarations(route, path)
+        else _declarations(route, path, ancestry)
     )
     visit.route(route, "handle", path, declarations)
     return any(declaration.anonymous for declaration in declarations)
@@ -281,28 +310,129 @@ def _inner_router(
     return None, None
 
 
-def _declarations(route: Any, path: str) -> list[RouteDeclaration]:  # noqa: ANN401
+def _declarations(
+    route: Any,  # noqa: ANN401
+    path: str,
+    ancestry: frozenset[int],
+) -> list[RouteDeclaration]:
     """Return what a route declares, one declaration per method set.
 
     A function endpoint declares the scopes its `@Authenticated` names, for
     the methods its route answers. An `HTTPEndpoint` declares each of its
-    methods on its own. Any other route is authenticated.
+    methods on its own. Any other route is authenticated. A route running
+    checks of its own before its endpoint declares them on every method.
     """
     if not isinstance(route, Route | WebSocketRoute):
         return [RouteDeclaration(path)]
     endpoint = route.endpoint
+    own_checks = _runs_own_checks(route, ancestry)
     if isinstance(route, WebSocketRoute):
-        return [RouteDeclaration(path, scopes=_scopes(endpoint))]
+        return [
+            RouteDeclaration(
+                path, scopes=_scopes(endpoint), own_checks=own_checks
+            )
+        ]
     methods = frozenset(route.methods) if route.methods else None
     if isinstance(endpoint, type) and issubclass(endpoint, HTTPEndpoint):
-        return _endpoint_declarations(endpoint, path, methods)
-    return [RouteDeclaration(path, methods=methods, scopes=_scopes(endpoint))]
+        return _endpoint_declarations(
+            endpoint, path, methods, own_checks=own_checks
+        )
+    return [
+        RouteDeclaration(
+            path,
+            methods=methods,
+            scopes=_scopes(endpoint),
+            own_checks=own_checks,
+        )
+    ]
+
+
+def _runs_own_checks(
+    route: Route | WebSocketRoute, ancestry: frozenset[int]
+) -> bool:
+    """Return whether a route runs checks of its own before its endpoint.
+
+    Middleware on the route is one, except the body limit `max_body_size`
+    adds. A route whose endpoint is a router runs the checks the routes of
+    that router declare.
+    """
+    app = route.app
+    while isinstance(app, RequestBodyLimitMiddleware):
+        app = app.app
+    if app is not route.endpoint and not inspect.isfunction(app):
+        return True
+    inner = _inner_router(route.endpoint)[0]
+    if inner is None:
+        return False
+    listing = _Listing()
+    _walk_router(inner, "", listing, ancestry)
+    return any(declaration.own_checks for declaration in listing.found)
+
+
+def _mount_runs_checks(mount: Mount | Host) -> bool:
+    """Return whether a mount or a host runs checks before the routes under it.
+
+    Middleware on it is one, except the body limit `max_body_size` adds
+    and grelmicro's own, and so is Starlette's authentication on the app
+    it serves. An app the walk cannot read runs checks of its own.
+    """
+    app = mount.app
+    seen: set[int] = set()
+    while not isinstance(app, Starlette | BaseRoute | Router):
+        inner = getattr(app, "app", None)
+        if inner is None or not isinstance(app, _PASSIVE) or id(app) in seen:
+            return True
+        seen.add(id(app))
+        app = inner
+    return isinstance(app, Starlette) and _authenticates(app)
+
+
+def _authenticates(app: Starlette) -> bool:
+    """Return whether an app runs Starlette's authentication before its routes."""
+    return any(
+        isinstance(cls, type) and issubclass(cls, AuthenticationMiddleware)
+        for cls in (
+            getattr(middleware, "cls", None)
+            for middleware in app.user_middleware
+        )
+    )
+
+
+def _router_runs_checks(router: Router) -> bool:
+    """Return whether a router runs middleware of its own before its routes.
+
+    The body limit `max_body_size` adds and grelmicro's own are not.
+    """
+    held = router.__dict__.get(_HELD)
+    app: Any = (
+        router.middleware_stack
+        if held is None or held.stack is None
+        else held.stack
+    )
+    while app is not None and app != router.app:
+        if not isinstance(app, _PASSIVE):
+            return True
+        app = getattr(app, "app", None)
+    return False
+
+
+def _checked(
+    declarations: list[RouteDeclaration], *, checks: bool
+) -> list[RouteDeclaration]:
+    """Return `declarations`, each checked above when `checks`."""
+    if not checks:
+        return declarations
+    return [
+        replace(declaration, checked_above=True) for declaration in declarations
+    ]
 
 
 def _endpoint_declarations(
     endpoint: type[HTTPEndpoint],
     path: str,
     methods: frozenset[str] | None,
+    *,
+    own_checks: bool,
 ) -> list[RouteDeclaration]:
     """Return what each method of an `HTTPEndpoint` declares, grouped by scopes.
 
@@ -320,7 +450,12 @@ def _endpoint_declarations(
             continue
         grouped.setdefault(_scopes(handler), set()).add(method)
     return [
-        RouteDeclaration(path, methods=frozenset(answered), scopes=scopes)
+        RouteDeclaration(
+            path,
+            methods=frozenset(answered),
+            scopes=scopes,
+            own_checks=own_checks,
+        )
         for scopes, answered in sorted(
             grouped.items(), key=lambda item: sorted(item[1])
         )
@@ -403,28 +538,42 @@ def _dependant_declaration(
 
 
 class _Listing:
-    """Collects every declaration a walk finds."""
+    """Collects every declaration a walk finds.
 
-    def __init__(self) -> None:
+    `checks` says the routes it takes sit under checks of their own, such
+    as middleware on a mount around them.
+    """
+
+    def __init__(self, *, checks: bool = False) -> None:
         """Start with none."""
         self.found: list[RouteDeclaration] = []
         self._mounts: list[int] = []
+        self.checks = checks
 
-    def router(self, router: Router, prefix: str) -> None:
-        """List nothing for a router, whose routes are listed on their own."""
+    def _under(self, *, checks: bool) -> Self:
+        """Return what lists the routes under further checks, into the same list."""
+        if not checks or self.checks:
+            return self
+        under = copy.copy(self)
+        under.checks = True
+        return under
+
+    def router(self, router: Router, prefix: str) -> Self:  # noqa: ARG002
+        """Return what lists the router's routes, under its authentication if any."""
+        return self._under(checks=_router_runs_checks(router))
 
     def mount(
         self,
-        mount: Mount | Host,  # noqa: ARG002
+        mount: Mount | Host,
         prefix: str,  # noqa: ARG002
-    ) -> _Listing:
-        """Keep the place of a mount, ahead of what is under it."""
+    ) -> Self:
+        """Keep the place of a mount, and return what lists what is under it."""
         self._mounts.append(len(self.found))
-        return self
+        return self._under(checks=_mount_runs_checks(mount))
 
     def door(
         self,
-        mount: Mount | Host,  # noqa: ARG002
+        mount: Mount | Host,
         whole: RouteDeclaration | None,
         *,
         opens: bool,
@@ -432,7 +581,8 @@ class _Listing:
         """List what a mount is gated as a whole with, unless a route under it opens it."""
         place = self._mounts.pop()
         if whole is not None and not opens:
-            self.found.insert(place, whole)
+            whole = replace(whole, own_checks=_mount_runs_checks(mount))
+            self.found.insert(place, *_checked([whole], checks=self.checks))
 
     def app(self, app: Starlette, prefix: str) -> None:
         """List nothing for an app, whose router is listed on its own."""
@@ -445,7 +595,11 @@ class _Listing:
         declarations: list[RouteDeclaration],
     ) -> None:
         """List what one route declares, or the default a router answers with."""
-        self.found.extend(declarations or [RouteDeclaration(path)])
+        self.found.extend(
+            _checked(
+                declarations or [RouteDeclaration(path)], checks=self.checks
+            )
+        )
 
     def included(
         self,
@@ -464,7 +618,7 @@ class _Listing:
         router: Any,  # noqa: ANN401, ARG002
     ) -> None:
         """List what a FastAPI route declares where it is dispatched."""
-        self.found.append(declaration)
+        self.found.extend(_checked([declaration], checks=self.checks))
 
 
 class _Beneath(_Listing):
@@ -479,9 +633,10 @@ class _Beneath(_Listing):
         super().__init__()
         self.refreshes: dict[int, Callable[[], object]] = {}
 
-    def router(self, router: Router, prefix: str) -> None:  # noqa: ARG002
+    def router(self, router: Router, prefix: str) -> Self:
         """Keep what refreshes `router`, once gated."""
         self._keep(router)
+        return super().router(router, prefix)
 
     def included(
         self,
@@ -501,11 +656,42 @@ class _Beneath(_Listing):
             self.refreshes[id(owner)] = held.refresh
 
 
-def declarations_of(app: Starlette) -> list[RouteDeclaration]:
-    """Return what every route of `app` declares, walked as the gates are."""
-    listing = _Listing()
-    _walk_router(app.router, "", listing, frozenset())
+def declarations_of(
+    app: Starlette | Router | Mount | Host | AuthenticationMiddleware,
+) -> list[RouteDeclaration]:
+    """Return what every route of `app` declares, walked as the gates are.
+
+    A router, a mount or a host is read the same way as the app holding
+    it, from where it sits. Starlette's authentication around an app, or
+    on it, is a check of their own for every route.
+    """
+    listing = _Listing(checks=_app_runs_checks(app))
+    if isinstance(app, Mount | Host):
+        _walk_route(app, "", listing, frozenset(), None)
+        return listing.found
+    if isinstance(app, Router):
+        router: Router | None = app
+    elif isinstance(app, Starlette):
+        router = app.router
+    else:
+        router = _inner_router(app.app)[0]
+    if router is not None:
+        _walk_router(router, "", listing, frozenset())
     return listing.found
+
+
+def lists_routes(app: object) -> bool:
+    """Return whether `declarations_of` reads the routes of `app`."""
+    return isinstance(
+        app, Starlette | Router | Mount | Host | AuthenticationMiddleware
+    )
+
+
+def _app_runs_checks(app: object) -> bool:
+    """Return whether Starlette's authentication runs before every route of `app`."""
+    return isinstance(app, AuthenticationMiddleware) or (
+        isinstance(app, Starlette) and _authenticates(app)
+    )
 
 
 class _Held:
@@ -513,12 +699,15 @@ class _Held:
 
     `within` is each mount it sits under, `refresh` what brings a router
     or an include up to date, and a mount's `beneath` each refresh it calls
-    before its door lets a request through.
+    before its door lets a request through. `checked` is each path it
+    sits under checks of their own at, and a router's `stack` is what it
+    ran before it was gated.
     """
 
     __slots__ = (
         "app",
         "beneath",
+        "checked",
         "default",
         "door",
         "gates",
@@ -529,6 +718,7 @@ class _Held:
         "routes",
         "shut",
         "size",
+        "stack",
         "within",
     )
 
@@ -547,6 +737,8 @@ class _Held:
         self.default: Any = None
         self.app: Any = None
         self.router: Any = None
+        self.checked: set[str] = set()
+        self.stack: Any = None
 
     def settle(self, *, opens: bool) -> None:
         """Let a mount's requests through ungated while `opens`, and refuse them otherwise."""
@@ -556,13 +748,29 @@ class _Held:
 class _Gating:
     """Wraps what each route dispatches to with its gates, and holds each router."""
 
-    def __init__(self, gates: list[Gate], within: Iterable[_Held] = ()) -> None:
+    def __init__(
+        self,
+        gates: list[Gate],
+        within: Iterable[_Held] = (),
+        *,
+        checks: bool = False,
+    ) -> None:
         """Gate with every gate in `gates`, the first wrapping and the others counting.
 
-        `within` is each mount the routes sit under.
+        `within` is each mount the routes sit under, and `checks` says they
+        sit under checks of their own.
         """
         self.gates = gates
         self.within = tuple(within)
+        self.checks = checks
+
+    @classmethod
+    def of(cls, held: _Held, prefix: str | None = None) -> _Gating:
+        """Return what gates again the routes `held` holds, at `prefix` or anywhere."""
+        checks = (
+            prefix in held.checked if prefix is not None else bool(held.checked)
+        )
+        return cls(held.gates, held.within, checks=checks)
 
     def _hold(self, owner: Any, prefix: str) -> tuple[_Held, bool]:  # noqa: ANN401
         """Return what `owner` is held with, and whether it was held just now."""
@@ -578,6 +786,8 @@ class _Gating:
         held.within.extend(
             mount for mount in self.within if mount not in held.within
         )
+        if self.checks:
+            held.checked.add(prefix)
         return held, new
 
     def _beneath(self, owner: Any, refresh: Callable[[], object]) -> None:  # noqa: ANN401
@@ -611,12 +821,16 @@ class _Gating:
 
         A door runs no lane.
         """
+        declarations = _checked(declarations, checks=self.checks)
         for gate in self.gates:
             app = gate(app, *declarations, name=name, door=door)
         return app
 
-    def router(self, router: Router, prefix: str) -> None:
-        """Hold `router`, checking its route list and its default on each request."""
+    def router(self, router: Router, prefix: str) -> _Gating:
+        """Hold `router`, checking its route list and its default on each request.
+
+        Returns what gates its routes, under its authentication if any.
+        """
         held, _ = self._hold(router, prefix)
         held.routes = _own_routes(router)
         held.size = len(held.routes)
@@ -628,16 +842,24 @@ class _Gating:
         refresh = held.refresh
         if refresh is None:
             refresh = held.refresh = functools.partial(_refresh, router, held)
+            held.stack = router.middleware_stack
             router.middleware_stack = _guarded_router(  # type: ignore[assignment]
                 router, held, router.middleware_stack
             )
         self._beneath(router, refresh)
+        if self.checks or not _router_runs_checks(router):
+            return self
+        return _Gating(self.gates, self.within, checks=True)
 
     def mount(self, mount: Mount | Host, prefix: str) -> _Gating:
         """Hold `mount`, and return what gates the routes under it, refreshed anew."""
         held, _ = self._hold(mount, prefix)
         held.beneath = {}
-        return _Gating(self.gates, (*self.within, held))
+        return _Gating(
+            self.gates,
+            (*self.within, held),
+            checks=self.checks or _mount_runs_checks(mount),
+        )
 
     def door(
         self,
@@ -658,7 +880,7 @@ class _Gating:
         if whole is not None:
             held.shut = self._gated(
                 held.shut or held.handle,
-                [whole],
+                [replace(whole, own_checks=_mount_runs_checks(mount))],
                 _UNDER_MOUNTS,
                 door=_inner_router(mount.app)[0] is not None,
             )
@@ -679,10 +901,11 @@ class _Gating:
 
         def build_middleware_stack() -> ASGIApp:
             if app.router is not held.router:
-                gating = _Gating(held.gates, held.within)
                 for under in tuple(held.prefixes):
-                    _walk_router(app.router, under, gating, frozenset())
-                gating.settle()
+                    _walk_router(
+                        app.router, under, _Gating.of(held, under), frozenset()
+                    )
+                _Gating.of(held).settle()
                 held.router = app.router
             return build()
 
@@ -776,10 +999,12 @@ def gate_routes(app: Starlette, gate: Gate) -> None:
         RuntimeError: When the app builds its stack with another router.
     """
     router = app.router
-    _walk_router(router, "", _Gating([gate]), frozenset())
+    checks = _app_runs_checks(app)
+    _walk_router(router, "", _Gating([gate], checks=checks), frozenset())
     build = app.build_middleware_stack
 
     def build_middleware_stack() -> ASGIApp:
+        nonlocal checks
         if app.router is not router:
             msg = (
                 "The app's router was replaced after micro.install(app), so "
@@ -788,6 +1013,9 @@ def gate_routes(app: Starlette, gate: Gate) -> None:
                 "serves with."
             )
             raise RuntimeError(msg)
+        if _app_runs_checks(app) and not checks:
+            checks = True
+            _walk_router(router, "", _Gating([gate], checks=True), frozenset())
         return build()
 
     app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -809,13 +1037,13 @@ _UNDER_MOUNTS: Final = functools.partial(_path_under_mounts, "")
 
 def _regate(owner: Any, held: _Held) -> None:  # noqa: ANN401
     """Gate again what `owner` holds now, at every path it sits under."""
-    gating = _Gating(held.gates, held.within)
     for prefix in tuple(held.prefixes):
+        gating = _Gating.of(held, prefix)
         if isinstance(owner, Router):
             _walk_router(owner, prefix, gating, frozenset())
         else:
             _walk_route(owner, prefix, gating, frozenset(), None)
-    gating.settle()
+    _Gating.of(held).settle()
 
 
 def _refresh(router: Router, held: _Held) -> None:
@@ -828,7 +1056,7 @@ def _refresh(router: Router, held: _Held) -> None:
         _regate(router, held)
     elif len(router.routes) != held.size:
         held.size = len(router.routes)
-        _Gating(held.gates, held.within).settle()
+        _Gating.of(held).settle()
 
 
 def _guarded_router(router: Router, held: _Held, stack: ASGIApp) -> ASGIApp:
@@ -867,11 +1095,11 @@ def _guarded_mount(mount: Mount | Host, held: _Held) -> ASGIApp:
 
 def _regate_candidates(held: _Held, found: list[Any]) -> None:
     """Gate the contexts FastAPI built anew for an include, at every path it sits under."""
-    gating = _Gating(held.gates, held.within)
     for prefix in tuple(held.prefixes):
+        gating = _Gating.of(held, prefix)
         for candidate in found:
             _walk_candidate(candidate, prefix, gating, frozenset(), held.router)
-    gating.settle()
+    _Gating.of(held).settle()
 
 
 def _chosen(route: Any, held: _Held) -> ASGIApp:  # noqa: ANN401
@@ -893,7 +1121,7 @@ def _chosen(route: Any, held: _Held) -> ASGIApp:  # noqa: ANN401
             declaration = _dependant_declaration(
                 owner, route, path, held.router
             )
-            _Gating(held.gates, held.within).contextual(
+            _Gating.of(held).contextual(
                 route, context, declaration, held.router
             )
             target = owner.__dict__[_TARGET]
@@ -935,15 +1163,15 @@ class _GatedRoutes(list[Any]):
         """Gate `routes` at every path the router sits under."""
         owner = self.owner
         held: _Held = owner.__dict__[_HELD]
-        gating = _Gating(held.gates, held.within)
         for prefix in tuple(held.prefixes):
+            gating = _Gating.of(held, prefix)
             for route in routes:
                 _walk_route(
                     route, prefix, gating, frozenset({id(owner)}), owner
                 )
         if self is held.routes:
             held.size = len(self)
-        gating.settle()
+        _Gating.of(held).settle()
 
     def append(self, route: Any) -> None:  # noqa: ANN401
         """Add a route at the end, gated."""

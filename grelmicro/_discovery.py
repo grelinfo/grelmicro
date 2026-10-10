@@ -82,7 +82,9 @@ class Integration(Protocol):
     second lists the same `RouteDeclaration`s, and a listed route that
     carries no gate stops the app from starting. An integration without
     them declares nothing, so every route stays authenticated and is
-    decided before routing.
+    decided before routing. A first-party integration may carry
+    `_lists_routes(obj)` too, saying whether `route_declarations` reads
+    `obj`. One without it is asked about every object of its framework.
 
     `health_endpoints(app)` yields the health endpoints the app serves, or
     returns `None` for an app that serves no HTTP. Once the app opens, a

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking
+* 💥 The default idempotency key follows the checks each route declares, `RouteDeclaration.checked_above` included: Starlette route, router or mount middleware, a mounted app of another framework and Litestar guards, dependencies, hooks and middleware stop replay across callers, and a FastAPI route with only grelmicro's own dependencies now replays. ([#919](https://github.com/grelinfo/grelmicro/issues/919))
 * 💥 `Idempotency` and `IdempotentRequests` without a lock backend, or on one that reaches less far than `requires`, go through the backend check: `BackendScopeError` in `staging` and `production`, a warning when no environment is declared. A duplicate on another replica used to run again with no sign. Register a `Coordination` or pass `requires="process"`. ([#1034](https://github.com/grelinfo/grelmicro/issues/1034))
 * 💥 `CachedResponses` takes `lock=` like `@cached`, `"process"` by default, instead of folding across replicas whenever a lock backend exists. Pass `lock="cluster"` to keep that. ([#1034](https://github.com/grelinfo/grelmicro/issues/1034))
 * 💥 A duplicate's wait is bounded with `max_wait=`, the word `Bulkhead` and `RateLimiter` use. `wait_timeout=` on `Idempotency`, `run()`, `IdempotentRequests` and `IdempotencyMiddleware`, the config field and `GREL_IDEMPOTENT_REQUESTS_*WAIT_TIMEOUT` are renamed. ([#1035](https://github.com/grelinfo/grelmicro/issues/1035))

@@ -105,7 +105,11 @@ from grelmicro.integrations._request_telemetry import (
     excluding,
     normal_close,
 )
-from grelmicro.integrations._route_gate import declarations_of, gate_routes
+from grelmicro.integrations._route_gate import (
+    declarations_of,
+    gate_routes,
+    lists_routes,
+)
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
     _keep_watching_outside,
@@ -309,6 +313,15 @@ def route_declarations(
     their own.
     """
     return declarations_of(app)
+
+
+def _lists_routes(app: object) -> bool:
+    """Return whether `route_declarations` reads the routes of `app`.
+
+    An app, a router, a mount or a host, and Starlette's authentication
+    around one of them.
+    """
+    return lists_routes(app)
 
 
 def _wire_telemetry(app: FastAPI, micro: Grelmicro) -> None:

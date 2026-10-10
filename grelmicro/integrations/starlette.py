@@ -33,7 +33,11 @@ from grelmicro.http._requirement import (
     Requirement,
     declared_scopes,
 )
-from grelmicro.integrations._route_gate import declarations_of, gate_routes
+from grelmicro.integrations._route_gate import (
+    declarations_of,
+    gate_routes,
+    lists_routes,
+)
 from grelmicro.security.principal import VerifiedToken
 from grelmicro.trace._autoinstrument import request_spans
 
@@ -574,10 +578,22 @@ def route_declarations(
 
     One declaration per route, or per method set of an `HTTPEndpoint` whose
     methods require different scopes. A route's scopes are the ones its
-    `@Authenticated` names. A mount serving any other app is listed as one
-    authenticated route.
+    `@Authenticated` names. A route with middleware of its own, other than
+    the body limit `max_body_size` adds, runs checks of its own. A route
+    under middleware on a router or a mount, or under Starlette's
+    authentication on the app, is checked above. A mount serving any other
+    app is listed as one authenticated route running checks of its own.
     """
     return declarations_of(app)
+
+
+def _lists_routes(app: object) -> bool:
+    """Return whether `route_declarations` reads the routes of `app`.
+
+    An app, a router, a mount or a host, and Starlette's authentication
+    around one of them.
+    """
+    return lists_routes(app)
 
 
 HTTP_422_UNPROCESSABLE_CONTENT = 422

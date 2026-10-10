@@ -17,6 +17,7 @@ from litestar import Litestar
 from litestar import Request as LitestarRequest
 from litestar import get as litestar_get
 from litestar.testing import TestClient as LitestarTestClient
+from starlette.applications import Starlette
 from starlette.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -50,7 +51,7 @@ from grelmicro.http import (
     IdempotentRequests,
     RateLimitedRequests,
 )
-from grelmicro.http._idempotency import _authentication_paths
+from grelmicro.http._response_cache import _authentication_paths
 from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.log import AccessLog, AccessLogMiddleware
@@ -615,6 +616,32 @@ def test_authentication_around_a_single_route_keeps_its_methods() -> None:
     assert _authentication_paths(guarded) == {
         ("/private", False, frozenset({"GET", "HEAD"}))
     }
+
+
+def test_authentication_paths_mount_reads_its_app_under_its_path() -> None:
+    """A mount handed in directly is read under its own path, and a cycle stops."""
+
+    class Backend(AuthenticationBackend):
+        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+            return None
+
+    # Arrange
+    protected = Starlette(
+        middleware=[Middleware(AuthenticationMiddleware, backend=Backend())]
+    )
+    nested = Mount("/api", routes=[Mount("/in", app=protected)])
+    looped = Router()
+    looped.routes.append(Mount("/again", app=looped))
+
+    # Act
+    found = _authentication_paths(Mount("/api", app=protected))
+    under = _authentication_paths(nested)
+    cycle = _authentication_paths(Mount("/loop", app=looped))
+
+    # Assert
+    assert found == {("/api", True, None)}
+    assert under == {("/api/in", True, None)}
+    assert cycle == set()
 
 
 def test_route_walker_stops_cycles_per_path_not_globally() -> None:

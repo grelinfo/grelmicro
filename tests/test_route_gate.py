@@ -20,6 +20,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from starlette.applications import Starlette
+from starlette.authentication import AuthenticationBackend
 from starlette.background import BackgroundTask
 from starlette.convertors import (  # codespell:ignore
     Convertor,  # codespell:ignore
@@ -27,7 +28,9 @@ from starlette.convertors import (  # codespell:ignore
 )
 from starlette.endpoints import HTTPEndpoint
 from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import HTTPConnection
 from starlette.responses import (
     JSONResponse,
     PlainTextResponse,
@@ -59,7 +62,8 @@ from grelmicro.http import (
 )
 from grelmicro.http._routes import refuse_impossible
 from grelmicro.integrations import starlette as starlette_integration
-from grelmicro.integrations.fastapi import Anonymous
+from grelmicro.integrations._route_gate import declarations_of, lists_routes
+from grelmicro.integrations.fastapi import Anonymous, CachedResponse
 from grelmicro.integrations.starlette import (
     Authenticated,
     install_route_gate,
@@ -2234,9 +2238,11 @@ class TestDeclarations:
             RouteDeclaration("/in/x", methods=frozenset({"GET", "HEAD"})),
             RouteDeclaration("/app"),
             RouteDeclaration("/app/y", methods=frozenset({"GET", "HEAD"})),
-            RouteDeclaration("/wrapped"),
-            RouteDeclaration("/wrapped/b", methods=frozenset({"POST"})),
-            RouteDeclaration("/static"),
+            RouteDeclaration("/wrapped", own_checks=True),
+            RouteDeclaration(
+                "/wrapped/b", methods=frozenset({"POST"}), checked_above=True
+            ),
+            RouteDeclaration("/static", own_checks=True),
             RouteDeclaration("/fastapi"),
             *(
                 RouteDeclaration(
@@ -2250,7 +2256,7 @@ class TestDeclarations:
                 )
             ),
             RouteDeclaration("/h", methods=frozenset({"GET", "HEAD"})),
-            RouteDeclaration("/"),
+            RouteDeclaration("/", own_checks=True),
             RouteDeclaration("/asgi"),
             RouteDeclaration("/route"),
         ]
@@ -2307,6 +2313,313 @@ class TestDeclarations:
         assert client.get("/probe").status_code == UNAUTHORIZED
         assert client.get("/probe", headers=bearer(token())).text == "probe"
 
+    def test_route_declarations_route_middleware_declares_own_checks(
+        self,
+    ) -> None:
+        """Middleware on a route runs before it, and a body limit checks no caller."""
+        # Arrange
+        checked = Route(
+            "/checked",
+            served,
+            methods=["POST"],
+            middleware=[Middleware(NormalizedPath)],
+        )
+        leaf = Route("/leaf", Router(routes=[checked]))
+        app = Starlette(
+            routes=[
+                checked,
+                WebSocketRoute(
+                    "/ws", accept, middleware=[Middleware(NormalizedPath)]
+                ),
+                Route("/limited", served, methods=["POST"], max_body_size=8),
+                Mount("/endpoint", routes=[Route("/", Orders)]),
+                leaf,
+                Route("/opaque", Counted()),
+            ]
+        )
+
+        # Act
+        declared = route_declarations(app)
+
+        # Assert
+        assert [(item.path, item.own_checks) for item in declared] == [
+            ("/checked", True),
+            ("/ws", True),
+            ("/limited", False),
+            ("/endpoint/", False),
+            ("/endpoint/", False),
+            ("/leaf", True),
+            ("/opaque", False),
+        ]
+
+    def test_route_declarations_mount_middleware_declares_own_checks(
+        self,
+    ) -> None:
+        """Middleware on a mount runs before every route under it."""
+        # Arrange
+        app = Starlette(
+            routes=[
+                Mount(
+                    "/checked",
+                    routes=[Route("/a", served, methods=["POST"])],
+                    middleware=[Middleware(NormalizedPath)],
+                ),
+                Mount(
+                    "/wrapped",
+                    app=NormalizedPath(
+                        Router(routes=[Route("/b", served, methods=["POST"])])
+                    ),
+                ),
+                Mount("/plain", routes=[Route("/c", served, methods=["POST"])]),
+                Mount(
+                    "/limited",
+                    routes=[Route("/d", served, methods=["POST"])],
+                    max_body_size=8,
+                ),
+                Mount("/opaque", app=Counted()),
+            ]
+        )
+
+        # Act
+        declared = route_declarations(app)
+
+        # Assert
+        assert [
+            (item.path, item.own_checks, item.checked_above)
+            for item in declared
+        ] == [
+            ("/checked", True, False),
+            ("/checked/a", False, True),
+            ("/wrapped", True, False),
+            ("/wrapped/b", False, True),
+            ("/plain/c", False, False),
+            ("/limited", False, False),
+            ("/limited/d", False, False),
+            ("/opaque", True, False),
+        ]
+
+    def test_route_declarations_authentication_middleware_declares_own_checks(
+        self,
+    ) -> None:
+        """Starlette's authentication, on the app or on a mounted app, checks the caller."""
+        # Arrange
+        authentication = [
+            Middleware(AuthenticationMiddleware, backend=_NoCaller())
+        ]
+        mounted = Starlette(
+            routes=[Route("/a", served, methods=["POST"])],
+            middleware=authentication,
+        )
+        public = Starlette(
+            routes=[
+                Mount("/private", app=mounted),
+                Route("/b", served, methods=["POST"]),
+            ]
+        )
+        private = Starlette(
+            routes=[Route("/c", served, methods=["POST"])],
+            middleware=authentication,
+        )
+
+        # Act
+        declared = [
+            (item.path, item.own_checks, item.checked_above)
+            for app in (public, private)
+            for item in route_declarations(app)
+        ]
+
+        # Assert
+        assert declared == [
+            ("/private", True, False),
+            ("/private/a", False, True),
+            ("/b", False, False),
+            ("/c", False, True),
+        ]
+
+    def test_route_declarations_mount_middleware_match_the_gates_after_a_route_lands(
+        self,
+    ) -> None:
+        """A route added under a checked mount after install is gated as listed."""
+        # Arrange
+        inner = Router(routes=[Route("/a", served, methods=["POST"])])
+        checked = Mount(
+            "/checked", app=inner, middleware=[Middleware(NormalizedPath)]
+        )
+        app = installed(Starlette(routes=[checked]))
+
+        # Act
+        inner.routes.append(Route("/b", served, methods=["POST"]))
+        with TestClient(app) as client:
+            refused = client.post("/checked/b")
+
+        # Assert
+        assert refused.status_code == UNAUTHORIZED
+        assert [
+            (item.path, item.own_checks, item.checked_above)
+            for item in route_declarations(app)
+        ] == [
+            ("/checked", True, False),
+            ("/checked/a", False, True),
+            ("/checked/b", False, True),
+        ]
+
+    def test_route_declarations_router_authentication_matches_the_gates(
+        self,
+    ) -> None:
+        """Starlette's authentication on a router runs before its routes."""
+        # Arrange
+        router = Router(
+            routes=[Route("/a", served, methods=["POST"])],
+            middleware=[
+                Middleware(AuthenticationMiddleware, backend=_NoCaller())
+            ],
+        )
+        app = installed(Starlette(routes=[Mount("/r", app=router)]))
+
+        # Act
+        with TestClient(app) as client:
+            refused = client.post("/r/a")
+
+        # Assert
+        assert refused.status_code == UNAUTHORIZED
+        assert [
+            (item.path, item.own_checks, item.checked_above)
+            for item in route_declarations(app)
+        ] == [("/r/a", False, True)]
+
+    def test_declarations_of_authentication_around_an_app_declares_own_checks(
+        self,
+    ) -> None:
+        """Starlette's authentication wrapped around an app checks every route of it."""
+        # Arrange
+        wrapped = AuthenticationMiddleware(
+            Starlette(routes=[Route("/a", served, methods=["POST"])]),
+            backend=_NoCaller(),
+        )
+        opaque = AuthenticationMiddleware(Counted(), backend=_NoCaller())
+
+        # Act
+        declared = declarations_of(wrapped)
+
+        # Assert
+        assert [
+            (item.path, item.own_checks, item.checked_above)
+            for item in declared
+        ] == [("/a", False, True)]
+        assert declarations_of(opaque) == []
+        assert lists_routes(wrapped)
+        assert not lists_routes(Counted())
+
+    @pytest.mark.parametrize("placement", ["mount middleware", "app auth"])
+    def test_install_cached_route_under_checks_keeps_its_cache(
+        self, placement: str
+    ) -> None:
+        """A route declaring a shared response keeps it under checks around it."""
+        # Arrange
+        api = (
+            FastAPI(
+                middleware=[
+                    Middleware(AuthenticationMiddleware, backend=_NoCaller())
+                ]
+            )
+            if placement == "app auth"
+            else FastAPI()
+        )
+
+        @api.get("/feed", dependencies=[Anonymous(), CachedResponse()])
+        async def feed() -> dict[str, int]:
+            return {"ok": 1}
+
+        app: Starlette = (
+            api
+            if placement == "app auth"
+            else Starlette(
+                routes=[
+                    Mount(
+                        "/v1",
+                        app=api,
+                        middleware=[
+                            Middleware(CORSMiddleware, allow_origins=["*"])
+                        ],
+                    )
+                ]
+            )
+        )
+
+        # Act
+        installed(app, Cache(MemoryCacheAdapter()), CachedResponses())
+
+        # Assert
+        assert [
+            (item.own_checks, item.cache)
+            for item in route_declarations(app)
+            if item.path.endswith("/feed")
+        ] == [(False, True)]
+
+    def test_install_router_mounted_with_and_without_middleware_starts_after_a_route_lands(
+        self,
+    ) -> None:
+        """A router under a checked mount and a plain one keeps each path apart."""
+        # Arrange
+        inner = Router(routes=[Route("/x", served, methods=["POST"])])
+        app = installed(
+            Starlette(
+                routes=[
+                    Mount(
+                        "/a", app=inner, middleware=[Middleware(NormalizedPath)]
+                    ),
+                    Mount("/b", app=inner),
+                ]
+            )
+        )
+
+        # Act
+        inner.routes.append(Route("/y", served, methods=["POST"]))
+        with TestClient(app) as client:
+            refused = client.post("/b/y")
+
+        # Assert
+        assert refused.status_code == UNAUTHORIZED
+        assert [
+            (item.path, item.own_checks, item.checked_above)
+            for item in route_declarations(app)
+        ] == [
+            ("/a", True, False),
+            ("/a/x", False, True),
+            ("/a/y", False, True),
+            ("/b/x", False, False),
+            ("/b/y", False, False),
+        ]
+
+    def test_install_authentication_added_later_is_gated_as_listed(
+        self,
+    ) -> None:
+        """Starlette's authentication added after install is read when the app starts."""
+        # Arrange
+        app = installed(
+            Starlette(routes=[Route("/x", served, methods=["POST"])])
+        )
+
+        # Act
+        app.add_middleware(AuthenticationMiddleware, backend=_NoCaller())
+        with TestClient(app) as client:
+            refused = client.post("/x")
+
+        # Assert
+        assert refused.status_code == UNAUTHORIZED
+        assert [
+            (item.path, item.own_checks, item.checked_above)
+            for item in route_declarations(app)
+        ] == [("/x", False, True)]
+
+
+class _NoCaller(AuthenticationBackend):
+    """Authenticate nobody."""
+
+    async def authenticate(self, conn: HTTPConnection) -> None:  # noqa: ARG002
+        """Name no caller."""
+        return
+
 
 class TestOpaque:
     """What cannot be read is gated as one protected route."""
@@ -2362,8 +2675,10 @@ class TestOpaque:
         assert answered.json() == {"wiped": True}
         assert ran == ["/api/wipe"]
         assert route_declarations(app) == [
-            RouteDeclaration("/api"),
-            RouteDeclaration("/api/", methods=frozenset({"GET", "HEAD"})),
+            RouteDeclaration("/api", own_checks=True),
+            RouteDeclaration(
+                "/api/", methods=frozenset({"GET", "HEAD"}), checked_above=True
+            ),
         ]
         assert getattr(app.router.routes[0].handle, "__self__", None) is None
 

@@ -81,6 +81,15 @@ class RouteDeclaration:
             "or replayed across callers."
         ),
     ] = False
+    checked_above: Annotated[
+        bool,
+        Doc(
+            "Checks run before the route that are not its own, such as "
+            "middleware on a mount around it, so its answer can depend on "
+            "the caller. Its response is never replayed across callers, "
+            "and a `cache` it declares still holds."
+        ),
+    ] = False
     cache: Annotated[
         bool | timedelta,
         Doc(
