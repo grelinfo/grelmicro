@@ -1870,6 +1870,36 @@ def test_idempotent_requests_starlette_mount_middleware_never_replays_across_cal
     assert REPLAY_HEADER not in bob.headers
 
 
+@pytest.mark.parametrize("framework", ["starlette", "fastapi"])
+def test_idempotent_requests_mounted_app_middleware_never_replays_across_callers(
+    framework: str,
+) -> None:
+    """Middleware a mounted app runs before its routes stops replay across callers."""
+    # Arrange
+    sub: Starlette = (
+        Starlette(middleware=[Middleware(_CallerCheck)])
+        if framework == "starlette"
+        else FastAPI(openapi_url=None, middleware=[Middleware(_CallerCheck)])
+    )
+    sub.add_route("/whoami", _starlette_caller, methods=["POST"])
+    app = Starlette(routes=[Mount("/api", app=sub)])
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post(
+            "/api/whoami", headers={HEADER: "k", "X-API-Key": "a"}
+        )
+        bob = client.post(
+            "/api/whoami", headers={HEADER: "k", "X-API-Key": "b"}
+        )
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert bob.json() == {"caller": "b"}
+    assert REPLAY_HEADER not in bob.headers
+
+
 def test_idempotency_middleware_listing_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

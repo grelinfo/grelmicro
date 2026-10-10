@@ -98,6 +98,15 @@ class RouteDeclaration:
             "`timedelta` keeps it that long, and a number is refused."
         ),
     ] = False
+    shared: Annotated[
+        bool,
+        Doc(
+            "The route requires a caller and answers every caller it admits "
+            "the same, so `CachedResponses` serves one stored response to "
+            "all of them, a credential included. Without it, a request "
+            "carrying a credential is answered by the handler."
+        ),
+    ] = False
 
     def __post_init__(self) -> None:
         """Hold `methods` and `scopes` as frozen sets, whatever set was passed.
@@ -128,7 +137,8 @@ def refuse_impossible(declaration: RouteDeclaration) -> None:
             the route is anonymous and requires scopes, it caches and runs
             checks of its own, it caches a method other than `GET` or
             `HEAD`, its cache TTL is not greater than zero or is over 100
-            years, or a scope is not an OAuth scope token.
+            years, a scope is not an OAuth scope token, or it is `shared`
+            without a `cache` or while anonymous.
     """
     path = declaration.path
     methods = declaration.methods
@@ -161,6 +171,33 @@ def refuse_impossible(declaration: RouteDeclaration) -> None:
         )
         raise ValueError(msg)
     _refuse_impossible_cache(declaration, route)
+    _refuse_impossible_sharing(declaration, route)
+
+
+def _refuse_impossible_sharing(
+    declaration: RouteDeclaration, route: str
+) -> None:
+    """Refuse `shared` on a route that caches nothing or requires no caller.
+
+    Raises:
+        ValueError: If the route is `shared` without a `cache`, or while
+            anonymous.
+    """
+    if not declaration.shared:
+        return
+    if declaration.cache is False:
+        msg = (
+            f"{route} declares shared=True and no cache, so nothing is "
+            f"shared. Declare a cache, or drop shared=True."
+        )
+        raise ValueError(msg)
+    if declaration.anonymous:
+        msg = (
+            f"{route} declares anonymous=True and shared=True. A request "
+            f"carrying a credential to a public route is answered by its "
+            f"handler, so nothing is shared. Drop shared=True."
+        )
+        raise ValueError(msg)
 
 
 def _refuse_impossible_cache(declaration: RouteDeclaration, route: str) -> None:

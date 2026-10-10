@@ -10,6 +10,7 @@ nothing a file says can start caching what the static path would refuse.
 import logging
 from collections.abc import Callable
 from datetime import timedelta
+from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -247,12 +248,12 @@ async def test_a_reload_reaches_the_middleware_without_rebuilding_it() -> None:
 
 
 async def test_a_live_include_cannot_cache_a_gated_read() -> None:
-    """A file must not start caching what the static path refuses.
+    """A file must not start caching what the static path leaves alone.
 
-    `micro.install(app)` refuses a pattern naming a read behind a
-    security scheme, because a hit answers before the route's own
-    dependencies run. A pattern arriving later has to be refused the
-    same way, or live reload opens the hole the static path closes.
+    A read behind a security scheme runs checks of its own, and a hit
+    answers before they run, so a pattern naming it caches nothing. A
+    pattern arriving later is read against the routes the same way, or
+    live reload would open the hole the static path closes.
     """
     # Arrange
     gate = APIKeyHeader(name="X-Key")
@@ -265,16 +266,11 @@ async def test_a_live_include_cannot_cache_a_gated_read() -> None:
 
     micro.install(app)
     component = _cached_responses(micro)
-    before = component.config
 
     # Act
-    with pytest.raises(TypeError, match="/private"):
-        await component.reconfigure(
-            CachedResponsesConfig(include={"/private": 60})
-        )
+    await component.reconfigure(CachedResponsesConfig(include={"/private": 60}))
 
     # Assert
-    assert component.config is before
     assert (
         component._live.state.policies.ttl_for(
             "/private", timedelta(seconds=60)
@@ -1769,7 +1765,7 @@ def test_the_hand_wired_cache_takes_the_tuple_form_too() -> None:
     assert policies.ttl_for("/orders", DEFAULT_TTL) is None
 
 
-def test_a_pattern_naming_a_gated_url_is_refused() -> None:
+def test_a_pattern_naming_a_gated_url_is_never_cached() -> None:
     """A pattern names a URL, and a route template stands for many.
 
     `include={"/users/me": 30}` names no template on an app declaring
@@ -1795,9 +1791,18 @@ def test_a_pattern_naming_a_gated_url_is_refused() -> None:
     ) -> dict[str, str]:
         return {"caller": key, "uid": uid}
 
-    # Act / Assert
-    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
-        micro.install(app)
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.get("/users/me", headers={"X-API-Key": "alice"})
+        bob = client.get("/users/me", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/users/me")
+
+    # Assert
+    assert alice.json() == {"caller": "alice", "uid": "me"}
+    assert bob.json() == {"caller": "bob", "uid": "me"}
+    assert anonymous.status_code == HTTPStatus.UNAUTHORIZED
 
 
 @pytest.mark.parametrize(
@@ -1855,14 +1860,15 @@ def test_the_cache_row_reads_like_every_other(
     assert applies == expected
 
 
-def test_a_gated_read_under_a_marked_router_is_refused_by_a_pattern() -> None:
+def test_a_gated_read_under_a_marked_router_is_never_cached_by_a_pattern() -> (
+    None
+):
     """A router's declaration does not make a pattern safe.
 
     An inherited `CachedResponse()` is left alone where the cache cannot
-    answer, so the route is kept out. A pattern naming that same path is
-    not inherited: somebody wrote it, and it cannot be cached, so the
-    refusal has to reach this branch too. It did not, and an anonymous
-    request was answered `200` with the previous caller's response.
+    answer, so the route is kept out. A pattern naming that same path
+    has to keep it out too, or an anonymous request is answered `200`
+    with the previous caller's response.
     """
     # Arrange
     gate = APIKeyHeader(name="X-API-Key")
@@ -1884,9 +1890,16 @@ def test_a_gated_read_under_a_marked_router_is_refused_by_a_pattern() -> None:
         ]
     )
 
-    # Act / Assert
-    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
-        micro.install(app)
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.get("/products/secret", headers={"X-API-Key": "alice"})
+        anonymous = client.get("/products/secret")
+
+    # Assert
+    assert alice.json() == {"caller": "alice"}
+    assert anonymous.status_code == HTTPStatus.UNAUTHORIZED
 
 
 def test_what_the_app_refuses_is_never_cached_however_it_is_asked() -> None:
@@ -2006,9 +2019,10 @@ def test_exclude_carves_a_gated_read_out_of_a_prefix() -> None:
     # Assert: the open read is kept, the gated one is not.
     assert policies.pattern_ttl("/api/public", DEFAULT_TTL) == DEFAULT_TTL
     assert policies.pattern_ttl("/api/private", DEFAULT_TTL) is None
-    # And without the carve-out it is still refused where it is written.
-    with pytest.raises(TypeError, match="gated by HTTPBearer"):
-        build(include=("/api/*",))
+    # And without the carve-out the gated one is still left uncached.
+    whole = build(include=("/api/*",))
+    assert whole.pattern_ttl("/api/public", DEFAULT_TTL) == DEFAULT_TTL
+    assert whole.pattern_ttl("/api/private", DEFAULT_TTL) is None
 
 
 def test_a_prefix_cutting_into_a_parameter_names_the_route() -> None:

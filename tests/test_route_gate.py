@@ -379,6 +379,20 @@ class TestImpossibleDeclarations:
                 RouteDeclaration("/a", scopes=frozenset({'a"b'})),
                 "not an OAuth scope token",
             ),
+            (
+                RouteDeclaration("/a", methods=frozenset({"GET"}), shared=True),
+                "shared=True and no cache",
+            ),
+            (
+                RouteDeclaration(
+                    "/a",
+                    methods=frozenset({"GET"}),
+                    anonymous=True,
+                    cache=True,
+                    shared=True,
+                ),
+                "anonymous=True and shared=True",
+            ),
         ],
     )
     def test_it_is_refused_naming_the_route(

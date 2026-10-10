@@ -84,6 +84,7 @@ request. Your integration tells it what each route requires with a
 | `own_checks` | The route runs checks of its own before the handler, so its answer can depend on the caller: a dependency, a guard, or middleware on the route. A response is never cached or replayed across callers | `False` |
 | `checked_above` | Checks that are not the route's own run before it, such as middleware on a router or a mount around it, so its answer can depend on the caller. A response is never replayed across callers, and a `cache` the route declares still holds | `False` |
 | `cache` | `CachedResponses` may store the route's response. `True` keeps it for the TTL the component is configured with, a `timedelta` keeps it that long, and a number is refused | `False` |
+| `shared` | The route requires a caller and answers every caller it admits the same, so one stored response serves all of them, a credential included. Without it, a request carrying a credential is answered by the handler | `False` |
 
 A declaration is frozen. Pass `path` first and every other field by keyword.
 A route whose methods declare differently, such as a public `GET` beside a
@@ -213,11 +214,15 @@ mounts it can read, and declares each `HTTPEndpoint` method on its own.
 - **Some declarations are refused.** These fail at install, naming the
   route: `anonymous=True` with `scopes`, `scopes` on a path in `exclude=`,
   `cache` with `own_checks`, `cache` on a route answering a method other than
-  `GET` or `HEAD`, an empty `methods`, and a method in lower case. A
-  `CachedResponse` declared on a router covers the reads under it that run no
-  checks of their own, so its writes and those reads declare no `cache`.
-- **A cached protected route is shared.** Its response is served to every
-  caller the route admits, so declare `cache` only where each of them gets the
+  `GET` or `HEAD`, `shared` without `cache` or with `anonymous=True`, an empty
+  `methods`, and a method in lower case. A `CachedResponse` declared on a
+  router covers the reads under it that run no checks of their own, so its
+  writes and those reads declare no `cache`. On FastAPI,
+  `CachedResponse(shared=True)` on a router or the app, and on a route whose
+  handler takes the caller as a parameter, fail at install too.
+- **A cached protected route is shared only when it says so.** A request
+  carrying a credential is answered by the handler unless the route declares
+  `shared=True`. Declare it only where every caller the route admits gets the
   same answer.
 
 ## Publish a third-party adapter

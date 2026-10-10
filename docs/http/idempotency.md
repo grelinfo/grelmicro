@@ -240,15 +240,16 @@ the default too, on every framework:
 | Framework | Checks before the handler |
 |---|---|
 | FastAPI | A dependency, such as `Depends` authentication that reads an API key from a custom header |
-| Starlette | Middleware on the route, on a router or on a mount around it, `AuthenticationMiddleware` on the app, and a mounted app of another framework |
+| Starlette | Middleware on the route, on a router or on a mount around it, middleware of a mounted Starlette or FastAPI app, `AuthenticationMiddleware` on the app, and a mounted app of another framework |
 | Litestar | A guard, a dependency the handler asks for, a `before_request` hook, middleware on the handler, its controller or a router, and a mounted ASGI app |
 
 `Anonymous()`, `Authenticated`, `CachedResponse()`, a body limit and
 grelmicro's own middleware are not checks. Middleware on the app is not
 either, on Starlette or on Litestar, except Starlette's
-`AuthenticationMiddleware`. The same holds for middleware on a mounted
-Starlette sub-app. This applies when the app is wrapped directly or mounted
-under another ASGI application. A route running no check keeps the
+`AuthenticationMiddleware`. Middleware of a mounted Starlette or FastAPI app
+is a check for every route under it, because it runs before them. This
+applies when the app is wrapped directly or mounted under another ASGI
+application. A route running no check keeps the
 route-scoped default key. Required keys are validated before this bypass.
 The built-in key format is versioned, so an upgraded process cannot replay an
 unscoped entry written by an older release. Custom `key=` values remain

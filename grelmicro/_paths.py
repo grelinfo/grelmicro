@@ -610,27 +610,6 @@ def _routing_app(app: Any) -> Any:  # noqa: ANN401
     return app
 
 
-def _routing_root(app: Any) -> Any:  # noqa: ANN401
-    """Return the routing container whose local paths `app` resolves.
-
-    A framework application and the wrapped source handed to one of its
-    middleware are different objects but share the same router. A mounted
-    child router and the parent application in `scope["app"]` do not.
-    """
-    routed = _routing_app(app)
-    if routed is None or _is_mount(routed) or _is_route(routed):
-        return routed
-    router = getattr(routed, "router", None)
-    return router if hasattr(router, "routes") else routed
-
-
-def _same_routing_root(left: Any, right: Any) -> bool:  # noqa: ANN401
-    """Return whether two ASGI entry points use the same local coordinates."""
-    left_root = _routing_root(left)
-    right_root = _routing_root(right)
-    return left_root is not None and left_root is right_root
-
-
 def _bound_router(app: Any) -> Any | None:  # noqa: ANN401
     """Return the router owning a bound `Router.app` method."""
     owner = getattr(app, "__self__", None)
@@ -675,26 +654,6 @@ def _is_fastapi_exit_stack_middleware(app: Any) -> bool:  # noqa: ANN401
     return (
         klass.__module__ == "fastapi.middleware.asyncexitstack"
         and klass.__name__ == "AsyncExitStackMiddleware"
-    )
-
-
-def _is_starlette_routing_app(app: Any) -> bool:  # noqa: ANN401
-    """Return whether `app` resolves to a Starlette-compatible router."""
-    routed = _routing_app(app)
-    if routed is None:
-        return False
-    if _is_mount(routed) or _is_route(routed):
-        return True
-    return any(
-        (
-            klass.__module__ == "starlette.applications"
-            and klass.__name__ == "Starlette"
-        )
-        or (
-            klass.__module__ == "starlette.routing"
-            and klass.__name__ == "Router"
-        )
-        for klass in type(routed).__mro__
     )
 
 
@@ -744,124 +703,6 @@ def _has_configured_middleware(app: Any) -> bool:  # noqa: ANN401
     stack = getattr(routed, "middleware_stack", None)
     endpoint = getattr(routed, "app", None)
     return stack is not None and endpoint is not None and stack != endpoint
-
-
-def _route_methods(route: Any) -> frozenset[str] | None:  # noqa: ANN401
-    """Return one route's methods, or `None` when it accepts every method."""
-    methods = getattr(route, "methods", None)
-    if methods is None:
-        return None
-    return frozenset(method.upper() for method in methods)
-
-
-def _middleware_boundaries(
-    app: Any,  # noqa: ANN401
-    *,
-    include_root: bool = False,
-) -> set[tuple[str, bool, frozenset[str] | None]]:
-    """Return exact or nested paths a parent response cache must not cross."""
-    app = _transparent_routing_source(app)
-    if _wrapped_app(app) is not None:
-        return {("", True, None)}
-    if include_root and _has_configured_middleware(app):
-        return {("", True, None)}
-    found: set[tuple[str, bool, frozenset[str] | None]] = set()
-    _visit_middleware_boundaries(app, "", frozenset(), found)
-    return found
-
-
-def _visit_middleware_boundaries(
-    current: Any,  # noqa: ANN401
-    prefix: str,
-    ancestors: frozenset[int],
-    found: set[tuple[str, bool, frozenset[str] | None]],
-) -> None:
-    """Add middleware boundaries below one routing application."""
-    current = _transparent_routing_source(current)
-    if current is None or id(current) in ancestors:
-        return
-    nested_ancestors = ancestors | {id(current)}
-    if _is_mount(current):
-        _visit_boundary_app(
-            getattr(current, "app", current),
-            f"{prefix}{getattr(current, 'path', '')}",
-            nested_ancestors,
-            found,
-        )
-        return
-    if _is_route(current):
-        _visit_boundary_route(current, prefix, nested_ancestors, found)
-        return
-    router = getattr(current, "router", None)
-    for route in getattr(router or current, "routes", ()) or ():
-        _visit_boundary_route(route, prefix, nested_ancestors, found)
-
-
-def _visit_boundary_app(
-    app: Any,  # noqa: ANN401
-    path: str,
-    ancestors: frozenset[int],
-    found: set[tuple[str, bool, frozenset[str] | None]],
-) -> None:
-    """Add or descend through an application-wide middleware boundary."""
-    if _has_configured_middleware(app):
-        found.add((path, True, None))
-    else:
-        _visit_middleware_boundaries(app, path, ancestors, found)
-
-
-def _visit_boundary_route(
-    route: Any,  # noqa: ANN401
-    prefix: str,
-    ancestors: frozenset[int],
-    found: set[tuple[str, bool, frozenset[str] | None]],
-) -> None:
-    """Inspect one included router, mount, or leaf route for middleware."""
-    included = getattr(route, "original_router", None)
-    if included is not None:
-        context = getattr(route, "include_context", None)
-        _visit_boundary_app(
-            included,
-            f"{prefix}{getattr(context, 'prefix', '')}",
-            ancestors,
-            found,
-        )
-        return
-    path = f"{prefix}{getattr(route, 'path', '')}"
-    nested = getattr(route, "app", route)
-    if getattr(route, "routes", None) is not None:
-        _visit_boundary_app(nested, path, ancestors, found)
-    elif _has_configured_middleware(nested):
-        found.add((path, False, _route_methods(route)))
-    else:
-        routed = _nested_routing_app(route)
-        if routed is None:
-            return
-        nested_boundaries: set[tuple[str, bool, frozenset[str] | None]] = set()
-        _visit_boundary_app(routed, "", ancestors, nested_boundaries)
-        if nested_boundaries:
-            # A Router used as a Route endpoint receives the outer route's
-            # unchanged scope. Its own path cannot be composed with the
-            # outer one the way a Mount's can, so refuse the exact path.
-            found.add((path, False, _route_methods(route)))
-
-
-def _nested_routing_app(route: Any) -> Any | None:  # noqa: ANN401
-    """Return a routing application used as a leaf route endpoint."""
-    if getattr(route, "routes", None) is not None:
-        return None
-    nested = getattr(route, "app", None)
-    if nested is None:
-        return None
-    routed = _routing_app(nested)
-    if routed is None or routed is route:
-        return None
-    router = getattr(routed, "router", None)
-    return (
-        routed
-        if hasattr(routed, "routes") or hasattr(router, "routes")
-        else None
-    )
 
 
 def _route_source(app: Any, *, unwrap_middleware: bool) -> Any | None:  # noqa: ANN401
@@ -1223,46 +1064,6 @@ def _dependency_overrides_context(
         _dependency_overrides_provider(holder, inherited),
         _is_router_include_context(holder),
     )
-
-
-def _inherited_dependency_overrides_context(
-    holder: Any,  # noqa: ANN401
-    contexts: tuple[Any, ...],
-) -> tuple[Any, bool]:
-    """Return the provider state inherited by one included route."""
-    provider = None
-    authoritative = False
-    for context in contexts:
-        provider, authoritative = _dependency_overrides_context(
-            context,
-            provider,
-            authoritative=authoritative,
-        )
-    return _dependency_overrides_context(
-        holder,
-        provider,
-        authoritative=authoritative,
-    )
-
-
-def _effective_dependency_call(
-    dependency: Any,  # noqa: ANN401
-    provider: Any = None,  # noqa: ANN401
-    *,
-    provider_is_authoritative: bool = False,
-) -> tuple[Any, Any, Any]:
-    """Return a dependency's declared call, effective call, and provider."""
-    provider, _authoritative = _dependency_overrides_context(
-        dependency,
-        provider,
-        authoritative=provider_is_authoritative,
-    )
-    call = _dependency_callable(dependency)
-    overrides = getattr(provider, "dependency_overrides", None)
-    if overrides is None:
-        return call, call, provider
-    effective = overrides.get(call, call)
-    return call, effective, provider
 
 
 def _watch_declared_dependencies(

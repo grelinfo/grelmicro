@@ -1462,12 +1462,34 @@ class TestDeclarations:
     def test_a_route_caching_beside_an_authenticated_caller_caches(
         self,
     ) -> None:
-        """Every caller the route admits is served the same response."""
+        """`shared=True` says every caller the route admits gets the same response."""
         assert checked(Authenticated(), CachedResponse(ttl=60)) == (
             RouteDeclaration(
                 "/r", methods=frozenset({"GET"}), cache=timedelta(seconds=60)
             )
         )
+        assert checked(CachedResponse(ttl=60, shared=True)) == (
+            RouteDeclaration(
+                "/r",
+                methods=frozenset({"GET"}),
+                cache=timedelta(seconds=60),
+                shared=True,
+            )
+        )
+
+    def test_a_router_sharing_its_cache_is_refused_naming_its_prefix(
+        self,
+    ) -> None:
+        """Only a route may say its own response is the same for every caller."""
+        router = APIRouter(
+            prefix="/v1", dependencies=[CachedResponse(shared=True)]
+        )
+        router.add_api_route("/members", listed)
+        app = FastAPI(openapi_url=None)
+        app.include_router(router)
+
+        with pytest.raises(ValueError, match=r"prefix '/v1'.*/v1/members"):
+            route_declarations(app)
 
     @pytest.mark.parametrize("authenticated", [False, True])
     def test_a_route_caching_beside_a_check_of_its_own_fails_install(
@@ -1488,7 +1510,7 @@ class TestDeclarations:
 
         with pytest.raises(
             TypeError,
-            match=r"CachedResponse\(\) is declared on '/r', which runs",
+            match=r"GET /r declares a cached response and runs checks",
         ):
             Grelmicro(uses=uses).install(app)
 

@@ -348,7 +348,7 @@
       "()": "(status, media_type, headers, body) -> None"
     },
     "RouteDeclaration": {
-      "()": "(path, *, methods=None, anonymous=False, scopes=frozenset(), own_checks=False, checked_above=False, cache=False) -> None"
+      "()": "(path, *, methods=None, anonymous=False, scopes=frozenset(), own_checks=False, checked_above=False, cache=False, shared=False) -> None"
     },
     "StoredResponse": null,
     "TMFError": {
@@ -403,7 +403,7 @@
       "()": "(*, scopes=()) -> Any"
     },
     "CachedResponse": {
-      "()": "(*, ttl=None) -> Any"
+      "()": "(*, ttl=None, shared=False) -> Any"
     },
     "CheckResultResponse": {
       "()": "(*, status, critical=True, error=None, details=None) -> None"
