@@ -11,6 +11,7 @@ from typing import (
     Annotated,
     Any,
     ClassVar,
+    Final,
     NamedTuple,
     Self,
 )
@@ -33,6 +34,11 @@ from grelmicro._paths import (
 )
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._gate import answered
+from grelmicro.http._openapi import (
+    add_error_schema,
+    error_format,
+    operations_of,
+)
 from grelmicro.resilience._protocol import RateLimitResult
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.ratelimiter import _config_limit, _validate_cost
@@ -49,11 +55,13 @@ if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
         Callable,
+        Iterable,
         MutableMapping,
         Sequence,
     )
     from types import TracebackType
 
+    from grelmicro.http._routes import RouteDeclaration
     from grelmicro.resilience.ratelimiter import RateLimiter
     from grelmicro.security.clientip import TrustedProxies
 
@@ -1074,8 +1082,8 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             bool,
             Doc(
                 "Describe the `429` and the `RateLimit` fields on every "
-                "operation in the OpenAPI schema. Only FastAPI builds one. "
-                "Read once when the schema is built, so it is not live."
+                "operation in the OpenAPI schema. Read once when the schema "
+                "is built, so it is not live."
             ),
         ] = True,
         name: Annotated[
@@ -1290,29 +1298,38 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         """
         return (RateLimitExceededError,)
 
-    def document_openapi(
+    def _document_openapi(
         self,
-        app: Annotated[Any, Doc("The FastAPI application to describe.")],  # noqa: ANN401
-    ) -> None:
-        """Describe the `429` a metered app can answer with, in the schema.
+        schema: Annotated[
+            dict[str, Any],
+            Doc("The OpenAPI schema to describe the component in."),
+        ],
+        *,
+        routes: Annotated[  # noqa: ARG002
+            Iterable[RouteDeclaration],
+            Doc("The app's route declarations. This component reads none."),
+        ] = (),
+        errors: Annotated[
+            ErrorResponses | None,
+            Doc(
+                "The registered format refusals are answered in. `None` "
+                "publishes RFC 9457 problem details."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Describe the `429` a metered app can answer with, and return the schema.
 
-        Every operation, not the metered ones. Which paths are metered is
-        tuned while the service runs, and the schema is built once, so
-        naming the current set would publish a document that stops being
-        true the first time an operator narrows it. A `429` says only what
-        a client may be answered with, never what it must send, so stating
-        it everywhere stays true whichever paths are metered.
+        Every operation gains the `429` and the `RateLimit` fields,
+        whichever paths are metered, and each `2xx` it declares gains the
+        fields too. The schema is edited in place, and a second call
+        changes nothing. With `openapi=False` it is returned untouched.
 
-        Called by the FastAPI integration after the middleware is added. A
-        framework that builds no schema never calls it.
+        `micro.install(app)` calls it when FastAPI or Litestar builds the
+        schema.
         """
-        if not self._openapi:
-            return
-        from grelmicro.integrations.fastapi import (  # noqa: PLC0415
-            document_rate_limited_requests,
-        )
-
-        document_rate_limited_requests(app)
+        if self._openapi:
+            describe_rate_limit(schema, errors)
+        return schema
 
     async def __aenter__(self) -> Self:
         """Open the component.
@@ -1331,6 +1348,53 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
     ) -> bool | None:
         """Close the component. Nothing to close."""
         return None
+
+
+_RATE_LIMIT_HEADERS: Final = {
+    "RateLimit": (
+        "What the caller has left of each policy, as the RateLimit header "
+        "fields specify."
+    ),
+    "RateLimit-Policy": "The policies this request was metered against.",
+}
+"""Fields every metered answer carries, refused or not."""
+
+
+def describe_rate_limit(
+    schema: dict[str, Any],
+    errors: ErrorResponses | None,
+) -> None:
+    """Add the `429` and the `RateLimit` fields to every operation."""
+    media_type, model = error_format(errors)
+    ref = add_error_schema(schema, model)
+    for _path, _item, operation, _method in operations_of(schema):
+        responses = operation.setdefault("responses", {})
+        headers = {
+            name: {"schema": {"type": "string"}, "description": text}
+            for name, text in _RATE_LIMIT_HEADERS.items()
+        }
+        # A client reads its remaining budget off a `2xx`, before the
+        # refusal arrives.
+        for status, response in responses.items():
+            if status.startswith("2") and isinstance(response, dict):
+                response.setdefault("headers", {}).update(headers)
+        responses.setdefault(
+            "429",
+            {
+                "description": (
+                    "The caller is over its budget. Retry after the delay "
+                    "in `Retry-After`."
+                ),
+                "headers": {
+                    **headers,
+                    "Retry-After": {
+                        "schema": {"type": "integer"},
+                        "description": "Seconds to wait before retrying.",
+                    },
+                },
+                "content": {media_type: {"schema": {"$ref": ref}}},
+            },
+        )
 
 
 async def _nothing(scope: Scope, receive: Receive, send: Send) -> None:

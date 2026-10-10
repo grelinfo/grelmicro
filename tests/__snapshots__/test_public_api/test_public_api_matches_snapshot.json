@@ -348,7 +348,7 @@
       "()": "(status, media_type, headers, body) -> None"
     },
     "RouteDeclaration": {
-      "()": "(path, *, methods=None, anonymous=False, scopes=frozenset(), own_checks=False, checked_above=False, cache=False, shared=False) -> None"
+      "()": "(path, *, methods=None, anonymous=False, scopes=frozenset(), own_checks=False, checked_above=False, cache=False, shared=False, precondition_required=False) -> None"
     },
     "StoredResponse": null,
     "TMFError": {
@@ -434,18 +434,6 @@
     },
     "RateLimited": {
       "()": "(*limiters, cost=1, max_wait=0.0, key=None, trusted=None, legacy_headers=False) -> Any"
-    },
-    "document_authenticated_requests": {
-      "()": "(app) -> None"
-    },
-    "document_conditional_requests": {
-      "()": "(app) -> None"
-    },
-    "document_idempotency": {
-      "()": "(app, *, idempotency=None) -> None"
-    },
-    "document_rate_limited_requests": {
-      "()": "(app) -> None"
     },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"

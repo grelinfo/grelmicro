@@ -34,9 +34,7 @@ from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     METADATA_MARKER,
-    document_operations,
-    metadata_path_of,
-    operation_authentication,
+    operation_declarations,
     refuse_anonymous_caller,
     refuse_routes_at_metadata,
     resource_metadata_of,
@@ -44,7 +42,11 @@ from grelmicro.http._authentication import (
     template_under_root,
 )
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED, UNHANDLED_KEY
-from grelmicro.http._openapi import add_error_schema
+from grelmicro.http._openapi import (
+    add_error_schema,
+    describe_schema,
+    describing,
+)
 from grelmicro.http._requirement import (
     AUTHENTICATED,
     Requirement,
@@ -525,7 +527,7 @@ def install_middleware(
             # ours name their paths in `include=` on Litestar.
             _route_resource_metadata(app, component)
             component.read_routes(app)
-            component.document_openapi(app)
+    _document_components(app, ordered)
 
 
 _FLOOD_BEHIND_ROUTER = (
@@ -1453,14 +1455,18 @@ def _document_error_responses(app: Litestar, errors: ErrorResponses) -> None:
     app.on_startup.append(rewrite)
 
 
-def _document_authentication(app: Litestar, options: dict[str, Any]) -> None:
-    """Describe the bearer token every covered operation needs, in the schema.
+def _document_components(app: Litestar, components: Sequence[Any]) -> None:
+    """Hand the schema Litestar builds to each component that describes itself.
 
     Runs on startup, as the error responses do, so a handler registered
-    after `install` is described too. A handler declaring `Anonymous()`
-    lists it as optional when `micro.install(app)` added the middleware, and
-    a path in `exclude` names none.
+    after `install` is described too. Each component carrying
+    `_document_openapi` is handed the schema, the route declarations and the
+    registered error format. A handler declaring `Anonymous()` lists the
+    scheme as optional when `micro.install(app)` added authentication.
     """
+    documenting = describing(components)
+    if not documenting:
+        return
 
     async def document() -> None:
         from litestar._openapi.plugin import (  # noqa: PLC0415
@@ -1469,22 +1475,14 @@ def _document_authentication(app: Litestar, options: dict[str, Any]) -> None:
 
         if app.openapi_config is None:
             return
-        registered = getattr(app.state, "grelmicro_error_responses", None)
-        errors = ErrorResponses() if registered is None else registered
-        public, scopes = operation_authentication(
+        # Built once and cached by the plugin, so editing the dict it
+        # returns is what every later reader sees.
+        schema = app.plugins.get(OpenAPIPlugin).provide_openapi_schema()
+        errors = getattr(app.state, "grelmicro_error_responses", None)
+        routes = operation_declarations(
             app, anonymous=serves_anonymous_routes(app)
         )
-        document_operations(
-            app.plugins.get(OpenAPIPlugin).provide_openapi_schema(),
-            verifier=options["verifier"],
-            bans=options["bans"] is not None,
-            exclude=tuple(options["exclude"]),
-            public=public,
-            scopes=scopes,
-            media_type=errors.media_type,
-            model=errors.model,
-            metadata_path=metadata_path_of(options),
-        )
+        describe_schema(schema, documenting, routes=routes, errors=errors)
 
     app.on_startup.append(document)
 

@@ -363,34 +363,20 @@ The block form raises `IdempotencyConflictError` to your handler instead, which 
 
 ## OpenAPI
 
-The middleware runs outside the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists, and Swagger offers no field for it. `micro.install(app)` writes it there, so a registered component needs nothing else: every operation the middleware covers gains the `Idempotency-Key` field and the responses the middleware itself returns. Pass `openapi=False` to leave the schema alone:
+The middleware runs outside the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists, and Swagger offers no field for it. `micro.install(app)` writes it there on FastAPI and Litestar, so a registered component needs nothing else. Pass `openapi=False` to leave the schema alone:
 
 ```python
 IdempotentRequests(openapi=False)
 ```
 
-A middleware added by hand is documented with `document_idempotency`:
-
-```python
-from grelmicro.http import IdempotencyMiddleware
-from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import document_idempotency
-
-micro.install(app)
-app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
-document_idempotency(app)
-```
-
-Only FastAPI builds an OpenAPI schema, so every other framework ignores this.
-
-Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. Call it any time after `add_middleware`, and routes added afterwards are covered too.
+Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. The schema is described when it is built, so routes added after `install` are covered too.
 
 An operation that already declares the header keeps its own declaration. The `422` that FastAPI generates for request validation keeps its schema and gains the idempotency case in its description and the problem media type alongside it, so neither is lost.
 
 Each response the middleware adds points at a `ProblemDetail` component, so a generated client knows the body it will get.
 
 !!! note "Mounted sub-applications"
-    A mounted sub-application builds its own schema. Call `document_idempotency` on it as well.
+    A mounted sub-application builds its own schema. Install `micro` on it as well.
 
 ## Background tasks
 
@@ -418,5 +404,5 @@ A background task runs after the response is sent, so the response is stored and
 | `include` | `()` | Paths the middleware acts on. Empty means every path. Exact match unless the pattern ends with `*`. |
 | `exclude` | `()` | Paths the middleware leaves alone, whatever `include` says. |
 | `reused_status` | `422` | Status for a key reused with a different payload. `400` matches Stripe. |
-| `openapi` | `True` | Describe both headers and the middleware responses in the OpenAPI schema. Only this component's rules, so a second set can stay unpublished. Component only, and only FastAPI builds one. |
+| `openapi` | `True` | Describe both headers and the middleware responses in the OpenAPI schema. Only this component's rules, so a second set can stay unpublished. Component only. |
 | `name` | `"default"` | Registration name, for a second set of rules on one app. Component only. |

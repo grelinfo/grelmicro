@@ -109,6 +109,10 @@ app = Litestar(
 micro.install(app)  # finds it already wired, and leaves it alone
 ```
 
+The OpenAPI schema describes the registered component, not the middleware
+passed by hand. Register the component with the same settings you pass, or
+the schema leaves the middleware out.
+
 FastAPI and Starlette never raise this: `install` puts grelmicro's middleware
 behind everything the app added itself.
 

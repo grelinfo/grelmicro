@@ -232,7 +232,7 @@ def test_the_model_publishes_the_tmf_names() -> None:
 
 
 def test_the_component_publishes_the_shape_it_answers_in() -> None:
-    """`document_idempotency` reads these, so a schema matches the wire."""
+    """The schema edits read these, so a schema matches the wire."""
     # Act
     rfc = ErrorResponses()
     tmf = ErrorResponses.tmf()

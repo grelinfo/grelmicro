@@ -113,7 +113,6 @@ from grelmicro.integrations.fastapi import (
     CurrentPrincipal,
     CurrentToken,
     OptionalPrincipal,
-    document_authenticated_requests,
 )
 from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
 from grelmicro.integrations.litestar import (
@@ -2559,13 +2558,6 @@ class TestOpenAPI:
         assert SCHEME not in schema.get("components", {}).get(
             "securitySchemes", {}
         )
-
-    def test_documenting_an_app_without_the_middleware_is_refused(
-        self,
-    ) -> None:
-        """There is nothing to describe on an app nothing authenticates."""
-        with pytest.raises(TypeError, match="AuthenticatedRequestsMiddleware"):
-            document_authenticated_requests(FastAPI())
 
 
 def litestar_app(*uses: Any) -> Litestar:  # noqa: ANN401

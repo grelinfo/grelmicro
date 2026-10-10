@@ -72,6 +72,13 @@ from grelmicro.http._kinds import (
     Occurrence,
     Unhandled,
 )
+from grelmicro.http._openapi import (
+    add_error_schema,
+    add_parameter,
+    error_format,
+    merge_response,
+    operations_of,
+)
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
@@ -86,6 +93,7 @@ if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
         Collection,
+        Iterable,
         Sequence,
     )
     from datetime import timedelta
@@ -1564,8 +1572,8 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             bool,
             Doc(
                 "Describe both headers and the responses the middleware "
-                "returns in the OpenAPI schema. Only FastAPI builds one. "
-                "Read once when the schema is built, so it is not live."
+                "returns in the OpenAPI schema. Read once when the schema "
+                "is built, so it is not live."
             ),
         ] = True,
         name: Annotated[
@@ -1791,22 +1799,42 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         """
         return (IdempotencyConflictError, IdempotencyWaitTimeoutError)
 
-    def document_openapi(
+    def _document_openapi(
         self,
-        app: Annotated[Any, Doc("The FastAPI application to describe.")],  # noqa: ANN401
-    ) -> None:
-        """Describe the middleware in the app's OpenAPI schema.
+        schema: Annotated[
+            dict[str, Any],
+            Doc("The OpenAPI schema to describe the component in."),
+        ],
+        *,
+        routes: Annotated[  # noqa: ARG002
+            Iterable[RouteDeclaration],
+            Doc("The app's route declarations. This component reads none."),
+        ] = (),
+        errors: Annotated[
+            ErrorResponses | None,
+            Doc(
+                "The registered format refusals are answered in. `None` "
+                "publishes RFC 9457 problem details."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Describe both headers and the middleware's responses, and return the schema.
 
-        Called by the FastAPI integration after the middleware is added.
-        A framework that builds no schema never calls it.
+        Every operation the middleware covers, by method and by `include`
+        and `exclude`, gains the key header parameter, the replay header on
+        its responses, and the refusals the middleware answers. An
+        operation that already declares the key header keeps its own
+        declaration, and a `422` the framework generated keeps its schema
+        and gains the reuse case in its description. The schema is edited
+        in place, and a second call changes nothing. With `openapi=False`
+        it is returned untouched.
+
+        `micro.install(app)` calls it when FastAPI or Litestar builds the
+        schema.
         """
-        if not self._openapi:
-            return
-        from grelmicro.integrations.fastapi import (  # noqa: PLC0415
-            document_idempotency,
-        )
-
-        document_idempotency(app, idempotency=self.idempotency)
+        if self._openapi:
+            describe_idempotency(schema, self._live.state.config, errors)
+        return schema
 
     async def __aenter__(self) -> Self:
         """Open the component.
@@ -1825,3 +1853,95 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
     ) -> bool | None:
         """Close the component. Nothing to close."""
         return None
+
+
+def describe_idempotency(
+    schema: dict[str, Any],
+    config: IdempotentRequestsConfig,
+    errors: ErrorResponses | None,
+) -> None:
+    """Add the key header and the middleware's responses to covered operations."""
+    media_type, model = error_format(errors)
+    methods = {method.lower() for method in config.methods}
+    header = config.key_header
+    parameter = {
+        "name": header,
+        "in": "header",
+        "required": config.require_key,
+        "schema": {
+            "type": "string",
+            "maxLength": _MAX_KEY_LENGTH,
+            "pattern": _KEY_PATTERN,
+        },
+        "description": (
+            "Key that makes this request safe to retry. A repeat within the "
+            "replay window returns the first response instead of running the "
+            f"operation again. Up to {_MAX_KEY_LENGTH} printable ASCII "
+            f"characters, such as a UUID."
+        ),
+    }
+    responses = {
+        "400": f"`{header}` is missing or longer than {_MAX_KEY_LENGTH} characters."
+        if config.require_key
+        else f"`{header}` is longer than {_MAX_KEY_LENGTH} characters.",
+        "409": (
+            f"A request with this `{header}` is still in flight. Retry after "
+            f"the delay in `Retry-After`."
+        ),
+    }
+    if config.fingerprint_body:
+        responses["413"] = "Request body too large to fingerprint."
+        reused = str(config.reused_status)
+        description = (
+            f"This `{header}` was already used with a different request "
+            f"payload."
+        )
+        # A service answering the reuse case with `400` shares the status
+        # with the missing-key case, so both descriptions have to survive.
+        responses[reused] = (
+            f"{responses[reused]} {description}"
+            if reused in responses
+            else description
+        )
+    covered = [
+        (path_item, operation)
+        # The patterns select the same path here as on the wire, because the
+        # middleware matches them against the route rather than the prefix a
+        # mount or a proxy adds.
+        for path, path_item, operation, _method in operations_of(
+            schema, methods
+        )
+        if selects(path, include=config.include, exclude=config.exclude)
+    ]
+    if not covered:
+        return
+    ref = add_error_schema(schema, model)
+    for path_item, operation in covered:
+        add_parameter(operation, path_item, parameter)
+        for status, text in responses.items():
+            merge_response(operation, status, text, ref, media_type)
+        _add_replay_header(operation, config.replay_header)
+
+
+def _add_replay_header(operation: dict[str, Any], name: str) -> None:
+    """Describe the replay marker on every response of an operation.
+
+    Every status the app answers is stored and replayed, errors included,
+    and which statuses those are is decided at runtime rather than by the
+    schema. The marker is published as a header that may appear. A
+    response that declares the header itself, under any casing, keeps its
+    own.
+    """
+    lowered = name.lower()
+    for response in operation.get("responses", {}).values():
+        headers = response.setdefault("headers", {})
+        if any(declared.lower() == lowered for declared in headers):
+            continue
+        headers[name] = {
+            "schema": {"type": "string", "enum": ["true"]},
+            "description": (
+                "Sent when this response replays an earlier request that "
+                "carried the same idempotency key. Absent when the "
+                "operation ran."
+            ),
+        }

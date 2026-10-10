@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
-import importlib
 import json
-import sys
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any
@@ -60,7 +58,6 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
 from grelmicro.errors import (
-    DependencyNotFoundError,
     OutOfContextError,
     _AmbientMissError,
 )
@@ -68,7 +65,6 @@ from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
 from grelmicro.http._idempotency import _default_storage_key
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyFunctionError
-from grelmicro.integrations.fastapi import document_idempotency
 from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
@@ -2660,8 +2656,19 @@ async def test_middleware_duplicate_in_flight_times_out_with_conflict() -> None:
     assert second.json()["type"].endswith("#idempotency-in-flight")
 
 
+def _document(app: FastAPI, **options: Any) -> None:  # noqa: ANN401
+    """Describe a middleware added by hand, through a component built alike."""
+    idempotent = IdempotentRequests(**options)
+    original = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        return idempotent._document_openapi(original())
+
+    app.openapi = openapi  # ty: ignore[invalid-assignment]
+
+
 def _documented_app(**options: Any) -> FastAPI:  # noqa: ANN401
-    """Build an app whose schema is annotated by `document_idempotency`."""
+    """Build an app whose schema describes its hand-added middleware."""
     app = build_app(**options)
 
     @app.post("/declared")
@@ -2670,11 +2677,11 @@ def _documented_app(**options: Any) -> FastAPI:  # noqa: ANN401
     ) -> dict[str, str]:
         return {"key": key}
 
-    document_idempotency(app)
+    _document(app, **options)
     return app
 
 
-def test_document_idempotency_adds_the_header_and_responses() -> None:
+def test_idempotent_requests_openapi_adds_the_header_and_responses() -> None:
     """A covered operation gains the header parameter and the responses."""
     # Arrange
     app = _documented_app(fingerprint_body=True)
@@ -2687,7 +2694,7 @@ def test_document_idempotency_adds_the_header_and_responses() -> None:
     assert {"400", "409", "413", "422"} <= set(operation["responses"])
 
 
-def test_document_idempotency_keeps_a_declaration_of_its_own() -> None:
+def test_idempotent_requests_openapi_keeps_a_declaration_of_its_own() -> None:
     """A route that documents the marker itself is left with one entry."""
     # Arrange
     app = build_app()
@@ -2705,7 +2712,7 @@ def test_document_idempotency_keeps_a_declaration_of_its_own() -> None:
     async def documented() -> dict[str, int]:
         return {"amount": 100}
 
-    document_idempotency(app)
+    _document(app)
 
     # Act
     headers = app.openapi()["paths"]["/documented"]["post"]["responses"]["200"][
@@ -2716,39 +2723,41 @@ def test_document_idempotency_keeps_a_declaration_of_its_own() -> None:
     assert list(headers) == ["idempotent-replayed"]
 
 
-def test_document_idempotency_annotates_a_schema_once() -> None:
-    """A second call over one schema must not read the first one's work."""
+def test_idempotent_requests_openapi_second_edit_changes_nothing() -> None:
+    """A second edit over one schema must not read the first one's work."""
     # Arrange
-    app = build_app()
-    document_idempotency(app)
-    document_idempotency(app)
+    idempotent = IdempotentRequests()
+    schema = build_app().openapi()
+    idempotent._document_openapi(schema)
 
     # Act
-    responses = app.openapi()["paths"]["/charge"]["post"]["responses"]
+    idempotent._document_openapi(schema)
 
     # Assert
+    responses = schema["paths"]["/charge"]["post"]["responses"]
     assert list(responses["200"]["headers"]) == ["Idempotent-Replayed"]
     # Declared once, whatever the number of wrappers over the schema.
     assert list(responses["409"]["headers"]) == ["Idempotent-Replayed"]
 
 
-def test_document_idempotency_describes_every_installed_middleware() -> None:
+def test_idempotent_requests_openapi_describes_each_registered_component() -> (
+    None
+):
     """Two sets of rules on one app, each with its own paths and headers."""
     # Arrange
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(include=("/a/*",)),
+            IdempotentRequests(
+                name="b",
+                include=("/b/*",),
+                key_header="X-Idempotency-Key",
+                replay_header="X-Replayed",
+            ),
+        ]
+    )
     app = FastAPI()
-    app.add_middleware(
-        IdempotencyMiddleware,
-        idempotency=Idempotency("a"),
-        include=("/a/*",),
-    )
-    app.add_middleware(
-        IdempotencyMiddleware,
-        idempotency=Idempotency("b"),
-        include=("/b/*",),
-        key_header="X-Idempotency-Key",
-        replay_header="X-Replayed",
-    )
 
     @app.post("/a/charge")
     async def charge_a() -> dict[str, int]:
@@ -2759,7 +2768,6 @@ def test_document_idempotency_describes_every_installed_middleware() -> None:
         return {"amount": 100}
 
     micro.install(app)
-    document_idempotency(app)
 
     # Act
     paths = app.openapi()["paths"]
@@ -2773,30 +2781,25 @@ def test_document_idempotency_describes_every_installed_middleware() -> None:
     assert "X-Replayed" in second["responses"]["200"]["headers"]
 
 
-def test_document_idempotency_marks_overlapping_rules_once_each() -> None:
-    """Two middlewares on one path describe two markers, and no refusal."""
+def test_idempotent_requests_openapi_overlapping_rules_mark_once_each() -> None:
+    """Two components on one path describe two markers, and no refusal."""
     # Arrange
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(key_header="X-A-Key", replay_header="X-A"),
+            IdempotentRequests(
+                name="b", key_header="X-B-Key", replay_header="X-B"
+            ),
+        ]
+    )
     app = FastAPI()
-    app.add_middleware(
-        IdempotencyMiddleware,
-        idempotency=Idempotency("a"),
-        key_header="X-A-Key",
-        replay_header="X-A",
-    )
-    app.add_middleware(
-        IdempotencyMiddleware,
-        idempotency=Idempotency("b"),
-        key_header="X-B-Key",
-        replay_header="X-B",
-    )
 
     @app.post("/charge")
     async def charge() -> dict[str, int]:
         return {"amount": 100}
 
     micro.install(app)
-    document_idempotency(app)
 
     # Act
     responses = app.openapi()["paths"]["/charge"]["post"]["responses"]
@@ -2807,16 +2810,16 @@ def test_document_idempotency_marks_overlapping_rules_once_each() -> None:
     assert set(responses["409"]["headers"]) == {"X-A", "X-B"}
 
 
-def test_document_idempotency_leaves_another_method_alone() -> None:
+def test_idempotent_requests_openapi_leaves_another_method_alone() -> None:
     """An `include` that matches a path under another verb is followed."""
     # Arrange
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app = FastAPI()
-    app.add_middleware(
-        IdempotencyMiddleware,
-        idempotency=Idempotency("http"),
-        include=("/payments/*",),
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(include=("/payments/*",)),
+        ]
     )
+    app = FastAPI()
 
     @app.post("/orders")
     async def order() -> dict[str, int]:
@@ -2827,7 +2830,6 @@ def test_document_idempotency_leaves_another_method_alone() -> None:
         return {"amount": payment_id}
 
     micro.install(app)
-    document_idempotency(app)
 
     # Act
     operation = app.openapi()["paths"]["/orders"]["post"]
@@ -2837,23 +2839,24 @@ def test_document_idempotency_leaves_another_method_alone() -> None:
     assert "409" not in operation["responses"]
 
 
-def test_document_idempotency_follows_an_exclude_that_empties_it() -> None:
+def test_idempotent_requests_openapi_follows_an_exclude_that_empties_it() -> (
+    None
+):
     """A service naming its own routes is followed, not second-guessed."""
     # Arrange
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app = FastAPI()
-    app.add_middleware(
-        IdempotencyMiddleware,
-        idempotency=Idempotency("http"),
-        exclude=("/webhook",),
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(exclude=("/webhook",)),
+        ]
     )
+    app = FastAPI()
 
     @app.post("/webhook")
     async def webhook() -> dict[str, int]:
         return {"amount": 100}
 
     micro.install(app)
-    document_idempotency(app)
 
     # Act
     operation = app.openapi()["paths"]["/webhook"]["post"]
@@ -2863,52 +2866,16 @@ def test_document_idempotency_follows_an_exclude_that_empties_it() -> None:
     assert "409" not in operation["responses"]
 
 
-def test_document_idempotency_reads_a_subclass_of_its_own() -> None:
-    """A subclass may take keywords the middleware never declared."""
-
-    # Arrange
-    class TenantIdempotencyMiddleware(IdempotencyMiddleware):
-        def __init__(
-            self,
-            app: Any,  # noqa: ANN401
-            *,
-            tenant_key: str,
-            **options: Any,  # noqa: ANN401
-        ) -> None:
-            self.tenant_key = tenant_key
-            super().__init__(app, **options)
-
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app = FastAPI()
-    app.add_middleware(
-        TenantIdempotencyMiddleware,
-        idempotency=Idempotency("http"),
-        tenant_key="acme",
-    )
-
-    @app.post("/charge")
-    async def charge() -> dict[str, int]:
-        return {"amount": 100}
-
-    micro.install(app)
-    document_idempotency(app)
-
-    # Act
-    operation = app.openapi()["paths"]["/charge"]["post"]
-
-    # Assert
-    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
-
-
-def test_document_idempotency_reads_a_subclass_holding_its_own_store() -> None:
-    """A subclass may build the `Idempotency` rather than be handed one."""
+def test_idempotent_requests_openapi_ignores_a_subclass_holding_its_own_store() -> (
+    None
+):
+    """A middleware the app added describes nothing, the component does."""
 
     # Arrange
     class TenantIdempotencyMiddleware(IdempotencyMiddleware):
         def __init__(self, app: Any, **options: Any) -> None:  # noqa: ANN401
             super().__init__(app, idempotency=Idempotency("http"), **options)
 
-    # The component names its own store, which this middleware is not.
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()])
     app = FastAPI()
     app.add_middleware(TenantIdempotencyMiddleware)
@@ -2924,40 +2891,6 @@ def test_document_idempotency_reads_a_subclass_holding_its_own_store() -> None:
 
     # Assert
     assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
-
-
-def test_document_idempotency_reads_a_subclass_default() -> None:
-    """A subclass naming its own header is described under that name."""
-
-    # Arrange
-    class RenamedIdempotencyMiddleware(IdempotencyMiddleware):
-        def __init__(
-            self,
-            app: Any,  # noqa: ANN401
-            *,
-            key_header: str = "X-Request-Key",
-            **options: Any,  # noqa: ANN401
-        ) -> None:
-            super().__init__(app, key_header=key_header, **options)
-
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app = FastAPI()
-    app.add_middleware(
-        RenamedIdempotencyMiddleware, idempotency=Idempotency("http")
-    )
-
-    @app.post("/charge")
-    async def charge() -> dict[str, int]:
-        return {"amount": 100}
-
-    micro.install(app)
-    document_idempotency(app)
-
-    # Act
-    operation = app.openapi()["paths"]["/charge"]["post"]
-
-    # Assert
-    assert [p["name"] for p in operation["parameters"]] == ["X-Request-Key"]
 
 
 def test_a_root_path_shortens_only_a_whole_segment() -> None:
@@ -3031,7 +2964,7 @@ def test_a_mounted_app_selects_paths_by_its_own_routes() -> None:
         return {"amount": 100}
 
     micro.install(sub)
-    document_idempotency(sub)
+    _document(sub, include=("/charge",))
     root = FastAPI()
     root.mount("/sub", sub)
 
@@ -3047,7 +2980,9 @@ def test_a_mounted_app_selects_paths_by_its_own_routes() -> None:
     assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
 
 
-def test_document_idempotency_describes_a_middleware_added_by_hand() -> None:
+def test_idempotent_requests_openapi_describes_a_middleware_added_by_hand() -> (
+    None
+):
     """A hand-added middleware serves the component, so it is described."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()])
@@ -3071,49 +3006,7 @@ def test_document_idempotency_describes_a_middleware_added_by_hand() -> None:
     assert "409" in operation["responses"]
 
 
-def test_document_idempotency_describes_rules_sharing_one_store() -> None:
-    """Two sets of rules may write through one `Idempotency`."""
-    # Arrange
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app = FastAPI()
-    shared = Idempotency("http")
-    app.add_middleware(
-        IdempotencyMiddleware,
-        idempotency=shared,
-        include=("/a/*",),
-        key_header="X-A-Key",
-    )
-    app.add_middleware(
-        IdempotencyMiddleware,
-        idempotency=shared,
-        include=("/b/*",),
-        key_header="X-B-Key",
-    )
-
-    @app.post("/a/charge")
-    async def charge_a() -> dict[str, int]:
-        return {"amount": 100}
-
-    @app.post("/b/charge")
-    async def charge_b() -> dict[str, int]:
-        return {"amount": 100}
-
-    micro.install(app)
-    document_idempotency(app)
-
-    # Act
-    paths = app.openapi()["paths"]
-
-    # Assert
-    assert [p["name"] for p in paths["/a/charge"]["post"]["parameters"]] == [
-        "X-A-Key"
-    ]
-    assert [p["name"] for p in paths["/b/charge"]["post"]["parameters"]] == [
-        "X-B-Key"
-    ]
-
-
-def test_document_idempotency_follows_the_path_selection() -> None:
+def test_idempotent_requests_openapi_follows_the_path_selection() -> None:
     """An operation the middleware passes through is not described as covered."""
     # Arrange
     app = _documented_app(include=("/charge",))
@@ -3129,7 +3022,7 @@ def test_document_idempotency_follows_the_path_selection() -> None:
     assert "headers" not in passed_through["responses"]["200"]
 
 
-def test_document_idempotency_describes_the_replay_marker() -> None:
+def test_idempotent_requests_openapi_describes_the_replay_marker() -> None:
     """The name is a service's to pick, so the schema is where it is read."""
     # Arrange
     app = build_app(replay_header="X-Idempotent-Replayed")
@@ -3138,7 +3031,7 @@ def test_document_idempotency_describes_the_replay_marker() -> None:
     async def refuses() -> dict[str, int]:
         return {"amount": 100}
 
-    document_idempotency(app)
+    _document(app, replay_header="X-Idempotent-Replayed")
 
     # Act
     responses = app.openapi()["paths"]["/refuses"]["post"]["responses"]
@@ -3150,7 +3043,7 @@ def test_document_idempotency_describes_the_replay_marker() -> None:
     assert "X-Idempotent-Replayed" in responses["400"]["headers"]
 
 
-def test_document_idempotency_publishes_the_problem_body() -> None:
+def test_idempotent_requests_openapi_publishes_the_problem_body() -> None:
     """A client generated from the schema knows the body it will get."""
     # Arrange
     app = _documented_app(fingerprint_body=True)
@@ -3166,7 +3059,9 @@ def test_document_idempotency_publishes_the_problem_body() -> None:
     assert "ProblemDetail" in schema["components"]["schemas"]
 
 
-def test_document_idempotency_never_points_at_someone_elses_model() -> None:
+def test_idempotent_requests_openapi_never_points_at_someone_elses_model() -> (
+    None
+):
     """An app may publish a `ProblemDetail` of its own under that name.
 
     Pointing the middleware's responses at it would hand a generated client
@@ -3185,7 +3080,7 @@ def test_document_idempotency_never_points_at_someone_elses_model() -> None:
     async def declined() -> dict[str, str]:
         return {"ok": "yes"}
 
-    document_idempotency(app)
+    _document(app)
 
     # Act
     schema = app.openapi()
@@ -3202,7 +3097,9 @@ def test_document_idempotency_never_points_at_someone_elses_model() -> None:
     assert "type" in schemas["GrelmicroProblemDetail"]["properties"]
 
 
-def test_document_idempotency_says_nothing_when_both_names_are_taken() -> None:
+def test_idempotent_requests_openapi_says_nothing_when_both_names_are_taken() -> (
+    None
+):
     """Naming the wrong shape is worse than naming none.
 
     Taking both names is a deliberate act, so the responses are still
@@ -3232,7 +3129,7 @@ def test_document_idempotency_says_nothing_when_both_names_are_taken() -> None:
     async def declined() -> dict[str, str]:
         return {"ok": "yes"}
 
-    document_idempotency(app)
+    _document(app)
 
     # Act
     response = app.openapi()["paths"]["/charge"]["post"]["responses"]["409"]
@@ -3242,11 +3139,13 @@ def test_document_idempotency_says_nothing_when_both_names_are_taken() -> None:
     assert "content" not in response
 
 
-def test_document_idempotency_publishes_nothing_when_nothing_matched() -> None:
+def test_idempotent_requests_openapi_publishes_nothing_when_nothing_matched() -> (
+    None
+):
     """An app the middleware never covers gains no unreferenced component."""
     # Arrange
     app = build_app(methods=("PATCH",))
-    document_idempotency(app)
+    _document(app, methods=("PATCH",))
     # Act
     schema = app.openapi()
     # Assert
@@ -3255,7 +3154,7 @@ def test_document_idempotency_publishes_nothing_when_nothing_matched() -> None:
     )
 
 
-def test_document_idempotency_leaves_other_methods_alone() -> None:
+def test_idempotent_requests_openapi_leaves_other_methods_alone() -> None:
     """A method the middleware ignores keeps its schema untouched."""
     # Arrange
     app = _documented_app()
@@ -3268,7 +3167,7 @@ def test_document_idempotency_leaves_other_methods_alone() -> None:
     assert "409" not in operation["responses"]
 
 
-def test_document_idempotency_keeps_a_declared_header() -> None:
+def test_idempotent_requests_openapi_keeps_a_declared_header() -> None:
     """An operation that declares the header keeps its own declaration."""
     # Arrange
     app = _documented_app()
@@ -3280,7 +3179,9 @@ def test_document_idempotency_keeps_a_declared_header() -> None:
     assert headers[0]["required"] is True
 
 
-def test_document_idempotency_keeps_the_validation_error_schema() -> None:
+def test_idempotent_requests_openapi_keeps_the_validation_error_schema() -> (
+    None
+):
     """The auto-generated 422 keeps its schema and gains the description."""
     # Arrange
     app = _documented_app(fingerprint_body=True)
@@ -3293,7 +3194,7 @@ def test_document_idempotency_keeps_the_validation_error_schema() -> None:
     assert "different request payload" in response["description"]
 
 
-def test_document_idempotency_is_stable_across_calls() -> None:
+def test_idempotent_requests_openapi_is_stable_across_calls() -> None:
     """Rebuilding the schema does not duplicate the injected entries."""
     # Arrange
     app = _documented_app(fingerprint_body=True)
@@ -3307,7 +3208,7 @@ def test_document_idempotency_is_stable_across_calls() -> None:
     assert rebuilt == first
 
 
-def test_document_idempotency_marks_a_required_key() -> None:
+def test_idempotent_requests_openapi_marks_a_required_key() -> None:
     """`require_key` makes the documented parameter required."""
     # Arrange
     app = _documented_app(require_key=True)
@@ -3318,55 +3219,7 @@ def test_document_idempotency_marks_a_required_key() -> None:
     assert header["required"] is True
 
 
-def test_document_idempotency_rejects_an_app_without_the_middleware() -> None:
-    """A clear error beats silently documenting nothing."""
-    # Arrange
-    app = FastAPI()
-    # Act / Assert
-    with pytest.raises(TypeError, match="no IdempotencyMiddleware"):
-        document_idempotency(app)
-
-
-def test_document_idempotency_rejects_a_plain_starlette_app() -> None:
-    """Only FastAPI builds an OpenAPI schema to annotate."""
-    # Arrange
-    app = Starlette()
-    # Act / Assert
-    with pytest.raises(TypeError, match="needs a FastAPI app"):
-        document_idempotency(app)  # ty: ignore[invalid-argument-type]
-
-
-def test_document_idempotency_raises_without_fastapi() -> None:
-    """`document_idempotency` reports the missing dependency.
-
-    The module is put back exactly as it was, not reimported. A fresh
-    import would mint a second `HealthzResponse` class, and every test that
-    had already imported the first would then compare two classes of the
-    same name that are not the same object.
-    """
-    # Arrange
-    name = "grelmicro.integrations.fastapi"
-    original = sys.modules.get(name)
-    try:
-        with patch.dict(sys.modules, {"fastapi": None}):
-            sys.modules.pop(name, None)
-            module = importlib.import_module(name)
-            # Act / Assert
-            with pytest.raises(DependencyNotFoundError):
-                module.document_idempotency(None)  # ty: ignore[invalid-argument-type]
-    finally:
-        if original is not None:  # pragma: no branch
-            sys.modules[name] = original
-            # `import_module` also rebinds the submodule as an attribute of
-            # its package, and restoring `sys.modules` does not undo that.
-            # A later `from grelmicro.integrations import fastapi` would
-            # otherwise reach the throwaway module and its duplicate classes.
-            setattr(  # noqa: B010
-                sys.modules["grelmicro.integrations"], "fastapi", original
-            )
-
-
-def test_document_idempotency_covers_a_custom_method() -> None:
+def test_idempotent_requests_openapi_covers_a_custom_method() -> None:
     """A method the middleware covers is annotated, standard or not."""
     # Arrange
     app = build_app(methods=("POST", "PURGE"))
@@ -3375,7 +3228,7 @@ def test_document_idempotency_covers_a_custom_method() -> None:
         return {"purged": True}
 
     app.add_api_route("/thing", purge, methods=["PURGE"])
-    document_idempotency(app)
+    _document(app, methods=("POST", "PURGE"))
     # Act
     operation = app.openapi()["paths"]["/thing"]["purge"]
     # Assert
@@ -3383,56 +3236,9 @@ def test_document_idempotency_covers_a_custom_method() -> None:
     assert "409" in operation["responses"]
 
 
-def test_document_idempotency_finds_a_subclass() -> None:
-    """A subclass of the middleware is still the middleware."""
-
-    # Arrange
-    class TenantIdempotencyMiddleware(IdempotencyMiddleware):
-        """A project's own subclass."""
-
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app = FastAPI()
-    app.add_middleware(
-        TenantIdempotencyMiddleware, idempotency=Idempotency("http", ttl=60)
-    )
-    micro.install(app)
-
-    @app.post("/charge")
-    async def charge() -> dict[str, bool]:
-        return {"ok": True}
-
-    document_idempotency(app)
-    # Act
-    operation = app.openapi()["paths"]["/charge"]["post"]
-    # Assert
-    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
-
-
-def test_document_idempotency_ignores_a_callable_middleware() -> None:
-    """A non-class middleware factory never breaks the lookup."""
-
-    # Arrange
-    def passthrough(app: Any) -> Any:  # noqa: ANN401
-        return app
-
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app = FastAPI()
-    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
-    app.add_middleware(passthrough)
-    micro.install(app)
-
-    @app.post("/charge")
-    async def charge() -> dict[str, bool]:
-        return {"ok": True}
-
-    document_idempotency(app)
-    # Act
-    operation = app.openapi()["paths"]["/charge"]["post"]
-    # Assert
-    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
-
-
-def test_document_idempotency_gives_each_operation_its_own_parameter() -> None:
+def test_idempotent_requests_openapi_gives_each_operation_its_own_parameter() -> (
+    None
+):
     """Editing one injected parameter never edits another operation's."""
     # Arrange
     app = _documented_app()
