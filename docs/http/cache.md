@@ -93,15 +93,17 @@ of them is that mistake.
 | A `HEAD` response | its body is empty, and would answer the `GET` after it with nothing |
 | A request carrying `Range` | what is stored is the whole resource, not the part asked for |
 
-A `HEAD` still reads what a `GET` stored, and is answered with the same
-headers and no body.
+A `HEAD` the route answers beside its `GET` reads what the `GET` stored,
+and is answered with the same headers and no body. A `HEAD` route of its own
+is answered by its handler.
 
-With `AuthenticatedRequests` registered, the cache runs at the route, once
-its gate admitted the request. A request the route refuses never reaches the
-cache, so a hit is never served to a caller without a credential on a
-protected route, or to a caller lacking a scope the route requires. A request
-carrying a credential is answered by its handler, on every route, unless the
-route declares `CachedResponse(shared=True)`.
+The cache runs at the route, once its gate admitted the request, with
+`AuthenticatedRequests` registered or without it. A URL no route answers is
+never cached. With `AuthenticatedRequests`, a request the route refuses never
+reaches the cache, so a hit is never served to a caller without a credential
+on a protected route, or to a caller lacking a scope the route requires. A
+request carrying a credential is answered by its handler, on every route,
+unless the route declares `CachedResponse(shared=True)`.
 
 `CachedResponse(shared=True)` on a route that requires a caller keeps one
 response for every caller the route admits, a credential included. The stored
@@ -233,18 +235,18 @@ it is written. The nearest declaration decides, so a route beats the router
 it sits in, an inner router beats the one that includes it, and a route that
 declared one is not overridden by an `include` pattern naming it.
 
-Without `AuthenticatedRequests`, the cache answers before routing. A
-middleware around a mounted application, or configured on that application
-or its router, is then a cache boundary. A `CachedResponse()` declaration
-behind it is not consumed by a cache on the parent, because a parent hit would
-answer before the mounted middleware ran. An explicit parent `include` rule
-stops at the same boundary. Install `CachedResponses` inside that application
-when its own routes should be cached. With `AuthenticatedRequests`, the cache
-runs at the route, after that middleware, so the route's own declaration
-decides.
+The cache runs at the route, after any middleware around a mounted
+application or configured on that application or its router. A route under
+such middleware is cached only when it declares `CachedResponse()`: an
+`include=` pattern never caches it, because the middleware may answer each
+caller differently. Middleware configured on an individual Starlette
+route runs checks of its own, so an `include` rule never caches that route.
 
-Middleware configured on an individual Starlette route is an exact boundary
-for that route as well, so an explicit cache rule cannot answer before it runs.
+`CachedResponsesMiddleware` added by hand answers before routing instead. A
+middleware around a mounted application, or configured on that application
+or its router, is then a cache boundary: a `CachedResponse()` declaration or
+an `include` rule behind it caches nothing, because a hit would answer before
+that middleware ran.
 
 Starlette and Litestar resolve no dependencies to hang it on, and a router you
 did not write cannot be changed either, so name the URLs and how long each is
@@ -306,10 +308,10 @@ available than it was without it.
 
 ## Where it sits
 
-Register it before `ConditionalRequests()`, so a hit is answered without
-entering it. Both are added inside whatever middleware the app itself
-installed, so a request still passes middleware authentication before either
-can answer.
+Register it before or after `ConditionalRequests()`. A hit carries the
+entity tag it was stored with, so a caller holding that tag gets `304` either
+way. Both are added inside whatever middleware the app itself installed, so a
+request still passes middleware authentication before either can answer.
 
 !!! warning "A hit skips the handler and its dependencies"
     A hit is answered once the route admitted the request, before its handler

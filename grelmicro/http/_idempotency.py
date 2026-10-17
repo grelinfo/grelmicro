@@ -60,6 +60,13 @@ from grelmicro.errors import (
     _AmbientMissError,
 )
 from grelmicro.http._component import ErrorResponses, send_error
+from grelmicro.http._gate import (
+    DECLARATION_KEY,
+    AnswersAtRoute,
+    AtRoute,
+    edge_at,
+    hand_on,
+)
 from grelmicro.http._kinds import (
     _IN_FLIGHT_RETRY_AFTER,
     BODYLESS_STATUSES,
@@ -561,9 +568,13 @@ class _State:
     header: bytes
     replay_header: bytes
     reused: Kind
+    routed: AtRoute | None = None
+    """Where a registered component runs the middleware at the route."""
 
 
-def _state_of(config: IdempotentRequestsConfig) -> _State:
+def _state_of(
+    config: IdempotentRequestsConfig, routed: AtRoute | None = None
+) -> _State:
     """Derive what the request path needs from a configuration."""
     return _State(
         config=config,
@@ -577,6 +588,7 @@ def _state_of(config: IdempotentRequestsConfig) -> _State:
             if config.reused_status == IDEMPOTENCY_KEY_REUSED.status
             else replace(IDEMPOTENCY_KEY_REUSED, status=config.reused_status)
         ),
+        routed=routed,
     )
 
 
@@ -637,6 +649,12 @@ class IdempotencyMiddleware:
     Background tasks run after the response is sent, so a replay can be
     served while the original request's background work is still in
     flight.
+
+    Registered through `IdempotentRequests`, it runs at the route on every
+    app whose integration gates its routes, with authentication or
+    without, so a URL no route answers is never stored or replayed. There
+    it reads whether the route runs checks of its own from the route's
+    declaration. Added by hand, it reads the app's routes before routing.
 
     The middleware is pure ASGI and works with any ASGI framework
     (Starlette, Litestar, ...). It acts on `http` scopes and passes every
@@ -825,7 +843,7 @@ class IdempotencyMiddleware:
             )
         )
 
-    async def __call__(
+    async def __call__(  # noqa: PLR0911
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Replay, execute, or pass the request through."""
@@ -833,15 +851,18 @@ class IdempotencyMiddleware:
         # publishes a new snapshot between requests, and one already
         # running finishes on the one it started with.
         state = self._live.state
+        if scope["type"] != "http" or scope["method"] not in state.methods:
+            await self.app(scope, receive, send)
+            return
+        edge = edge_at(state.routed, scope)
+        if edge is not None:
+            await hand_on(self.app, edge, scope, receive, send)
+            return
         config = state.config
-        if (
-            scope["type"] != "http"
-            or scope["method"] not in state.methods
-            or not selects(
-                route_path(scope),
-                include=config.include,
-                exclude=config.exclude,
-            )
+        if not selects(
+            route_path(scope),
+            include=config.include,
+            exclude=config.exclude,
         ):
             await self.app(scope, receive, send)
             return
@@ -887,12 +908,21 @@ class IdempotencyMiddleware:
             await self._execute_key(scope, receive, send, state, key)
 
     def _unscoped_private(self, scope: Scope) -> bool:
-        """Return whether the default key cannot safely replay this request."""
-        return self._key_function is None and (
-            _has_private_request_header(scope["headers"])
-            or _authenticated_scope(scope)
-            or self._gated_routes.matches(scope)
-        )
+        """Return whether the default key cannot safely replay this request.
+
+        At a route, its declaration says whether checks run before its
+        handler. In front of the router, the app's routes are read.
+        """
+        if self._key_function is not None:
+            return False
+        if _has_private_request_header(scope["headers"]) or (
+            _authenticated_scope(scope)
+        ):
+            return True
+        declaration: RouteDeclaration | None = scope.get(DECLARATION_KEY)
+        if declaration is not None:
+            return declaration.own_checks or declaration.checked_above
+        return self._gated_routes.matches(scope)
 
     async def _execute_key(
         self,
@@ -1387,7 +1417,9 @@ def _registered_errors(scope: Scope) -> ErrorResponses:
     return registered if registered is not None else ErrorResponses()
 
 
-class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
+class IdempotentRequests(
+    AnswersAtRoute, Reconfigurable[IdempotentRequestsConfig]
+):
     """Replay repeated requests, wired by `micro.install(app)`.
 
     Register it and `install` adds `IdempotencyMiddleware` to the app and
@@ -1728,7 +1760,8 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         self._gated_routes = _GatedRoutes()
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
-        self._live: Live[_State] = Live(_state_of(config))
+        self._routed = AtRoute(self.asgi_middleware)
+        self._live: Live[_State] = Live(_state_of(config, self._routed))
 
     def refresh_routes(
         self,
@@ -1746,7 +1779,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         self, new_config: IdempotentRequestsConfig
     ) -> None:
         """Publish the snapshot the next request reads."""
-        self._live.state = _state_of(new_config)
+        self._live.state = _state_of(new_config, self._routed)
 
     @property
     def name(self) -> str:
@@ -1842,7 +1875,12 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         Nothing to open. The wiring happens in `micro.install(app)`, which
         reads the registration and adds the middleware to the framework
         before it serves. This is the declaration that it should.
+
+        Raises:
+            RuntimeError: If an app without authentication lists a route
+                that carries no gate, so the middleware never runs there.
         """
+        self._routed.refuse_ungated()
         return self
 
     async def __aexit__(

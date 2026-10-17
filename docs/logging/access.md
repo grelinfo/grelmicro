@@ -180,9 +180,9 @@ groups `/orders/7` and `/orders/9` under `/orders/{order_id}`.
 
 It is the route the request span names, so a log line and its span group
 under the same route. On FastAPI, that is the route FastAPI's own request span
-names. A request answered before routing, such as a refused token, a cached
-response or a CORS preflight, names the route its path would reach, and its
-span names none.
+names. A request answered before routing, such as a refused token or a CORS
+preflight, names the route its path would reach, and its span names none. A
+cached or replayed response is answered at the route, so both name it.
 
 | Framework | `http.route` |
 |---|---|

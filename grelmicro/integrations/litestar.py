@@ -638,7 +638,9 @@ def install_route_gate(
     ASGI mount included. A handler registered later is gated as it lands.
 
     `micro.install(app)` calls this when `AuthenticatedRequests` is
-    registered, with the gate that component builds.
+    registered, with the gate that component builds, and otherwise when
+    `CachedResponses`, `IdempotentRequests` or `ConditionalRequests` is,
+    with a gate that refuses nothing and runs them at the route.
 
     Read more in the [Plugins](../architecture/plugins.md#declare-the-routes)
     docs.

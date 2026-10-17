@@ -49,6 +49,12 @@ from grelmicro._paths import (
 )
 from grelmicro.errors import OutOfContextError
 from grelmicro.http._component import ErrorResponses, send_error
+from grelmicro.http._gate import (
+    AnswersAtRoute,
+    AtRoute,
+    edge_at,
+    hand_on,
+)
 from grelmicro.http._kinds import (
     BODYLESS_STATUSES,
     PRECONDITION_REQUIRED,
@@ -686,9 +692,13 @@ class _State:
 
     config: ConditionalRequestsConfig
     require_precondition: frozenset[str]
+    routed: AtRoute | None = None
+    """Where a registered component runs the middleware at the route."""
 
 
-def _state_of(config: ConditionalRequestsConfig) -> _State:
+def _state_of(
+    config: ConditionalRequestsConfig, routed: AtRoute | None = None
+) -> _State:
     """Derive what the request path needs from a configuration.
 
     The methods are folded to upper case once here, because a scope
@@ -699,6 +709,7 @@ def _state_of(config: ConditionalRequestsConfig) -> _State:
         require_precondition=frozenset(
             method.upper() for method in config.require_precondition
         ),
+        routed=routed,
     )
 
 
@@ -836,10 +847,17 @@ class ConditionalRequestsMiddleware:
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Bind the preconditions, then shape the response around them."""
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
         # One read, at the top, for the whole request.
         state = self._live.state
+        edge = edge_at(state.routed, scope)
+        if edge is not None:
+            await hand_on(self.app, edge, scope, receive, send)
+            return
         config = state.config
-        if scope["type"] != "http" or not selects(
+        if not selects(
             route_path(scope),
             include=config.include,
             exclude=config.exclude,
@@ -1143,7 +1161,9 @@ async def _refuse(send: Send, scope: Scope, kind: Kind) -> None:
     await send_error(send, rendered)
 
 
-class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
+class ConditionalRequests(
+    AnswersAtRoute, Reconfigurable[ConditionalRequestsConfig]
+):
     """Answer conditional requests, wired by `micro.install(app)`.
 
     Register it and `install` adds `ConditionalRequestsMiddleware`, so
@@ -1325,13 +1345,14 @@ class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
         self._openapi = openapi
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
-        self._live: Live[_State] = Live(_state_of(config))
+        self._routed = AtRoute(self.asgi_middleware)
+        self._live: Live[_State] = Live(_state_of(config, self._routed))
 
     async def _apply_reconfigure(
         self, new_config: ConditionalRequestsConfig
     ) -> None:
         """Publish the snapshot the next request reads."""
-        self._live.state = _state_of(new_config)
+        self._live.state = _state_of(new_config, self._routed)
 
     @property
     def name(self) -> str:
@@ -1411,7 +1432,12 @@ class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
         Nothing to open. The wiring happens in `micro.install(app)`, which
         reads the registration and adds the middleware to the framework
         before it serves. This is the declaration that it should.
+
+        Raises:
+            RuntimeError: If an app without authentication lists a route
+                that carries no gate, so the middleware never runs there.
         """
+        self._routed.refuse_ungated()
         return self
 
     async def __aexit__(

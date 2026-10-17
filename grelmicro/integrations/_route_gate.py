@@ -54,6 +54,7 @@ from grelmicro.http._authentication import (
     template_under_root,
 )
 from grelmicro.http._conditional import declares_precondition_required
+from grelmicro.http._gate import OpenGate
 from grelmicro.http._requirement import declared_scopes, declares_optional
 from grelmicro.http._response_cache import declared_cache, declares_shared
 from grelmicro.http._routes import RouteDeclaration, route_name
@@ -1186,13 +1187,15 @@ class _Gating:
         Raises:
             ValueError: If the route writes a `CachedResponse()` that is not
                 `shared` and requires a caller, so a request carrying its
-                credential would never be answered from the cache.
+                credential would never be answered from the cache. An app
+                without authentication requires no caller.
         """
         owner = route if context is None else context
         if (
             declaration.cache is not False
             and not declaration.anonymous
             and not declaration.shared
+            and not all(isinstance(gate, OpenGate) for gate in self.gates)
             and _read_dependant(owner, route, declaration.path, router)[1]
         ):
             msg = (

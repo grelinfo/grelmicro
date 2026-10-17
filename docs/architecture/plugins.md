@@ -71,8 +71,9 @@ sanic = "grelmicro_sanic:integration"
 
 ### Declare the routes
 
-`AuthenticatedRequests` decides per route, once the framework has matched the
-request. Your integration tells it what each route requires with a
+`AuthenticatedRequests`, `CachedResponses`, `IdempotentRequests` and
+`ConditionalRequests` decide per route, once the framework has matched the
+request. Your integration tells them what each route requires with a
 `RouteDeclaration`, from `grelmicro.http`:
 
 | Field | What it says | Default |
@@ -82,7 +83,7 @@ request. Your integration tells it what each route requires with a
 | `anonymous` | The route serves a caller with no credential | `False` |
 | `scopes` | The scopes the caller must hold, every one of them | empty |
 | `own_checks` | The route runs checks of its own before the handler, so its answer can depend on the caller: a dependency, a guard, or middleware on the route. A response is never cached or replayed across callers | `False` |
-| `checked_above` | Checks that are not the route's own run before it, such as middleware on a router or a mount around it, so its answer can depend on the caller. A response is never replayed across callers, and a `cache` the route declares still holds | `False` |
+| `checked_above` | Checks that are not the route's own run before it, such as middleware on a router or a mount around it, so its answer can depend on the caller. A response is never replayed across callers, nor cached by an `include=` pattern, and a `cache` the route declares still holds | `False` |
 | `cache` | `CachedResponses` may store the route's response. `True` keeps it for the TTL the component is configured with, a `timedelta` keeps it that long, and a number is refused | `False` |
 | `shared` | The route requires a caller and answers every caller it admits the same, so one stored response serves all of them, a credential included. Without it, a request carrying a credential is answered by the handler | `False` |
 | `precondition_required` | The route answers `428` to a request carrying neither `If-Match` nor `If-None-Match`. The OpenAPI document marks `If-Match` required on its methods. FastAPI sets it from `ConditionalRequired`. Starlette and Litestar have no per-route form, so `require_precondition=` describes them | `False` |
@@ -104,6 +105,16 @@ method set. The returned app:
   security event with the declaration's path,
 - runs the handler of a request it admits, inside the rate limit, the response
   cache, idempotency and conditional requests the app registered.
+
+`micro.install(app)` calls `install_route_gate` whenever
+`AuthenticatedRequests`, `CachedResponses`, `IdempotentRequests` or
+`ConditionalRequests` is registered. Without `AuthenticatedRequests`, the gate
+refuses nothing. It runs the response cache, idempotency and conditional
+requests around the handler of every request whose method the route takes,
+with the declaration of that method, and the rate limit stays in front of the
+router. One the app runs behind its router, as `_routed_middleware(app)` lists
+it, answers there instead. A route that gate wraps is gated again by an app
+with `AuthenticatedRequests` that shares it, so it stays refused there.
 
 Pass `name=`, a function of the request's ASGI scope, to name a refusal by
 another path, such as the mounts the request came through. Pass `door=True`
@@ -145,8 +156,10 @@ from one function, so they cannot disagree. Test them against real routes:
 an included router, a mount and a class-based endpoint are where a missed
 `scopes` hides, and it lets any authenticated caller in.
 
-Idempotency calls `route_declarations` on each object of your framework it
-meets between its middleware and the routes, or only on those your
+The response cache and idempotency read the declaration the gate carries.
+An `IdempotencyMiddleware` added by hand, or one on an integration without
+`install_route_gate`, calls `route_declarations` on each object of your
+framework it meets between it and the routes instead, or only on those your
 `_lists_routes(obj)` accepts when the integration carries it. An exception
 `route_declarations` raises fails the request.
 
@@ -217,7 +230,10 @@ mounts it can read, and declares each `HTTPEndpoint` method on its own.
 - **Nothing is spent on a refusal.** The rate limit, the response cache and
   idempotency run once a gate admitted the request, so a request a route
   refuses spends no budget, costs no cache lookup and stores nothing. A
-  request no route answers reaches none of them either.
+  request no route answers reaches none of them either. On an app without
+  `AuthenticatedRequests`, the response cache, idempotency and conditional
+  requests still run at the route, and the rate limit runs in front of the
+  router, so a flood of unknown URLs is counted.
 - **A credential is verified before routing.** Outside `exclude=`, a token
   that does not verify, or a caller `bans` refuses, is answered before the
   framework sees the request. That holds on an `anonymous=True` route too: a
