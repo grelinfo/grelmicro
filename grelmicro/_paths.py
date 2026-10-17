@@ -68,7 +68,6 @@ __all__ = [
     "PathPatterns",
     "RouteReading",
     "as_patterns",
-    "compile_mount",
     "compile_route",
     "declared_dependencies",
     "holds_control_character",
@@ -285,20 +284,6 @@ def compile_route(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     compiled, _, _ = compile_path(_renamed(template))
-    return compiled
-
-
-def compile_mount(
-    template: Annotated[str, Doc("A mount's own path, as it was declared.")],
-) -> Pattern[str]:
-    """Return the regex Starlette matches a mount's path with.
-
-    What follows the mount's path is captured as `path`, which is the path
-    the mount hands the routes under it.
-    """
-    from starlette.routing import compile_path  # noqa: PLC0415
-
-    compiled, _, _ = compile_path(f"{_renamed(template)}/{{path:path}}")
     return compiled
 
 
@@ -1388,23 +1373,15 @@ def starlette_route(  # noqa: C901
     return redirected() or mounts + "/{path}"
 
 
-def declared_dependencies(
-    route: Any,  # noqa: ANN401
-    contexts: tuple[Any, ...] = (),
-) -> Iterator[object]:
+def declared_dependencies(route: Any) -> Iterator[object]:  # noqa: ANN401
     """Yield what a FastAPI route declares as its dependencies, in order.
 
-    Those the route resolves itself come first, then what `contexts`, the
-    routers above it, were included with. Only the dependencies named
-    directly are yielded, not what they depend on. A route of another
-    framework declares none.
+    Only the dependencies named directly are yielded, not what they depend
+    on. A route of another framework declares none.
     """
     tree = getattr(route, "dependant", None)  # codespell:ignore
     for dependency in getattr(tree, "dependencies", ()) or ():
         yield dependency.call
-    for context in contexts:
-        for dependency in getattr(context, "dependencies", ()) or ():
-            yield getattr(dependency, "dependency", None)
 
 
 def walk_routes(

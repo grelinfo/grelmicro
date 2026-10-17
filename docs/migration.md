@@ -82,6 +82,7 @@ that a client library used to accept.
 | `TypeError: Coordination.__init__() got an unexpected keyword argument 'rwlock'` or `'election'` | 0.42 | [Pass `readwritelock=` or `leaderelection=`](#0-42-backend-names) |
 | `TypeError: Rename MyProvider.lock() to lock_backend()` | 0.42 | [Rename it `lock_backend()`](#0-42-backend-names) |
 | `ImportError: cannot import name 'document_idempotency'`, or `'document_conditional_requests'`, `'document_rate_limited_requests'` and `'document_authenticated_requests'` | 0.42 | [Register the component](#0-42-document-functions) |
+| `RoutesNotDeclaredWarning` from `micro.install(app)`, and a route declaring `Anonymous()` answers `401` on a framework a third-party integration serves | 0.42 | [Ship the route hooks](#0-42-route-hooks) |
 
 ## 0.42
 
@@ -277,6 +278,47 @@ document_idempotency(app)
 micro = Grelmicro(uses=[cache, IdempotentRequests()])
 micro.install(app)
 ```
+
+### A third-party integration declares its routes {#0-42-route-hooks}
+
+This is for authors of an integration published through the
+`grelmicro.integrations` entry point. `AuthenticatedRequests` decides which
+route serves a caller with no credential once the framework routed the
+request, from the declarations the integration hands it. An integration
+without `install_route_gate` declares no route, so every route answers `401`
+to a request without a credential, and `micro.install(app)` warns
+`RoutesNotDeclaredWarning`. In 0.41.1 grelmicro found the public routes of
+such an app itself, when its routes were Starlette routes or Litestar handlers.
+
+Ship both hooks in the integration module, built from one function so they
+cannot disagree:
+
+```python
+from grelmicro.http import RouteDeclaration
+
+
+def route_declarations(app):
+    return [_declare(route) for route in app.routes]
+
+
+def install_route_gate(app, gate):
+    for route in app.routes:
+        route.app = gate(route.app, _declare(route))
+
+
+def _declare(route):
+    return RouteDeclaration(
+        route.path,
+        methods=frozenset(route.methods),
+        anonymous=route.anonymous,
+        scopes=frozenset(route.scopes),
+    )
+```
+
+`install_route_gate` replaces what the router dispatches to with the app the
+gate returns. [Declare the routes](architecture/plugins.md#declare-the-routes)
+lists every field and rule. Until the hooks ship, list the public paths in
+`exclude=` on `AuthenticatedRequests`.
 
 ### `CacheError` is removed {#0-42-cache-error}
 

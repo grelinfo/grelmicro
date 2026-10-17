@@ -26,10 +26,6 @@ from litestar.testing import TestClient as LitestarClient
 from starlette.applications import Starlette
 from starlette.authentication import AuthenticationBackend
 from starlette.background import BackgroundTask
-from starlette.convertors import (  # codespell:ignore
-    Convertor,  # codespell:ignore
-    register_url_convertor,
-)
 from starlette.endpoints import HTTPEndpoint
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -51,7 +47,7 @@ from starlette.routing import (
 )
 from starlette.testclient import TestClient, WebSocketDenialResponse
 
-from grelmicro import Grelmicro
+from grelmicro import Grelmicro, RoutesNotDeclaredWarning
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.http import (
@@ -470,10 +466,7 @@ def plugged(
 ) -> Starlette:
     """Return an app with one route per declared path, installed through `plugin`."""
     integration = plugin(declared)
-    monkeypatch.setattr(
-        "grelmicro._app.load_integration",
-        lambda app: integration,  # noqa: ARG005
-    )
+    plug(monkeypatch, integration)
     app = Starlette(routes=[Route(path, Echo()) for path in declared])
     return installed(app, *uses, **options)
 
@@ -529,10 +522,7 @@ def walking(
             ],
         }
     )
-    monkeypatch.setattr(
-        "grelmicro._app.load_integration",
-        lambda app: integration,  # noqa: ARG005
-    )
+    plug(monkeypatch, integration)
     return installed(app, **options)
 
 
@@ -838,16 +828,13 @@ class TestUngated:
                 RouteDeclaration("/orders", methods=frozenset({"POST"})),
             ),
         )
-        monkeypatch.setattr(
-            "grelmicro._app.load_integration",
-            lambda app: integration,  # noqa: ARG005
-        )
+        plug(monkeypatch, integration)
         app = public_catalog()
 
         with pytest.raises(RuntimeError, match="POST /orders carries no"):
             Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
 
-        assert TestClient(app).get("/catalog").json() == {"open": True}
+        assert TestClient(app).get("/catalog").status_code == UNAUTHORIZED
 
     def test_a_route_listed_twice_needs_two_gates(
         self, monkeypatch: pytest.MonkeyPatch
@@ -857,40 +844,35 @@ class TestUngated:
             gated=(RouteDeclaration("/a"),),
             listed=(RouteDeclaration("/a"), RouteDeclaration("/a")),
         )
-        monkeypatch.setattr(
-            "grelmicro._app.load_integration",
-            lambda app: integration,  # noqa: ARG005
-        )
+        plug(monkeypatch, integration)
 
         with pytest.raises(RuntimeError, match="/a carries no"):
             Grelmicro(uses=[ErrorResponses(), authenticated()]).install(
                 SimpleNamespace(user_middleware=[], state=SimpleNamespace())
             )
 
-    def test_an_integration_listing_routes_it_cannot_gate_fails_install(
+    def test_an_integration_listing_routes_it_cannot_gate_is_reported(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Declared but never wrapped, a route would be served unchecked."""
+        """Listed but never wrapped, no route is gated, so none is public."""
         integration = fake_integration(gates=False)
-        monkeypatch.setattr(
-            "grelmicro._app.load_integration",
-            lambda app: integration,  # noqa: ARG005
-        )
+        plug(monkeypatch, integration)
 
-        with pytest.raises(RuntimeError, match="/listed carries no"):
+        with pytest.warns(
+            RoutesNotDeclaredWarning, match="no install_route_gate"
+        ):
             Grelmicro(uses=[ErrorResponses(), authenticated()]).install(
                 SimpleNamespace(user_middleware=[], state=SimpleNamespace())
             )
+
+        assert integration.gated == []
 
     async def test_an_integration_gating_without_listing_starts(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Nothing is listed, so nothing can be found ungated."""
         integration = fake_integration(lists=False)
-        monkeypatch.setattr(
-            "grelmicro._app.load_integration",
-            lambda app: integration,  # noqa: ARG005
-        )
+        plug(monkeypatch, integration)
         micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
         app = SimpleNamespace(user_middleware=[], state=SimpleNamespace())
 
@@ -903,72 +885,23 @@ class TestUngated:
     def test_an_integration_listing_no_route_leaves_the_app_ungated(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """With nothing wired, a request without a credential is decided first."""
+        """With nothing wired, every request without a credential is refused first."""
         integration = fake_integration(gates=False, listed=())
-        monkeypatch.setattr(
-            "grelmicro._app.load_integration",
-            lambda app: integration,  # noqa: ARG005
-        )
+        plug(monkeypatch, integration)
         app = public_catalog()
 
-        Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+        with pytest.warns(RoutesNotDeclaredWarning):
+            Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
         client = TestClient(app)
 
-        assert client.get("/catalog").json() == {"open": True}
+        assert client.get("/catalog").status_code == UNAUTHORIZED
         assert client.get("/nowhere").status_code == UNAUTHORIZED
 
-    def test_an_integration_without_hooks_serves_a_public_route_nothing_rivals(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Decided before routing, from the routes it reads off the app."""
-        monkeypatch.setattr(
-            "grelmicro._app.load_integration",
-            lambda app: fake_integration(gates=False, listed=()),  # noqa: ARG005
-        )
-        app = public_catalog()
-
-        @app.get("/items/featured", dependencies=[Anonymous()])
-        async def featured() -> dict[str, bool]:
-            return {"featured": True}  # pragma: no cover
-
-        @app.get("/items/{item_id}")
-        async def item(item_id: str) -> dict[str, str]:
-            return {"item": item_id}  # pragma: no cover
-
-        @app.get("/shelf/", dependencies=[Anonymous()])
-        async def shelf() -> dict[str, bool]:
-            return {"shelf": True}
-
-        Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
-        with TestClient(app) as client:
-            rivalled = client.get("/items/featured")
-            redirected = client.get("/shelf", follow_redirects=False)
-            root = client.get("/")
-
-            app.router.redirect_slashes = False
-            reread = client.get("/catalog")
-
-        assert rivalled.status_code == UNAUTHORIZED
-        assert redirected.status_code == REDIRECT
-        assert root.status_code == UNAUTHORIZED
-        assert reread.json() == {"open": True}
-
     @pytest.mark.parametrize("lists", [False, True])
-    def test_an_integration_without_gates_describes_a_rivalled_route_as_authenticated(
+    def test_an_integration_without_gates_describes_every_route_as_authenticated(
         self, monkeypatch: pytest.MonkeyPatch, *, lists: bool
     ) -> None:
-        """The report reads the routes as the middleware reads them before routing."""
-
-        class Week(Convertor[str]):  # codespell:ignore
-            regex = "W{9}"
-
-            def convert(self, value: str) -> str:
-                return value  # pragma: no cover
-
-            def to_string(self, value: str) -> str:
-                return value  # pragma: no cover
-
-        register_url_convertor("grelmicro_week", Week())
+        """No gate serves a caller with no credential, so the report names none."""
         for module in ("grelmicro._app", "grelmicro.http._authentication"):
             monkeypatch.setattr(
                 f"{module}.load_integration",
@@ -978,32 +911,21 @@ class TestUngated:
             )
         app = public_catalog()
 
-        @app.get("/items/featured", dependencies=[Anonymous()])
-        async def featured() -> dict[str, bool]:
-            return {"featured": True}  # pragma: no cover
-
-        @app.get("/items/{item_id}")
-        async def item(item_id: str) -> dict[str, str]:
-            return {"item": item_id}  # pragma: no cover
-
         @app.get("/tags/{tag}", dependencies=[Anonymous()])
         async def tag(tag: str) -> dict[str, str]:
             return {"tag": tag}  # pragma: no cover
 
-        @app.get("/days/{day:grelmicro_week}", dependencies=[Anonymous()])
-        async def day(day: str) -> dict[str, str]:
-            return {"day": day}  # pragma: no cover
-
         micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
-        micro.install(app)
+        with pytest.warns(RoutesNotDeclaredWarning):
+            micro.install(app)
         applies = {
             row.path: row.applies for row in micro.describe(app).endpoints
         }
 
-        assert applies["/catalog"] == ("anonymous",)
-        assert applies["/tags/{tag}"] == ("anonymous",)
-        assert applies["/items/featured"] == ("authenticated",)
-        assert applies["/days/{day:grelmicro_week}"] == ("authenticated",)
+        assert applies == {
+            "/catalog": ("authenticated",),
+            "/tags/{tag}": ("authenticated",),
+        }
 
     def test_an_integration_without_hooks_refuses_an_app_with_no_public_route(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1019,7 +941,8 @@ class TestUngated:
         async def orders() -> list[str]:
             return []  # pragma: no cover
 
-        Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+        with pytest.warns(RoutesNotDeclaredWarning):
+            Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
 
         assert TestClient(app).get("/orders").status_code == UNAUTHORIZED
 
@@ -1028,10 +951,7 @@ class TestUngated:
     ) -> None:
         """The gate comes from `AuthenticatedRequests`."""
         integration = fake_integration()
-        monkeypatch.setattr(
-            "grelmicro._app.load_integration",
-            lambda app: integration,  # noqa: ARG005
-        )
+        plug(monkeypatch, integration)
 
         Grelmicro(uses=[ErrorResponses()]).install(
             SimpleNamespace(user_middleware=[], state=SimpleNamespace())
@@ -1196,10 +1116,10 @@ class TestReadFromDeclarations:
 
         assert applies[("GET", "/items/{item_id}")] == ("authenticated",)
 
-    def test_describe_without_gates_reads_a_litestar_handler_as_routed(
+    def test_describe_without_hooks_reads_a_litestar_anonymous_handler_as_authenticated(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """With no declaration, the handler's own `opt` says it is public."""
+        """With no declaration, the handler's own `opt` serves no caller without one."""
 
         @litestar_get("/catalog", opt=LitestarAnonymous())
         async def catalog() -> None: ...  # pragma: no cover
@@ -1213,7 +1133,7 @@ class TestReadFromDeclarations:
             for row in micro.describe(app).endpoints
         }
 
-        assert applies[("GET", "/catalog")] == ("anonymous",)
+        assert applies[("GET", "/catalog")] == ("authenticated",)
 
     def test_openapi_requires_the_scopes_a_route_declares(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1306,7 +1226,7 @@ class TestExcludedDeclarations:
 
 
 def public_catalog() -> FastAPI:
-    """Return an app whose one route declares `Anonymous()`, decided before routing."""
+    """Return an app whose one route declares `Anonymous()`."""
     app = FastAPI(openapi_url=None)
 
     @app.get("/catalog", dependencies=[Anonymous()])
@@ -1314,6 +1234,18 @@ def public_catalog() -> FastAPI:
         return {"open": True}
 
     return app
+
+
+def plug(
+    monkeypatch: pytest.MonkeyPatch,
+    integration: Any,  # noqa: ANN401
+) -> None:
+    """Make `integration` the one every reader of the app loads."""
+    for module in ("grelmicro._app", "grelmicro.http._authentication"):
+        monkeypatch.setattr(
+            f"{module}.load_integration",
+            lambda app: integration,  # noqa: ARG005
+        )
 
 
 def fake_integration(
@@ -3623,9 +3555,11 @@ class TestSharedRoutes:
         assert refused.headers["www-authenticate"] == "Bearer"
 
 
-def test_an_app_without_this_middleware_gets_no_gate() -> None:
-    """Nothing of this component routes its requests, so nothing is gated."""
-    assert authenticated().route_gate(Starlette()) is None
+def test_an_app_whose_integration_lists_no_authentication_in_front_is_gated() -> (
+    None
+):
+    """The integration's `install_middleware` placed it, so every route is gated."""
+    assert authenticated().route_gate(Starlette()) is not None
 
 
 class TestHandAdded:

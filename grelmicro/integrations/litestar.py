@@ -12,6 +12,7 @@ from litestar.exceptions import (
     HTTPException,
     LitestarException,
     MethodNotAllowedException,
+    NotFoundException,
 )
 from litestar.routes import BaseRoute
 from litestar.status_codes import HTTP_405_METHOD_NOT_ALLOWED
@@ -20,6 +21,8 @@ from typing_extensions import Doc
 
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
+from grelmicro._diagnostics import MIDDLEWARE_PLACEMENT, diagnostic
+from grelmicro._environment import _PACKAGE_DIR
 from grelmicro._paths import (
     RouteReading,
     litestar_mount,
@@ -30,7 +33,12 @@ from grelmicro.errors import (
     MiddlewarePlacementWarning,
 )
 from grelmicro.health._served import HealthEndpoint, health_endpoint_in
-from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
+from grelmicro.http import (
+    AuthenticatedRequestsMiddleware,
+    ErrorResponses,
+    RateLimitMiddleware,
+    merge_headers,
+)
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     METADATA_MARKER,
@@ -152,6 +160,10 @@ def install(
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
 
+    Warns `MiddlewarePlacementWarning` when an
+    `AuthenticatedRequestsMiddleware` the app passed to
+    `Litestar(middleware=[...])` publishes metadata its router never routes.
+
     Raises:
         TypeError: If a flood limit would run behind the router, before
             anything is wired.
@@ -170,6 +182,7 @@ def install(
             if hasattr(component, "asgi_middleware")
         ],
     )
+    _warn_if_metadata_unrouted(app, micro)
 
     async def _open_micro() -> None:
         await micro.__aenter__()
@@ -873,9 +886,14 @@ def route_declarations(
     around it names. Any other guard, a dependency the handler asks for, a
     `before_request` hook, middleware on the handler, its controller or a
     router, and a mounted ASGI app run checks of their own. The `OPTIONS`
-    handler Litestar adds needs a caller.
+    handler Litestar adds needs a caller. The handler grelmicro registers
+    for the protected resource metadata is not listed.
     """
-    return [declaration for _, _, declaration in _handler_declarations(app)]
+    return [
+        declaration
+        for handler, _, declaration in _handler_declarations(app)
+        if not getattr(handler.fn, METADATA_MARKER, False)
+    ]
 
 
 def _lists_routes(app: object) -> bool:
@@ -1177,6 +1195,24 @@ def _innermost_layer(handler: ASGIApp, app: Litestar) -> Any | None:  # noqa: AN
     return host  # pragma: no cover
 
 
+def _front_middleware(app: Litestar) -> list[tuple[Any, dict[str, Any]]]:
+    """Return the middleware the app runs in front of its router.
+
+    Each middleware wrapping `app.asgi_handler`, outermost first, as its
+    class and the `policies` it carries, the ones `install_middleware`
+    wrapped included. `micro.install(app)` reads it to find the
+    authentication in front of the app.
+    """
+    found: list[tuple[Any, dict[str, Any]]] = []
+    node: object = app.asgi_handler
+    while node is not None and len(found) < _MAX_CHAIN:
+        found.append(
+            (type(node), {"policies": getattr(node, "_policies", None)})
+        )
+        node = getattr(node, "app", None)
+    return found
+
+
 def _routed_middleware(app: Litestar) -> list[tuple[Any, dict[str, Any]]]:
     """Return the middleware the app runs once its router matched a handler.
 
@@ -1217,8 +1253,8 @@ def _declared_by_app(app: Litestar, component: Any) -> bool:  # noqa: ANN401
     middleware, options = component.asgi_middleware()
     return any(
         declared_class is middleware
-        and "public" in arguments
-        and arguments["public"] is options.get("public")
+        and "policies" in arguments
+        and arguments["policies"] is options.get("policies")
         for declared_class, arguments in _routed_middleware(app)
     )
 
@@ -1257,15 +1293,71 @@ def _warn_if_wrapping_app_middleware(
     if not getattr(app, "middleware", ()):
         return
     warnings.warn(
-        f"{middleware.__name__} wraps the Litestar app, so it runs outside "
-        f"the middleware the app declares, authentication included. A "
-        f"request it answers itself, such as an idempotent replay, would "
-        f"not reach them. Pass DefineMiddleware({middleware.__name__}, "
-        f"...) to Litestar(middleware=[...]) instead, which puts it inside "
-        f"the stack. [middleware-placement] "
-        f"https://grelmicro.grel.info/diagnostics/#middleware-placement",
+        diagnostic(
+            MIDDLEWARE_PLACEMENT,
+            f"{middleware.__name__} wraps the Litestar app, so it runs "
+            f"outside the middleware the app declares, authentication "
+            f"included. A request it answers itself, such as an idempotent "
+            f"replay, would not reach them. Pass DefineMiddleware("
+            f"{middleware.__name__}, ...) to Litestar(middleware=[...]) "
+            f"instead, which puts it inside the stack.",
+        ),
         MiddlewarePlacementWarning,
         stacklevel=3,
+    )
+
+
+def _warn_if_metadata_unrouted(app: Litestar, micro: Grelmicro) -> None:
+    """Warn when a `GET` for the metadata would never reach the middleware.
+
+    For each `AuthenticatedRequestsMiddleware` the app passed to
+    `Litestar(middleware=[...])` with `resource=`, which Litestar runs behind
+    its router. Without a route at the metadata path, a `GET` for the
+    document every challenge points at is answered `404`. With a route
+    there for other methods only, it is answered `405`. Nothing is warned
+    when `AuthenticatedRequests` is registered, which adds that route.
+    """
+    if any(authenticates(component) for component in micro.components):
+        return
+    for middleware, options in _routed_middleware(app):
+        if not (
+            isinstance(middleware, type)
+            and issubclass(middleware, AuthenticatedRequestsMiddleware)
+        ):
+            continue
+        metadata = resource_metadata_of(options)
+        if metadata is not None:
+            _warn_unrouted(app, metadata.route)
+
+
+def _warn_unrouted(app: Litestar, path: str) -> None:
+    """Warn when Litestar's router does not route a `GET` to `path`."""
+    try:
+        app.asgi_router.handle_routing(path=path, method="GET")
+    except NotFoundException:
+        reason = (
+            f"has no route at {path}, so the protected resource metadata "
+            f"every challenge points at is answered 404. Register "
+            f"AuthenticatedRequests and call micro.install(app), which adds "
+            f"that route."
+        )
+    except HTTPException:
+        reason = (
+            f"routes {path} only for other methods, so a GET for the "
+            f"protected resource metadata every challenge points at is "
+            f"refused. Remove that route: the middleware answers every "
+            f"request at that path."
+        )
+    else:
+        return
+    warnings.warn(
+        diagnostic(
+            MIDDLEWARE_PLACEMENT,
+            f"AuthenticatedRequestsMiddleware runs behind Litestar's router, "
+            f"which {reason}",
+        ),
+        MiddlewarePlacementWarning,
+        skip_file_prefixes=(_PACKAGE_DIR,),
     )
 
 

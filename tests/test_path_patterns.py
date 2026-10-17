@@ -17,6 +17,7 @@ from litestar import Litestar
 from litestar import Request as LitestarRequest
 from litestar import get as litestar_get
 from litestar.testing import TestClient as LitestarTestClient
+from starlette.applications import Starlette
 from starlette.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -138,6 +139,45 @@ def test_route_walker_stops_at_a_mounted_router_with_middleware() -> None:
 
     # Act / Assert
     assert walk_routes(root) == []
+
+
+def test_route_walker_reads_nothing_through_a_cycle_of_wrappers() -> None:
+    """Two wrappers delegating to each other hide no route and end the walk."""
+    # Arrange
+    first = SimpleNamespace()
+    second = SimpleNamespace(app=first)
+    first.app = second
+
+    # Act / Assert
+    assert walk_routes(first, unwrap_middleware=True) == []
+
+
+def test_route_walker_stops_at_a_mount_whose_app_is_wrapped() -> None:
+    """A middleware wrapping the mounted app guards every route behind it."""
+    # Arrange
+    wrapped = CORSMiddleware(
+        Router(routes=[Route("/items", app)]),
+        allow_origins=["https://example.test"],
+    )
+
+    # Act / Assert
+    assert walk_routes(Mount("/private", app=wrapped)) == []
+
+
+def test_route_walker_stops_at_a_mounted_app_with_middleware_of_its_own() -> (
+    None
+):
+    """Middleware the mounted app declares guards every route behind it."""
+    # Arrange
+    guarded = Starlette(
+        routes=[Route("/items", app)],
+        middleware=[
+            Middleware(CORSMiddleware, allow_origins=["https://example.test"])
+        ],
+    )
+
+    # Act / Assert
+    assert walk_routes(Mount("/private", app=guarded)) == []
 
 
 def test_dependency_walk_stops_a_cycle_instead_of_recursing() -> None:

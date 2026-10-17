@@ -114,6 +114,17 @@ class HealthNotServedWarning(GrelmicroConfigWarning):
     code: ClassVar[str] = "health-not-served"
 
 
+class RoutesNotDeclaredWarning(GrelmicroConfigWarning):
+    """`AuthenticatedRequests` is installed on an app whose integration gates no route.
+
+    An integration without `install_route_gate` declares no route that
+    serves a caller with no credential, so every route answers `401` to
+    one, `Anonymous()` included.
+    """
+
+    code: ClassVar[str] = "routes-not-declared"
+
+
 class LeaderNotRunningWarning(GrelmicroConfigWarning):
     """A task is gated on a leader election that does not run.
 
@@ -122,6 +133,20 @@ class LeaderNotRunningWarning(GrelmicroConfigWarning):
     """
 
     code: ClassVar[str] = "leader-not-running"
+
+
+class MiddlewarePlacementError(GrelmicroError, RuntimeError):
+    """Raised when `micro.install(app)` cannot place a middleware that must run.
+
+    `AuthenticatedRequests` is registered, and the app's integration has no
+    `install_middleware`, so no request to the app would be authenticated.
+    The app is refused before anything is wired.
+
+    Carries the `middleware-placement` code, the same one
+    `MiddlewarePlacementWarning` carries.
+    """
+
+    code: ClassVar[str] = "middleware-placement"
 
 
 class BackendScopeError(GrelmicroError, RuntimeError):

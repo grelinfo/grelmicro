@@ -62,11 +62,12 @@ configuration it names. Each entry below says which.
 | `unknown-environment` | `UnknownEnvironmentWarning` | none | `GREL_ENVIRONMENT` names no known tier, so the backend check runs as if undeclared. |
 | `backend-scope` | `BackendScopeWarning` | `BackendScopeError` | A bound backend reaches less far than its component requires. |
 | `ambient-binding` | `AmbientBindingWarning` | `AmbientBindingError` | Ambient components are registered but the binding middleware is missing. |
-| `middleware-placement` | `MiddlewarePlacementWarning` | none | A grelmicro middleware wraps middleware the app declared itself, so it would answer before them, or cannot see a path it serves. |
+| `middleware-placement` | `MiddlewarePlacementWarning` | `MiddlewarePlacementError` | A grelmicro middleware wraps middleware the app declared itself, so it would answer before them, cannot see a path it serves, or cannot be added. |
 | `provider-order` | none | `LifecycleOrderError` | A Provider is listed after the Component that borrows it. |
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
 | `leader-not-running` | `LeaderNotRunningWarning` | none | A task is gated on a leader election that does not run, so it skips every fire. |
 | `health-not-served` | `HealthNotServedWarning` | none | A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404. |
+| `routes-not-declared` | `RoutesNotDeclaredWarning` | none | `AuthenticatedRequests` is installed through an integration with no `install_route_gate`, so every route needs a credential, `Anonymous()` included. |
 
 ### `env-load-off`
 
@@ -116,12 +117,22 @@ the schema leaves the middleware out.
 FastAPI and Starlette never raise this: `install` puts grelmicro's middleware
 behind everything the app added itself.
 
-On Litestar it is also raised when `AuthenticatedRequestsMiddleware` publishes
-protected resource metadata from behind the router, and a `GET` for the document
-every challenge points at never reaches it. With no route at the metadata path,
+On Litestar, `micro.install(app)` also warns when an
+`AuthenticatedRequestsMiddleware` passed to `Litestar(middleware=[...])`
+publishes protected resource metadata, and a `GET` for the document every
+challenge points at never reaches it. With no route at the metadata path,
 register `AuthenticatedRequests` and call `micro.install(app)`, which adds that
 route. With a route of your own there for other methods only, remove it: the
 middleware answers every request at that path.
+
+`micro.install(app)` raises `MiddlewarePlacementError` when
+`AuthenticatedRequests` is registered and the app's integration has no
+`install_middleware`. Nothing would add `AuthenticatedRequestsMiddleware`, so
+no request would be authenticated. The app is refused before anything is
+wired. Ship `install_middleware`, `install_route_gate` and `route_declarations`
+in the integration, as [Plugins](architecture/plugins.md#declare-the-routes)
+shows. An app whose integration's `health_endpoints(app)` returns `None`, which
+says the app serves no HTTP, is not refused.
 
 ### `provider-order`
 
@@ -156,3 +167,16 @@ Reported once the app opens, only when it is installed on an app that serves
 HTTP, and quiet in `development` and `test`. `python -m grelmicro check` shows
 the same check. If you serve the checks some other way, filter
 `HealthNotServedWarning`.
+
+### `routes-not-declared`
+
+`AuthenticatedRequests` decides which route serves a caller with no
+credential from the declarations an integration hands it, once the framework
+routed the request. An integration without `install_route_gate` declares no
+route, so every route answers `401` to a request without a credential, a
+route declaring `Anonymous()` included. A token is verified as usual.
+
+Reported by `micro.install(app)`. Ship `install_route_gate` and
+`route_declarations` in the integration, as
+[Declare the routes](architecture/plugins.md#declare-the-routes) shows. Until
+then, list the public paths in `exclude=`.

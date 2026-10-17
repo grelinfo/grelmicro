@@ -57,11 +57,17 @@ BACKEND_SCOPE: Final = "backend-scope"
 AMBIENT_BINDING: Final = "ambient-binding"
 """Ambient components are registered but the binding middleware is missing."""
 
+MIDDLEWARE_PLACEMENT: Final = "middleware-placement"
+"""A grelmicro middleware sits where it answers before the app's own, or nothing places it."""
+
 PROVIDER_ORDER: Final = "provider-order"
 """A Provider is listed after the Component that borrows it."""
 
 HEALTH_NOT_SERVED: Final = "health-not-served"
 """A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404."""
+
+ROUTES_NOT_DECLARED: Final = "routes-not-declared"
+"""An integration without `install_route_gate` serves no route without a credential."""
 
 LEADER_NOT_RUNNING: Final = "leader-not-running"
 """A task is gated on a leader election that does not run, so it never fires."""

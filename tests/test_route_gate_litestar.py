@@ -40,7 +40,6 @@ from grelmicro.http import (
     RateLimitMiddleware,
     RouteDeclaration,
 )
-from grelmicro.http._authentication import _PublicRoutes
 from grelmicro.integrations.litestar import (
     Anonymous,
     Authenticated,
@@ -49,7 +48,6 @@ from grelmicro.integrations.litestar import (
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from tests.test_authentication import bearer, token, verifier
-from tests.test_authentication_cases import unasked
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
@@ -824,11 +822,8 @@ class TestFloodLimit:
 class TestAuthenticationInTheApp:
     """Authentication passed to `Litestar(middleware=[...])` runs behind the router."""
 
-    def test_it_reads_the_declaration_of_the_handler_it_serves(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_it_reads_the_declaration_of_the_handler_it_serves(self) -> None:
         """Public, protected and scoped handlers answer as they do in front."""
-        monkeypatch.setattr(_PublicRoutes, "matches", unasked)
         calls = Calls()
         component = AuthenticatedRequests(verifier())
         middleware, options = component.asgi_middleware()

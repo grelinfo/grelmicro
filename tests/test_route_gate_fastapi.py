@@ -41,7 +41,6 @@ from grelmicro.http import (
     RateLimitedRequests,
     RouteDeclaration,
 )
-from grelmicro.http._authentication import _PublicRoutes
 from grelmicro.integrations.fastapi import (
     Anonymous,
     Authenticated,
@@ -58,7 +57,6 @@ from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.security.jwt import JWTClaims
 from grelmicro.security.principal import Principal, VerifiedToken
 from tests.test_authentication import bearer, needs_frontend, token, verifier
-from tests.test_authentication_cases import unasked
 from tests.test_route_gate import (
     ADDRESS,
     CountingCache,
@@ -86,12 +84,6 @@ UNPROCESSABLE = 422
 TOO_MANY_REQUESTS = 429
 ORIGIN = "https://app.example"
 PREFLIGHT = {"origin": ORIGIN, "access-control-request-method": "GET"}
-
-
-@pytest.fixture(autouse=True)
-def _no_router_emulation(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail a test that asks the routes read before routing."""
-    monkeypatch.setattr(_PublicRoutes, "matches", unasked)
 
 
 def installed(app: Any, *uses: Any, **options: Any) -> Any:  # noqa: ANN401
