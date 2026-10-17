@@ -74,7 +74,7 @@ if TYPE_CHECKING:
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
-__all__ = ["declarations_of", "gate_routes", "lists_routes", "shadowed_routes"]
+__all__ = ["declarations_of", "gate_routes", "shadowed_routes"]
 
 _ENDPOINT_METHODS: Final = (
     "GET",
@@ -766,35 +766,15 @@ class _Beneath(_Listing):
             self.refreshes[id(owner)] = held.refresh
 
 
-def declarations_of(
-    app: Starlette | Router | Mount | Host | AuthenticationMiddleware,
-) -> list[RouteDeclaration]:
+def declarations_of(app: Starlette) -> list[RouteDeclaration]:
     """Return what every route of `app` declares, walked as the gates are.
 
-    A router, a mount or a host is read the same way as the app holding
-    it, from where it sits. Starlette's authentication around an app, or
-    on it, is a check of their own for every route.
+    Starlette's authentication on the app is a check of their own for every
+    route.
     """
     listing = _Listing(checks=_app_runs_checks(app))
-    if isinstance(app, Mount | Host):
-        _walk_route(app, "", listing, frozenset(), None)
-        return listing.found
-    if isinstance(app, Router):
-        router: Router | None = app
-    elif isinstance(app, Starlette):
-        router = app.router
-    else:
-        router = _inner_router(app.app)[0]
-    if router is not None:
-        _walk_router(router, "", listing, frozenset())
+    _walk_router(app.router, "", listing, frozenset())
     return listing.found
-
-
-def lists_routes(app: object) -> bool:
-    """Return whether `declarations_of` reads the routes of `app`."""
-    return isinstance(
-        app, Starlette | Router | Mount | Host | AuthenticationMiddleware
-    )
 
 
 def shadowed_routes(app: Starlette) -> frozenset[tuple[str, str]]:

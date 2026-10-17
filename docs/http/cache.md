@@ -242,11 +242,15 @@ such middleware is cached only when it declares `CachedResponse()`: an
 caller differently. Middleware configured on an individual Starlette
 route runs checks of its own, so an `include` rule never caches that route.
 
-`CachedResponsesMiddleware` added by hand answers before routing instead. A
-middleware around a mounted application, or configured on that application
-or its router, is then a cache boundary: a `CachedResponse()` declaration or
-an `include` rule behind it caches nothing, because a hit would answer before
-that middleware ran.
+`CachedResponsesMiddleware` added by hand answers before routing instead. It
+reads no route, so a `CachedResponse()` declaration does nothing there, and it
+caches what `include=` names, as the request headers allow.
+
+!!! warning "Added by hand, it does not see a route's own checks"
+    A hit is answered before an authentication dependency, or before
+    middleware on a mount that reads a header such as a tenant. Do not name
+    such a route in `include=`, or register `CachedResponses()` and call
+    `micro.install(app)`, which reads them.
 
 Starlette and Litestar resolve no dependencies to hang it on, and a router you
 did not write cannot be changed either, so name the URLs and how long each is
@@ -275,11 +279,12 @@ CachedResponses(ttl=60, include=("/products/*", "/catalog"))
 
 `exclude=` carves a path out again, whatever a route or a pattern says.
 
-A pattern naming a read that runs checks of its own leaves it uncached: a
-FastAPI security scheme or ordinary dependency, whether declared on the route,
-router, app, or include, a Litestar guard, dependency or hook, and middleware
-on the route. On a framework grelmicro cannot read the routes of, nothing can
-check that for you: name paths that answer everybody the same.
+Registered, a pattern naming a read that runs checks of its own leaves it
+uncached: a FastAPI security scheme or ordinary dependency, whether declared on
+the route, router, app, or include, a Litestar guard, dependency or hook, and
+middleware on the route. Added by hand, or on a framework grelmicro cannot
+read the routes of, nothing checks that for you: name paths that answer
+everybody the same.
 
 ## Invalidating
 
@@ -346,8 +351,8 @@ read that runs checks of its own. Read [Where a rule applies](where.md).
 ## Options
 
 Every option of `CachedResponsesMiddleware` is taken by `CachedResponses` and
-forwarded, so a registered component and a hand-added middleware answer the
-same.
+forwarded, so a registered component and a hand-added middleware read the same
+options. Only the registered one reads the routes.
 
 | Option | What it does |
 |---|---|

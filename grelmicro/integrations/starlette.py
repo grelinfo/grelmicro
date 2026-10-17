@@ -37,7 +37,6 @@ from grelmicro.http._requirement import (
 from grelmicro.integrations._route_gate import (
     declarations_of,
     gate_routes,
-    lists_routes,
     shadowed_routes,
 )
 from grelmicro.security.principal import VerifiedToken
@@ -630,15 +629,6 @@ def _front_middleware(app: Starlette) -> list[tuple[Any, dict[str, Any]]]:
 
 _shadowed_routes = shadowed_routes
 """Each anonymous route another route declared before it serves, for reports and the schema."""
-
-
-def _lists_routes(app: object) -> bool:
-    """Return whether `route_declarations` reads the routes of `app`.
-
-    An app, a router, a mount or a host, and Starlette's authentication
-    around one of them.
-    """
-    return lists_routes(app)
 
 
 HTTP_422_UNPROCESSABLE_CONTENT = 422

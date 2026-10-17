@@ -388,12 +388,11 @@ def test_describe_idempotent_window_of_thirty_days_written_in_seconds() -> None:
     component = SimpleNamespace(
         config=SimpleNamespace(methods=("POST",), include=(), exclude=()),
         _key_function=None,
-        route_is_gated=lambda method, path: False,  # noqa: ARG005
         idempotency=SimpleNamespace(
             config=SimpleNamespace(ttl=timedelta(days=30))
         ),
     )
-    endpoint = _Endpoint(method="POST", path="/orders", route=None, contexts=())
+    endpoint = _Endpoint(method="POST", path="/orders")
 
     # Act
     applied = _reads_idempotent(component)(endpoint)

@@ -10,6 +10,8 @@
 * 💥 On an app without authentication, `IdempotentRequests(require_key=True)` answers an unknown URL `404` and a method the route does not take `405`, not `400`. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
 * 💥 An `include=` pattern never caches a route under middleware on a mount, a router, a mounted app or the app itself, such as Starlette's `AuthenticationMiddleware`, unless the route declares `CachedResponse()`. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
 * 💥 A `HEAD` is answered from the stored `GET` only on a route that answers both, and a `HEAD` route of its own runs its handler. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
+* 💥 A cache, idempotency or conditional middleware added by hand decides from its patterns and the request headers alone, not from the routes. ([#1065](https://github.com/grelinfo/grelmicro/issues/1065))
+* 💥 `CachedResponsesMiddleware(policies=...)` is removed. ([#1065](https://github.com/grelinfo/grelmicro/issues/1065))
 * 💥 `document_idempotency`, `document_conditional_requests`, `document_rate_limited_requests` and `document_authenticated_requests` are removed from `grelmicro.integrations.fastapi`. Register the component and `micro.install(app)` describes it. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))
 * 💥 `grelmicro check`, `micro.describe(app)` and the OpenAPI document read each route's authentication from its declaration, and list its scopes in alphabetical order. ([#917](https://github.com/grelinfo/grelmicro/issues/917))
 * 💥 A route in `exclude` that requires scopes fails at install with `ValueError`, and one that requires a caller and no scope installs and answers `401`. ([#917](https://github.com/grelinfo/grelmicro/issues/917))

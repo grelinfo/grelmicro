@@ -34,7 +34,6 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
-from grelmicro._discovery import load_integration
 from grelmicro._environment import Binding, label, unrecorded
 from grelmicro._guards import is_instance, type_name
 from grelmicro._key_checks import check_key_function
@@ -42,14 +41,11 @@ from grelmicro._paths import (
     BARE_METHOD_MESSAGE,
     MethodNames,
     PathPatterns,
-    _bound_router,
     _request_authority,
     _request_root_path,
     _request_scheme,
-    _RouteTopologyState,
     _scope_text,
     as_patterns,
-    compile_route,
     route_path,
     selects,
 )
@@ -86,6 +82,7 @@ from grelmicro.http._openapi import (
     merge_response,
     operations_of,
 )
+from grelmicro.http._routes import RouteDeclaration, runs_checks
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
@@ -107,7 +104,6 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache import TTLCache
-    from grelmicro.http._routes import RouteDeclaration
     from grelmicro.types import BackendScope
 
     Message = MutableMapping[str, Any]
@@ -224,158 +220,6 @@ _DEFAULT_KEY_VERSION = "v3"
 
 _PRIVATE_REQUEST_HEADERS = frozenset({b"authorization", b"cookie"})
 """Headers proving that a response was computed for one caller."""
-
-
-class _GatedRoutes:
-    """Routes that run checks of their own before replay."""
-
-    __slots__ = ("_routes", "_sources", "_topology", "_wrapped")
-
-    def __init__(self, app: Any = None) -> None:  # noqa: ANN401
-        """Remember the wrapped app and defer route discovery to a request."""
-        self._wrapped: tuple[Any, ...] = () if app is None else (app,)
-        self._sources: tuple[Any, ...] = ()
-        self._routes: tuple[
-            tuple[str, re.Pattern[str], frozenset[str] | None], ...
-        ] = ()
-        self._topology: tuple[_RouteTopologyState, ...] = ()
-
-    def read(self, *apps: Any) -> None:  # noqa: ANN401
-        """Read the routes of `apps` that run checks of their own."""
-        self._sources = apps
-        self._topology = tuple(_RouteTopologyState(app) for app in apps)
-        checked = {
-            (template, declaration.methods): None
-            for declaration in _declarations_of(apps)
-            if declaration.own_checks or declaration.checked_above
-            for template in _templates(declaration)
-        }
-        self._routes = tuple(
-            (path, _declared_pattern(path), methods)
-            for path, methods in checked
-        )
-
-    def refresh(self, *apps: Any) -> None:  # noqa: ANN401
-        """Read the routes again when the source or its routes changed.
-
-        The source is the wrapped app, or `apps` when nothing is wrapped.
-        """
-        sources = self._wrapped or tuple(app for app in apps if app is not None)
-        if (
-            len(sources) != len(self._sources)
-            or any(
-                app is not seen
-                for app, seen in zip(sources, self._sources, strict=True)
-            )
-            or any(snapshot.changed() for snapshot in self._topology)
-        ):
-            self.read(*sources)
-
-    def matches(self, scope: Scope) -> bool:
-        """Return whether a check of the route's own runs before its handler."""
-        self.refresh()
-        return self._checked(scope["method"], route_path(scope))
-
-    def matches_route(self, method: str, path: str) -> bool:
-        """Return whether runtime replay is gated for this method and path."""
-        if any(snapshot.changed() for snapshot in self._topology):
-            self.read(*self._sources)
-        return self._checked(method, path)
-
-    def _checked(self, method: str, path: str) -> bool:
-        """Return whether a route running checks of its own answers this method and path."""
-        return any(
-            (methods is None or method in methods)
-            and _gate_path_matches(template, regex, path)
-            for template, regex, methods in self._routes
-        )
-
-
-def _declarations_of(apps: tuple[Any, ...]) -> list[RouteDeclaration]:
-    """Return what the routes of each app declare, as its integration lists them.
-
-    Each app is looked through, wrapper by wrapper, to the first one its
-    integration lists the routes of. One no integration lists declares
-    nothing.
-    """
-    found: list[RouteDeclaration] = []
-    for source in apps:
-        seen: set[int] = set()
-        app = source
-        while app is not None and id(app) not in seen:
-            seen.add(id(app))
-            declarations = _listed(app)
-            if declarations is not None:
-                found.extend(declarations)
-                break
-            app = _bound_router(app) or getattr(app, "app", None)
-    return found
-
-
-def _listed(app: Any) -> list[RouteDeclaration] | None:  # noqa: ANN401
-    """Return what the routes of `app` declare, or `None` when nothing lists them.
-
-    An integration carrying `_lists_routes` lists only what it accepts.
-    One without it lists every object of its framework.
-    """
-    integration = load_integration(app)
-    listed = getattr(integration, "route_declarations", None)
-    if listed is None:
-        return None
-    accepts = getattr(integration, "_lists_routes", None)
-    if accepts is not None and not accepts(app):
-        return None
-    return list(listed(app))
-
-
-def _templates(declaration: RouteDeclaration) -> tuple[str, ...]:
-    """Return the templates a declaration answers.
-
-    One taking every method, such as a mount, answers the paths under it
-    too.
-    """
-    if declaration.methods is not None:
-        return (declaration.path,)
-    return (
-        declaration.path,
-        f"{declaration.path.rstrip('/')}/{{path:path}}",
-    )
-
-
-_PARAMETER = re.compile(r"\{[^{}:]+(:[^{}]+)?\}")
-"""A parameter in a route template, with its converter if it names one."""
-
-
-def _declared_pattern(template: str) -> re.Pattern[str]:
-    """Return the regex a route template matches a request path with.
-
-    Starlette's own when it is installed. Without it, a `path` parameter
-    matches every remaining segment and any other parameter one segment.
-    """
-    try:
-        return compile_route(template)
-    except ImportError:
-        parts: list[str] = []
-        last = 0
-        for found in _PARAMETER.finditer(template):
-            parts.append(re.escape(template[last : found.start()]))
-            parts.append(".*" if found.group(1) == ":path" else "[^/]+")
-            last = found.end()
-        parts.append(re.escape(template[last:]))
-        return re.compile(f"^{''.join(parts)}$")
-
-
-def _gate_path_matches(
-    template: str,
-    regex: re.Pattern[str],
-    path: str,
-) -> bool:
-    """Match runtime URLs and the route templates used by endpoint reports.
-
-    A URL is matched as Starlette routes it, with `match` on the anchored
-    regex, whose `$` also matches before a final newline.
-    """
-    return template == path or regex.match(path) is not None
 
 
 def _authenticated_scope(scope: Scope) -> bool:
@@ -654,7 +498,8 @@ class IdempotencyMiddleware:
     app whose integration gates its routes, with authentication or
     without, so a URL no route answers is never stored or replayed. There
     it reads whether the route runs checks of its own from the route's
-    declaration. Added by hand, it reads the app's routes before routing.
+    declaration. Added by hand, it decides from `include`, `exclude` and
+    the request headers alone, and does not see a route's own checks.
 
     The middleware is pure ASGI and works with any ASGI framework
     (Starlette, Litestar, ...). It acts on `http` scopes and passes every
@@ -817,7 +662,6 @@ class IdempotencyMiddleware:
         self._idempotency = idempotency
         self._key_function = key
         self._skip = skip
-        self._gated_routes = _GatedRoutes(app)
         self._replay_collision_logged = False
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
@@ -911,7 +755,7 @@ class IdempotencyMiddleware:
         """Return whether the default key cannot safely replay this request.
 
         At a route, its declaration says whether checks run before its
-        handler. In front of the router, the app's routes are read.
+        handler. Without one, only the request headers say so.
         """
         if self._key_function is not None:
             return False
@@ -920,9 +764,7 @@ class IdempotencyMiddleware:
         ):
             return True
         declaration: RouteDeclaration | None = scope.get(DECLARATION_KEY)
-        if declaration is not None:
-            return declaration.own_checks or declaration.checked_above
-        return self._gated_routes.matches(scope)
+        return declaration is not None and runs_checks(declaration)
 
     async def _execute_key(
         self,
@@ -1757,23 +1599,10 @@ class IdempotentRequests(
         check_key_function(key_function)
         self._key_function = key_function
         self._skip = skip
-        self._gated_routes = _GatedRoutes()
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._routed = AtRoute(self.asgi_middleware)
         self._live: Live[_State] = Live(_state_of(config, self._routed))
-
-    def refresh_routes(
-        self,
-        app: Annotated[Any, Doc("The application whose routes are reported.")],  # noqa: ANN401
-    ) -> None:
-        """Refresh the same route gates the runtime middleware enforces."""
-        if self._key_function is None:
-            self._gated_routes.refresh(app)
-
-    def route_is_gated(self, method: str, path: str) -> bool:
-        """Return whether a default key bypasses this route at runtime."""
-        return self._gated_routes.matches_route(method, path)
 
     async def _apply_reconfigure(
         self, new_config: IdempotentRequestsConfig

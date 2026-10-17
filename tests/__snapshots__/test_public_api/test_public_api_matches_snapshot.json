@@ -286,7 +286,7 @@
       "()": "(*, ttl=datetime.timedelta(seconds=60), include=(), exclude=(), vary_by_headers=(), vary_by_query=None, max_body_size=1048576) -> None"
     },
     "CachedResponsesMiddleware": {
-      "()": "(app, *, cache, policies=None, ttl=datetime.timedelta(seconds=60), include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default', lock='process', live=None) -> 'None'"
+      "()": "(app, *, cache, ttl=datetime.timedelta(seconds=60), include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default', lock='process', live=None) -> 'None'"
     },
     "ConditionalRequests": {
       "()": "(*, etag_responses=None, require_precondition=None, include=None, exclude=None, max_body_size=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",

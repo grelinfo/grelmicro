@@ -57,7 +57,6 @@ from starlette.routing import Mount, Route, Router
 from starlette.testclient import TestClient as StarletteClient
 
 from grelmicro import Grelmicro
-from grelmicro._paths import _RouteTopologyState
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.http import (
@@ -502,10 +501,10 @@ def test_open_gate_without_authentication_reads_no_route_tree_per_request(
         calls=calls,
     )
     reads: list[object] = []
-    monkeypatch.setattr(_RouteTopologyState, "changed", reads.append)
 
     # Act
     with client_of(app) as client:
+        spy_route_listing(monkeypatch, reads)
         if component == "cache":
             client.get("/feed")
             client.get("/feed")
@@ -515,6 +514,19 @@ def test_open_gate_without_authentication_reads_no_route_tree_per_request(
 
     # Assert
     assert reads == []
+
+
+def spy_route_listing(
+    monkeypatch: pytest.MonkeyPatch, reads: list[object]
+) -> None:
+    """Record every app an integration is asked to list the routes of."""
+
+    def listed(app: object) -> list[Any]:
+        reads.append(app)
+        return []
+
+    for integration in (on_fastapi, on_litestar, on_starlette):
+        monkeypatch.setattr(integration, "route_declarations", listed)
 
 
 def _authenticated_app(routes: list[Any]) -> Starlette:

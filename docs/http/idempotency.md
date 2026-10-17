@@ -23,7 +23,10 @@ app.add_middleware(
 
 Either way it resolves its `Cache` through the grelmicro request scope, and `install` keeps that scope outside every other middleware.
 
-Registered, it runs at the route the request reaches, with `AuthenticatedRequests` or without it. A URL no route answers is never stored or replayed, and is not refused for a missing key. Added by hand, it answers before routing, and reads the app's routes to find the checks below.
+Registered, it runs at the route the request reaches, with `AuthenticatedRequests` or without it. A URL no route answers is never stored or replayed, and is not refused for a missing key. Added by hand, it answers before routing, and decides from `include=`, `exclude=` and the request headers alone.
+
+!!! warning "Added by hand, it does not see a route's own checks"
+    A replay is answered before an authentication dependency, or before middleware on a mount that reads a header such as a tenant. Keep such a route out with `include=` or `exclude=`, or register `IdempotentRequests()` and call `micro.install(app)`, which reads them.
 
 ## Which endpoints it applies to
 
@@ -236,8 +239,8 @@ the exact stored key.
 Without a custom `key=` function, a request carrying `Authorization` or `Cookie`
 bypasses idempotency and runs the handler every time. This safe default keeps
 private responses out of a shared entry and ensures authentication inside the
-application still runs. A route that runs checks before its handler bypasses
-the default too, on every framework:
+application still runs. Registered, a route that runs checks before its
+handler bypasses the default too, on every framework:
 
 | Framework | Checks before the handler |
 |---|---|
@@ -249,23 +252,21 @@ the default too, on every framework:
 grelmicro's own middleware are not checks. Middleware on the app is not
 either, on Starlette or on Litestar, except Starlette's
 `AuthenticationMiddleware`. Middleware of a mounted Starlette or FastAPI app
-is a check for every route under it, because it runs before them. This
-applies when the app is wrapped directly or mounted under another ASGI
-application. A route running no check keeps the
+is a check for every route under it, because it runs before them, also when
+the app is mounted under another one. A route running no check keeps the
 route-scoped default key. Required keys are validated before this bypass.
 The built-in key format is versioned, so an upgraded process cannot replay an
 unscoped entry written by an older release. Custom `key=` values remain
 unchanged.
 
 An authenticated Starlette scope bypasses the default too, including when
-`AuthenticationMiddleware` reads a custom header. Put authentication outside
-idempotency so it establishes `scope["user"]` first. A directly wrapped
-Starlette `AuthenticationMiddleware`, one configured on the wrapped
-application, and one inside a mounted application bypass it as well. A mount
-covers only the routes under it, so authentication on one sub-application
-leaves public idempotency on its siblings. Middleware of your own on the app
-is not read as a check. Keep it outside this middleware, or configure an
-identity-aware `key=` function.
+`AuthenticationMiddleware` reads a custom header. Added by hand, put
+authentication outside idempotency so it establishes `scope["user"]` first.
+Registered, `AuthenticationMiddleware` on the app or inside a mounted
+application bypasses it as well. A mount covers only the routes under it, so
+authentication on one sub-application leaves public idempotency on its
+siblings. Middleware of your own on the app is not read as a check. Keep it
+outside this middleware, or configure an identity-aware `key=` function.
 
 !!! warning "Set `key=` for authenticated replay"
     To make authenticated requests idempotent, fold the caller identity into
@@ -386,7 +387,7 @@ A background task runs after the response is sent, so the response is stored and
 
 ## Parameters
 
-`IdempotentRequests` and `IdempotencyMiddleware` take the same options, so a registered component and a hand-added middleware answer the same.
+`IdempotentRequests` and `IdempotencyMiddleware` take the same options. Only the registered one reads the routes.
 
 | Parameter | Default | Behaviour |
 |---|---|---|
