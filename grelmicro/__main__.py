@@ -54,7 +54,7 @@ def load_object(target: str) -> object:
 
     Raises:
         TargetError: If the target is malformed, the module does not
-            import, or the attribute is missing.
+            import or raises while it imports, or the attribute is missing.
     """
     if ":" not in target:
         msg = (
@@ -67,6 +67,9 @@ def load_object(target: str) -> object:
         module = importlib.import_module(module_name)
     except ImportError as exc:
         msg = f"cannot import module {module_name!r}: {exc}"
+        raise TargetError(msg) from exc
+    except Exception as exc:
+        msg = f"importing {module_name!r} raised {type(exc).__name__}: {exc}"
         raise TargetError(msg) from exc
     try:
         app = getattr(module, attribute)
