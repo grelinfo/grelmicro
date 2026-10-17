@@ -42,6 +42,8 @@ from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from grelmicro.cache._protocol import CacheBackend
 
 _USAGE_ERROR = 2
@@ -186,6 +188,27 @@ def test_load_target_reports_missing_module() -> None:
     """An unimportable module is reported, not raised as ImportError."""
     with pytest.raises(TargetError, match=r"cannot import module"):
         load_target("grelmicro_does_not_exist:micro")
+
+
+def test_main_module_raising_at_import_exits_two(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A module that raises while it imports is a usage error naming the error."""
+    # Arrange
+    (tmp_path / "raising_app.py").write_text(
+        "raise TypeError('bad argument')\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    # Act
+    code = main(["check", "raising_app:micro"])
+
+    # Assert
+    assert code == _USAGE_ERROR
+    err = capsys.readouterr().err
+    assert "importing 'raising_app' raised TypeError: bad argument" in err
 
 
 def test_load_target_reports_missing_attribute() -> None:

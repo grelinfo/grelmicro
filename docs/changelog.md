@@ -207,6 +207,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 `python -m grelmicro check` exits `2` and names the error when the app module raises while it imports, instead of printing a traceback and exiting `1`. ([#1068](https://github.com/grelinfo/grelmicro/pull/1068))
 * 🐛 On an app with authentication, idempotency at the route reads the route's own checks from its declaration, so an anonymous route running checks of its own never replays one caller's response to another. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
 * 🐛 On an app with authentication, an `include=` pattern no longer caches a route under middleware on a mount, a router or a mounted app, which served one caller's response to another. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
 * 🐛 A `POST` route injecting `ConditionalRequired`, or named in `require_precondition`, marks `If-Match` required in the OpenAPI schema with its `412` and `428`. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))

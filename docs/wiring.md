@@ -275,6 +275,56 @@ def test_every_app_is_wired() -> None:
     assert micro.describe(app).ok
 ```
 
+### Check the app from the command line
+
+Name the web application with `--app` and the report adds one row per route,
+saying what each registered component does to it:
+
+```bash
+python -m grelmicro check app:micro --app app:app
+```
+
+```
+Environment: production
+
+Components
+  cache/default                MemoryCacheAdapter
+  cached_responses/default     CachedResponses
+  idempotent_requests/default  IdempotentRequests
+
+Endpoints
+  POST   /orders                idempotent 86400s
+  GET    /products              cache 60s
+
+Checks
+  FAIL  backend-scope: IdempotentRequests('default') rides Cache('default'), which is bound to MemoryCacheAdapter and provides scope 'process', but requires scope 'cluster'
+  warn  path-patterns: cached_responses/default names /product, which no route matches
+  ok    ambient-binding: patterns resolve their backend inside request handlers
+  ok    health-not-served: every registered HealthChecks has its endpoints served
+```
+
+A row reads `cache 60s` for a cached read, `idempotent 86400s` for a write
+that replays, `authenticated` with its scopes or `anonymous` when
+`AuthenticatedRequests` is registered, and `-` when no component acts on the
+route.
+
+| Check | What it reports | Status |
+|---|---|---|
+| `backend-scope` | A backend that reaches less far than its component needs, such as a memory cache behind idempotency on several replicas. | `FAIL` in `staging` and `production`, `warn` with no environment, `ok` in `development` and `test`. |
+| `path-patterns` | An `include=` pattern that names no route, which turns its rule off without a word. Needs `--app`. | `warn` |
+| `ambient-binding` | An app or mounted sub-app that `micro.install(app)` never saw. Needs `--app`. | `FAIL`, or `warn` for a framework it does not recognize |
+| `health-not-served` | A registered `HealthChecks` whose endpoints nothing serves, once an app is installed. | `warn` |
+
+The command exits `0` when no check fails, `1` when one does, and `2` when the
+target does not resolve, for example a misspelled module or one that raises
+while it imports. Run it in CI before a deployment:
+
+```yaml
+- run: python -m grelmicro check app:micro --app app:app
+  env:
+    GREL_ENVIRONMENT: production
+```
+
 ## Next
 
 Read the per-pattern pages for [cache](cache/index.md), [coordination](coordination/index.md),
