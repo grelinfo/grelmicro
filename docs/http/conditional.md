@@ -240,7 +240,9 @@ check_precondition(cart.version, require=False)
 ```
 
 **Across the app**, for a service where every write must be conditional. Name
-the methods, and the middleware refuses them before routing:
+the methods, and the middleware refuses them at the route, before its handler
+runs. A URL no route answers gets the router's `404`, and a method the route
+does not take its `405`:
 
 ```python
 ConditionalRequests(require_precondition=("PUT", "PATCH", "DELETE"))

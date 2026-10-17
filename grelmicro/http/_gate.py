@@ -17,6 +17,10 @@ Terms used here:
   request as its router left it.
 - A door is the gate at the entrance of a subtree whose routes carry
   gates of their own. It refuses as a route's gate does, and runs no lane.
+- An open gate is the gate of an app without authentication. It refuses
+  nothing, and carries the route's declaration into the lane of the
+  response cache, idempotency and conditional requests, whose middleware
+  hand each request on at their own edge in front of the router.
 """
 
 from __future__ import annotations
@@ -24,7 +28,17 @@ from __future__ import annotations
 import functools
 from collections import Counter
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Final,
+    NamedTuple,
+    cast,
+)
+
+from typing_extensions import Doc
 
 from grelmicro._paths import ROUTE_KEY, path_format, route_path, selects
 from grelmicro.errors import AuthenticationRequiredError, InsufficientScopeError
@@ -65,16 +79,21 @@ __all__ = [
     "PENDING_KEY",
     "ROUTE_KEY",
     "UNANSWERED_KEY",
+    "AnswersAtRoute",
+    "AtRoute",
     "Carried",
     "Crossing",
     "Edge",
     "GatePolicy",
+    "OpenGate",
     "RouteGate",
     "Unanswered",
     "answered",
     "crossed",
     "deny_websocket",
+    "edge_at",
     "edge_of",
+    "hand_on",
     "handed_on",
     "refuse_websocket",
     "wrapped",
@@ -91,6 +110,9 @@ DECLARATION_KEY: Final = "grelmicro.declaration"
 
 _GATED: Final = "__grelmicro_gated__"
 """Set on an app a gate returned."""
+
+_OPENED: Final = "__grelmicro_opened__"
+"""Set on an app an open gate returned, holding the app it wraps."""
 
 _POLICY_VIOLATION: Final = 1008
 """Close code for a websocket refused on a server that cannot send a `401`."""
@@ -129,18 +151,19 @@ class GatePolicy:
 
 
 class Edge:
-    """The edge of one app: where its authentication hands a request on.
+    """Where a request is handed on to the router of one app.
 
-    `below` is what the request goes on to. `answering` is each of the
-    app's answering middleware the request skips there, to run in the
-    lane of the route it reaches instead.
+    `answering` is each answering middleware the request skips there, to
+    run in the lane of the route it reaches instead. An app's
+    authentication hands it on at one edge. On an app without
+    authentication, the response cache, idempotency and conditional
+    requests each hand it on at an edge of their own.
     """
 
-    __slots__ = ("_after", "answering", "below", "only")
+    __slots__ = ("_after", "answering", "only")
 
-    def __init__(self, below: ASGIApp, answering: Answering) -> None:
-        """Hand requests on to `below`, running `answering` at each route."""
-        self.below = below
+    def __init__(self, answering: Answering) -> None:
+        """Run `answering` at each route a request handed on here reaches."""
         self.answering = answering
         self.only: tuple[Edge, ...] = (self,)
         """The edges of a request that crossed this one and no other."""
@@ -157,8 +180,8 @@ class Edge:
         return edges
 
 
-def edge_of(app: ASGIApp, policy: GatePolicy) -> Edge:
-    """Return the edge where an authentication passes requests to `app`.
+def edge_of(app: ASGIApp, policy: GatePolicy) -> tuple[ASGIApp, Edge]:
+    """Return what an authentication passes requests on to, and the edge it is at.
 
     Walks down from `app` while each middleware is the next of the
     policy's answering middleware, in the order they were placed. The
@@ -191,7 +214,7 @@ def edge_of(app: ASGIApp, policy: GatePolicy) -> Edge:
         before_routing = getattr(middleware, "before_routing", None)
         if before_routing is not None:
             node = before_routing(node)
-    return Edge(node, tuple(found))
+    return node, Edge(tuple(found))
 
 
 UNANSWERED_KEY: Final = "grelmicro.unanswered"
@@ -293,6 +316,26 @@ class Carried(BaseException):
         super().__init__(error)
         self.error = error
         self.edge = edge
+
+
+async def hand_on(
+    app: ASGIApp, edge: Edge, scope: Scope, receive: Receive, send: Send
+) -> None:
+    """Hand a request on to `app` at `edge`, for the route it reaches to answer.
+
+    What the middleware of `edge` raise at that route is raised here,
+    where they would have raised it before routing.
+    """
+    crossed(scope, edge)
+    try:
+        await app(scope, receive, send)
+    except Carried as carried:
+        if carried.edge is not edge:
+            raise
+        raised = carried.error
+    else:
+        return
+    raise raised
 
 
 def _lane(target: ASGIApp, edges: tuple[Edge, ...], *, moved: bool) -> ASGIApp:
@@ -715,11 +758,11 @@ def _refuse_overlap(declarations: tuple[RouteDeclaration, ...]) -> None:
         raise ValueError(msg)
 
 
-def _gated(target: ASGIApp, admit: _Admit, *, door: bool) -> ASGIApp:
-    """Return `target`, run once `admit` lets the request through.
+def _lanes(target: ASGIApp) -> Callable[[Scope, Crossing], ASGIApp]:
+    """Return the lane of `target` for a request, built once per edges crossed.
 
-    It returns the awaitable `target`, its lane, or the refusal. A door
-    runs no lane.
+    A request moved when it crossed more than one edge, or the router
+    changed the path, the root path or the app it carries since its edge.
     """
     lanes: tuple[
         dict[tuple[Edge, ...], ASGIApp], dict[tuple[Edge, ...], ASGIApp]
@@ -738,6 +781,17 @@ def _gated(target: ASGIApp, admit: _Admit, *, door: bool) -> ASGIApp:
                 target, arrived.edges, moved=moved
             )
         return built
+
+    return lane
+
+
+def _gated(target: ASGIApp, admit: _Admit, *, door: bool) -> ASGIApp:
+    """Return `target`, run once `admit` lets the request through.
+
+    It returns the awaitable `target`, its lane, or the refusal. A door
+    runs no lane.
+    """
+    lane = _lanes(target)
 
     def gated(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
         refusal = admit(scope)
@@ -764,7 +818,61 @@ def _pending(target: ASGIApp, admit: _Admit) -> ASGIApp:
     return gated
 
 
-class RouteGate:
+class _Counted:
+    """Counts the declarations a gate wrapped, to find a listed route it did not.
+
+    `_UNGATED` is the refusal of such a route, formatted with its name.
+    """
+
+    __slots__ = ("_gated", "_listing")
+
+    _UNGATED: ClassVar[str]
+
+    def __init__(self) -> None:
+        """Count no declaration yet."""
+        self._gated: Counter[RouteDeclaration] = Counter()
+        self._listing: Callable[[], Iterable[RouteDeclaration]] | None = None
+
+    def _count(
+        self,
+        declarations: tuple[RouteDeclaration, ...],
+        check: Callable[[RouteDeclaration], None] | None = None,
+    ) -> None:
+        """Refuse declarations that cannot hold, then count them as gated.
+
+        `check` refuses what this gate cannot hold beside it.
+
+        Raises:
+            TypeError: If there is no declaration, or a `cache` is neither
+                a boolean nor a `timedelta`.
+            ValueError: If a declaration cannot hold, `check` refuses it,
+                or two declarations answer the same method, naming the
+                route.
+        """
+        for declaration in declarations:
+            refuse_impossible(declaration)
+            if check is not None:
+                check(declaration)
+        _refuse_overlap(declarations)
+        self._gated.update(declarations)
+
+    def refuse_ungated(self) -> None:
+        """Refuse a route the integration lists that carries no gate.
+
+        Raises:
+            RuntimeError: Naming the first such route.
+        """
+        listing = self._listing
+        if listing is None:
+            return
+        ungated = Counter(listing()) - self._gated
+        if not ungated:
+            return
+        route = route_name(min(ungated, key=route_name))
+        raise RuntimeError(self._UNGATED.format(route=route))
+
+
+class RouteGate(_Counted):
     """Wraps what each route of one app dispatches to with its gate.
 
     `micro.install(app)` builds one from `AuthenticatedRequests` and passes
@@ -775,7 +883,13 @@ class RouteGate:
     serving the request off the request.
     """
 
-    __slots__ = ("_app", "_gated", "_listing", "_policies", "policy")
+    __slots__ = ("_app", "_policies", "policy")
+
+    _UNGATED = (
+        "{route} carries no authentication gate, so a request would reach "
+        "it unchecked. Add a route through the app or its router, which "
+        "gates it as it lands."
+    )
 
     def __init__(
         self,
@@ -794,13 +908,12 @@ class RouteGate:
         says the app's authentication runs behind its router, so each
         route leaves its check for it.
         """
+        super().__init__()
         self._app = app
         self._policies = policies
         self.policy = GatePolicy(
             exclude=exclude, errors=errors, answering=answering, behind=behind
         )
-        self._gated: Counter[RouteDeclaration] = Counter()
-        self._listing: Callable[[], Iterable[RouteDeclaration]] | None = None
 
     def __call__(
         self,
@@ -817,7 +930,9 @@ class RouteGate:
         request's scope, or by the declaration's path. With `door`, `app`
         is the entrance of a subtree whose routes carry gates of their
         own, and runs no lane. An app this returned already is returned as
-        it is, and its declarations are counted.
+        it is, and its declarations are counted. An app an open gate
+        returned is gated in its place, so a route an app without
+        authentication shares stays refused there.
 
         Raises:
             TypeError: If there is no declaration, or a `cache` is neither
@@ -826,13 +941,15 @@ class RouteGate:
                 path in `exclude`, or two declarations answer the same
                 method, naming the route.
         """
-        for declaration in declarations:
-            refuse_impossible(declaration)
-            _refuse_excluded_scopes(declaration, self.policy.exclude)
-        _refuse_overlap(declarations)
-        self._gated.update(declarations)
+        self._count(
+            declarations,
+            functools.partial(
+                _refuse_excluded_scopes, exclude=self.policy.exclude
+            ),
+        )
         if any(declaration.anonymous for declaration in declarations):
             self.policy.defers = True
+        app = getattr(app, _OPENED, app)
         if getattr(app, _GATED, False):
             return app
         admit = _admission(declarations, name)
@@ -858,22 +975,188 @@ class RouteGate:
         self.refuse_ungated()
         self._policies.gate(self._app, self.policy)
 
+
+def _carrying(
+    declarations: tuple[RouteDeclaration, ...],
+) -> Callable[[Scope], RouteDeclaration | None]:
+    """Return the declaration of a request's method.
+
+    `None` for a method the route does not take.
+    """
+    table: dict[str | None, RouteDeclaration] = {}
+    every: RouteDeclaration | None = None
+    for declaration in declarations:
+        if declaration.methods is None:
+            every = declaration
+        else:
+            table.update(dict.fromkeys(declaration.methods, declaration))
+    pick = table.get
+
+    def carried(scope: Scope) -> RouteDeclaration | None:
+        return pick(scope.get("method"), every)
+
+    return carried
+
+
+def _opened(
+    target: ASGIApp, carried: Callable[[Scope], RouteDeclaration | None]
+) -> ASGIApp:
+    """Return `target`, run in its lane with the declaration of the request's method.
+
+    A request that crossed no edge, or whose method the route does not
+    take, goes straight to `target`.
+    """
+    lane = _lanes(target)
+
+    def opened(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
+        arrived = scope.get(CROSSED_KEY)
+        declaration = carried(scope)
+        if arrived is None or declaration is None:
+            return target(scope, receive, send)
+        scope[DECLARATION_KEY] = declaration
+        return lane(scope, arrived)(scope, receive, send)
+
+    setattr(opened, _OPENED, target)
+    return opened
+
+
+class OpenGate(_Counted):
+    """Wraps what each route of an app without authentication dispatches to.
+
+    `micro.install(app)` builds one when `CachedResponses`,
+    `IdempotentRequests` or `ConditionalRequests` is registered and no
+    `AuthenticatedRequests` gates the app. It passes the gate to the
+    integration's `install_route_gate(app, gate)`.
+
+    The app it returns refuses nothing. It carries the declaration of the
+    request's method into the lane of the route, where the response
+    cache, idempotency and conditional requests run. Each call refuses a
+    declaration that cannot hold, and counts it as gated, so a route the
+    integration lists without a gate is found.
+    """
+
+    __slots__ = ()
+
+    _UNGATED = (
+        "{route} carries no gate, so the response cache, idempotency and "
+        "conditional requests never run there. Add a route through the app "
+        "or its router, which gates it as it lands."
+    )
+
+    def __call__(
+        self,
+        app: ASGIApp,
+        *declarations: RouteDeclaration,
+        name: Callable[[Scope], str] | None = None,  # noqa: ARG002
+        door: bool = False,
+    ) -> ASGIApp:
+        """Return the app to dispatch to in place of `app`.
+
+        It serves the request in the route's lane, carrying the
+        declaration of its method. A method no declaration names goes
+        straight to `app`, which answers it. It refuses nothing, so `name`
+        names nothing. With `door`, `app` is the entrance of a subtree
+        whose routes carry gates of their own, and is returned as it is.
+        An app a gate returned already is returned as it is, and its
+        declarations are counted.
+
+        Raises:
+            TypeError: If there is no declaration, or a `cache` is neither
+                a boolean nor a `timedelta`.
+            ValueError: If a declaration cannot hold, or two declarations
+                answer the same method, naming the route.
+        """
+        self._count(declarations)
+        if door or getattr(app, _GATED, False) or hasattr(app, _OPENED):
+            return app
+        return _opened(app, _carrying(declarations))
+
+    def hold(
+        self, *, listing: Callable[[], Iterable[RouteDeclaration]] | None
+    ) -> None:
+        """Take the app's routes as gated, once the integration wired them.
+
+        `listing` returns the routes the integration declares, each of
+        which must carry a gate.
+
+        Raises:
+            RuntimeError: If a listed route carries no gate, naming it.
+        """
+        self._listing = listing
+        self.refuse_ungated()
+
+
+class AtRoute:
+    """Where one answering middleware runs on an app without authentication.
+
+    It holds the apps whose routes carry an open gate, and the edge the
+    middleware hands a request on at there. Its middleware in front of
+    such an app hands each request on at that edge, and runs in the lane
+    of the route the request reaches instead. `middleware` returns the
+    class and the arguments the lane builds it with.
+    """
+
+    __slots__ = ("_apps", "_edge", "_middleware")
+
+    def __init__(
+        self, middleware: Callable[[], tuple[type[Any], dict[str, Any]]]
+    ) -> None:
+        """Hold no app yet."""
+        self._middleware = middleware
+        self._apps: dict[int, tuple[Any, OpenGate]] = {}
+        self._edge: Edge | None = None
+
+    def add(self, app: Any, gate: OpenGate) -> None:  # noqa: ANN401
+        """Run the middleware at each route of `app`, which `gate` wraps."""
+        self._apps[id(app)] = (app, gate)
+        if self._edge is None:
+            self._edge = Edge((self._middleware(),))
+
+    def edge_for(self, scope: Scope) -> Edge | None:
+        """Return the edge a request is handed on at, or `None` to answer it in front.
+
+        `None` for a request to an app whose routes carry no open gate.
+        """
+        return self._edge if id(scope.get("app")) in self._apps else None
+
     def refuse_ungated(self) -> None:
-        """Refuse a route the integration lists that carries no gate.
+        """Refuse a route of any app held here that carries no gate.
 
         Raises:
             RuntimeError: Naming the first such route.
         """
-        listing = self._listing
-        if listing is None:
-            return
-        ungated = Counter(listing()) - self._gated
-        if not ungated:
-            return
-        route = min(ungated, key=route_name)
-        msg = (
-            f"{route_name(route)} carries no authentication gate, so a "
-            f"request would reach it unchecked. Add a route through the app "
-            f"or its router, which gates it as it lands."
-        )
-        raise RuntimeError(msg)
+        for _, gate in self._apps.values():
+            gate.refuse_ungated()
+
+
+def edge_at(routed: AtRoute | None, scope: Scope) -> Edge | None:
+    """Return the edge a request is handed on at, or `None` to answer it here.
+
+    `None` too at the route, where the request carries a declaration, and
+    for an app whose routes carry no open gate.
+    """
+    if routed is None or DECLARATION_KEY in scope:
+        return None
+    return routed.edge_for(scope)
+
+
+class AnswersAtRoute:
+    """A component whose middleware runs at the route on an app without authentication.
+
+    It holds the `AtRoute` its middleware reads, as `_routed`.
+    """
+
+    _routed: AtRoute
+
+    def _answer_at_route(
+        self,
+        app: Annotated[Any, Doc("The application without authentication.")],  # noqa: ANN401
+        gate: Annotated[OpenGate, Doc("The gate its routes are wrapped with.")],
+    ) -> None:
+        """Run the middleware at each route of `app`, behind `gate`.
+
+        `micro.install(app)` calls it on an app whose routes carry no
+        authentication gate. The middleware in front of the app then hands
+        each request on to the route it reaches.
+        """
+        self._routed.add(app, gate)

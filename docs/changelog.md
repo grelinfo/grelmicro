@@ -5,6 +5,11 @@
 ### Breaking
 * 💥 On an app whose integration has no `install_route_gate`, every route outside `exclude=` answers `401` to a request without a credential, `Anonymous()` routes included. ([#1054](https://github.com/grelinfo/grelmicro/issues/1054))
 * 💥 With `AuthenticatedRequests` registered, `micro.install(app)` raises `MiddlewarePlacementError` when the app's integration has no `install_middleware`, where every route used to be served unauthenticated. ([#1054](https://github.com/grelinfo/grelmicro/issues/1054))
+* 💥 On an app without authentication, a URL no route answers is neither cached nor replayed. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
+* 💥 On an app without authentication, `ConditionalRequests` runs at the route, so an unknown URL gets `404` and a method the route does not take gets `405`, not `428`. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
+* 💥 On an app without authentication, `IdempotentRequests(require_key=True)` answers an unknown URL `404` and a method the route does not take `405`, not `400`. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
+* 💥 An `include=` pattern never caches a route under middleware on a mount, a router, a mounted app or the app itself, such as Starlette's `AuthenticationMiddleware`, unless the route declares `CachedResponse()`. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
+* 💥 A `HEAD` is answered from the stored `GET` only on a route that answers both, and a `HEAD` route of its own runs its handler. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
 * 💥 `document_idempotency`, `document_conditional_requests`, `document_rate_limited_requests` and `document_authenticated_requests` are removed from `grelmicro.integrations.fastapi`. Register the component and `micro.install(app)` describes it. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))
 * 💥 `grelmicro check`, `micro.describe(app)` and the OpenAPI document read each route's authentication from its declaration, and list its scopes in alphabetical order. ([#917](https://github.com/grelinfo/grelmicro/issues/917))
 * 💥 A route in `exclude` that requires scopes fails at install with `ValueError`, and one that requires a caller and no scope installs and answers `401`. ([#917](https://github.com/grelinfo/grelmicro/issues/917))
@@ -200,6 +205,8 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 On an app with authentication, idempotency at the route reads the route's own checks from its declaration, so an anonymous route running checks of its own never replays one caller's response to another. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
+* 🐛 On an app with authentication, an `include=` pattern no longer caches a route under middleware on a mount, a router or a mounted app, which served one caller's response to another. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
 * 🐛 A `POST` route injecting `ConditionalRequired`, or named in `require_precondition`, marks `If-Match` required in the OpenAPI schema with its `412` and `428`. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))
 * 🐛 A `Lock`, `ReadWriteLock` or `TaskLock` release finishes on the backend when its task is cancelled, so a client disconnect or a shutdown no longer leaves the lease held until it expires. A release the backend never answers gives up after `lease_duration`, and so does a `TaskLock` extend. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 🐛 A `ReadWriteLock` writer cancelled while it waits withdraws its intent, even when cancelled again, so readers no longer wait for the intent to expire. ([#883](https://github.com/grelinfo/grelmicro/issues/883))

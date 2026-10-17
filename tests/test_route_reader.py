@@ -1659,14 +1659,14 @@ def test_an_answer_before_routing_names_the_route_it_would_reach(
     ],
     ids=["starlette", "fastapi", "litestar"],
 )
-def test_a_cached_response_names_the_route_it_would_reach(
+def test_a_cached_response_names_the_route_it_is_answered_at(
     records: list[logging.LogRecord],
     *,
     build: Callable[[], Any],
     path: str,
     route: str,
 ) -> None:
-    """A response the cache answers before routing names its route, its span none."""
+    """The cache answers at the route, so a hit's span names the route too."""
     # Arrange
     app = build()
     micro = Grelmicro(
@@ -1698,8 +1698,10 @@ def test_a_cached_response_names_the_route_it_would_reach(
         if record.name == ACCESS
     ]
     assert hit.status_code == HTTP_200
-    assert (spans[0].attributes or {}).get("http.route") == route
-    assert (spans[-1].attributes or {}).get("http.route") is None
+    assert [(span.attributes or {}).get("http.route") for span in spans] == [
+        route,
+        route,
+    ]
     assert accesses == [route, route]
 
 
@@ -1740,14 +1742,14 @@ def _litestar_charges() -> Litestar:
     ],
     ids=["starlette", "fastapi", "litestar"],
 )
-def test_an_idempotent_replay_names_the_route_it_would_reach(
+def test_an_idempotent_replay_names_the_route_it_is_answered_at(
     records: list[logging.LogRecord],
     *,
     build: Callable[[], Any],
     path: str,
     route: str,
 ) -> None:
-    """A response replayed before routing names its route, its span none."""
+    """Idempotency answers at the route, so a replay's span names the route too."""
     # Arrange
     app = build()
     micro = Grelmicro(
@@ -1779,8 +1781,10 @@ def test_an_idempotent_replay_names_the_route_it_would_reach(
         if record.name == ACCESS
     ]
     assert replay.headers["idempotent-replayed"] == "true"
-    assert (spans[0].attributes or {}).get("http.route") == route
-    assert (spans[-1].attributes or {}).get("http.route") is None
+    assert [(span.attributes or {}).get("http.route") for span in spans] == [
+        route,
+        route,
+    ]
     assert accesses == [route, route]
 
 

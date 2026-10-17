@@ -23,6 +23,8 @@ app.add_middleware(
 
 Either way it resolves its `Cache` through the grelmicro request scope, and `install` keeps that scope outside every other middleware.
 
+Registered, it runs at the route the request reaches, with `AuthenticatedRequests` or without it. A URL no route answers is never stored or replayed, and is not refused for a missing key. Added by hand, it answers before routing, and reads the app's routes to find the checks below.
+
 ## Which endpoints it applies to
 
 Endpoints are grouped by the router they sit on, so selection follows the

@@ -74,6 +74,7 @@ HTTP_200_OK = 200
 HTTP_304_NOT_MODIFIED = 304
 HTTP_401_UNAUTHORIZED = 401
 HTTP_404_NOT_FOUND = 404
+HTTP_405_METHOD_NOT_ALLOWED = 405
 TTL = timedelta(seconds=60)
 BIG = 2048
 TWICE = 2
@@ -228,10 +229,36 @@ def test_a_client_holding_the_tag_is_answered_304(
     assert response.headers["etag"] == tag
 
 
-def test_a_head_is_answered_from_the_read_that_was_stored(
+def test_a_head_is_answered_from_the_read_that_was_stored() -> None:
+    """A `HEAD` carries the headers of the `GET`, and none of its body."""
+
+    # Arrange
+    async def handler(request: Any) -> Response:  # noqa: ANN401, ARG001
+        return Response(b"ok")
+
+    app = Starlette(routes=[Route("/reads", handler)])
+    Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include={"/reads": TTL}),
+        ]
+    ).install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/reads")
+        response = client.head("/reads")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+    assert response.content == b""
+    assert "age" in response.headers
+
+
+def test_a_head_the_route_does_not_answer_is_not_answered_from_the_read(
     client: TestClient,
 ) -> None:
-    """A `HEAD` carries the headers of the `GET`, and none of its body."""
+    """The cache runs at the route, so a `HEAD` is answered as the route answers it."""
     # Arrange
     client.get("/reads")
 
@@ -239,9 +266,8 @@ def test_a_head_is_answered_from_the_read_that_was_stored(
     response = client.head("/reads")
 
     # Assert
-    assert response.status_code == HTTP_200_OK
-    assert response.content == b""
-    assert "age" in response.headers
+    assert response.status_code == HTTP_405_METHOD_NOT_ALLOWED
+    assert "age" not in response.headers
 
 
 def test_a_head_never_fills_the_cache() -> None:
@@ -274,8 +300,8 @@ def test_a_head_never_fills_the_cache() -> None:
     assert read.content == b"ok"
 
 
-def test_a_protected_head_refuses_the_shared_get_head_cache_key() -> None:
-    """A cached GET cannot answer over a separate HEAD dependency."""
+def test_a_protected_head_is_never_answered_from_the_cached_get() -> None:
+    """A separate HEAD route runs its own dependency, and the GET stays cached."""
     app = FastAPI()
     api_key = APIKeyHeader(name="X-API-Key")
     calls = {"get": 0, "head": 0}
@@ -299,18 +325,17 @@ def test_a_protected_head_refuses_the_shared_get_head_cache_key() -> None:
         anonymous = client.head("/reads")
         authorized = client.head("/reads", headers={"X-API-Key": "alice"})
 
-    assert first.json() == {"calls": 1}
-    assert second.json() == {"calls": 2}
+    assert first.json() == second.json() == {"calls": 1}
+    assert "age" in second.headers
     assert anonymous.status_code == HTTP_401_UNAUTHORIZED
     assert authorized.headers["x-head-calls"] == "1"
     assert all(
-        "age" not in response.headers
-        for response in (second, anonymous, authorized)
+        "age" not in response.headers for response in (anonymous, authorized)
     )
 
 
-def test_separate_public_head_still_reads_the_cached_get() -> None:
-    """A dependency-free HEAD route does not make a public GET uncacheable."""
+def test_separate_public_head_route_answers_its_own_head() -> None:
+    """A HEAD route of its own runs its handler, and the GET stays cached."""
     app = FastAPI()
     calls = {"get": 0, "head": 0}
 
@@ -334,9 +359,9 @@ def test_separate_public_head_still_reads_the_cached_get() -> None:
 
     assert first.json() == replayed.json() == {"calls": 1}
     assert head_response.status_code == HTTP_200_OK
-    assert head_response.content == b""
-    assert head_response.headers["age"] == "0"
-    assert calls == {"get": 1, "head": 0}
+    assert head_response.headers["x-head-calls"] == "1"
+    assert "age" not in head_response.headers
+    assert calls == {"get": 1, "head": 1}
 
 
 def test_nested_head_dependency_refuses_an_outer_shared_cache_key() -> None:
@@ -637,10 +662,10 @@ def test_component_cache_treats_fastapi_authentication_as_private() -> None:
     assert calls == TWICE
 
 
-def test_component_cache_keeps_public_routes_under_optional_auth_cacheable() -> (
+def test_component_cache_never_caches_a_pattern_under_app_authentication() -> (
     None
 ):
-    """An anonymous public response is not private merely because auth ran."""
+    """Starlette's authentication on the app is a check above every route."""
 
     class OptionalAuthentication(AuthenticationBackend):
         async def authenticate(
@@ -680,9 +705,9 @@ def test_component_cache_keeps_public_routes_under_optional_auth_cacheable() -> 
         first = test_client.get("/public")
         replayed = test_client.get("/public")
 
-    assert first.text == replayed.text == "1"
-    assert replayed.headers["age"] == "0"
-    assert calls == 1
+    assert first.text == "1"
+    assert replayed.text == "2"
+    assert calls == TWICE
 
 
 def test_the_requests_own_cache_control_is_not_read(
@@ -1080,8 +1105,8 @@ def test_a_user_attribute_that_raises_snapshots_as_unreadable() -> None:
     )
 
 
-def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
-    """A parent cache cannot answer before a mounted middleware runs."""
+def test_a_mounted_middleware_runs_before_a_hit() -> None:
+    """The cache runs at the route, inside the middleware of the mount."""
     # Arrange
     calls = 0
     inner = FastAPI()
@@ -1113,8 +1138,8 @@ def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
         )
 
     # Assert
-    assert first.json() == {"calls": 1}
-    assert second.json() == {"calls": 2}
+    assert first.json() == second.json() == {"calls": 1}
+    assert "age" in second.headers
     assert second.headers["access-control-allow-origin"] == (
         "https://client.example"
     )
@@ -1733,10 +1758,10 @@ def test_middleware_configured_inside_a_mount_is_a_cache_boundary(
 
 
 @pytest.mark.parametrize("policy", ["declaration", "include"])
-def test_route_transparent_mounted_wrapper_is_a_cache_boundary(
+def test_route_transparent_mounted_wrapper_runs_before_a_hit(
     policy: str,
 ) -> None:
-    """Forwarded route attributes cannot hide an explicit ASGI boundary."""
+    """A declaration caches inside an ASGI wrapper on the mount, and a pattern does not."""
     # Arrange
     calls = 0
     inner = FastAPI()
@@ -1768,7 +1793,7 @@ def test_route_transparent_mounted_wrapper_is_a_cache_boundary(
 
     # Assert
     assert first.json() == {"calls": 1}
-    assert second.json() == {"calls": 2}
+    assert second.json() == {"calls": 1 if policy == "declaration" else 2}
 
 
 def test_a_policy_never_read_reads_nothing_until_it_is_handed_an_app() -> None:
@@ -1838,7 +1863,7 @@ def test_a_router_caching_a_read_beside_another_dependency_leaves_it() -> None:
     assert second.json() == {"calls": 2}
 
 
-def test_a_route_caching_beside_another_dependency_fails_at_startup() -> None:
+def test_a_route_caching_beside_another_dependency_fails_as_it_lands() -> None:
     """An ordinary dependency can vary a response without declaring `Vary`."""
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
     app = FastAPI()
@@ -1847,21 +1872,17 @@ def test_a_route_caching_beside_another_dependency_fails_at_startup() -> None:
     async def audit() -> None:
         """Stand in for the gate a route already declares."""
 
-    @app.get(
-        "/reads",
-        dependencies=[Depends(audit), CachedResponse(ttl=TTL)],
-    )
     async def reads() -> dict[str, bool]:
         return {"read": True}  # pragma: no cover
 
-    with (
-        pytest.raises(
-            TypeError,
-            match=r"GET /reads declares a cached response and runs checks",
-        ),
-        TestClient(app),
+    with pytest.raises(
+        ValueError, match=r"GET /reads declares cache and own_checks=True"
     ):
-        pass  # pragma: no cover
+        app.add_api_route(
+            "/reads",
+            reads,
+            dependencies=[Depends(audit), CachedResponse(ttl=TTL)],
+        )
 
 
 @pytest.mark.parametrize(

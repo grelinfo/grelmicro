@@ -1077,8 +1077,7 @@ class AuthenticatedRequestsMiddleware:
         if policy.behind:
             self._below = wrapped(handed_on(self.app), policy.answering)
             return
-        edge = self._edge = edge_of(self.app, policy)
-        self._below = edge.below
+        self._below, self._edge = edge_of(self.app, policy)
 
     def _pass_on(self, scope: Scope) -> None:
         """Leave the policy of the app's gates on the request, and the edge it crossed."""

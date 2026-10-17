@@ -43,7 +43,7 @@ from grelmicro import (
     Usable,
 )
 from grelmicro._paths import _routing_app
-from grelmicro.cache import Cache
+from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
@@ -1903,7 +1903,10 @@ def test_idempotent_requests_mounted_app_middleware_never_replays_across_callers
 def test_idempotency_middleware_listing_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An integration failing to list the routes of its app fails the request."""
+    """An integration failing to list the routes of its app fails the request.
+
+    Added by hand, the middleware reads the routes before routing.
+    """
 
     # Arrange
     def broken(app: object) -> list[object]:  # noqa: ARG001
@@ -1915,7 +1918,21 @@ def test_idempotency_middleware_listing_error_propagates(
         "grelmicro.http._idempotency.load_integration",
         lambda app: integration,  # noqa: ARG005
     )
-    app = _starlette_caller_app()
+    app = Starlette(
+        routes=[Route("/whoami", _starlette_caller, methods=["POST"])],
+        middleware=[
+            Middleware(
+                IdempotencyMiddleware,
+                idempotency=Idempotency(
+                    "http",
+                    cache=TTLCache(
+                        backend=MemoryCacheAdapter(),
+                        serializer=JsonSerializer(),
+                    ),
+                ),
+            )
+        ],
+    )
 
     # Act / Assert
     with (

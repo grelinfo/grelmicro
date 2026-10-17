@@ -1463,6 +1463,9 @@ class Grelmicro:
         integration may carry `_routed_middleware(app)` too, listing the
         middleware the app runs once its router matched a route.
 
+        Without such a gate, a component that carries `_answer_at_route()`
+        runs at each route through an open gate, which refuses nothing.
+
         Raises:
             RuntimeError: If a route the integration lists carries no gate.
         """
@@ -1470,6 +1473,7 @@ class Grelmicro:
         listed = getattr(integration, "route_declarations", None)
         if wire is None:
             return
+        listing = None if listed is None else functools.partial(listed, app)
         gating: Any = next(
             (
                 component
@@ -1478,21 +1482,56 @@ class Grelmicro:
             ),
             None,
         )
-        if gating is None:
+        reading = getattr(integration, "_routed_middleware", None)
+        routed = () if reading is None else tuple(reading(app))
+        gate = None
+        if gating is not None:
+            gate = gating.route_gate(
+                app,
+                errors,
+                answering=answering_middleware(self.components),
+                routed=routed,
+            )
+        if gate is not None:
+            wire(app, gate)
+            gate.hold(listing=listing)
             return
-        routed = getattr(integration, "_routed_middleware", None)
-        gate = gating.route_gate(
-            app,
-            errors,
-            answering=answering_middleware(self.components),
-            routed=() if routed is None else routed(app),
-        )
-        if gate is None:
+        self._open_routes(app, wire, listing, routed)
+
+    def _open_routes(
+        self,
+        app: object,
+        wire: Callable[[object, Any], None],
+        listing: Callable[[], Iterable[Any]] | None,
+        routed: tuple[tuple[Any, Mapping[str, Any]], ...],
+    ) -> None:
+        """Run each component carrying `_answer_at_route()` at the routes of `app`.
+
+        `wire` wraps each route of `app` with an open gate. The gate refuses
+        nothing, and carries the route's declaration to those components.
+        A component whose middleware is among the `routed` middleware the
+        app runs behind its router is left to answer there.
+
+        Raises:
+            RuntimeError: If a route the integration lists carries no gate.
+        """
+        from grelmicro.http._gate import OpenGate  # noqa: PLC0415
+
+        behind = {middleware for middleware, _ in routed}
+        answering = [
+            answer
+            for component in self.components
+            if (answer := getattr(component, "_answer_at_route", None))
+            is not None
+            and cast("Any", component).asgi_middleware()[0] not in behind
+        ]
+        if not answering:
             return
+        gate = OpenGate()
         wire(app, gate)
-        gate.hold(
-            listing=None if listed is None else functools.partial(listed, app),
-        )
+        gate.hold(listing=listing)
+        for answer in answering:
+            answer(app, gate)
 
     def _refuse_unauthenticated(
         self, app: object, integration: Integration

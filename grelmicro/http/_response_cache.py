@@ -66,7 +66,13 @@ from grelmicro.http._conditional import (
     _tags,
     etag_of,
 )
-from grelmicro.http._gate import DECLARATION_KEY
+from grelmicro.http._gate import (
+    DECLARATION_KEY,
+    AnswersAtRoute,
+    AtRoute,
+    edge_at,
+    hand_on,
+)
 from grelmicro.http._idempotency import (
     StoredResponse,
     _authenticated_scope,
@@ -543,14 +549,14 @@ class _Policies:
     ) -> timedelta | None:
         """Return how long the route keeps this response, or `None` for never.
 
-        Its own `cache` decides. A route running checks of its own is
-        never cached by a pattern, and any other route is cached for as
-        long as the pattern naming the path says.
+        Its own `cache` decides. A route running checks of its own, or
+        under checks above it, is never cached by a pattern, and any other
+        route is cached for as long as the pattern naming the path says.
         """
         cache = declaration.cache
         if cache is not False:
             return default if cache is True else cache
-        if declaration.own_checks:
+        if declaration.own_checks or declaration.checked_above:
             return None
         return self._named(path, default)
 
@@ -782,9 +788,15 @@ class _State:
     config: CachedResponsesConfig
     policies: _Policies
     vary_by_headers: tuple[str, ...]
+    routed: AtRoute | None = None
+    """Where a registered component runs the middleware at the route."""
 
 
-def _state_of(config: CachedResponsesConfig, policies: _Policies) -> _State:
+def _state_of(
+    config: CachedResponsesConfig,
+    policies: _Policies,
+    routed: AtRoute | None = None,
+) -> _State:
     """Derive what the request path needs from a configuration.
 
     Header names are folded to lower case once here, because a scope
@@ -794,6 +806,7 @@ def _state_of(config: CachedResponsesConfig, policies: _Policies) -> _State:
         config=config,
         policies=policies,
         vary_by_headers=tuple(name.lower() for name in config.vary_by_headers),
+        routed=routed,
     )
 
 
@@ -834,8 +847,11 @@ class CachedResponsesMiddleware:
     never reads the cache and never fills it. Neither does one an outer
     ASGI authentication middleware has already marked as authenticated.
 
-    At a route whose gate admitted the request, the route's declaration
-    decides. A protected route declaring `cache` shares its response
+    Registered through `CachedResponses`, it runs at the route on every
+    app whose integration gates its routes, with authentication or
+    without, so a URL no route answers is never cached. At a route whose
+    gate admitted the request, the route's declaration decides. A
+    protected route declaring `cache` shares its response
     among every caller it admits, a credential included, keyed by the
     protection it declares. A request carrying a credential to an
     anonymous route is answered by its handler. A route running checks of
@@ -997,7 +1013,7 @@ class CachedResponsesMiddleware:
         scope = check_fold(lock)
         self._fold = None if scope is None else Fold("CachedResponses", scope)
 
-    async def __call__(
+    async def __call__(  # noqa: PLR0911
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Answer from the cache, or run the app once and keep what it said."""
@@ -1008,6 +1024,10 @@ class CachedResponsesMiddleware:
         # middleware where two fields from two snapshots could answer one
         # caller with another's response, so they are taken together.
         state = self._live.state
+        edge = edge_at(state.routed, scope)
+        if edge is not None:
+            await hand_on(self.app, edge, scope, receive, send)
+            return
         config = state.config
         path = route_path(scope)
         if matches(path, config.exclude):
@@ -1724,7 +1744,7 @@ def _header_of(scope: Scope, name: str) -> str:
     return json.dumps(values or None, separators=(",", ":"))
 
 
-class CachedResponses(Reconfigurable[CachedResponsesConfig]):
+class CachedResponses(AnswersAtRoute, Reconfigurable[CachedResponsesConfig]):
     """Serve repeated reads from the cache, wired by `micro.install(app)`.
 
     Register it, mark the routes it answers for, and `install` adds
@@ -2001,9 +2021,12 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         )
         self._tag = f"grelmicro:{namespace}:{name}"
         self._policies = _Policies(config.include, config.exclude)
+        self._routed = AtRoute(self.asgi_middleware)
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
-        self._live: Live[_State] = Live(_state_of(config, self._policies))
+        self._live: Live[_State] = Live(
+            _state_of(config, self._policies, self._routed)
+        )
 
     async def _apply_reconfigure(
         self, new_config: CachedResponsesConfig
@@ -2021,7 +2044,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             new_config.include, new_config.exclude
         )
         self._policies = policies
-        self._live.state = _state_of(new_config, policies)
+        self._live.state = _state_of(new_config, policies, self._routed)
 
     @property
     def name(self) -> str:
@@ -2076,7 +2099,13 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         self._policies.read(app)
 
     async def __aenter__(self) -> Self:
-        """Open the component, reading the routes the app now declares."""
+        """Open the component, reading the routes the app now declares.
+
+        Raises:
+            RuntimeError: If an app without authentication lists a route
+                that carries no gate, so the middleware never runs there.
+        """
+        self._routed.refuse_ungated()
         self._policies.reread()
         return self
 
