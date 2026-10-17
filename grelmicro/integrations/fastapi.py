@@ -106,12 +106,16 @@ from grelmicro.integrations._route_gate import (
     declarations_of,
     gate_routes,
     lists_routes,
+    shadowed_routes,
 )
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
     _keep_watching_outside,
     error_response,
     is_bound,
+)
+from grelmicro.integrations.starlette import (
+    _front_middleware as _starlette_front_middleware,
 )
 from grelmicro.integrations.starlette import _wire as _wire_starlette
 from grelmicro.integrations.starlette import (
@@ -364,6 +368,13 @@ def route_declarations(
     their own.
     """
     return declarations_of(app)
+
+
+_front_middleware = _starlette_front_middleware
+"""The middleware the app runs in front of its router, as Starlette lists it."""
+
+_shadowed_routes = shadowed_routes
+"""Each anonymous route another route declared before it serves, for reports and the schema."""
 
 
 def _lists_routes(app: object) -> bool:

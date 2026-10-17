@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Breaking
+* 💥 On an app whose integration has no `install_route_gate`, every route outside `exclude=` answers `401` to a request without a credential, `Anonymous()` routes included. ([#1054](https://github.com/grelinfo/grelmicro/issues/1054))
+* 💥 With `AuthenticatedRequests` registered, `micro.install(app)` raises `MiddlewarePlacementError` when the app's integration has no `install_middleware`, where every route used to be served unauthenticated. ([#1054](https://github.com/grelinfo/grelmicro/issues/1054))
 * 💥 `document_idempotency`, `document_conditional_requests`, `document_rate_limited_requests` and `document_authenticated_requests` are removed from `grelmicro.integrations.fastapi`. Register the component and `micro.install(app)` describes it. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))
 * 💥 `grelmicro check`, `micro.describe(app)` and the OpenAPI document read each route's authentication from its declaration, and list its scopes in alphabetical order. ([#917](https://github.com/grelinfo/grelmicro/issues/917))
 * 💥 A route in `exclude` that requires scopes fails at install with `ValueError`, and one that requires a caller and no scope installs and answers `401`. ([#917](https://github.com/grelinfo/grelmicro/issues/917))
@@ -141,6 +143,7 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ `micro.install(app)` warns `RoutesNotDeclaredWarning` for an integration without `install_route_gate`. ([#1054](https://github.com/grelinfo/grelmicro/issues/1054))
 * ✨ `CachedResponse(shared=True)` serves one stored response to every caller a route requiring a caller admits, a credential included. ([#918](https://github.com/grelinfo/grelmicro/issues/918))
 * ✨ A Litestar app publishes the same `429`, `Idempotency-Key` and precondition headers in its OpenAPI schema as the same FastAPI app. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))
 * ✨ `RouteDeclaration.precondition_required` says a route answers `428` to a request carrying neither `If-Match` nor `If-None-Match`. FastAPI sets it from `ConditionalRequired`. ([#1020](https://github.com/grelinfo/grelmicro/issues/1020))

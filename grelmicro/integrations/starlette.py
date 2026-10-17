@@ -38,6 +38,7 @@ from grelmicro.integrations._route_gate import (
     declarations_of,
     gate_routes,
     lists_routes,
+    shadowed_routes,
 )
 from grelmicro.security.principal import VerifiedToken
 from grelmicro.trace._autoinstrument import request_spans
@@ -612,6 +613,21 @@ def route_declarations(
     app is listed as one authenticated route running checks of its own.
     """
     return declarations_of(app)
+
+
+def _front_middleware(app: Starlette) -> list[tuple[Any, dict[str, Any]]]:
+    """Return the middleware the app runs in front of its router.
+
+    Each entry of `app.user_middleware`, as its class and the arguments it
+    is built with, the ones `install_middleware` added included.
+    `micro.install(app)` reads it to find the authentication in front of
+    the app.
+    """
+    return [(entry.cls, dict(entry.kwargs)) for entry in app.user_middleware]
+
+
+_shadowed_routes = shadowed_routes
+"""Each anonymous route another route declared before it serves, for reports and the schema."""
 
 
 def _lists_routes(app: object) -> bool:

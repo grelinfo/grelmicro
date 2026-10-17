@@ -600,6 +600,17 @@ def label(item: object) -> str:
     return type(item).__name__
 
 
+def report_diagnostic(code: str, message: str, category: type[Warning]) -> None:
+    """Warn `message` with its code and page, and log it with its code.
+
+    The warning points at the first frame outside grelmicro. The log record
+    carries the code as `diagnostic`, and waits until logging is configured.
+    """
+    rendered = diagnostic(code, message)
+    warnings.warn(rendered, category, skip_file_prefixes=(_PACKAGE_DIR,))
+    defer_report(partial(logger.warning, rendered, extra={"diagnostic": code}))
+
+
 def report_unmet_requirements(
     unmet: Sequence[Unmet],
     environment: Environment | None,

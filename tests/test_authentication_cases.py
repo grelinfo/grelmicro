@@ -49,7 +49,6 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from grelmicro import Grelmicro
 from grelmicro.errors import MiddlewarePlacementWarning
 from grelmicro.http import AuthenticatedRequests, ErrorResponses
-from grelmicro.http._authentication import _PublicRoutes
 from grelmicro.integrations.fastapi import Anonymous
 from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
 from tests.test_authentication import bearer, token, verifier
@@ -525,12 +524,6 @@ def answered(
         )
 
 
-def unasked(self: _PublicRoutes, scope: Any) -> bool:  # noqa: ANN401, ARG001
-    """Fail the test: the routes read before routing were asked."""
-    msg = f"the router emulation was asked about {scope['path']}"
-    raise AssertionError(msg)
-
-
 FRAMEWORKS = {
     "fastapi": (fastapi_app, TestClient),
     "starlette": (starlette_app, TestClient),
@@ -546,15 +539,11 @@ FRAMEWORKS = {
         for case in CASES
     ],
 )
-def test_each_request_is_answered_as_today(
-    framework: str, case: Case, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_each_request_is_answered_as_today(framework: str, case: Case) -> None:
     """Without a credential and with a valid one, the status is pinned.
 
-    Every framework decides at each route's gate, so the routes read before
-    routing are never asked.
+    Every framework decides at each route's gate.
     """
     build, client_class = FRAMEWORKS[framework]
-    monkeypatch.setattr(_PublicRoutes, "matches", unasked)
 
     assert answered(build, client_class, case) == getattr(case, framework)

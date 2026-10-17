@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 import functools
 import inspect
+import re
 from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
@@ -26,6 +27,7 @@ from typing import (
 )
 
 from starlette.applications import Starlette
+from starlette.convertors import CONVERTOR_TYPES  # codespell:ignore
 from starlette.endpoints import HTTPEndpoint
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.body_limit import RequestBodyLimitMiddleware
@@ -39,7 +41,7 @@ from starlette.routing import (
 )
 
 from grelmicro._asgi import GrelmicroMiddleware
-from grelmicro._paths import read_route
+from grelmicro._paths import path_format, read_route, starlette_route
 from grelmicro.http import (
     CachedResponsesMiddleware,
     ConditionalRequestsMiddleware,
@@ -71,7 +73,7 @@ if TYPE_CHECKING:
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
-__all__ = ["declarations_of", "gate_routes", "lists_routes"]
+__all__ = ["declarations_of", "gate_routes", "lists_routes", "shadowed_routes"]
 
 _ENDPOINT_METHODS: Final = (
     "GET",
@@ -792,6 +794,103 @@ def lists_routes(app: object) -> bool:
     return isinstance(
         app, Starlette | Router | Mount | Host | AuthenticationMiddleware
     )
+
+
+def shadowed_routes(app: Starlette) -> frozenset[tuple[str, str]]:
+    """Return each anonymous route the router serves with another route, by path and method.
+
+    Each route declaring `anonymous` is asked with a URL of its own, whose
+    parameters avoid the literal paths other routes are declared with, and
+    matched as the app's router matches it. When the router serves that
+    URL with a route declared before it, the anonymous route is named with
+    its declared path and the method. A route no sample fits, or one whose
+    URL the router routes nowhere, is not named.
+
+    Only `grelmicro check`, `micro.describe(app)` and the OpenAPI schema
+    read it. Every request is decided by the gate of the route the router
+    dispatched it to.
+    """
+    found: set[tuple[str, str]] = set()
+    for declaration in declarations_of(app):
+        if not declaration.anonymous:
+            continue
+        sample = _sample_url(declaration.path)
+        if sample is None:
+            continue
+        expected = path_format(declaration.path)
+        for method in declaration.methods or ():
+            reached = starlette_route(
+                app.router,
+                {"type": "http", "method": method, "headers": []},
+                "",
+                sample,
+                None,
+                mounted=_unread,
+                reach=True,
+            )
+            if reached is not None and reached != expected:
+                found.add((declaration.path, method))
+    return frozenset(found)
+
+
+def _unread(scope: Scope) -> None:
+    """Read no route of a mounted app of another framework."""
+
+
+_STARLETTE_PARAMETER: Final = re.compile(
+    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([a-zA-Z_][a-zA-Z0-9_]*))?\}"
+)
+"""A path parameter in a Starlette route's path, with its optional converter."""
+
+_SAMPLES: Final = {
+    "str": "grelmicro-probe",
+    "path": "grelmicro/probe",
+    "int": "40961257",
+    "float": "4096.1257",
+    "uuid": "00000000-0000-4000-8000-00000c0ffee0",
+}
+"""A value for each converter that no literal route is likely declared with."""
+
+_FALLBACK_SAMPLES: Final = (
+    "4096-12-31",
+    "4096-12-31T23:59:59",
+    "grelmicro",
+    "4096",
+    "g",
+)
+"""Values tried for a converter the app registered itself."""
+
+
+def _sample_url(template: str) -> str | None:
+    """Return a URL of this route whose parameters avoid literal paths.
+
+    Each value is one the parameter's converter accepts. `None` when no
+    sample fits a converter the app registered itself.
+    """
+    pieces: list[str] = []
+    last = 0
+    for match in _STARLETTE_PARAMETER.finditer(template):
+        name = match.group(2) or "str"
+        regex = CONVERTOR_TYPES[name].regex
+        candidates = (
+            _SAMPLES.get(name),
+            *_SAMPLES.values(),
+            *_FALLBACK_SAMPLES,
+        )
+        value = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate is not None and re.fullmatch(regex, candidate)
+            ),
+            None,
+        )
+        if value is None:
+            return None
+        pieces.extend((template[last : match.start()], value))
+        last = match.end()
+    pieces.append(template[last:])
+    return "".join(pieces)
 
 
 def _app_runs_checks(app: object) -> bool:

@@ -111,6 +111,19 @@ for the entrance of a subtree whose routes you gate too, such as a mounted
 app you walk into: it refuses as a route's gate does, and leaves the rate
 limit, the cache and idempotency to the routes inside, so they run once.
 
+grelmicro never reads your framework's middleware to find the
+authentication. It takes the `AuthenticatedRequests` middleware it handed
+`install_middleware` as running in front of your router, and that middleware
+puts the app's policy on each request for the gates to read. So add every
+middleware `install_middleware` is handed. With `AuthenticatedRequests`
+registered, `micro.install(app)` refuses an app whose integration has no
+`install_middleware`, raising
+[`MiddlewarePlacementError`](../diagnostics.md#middleware-placement). It does
+not refuse one whose `health_endpoints(app)` returns `None`, for an app that
+serves no HTTP. A
+middleware the app added by hand carries no policy, so if your integration
+skips ours for it, every gated route answers `401` as well.
+
 Gating an app that `gate` returned already counts its declarations and
 returns it as it is, so a route shared by two apps, or reached under two
 paths, is gated once. `gate`
@@ -210,8 +223,13 @@ mounts it can read, and declares each `HTTPEndpoint` method on its own.
   framework sees the request. That holds on an `anonymous=True` route too: a
   token that is sent must verify.
 - **No hooks, no declarations.** An integration without the two functions
-  declares nothing. Every route stays authenticated, and `CachedResponses`
-  caches only the paths `include=` names.
+  declares nothing. Every route stays authenticated, a route declaring
+  `Anonymous()` included, and `CachedResponses` caches only the paths
+  `include=` names. grelmicro does not look for public routes in the app
+  itself. `micro.install(app)` warns
+  [`routes-not-declared`](../diagnostics.md#routes-not-declared) when
+  `AuthenticatedRequests` is installed through an integration without
+  `install_route_gate`.
 - **Some declarations are refused.** These fail at install, naming the
   route: `anonymous=True` with `scopes`, `scopes` on a path in `exclude=`,
   `cache` with `own_checks`, `cache` on a route answering a method other than

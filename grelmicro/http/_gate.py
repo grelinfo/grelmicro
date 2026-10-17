@@ -775,7 +775,7 @@ class RouteGate:
     serving the request off the request.
     """
 
-    __slots__ = ("_app", "_gated", "_listing", "_public", "policy")
+    __slots__ = ("_app", "_gated", "_listing", "_policies", "policy")
 
     def __init__(
         self,
@@ -783,7 +783,7 @@ class RouteGate:
         *,
         exclude: tuple[str, ...],
         errors: ErrorResponses,
-        public: Any,  # noqa: ANN401
+        policies: Any,  # noqa: ANN401
         answering: Answering = (),
         behind: bool = False,
     ) -> None:
@@ -795,7 +795,7 @@ class RouteGate:
         route leaves its check for it.
         """
         self._app = app
-        self._public = public
+        self._policies = policies
         self.policy = GatePolicy(
             exclude=exclude, errors=errors, answering=answering, behind=behind
         )
@@ -843,22 +843,20 @@ class RouteGate:
     def hold(
         self,
         *,
-        wired: bool,
         listing: Callable[[], Iterable[RouteDeclaration]] | None,
     ) -> None:
         """Take the app's routes as gated, once the integration wired them.
 
-        The middleware in front of an app whose routes are `wired` puts its
-        policy on each request it lets through. `listing` returns the
-        routes the integration declares, each of which must carry a gate.
+        The middleware in front of the app then puts its policy on each
+        request it lets through. `listing` returns the routes the
+        integration declares, each of which must carry a gate.
 
         Raises:
             RuntimeError: If a listed route carries no gate, naming it.
         """
         self._listing = listing
         self.refuse_ungated()
-        if wired:
-            self._public.gate(self._app, self.policy)
+        self._policies.gate(self._app, self.policy)
 
     def refuse_ungated(self) -> None:
         """Refuse a route the integration lists that carries no gate.

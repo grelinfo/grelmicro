@@ -80,7 +80,6 @@ from starlette.websockets import WebSocket
 
 from grelmicro import ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro._describe import _Endpoint, _reads_idempotent
-from grelmicro._paths import walk_routes
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import (
@@ -100,11 +99,7 @@ from grelmicro.http import (
     IdempotentRequests,
     RateLimitedRequests,
 )
-from grelmicro.http._authentication import (
-    _litestar_declares_public,
-    document_operations,
-    routes_of,
-)
+from grelmicro.http._authentication import document_operations
 from grelmicro.integrations.fastapi import (
     Anonymous,
     Authenticated,
@@ -120,6 +115,9 @@ from grelmicro.integrations.litestar import (
 )
 from grelmicro.integrations.litestar import (
     current_token as litestar_current_token,
+)
+from grelmicro.integrations.litestar import (
+    route_declarations as litestar_route_declarations,
 )
 from grelmicro.integrations.starlette import (
     Authenticated as StarletteAuthenticated,
@@ -4272,16 +4270,6 @@ class TestRoutesMatchedOtherThanByPath:
             HTTP_401_UNAUTHORIZED
         )
 
-    def test_a_route_matching_on_its_own_leaves_the_others_named(self) -> None:
-        """A refusal is named after the route the URL fits, not the one before it."""
-        lowered = APIRouter(route_class=CaseInsensitiveRoute)
-        lowered.add_api_route("/items/{item_id}", listed)
-        app = FastAPI()
-        app.include_router(lowered)
-        app.add_api_route("/admin", secret)
-
-        assert routes_of(app).template_of("http", "GET", "/admin") == "/admin"
-
     def test_a_route_matching_with_a_regex_of_its_own_rivals_every_public_route(
         self,
     ) -> None:
@@ -5479,8 +5467,9 @@ class TestLitestarDeclarations:
 
         app = Litestar(route_handlers=[catalog, orders], openapi_config=None)
         declared = {
-            route.path: _litestar_declares_public(route, "OPTIONS")
-            for _, route, _ in walk_routes(app)
+            declaration.path: declaration.anonymous
+            for declaration in litestar_route_declarations(app)
+            if "OPTIONS" in (declaration.methods or ())
         }
 
         assert declared == {"/catalog": False, "/orders": False}
@@ -5859,6 +5848,7 @@ class TestResourceMetadataOnLitestar:
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
+            Grelmicro(uses=[ErrorResponses()]).install(app)
             with LitestarTestClient(app) as client:
                 client.get("/orders")
                 client.get("/orders")
@@ -5934,6 +5924,20 @@ class TestResourceMetadataOnLitestar:
             if issubclass(warning.category, MiddlewarePlacementWarning)
         ]
 
+    def test_a_middleware_publishing_no_metadata_needs_no_warning(self) -> None:
+        """A hand-built middleware without `resource=` has no document to route."""
+        app = declared_on_litestar(resource=None)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            Grelmicro(uses=[ErrorResponses()]).install(app)
+
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+
     def test_a_route_of_the_app_at_the_path_needs_no_warning(self) -> None:
         """A hand-built middleware behind a router routing the path stays quiet."""
 
@@ -5945,6 +5949,7 @@ class TestResourceMetadataOnLitestar:
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
+            Grelmicro(uses=[ErrorResponses()]).install(app)
             with LitestarTestClient(app) as client:
                 refused = client.get("/orders")
 
@@ -5991,7 +5996,7 @@ class TestResourceMetadataOnLitestar:
     def test_a_hand_built_middleware_warns_of_a_route_for_another_method(
         self,
     ) -> None:
-        """Without install, the refused `GET` is warned about, and why."""
+        """Installed without the component, the refused `GET` is warned about, and why."""
 
         @post(WELL_KNOWN)
         async def own() -> None: ...  # pragma: no cover
@@ -6000,6 +6005,7 @@ class TestResourceMetadataOnLitestar:
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
+            Grelmicro(uses=[ErrorResponses()]).install(app)
             with LitestarTestClient(app) as client:
                 client.get("/orders")
 

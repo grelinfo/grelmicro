@@ -43,7 +43,9 @@ from grelmicro._config import defer_report
 from grelmicro._diagnostics import (
     AMBIENT_BINDING,
     HEALTH_NOT_SERVED,
+    MIDDLEWARE_PLACEMENT,
     PROVIDER_ORDER,
+    ROUTES_NOT_DECLARED,
     diagnostic,
 )
 from grelmicro._discovery import (
@@ -58,6 +60,7 @@ from grelmicro._environment import (
     answer_for,
     label,
     recorded_bindings,
+    report_diagnostic,
     report_unmet_requirements,
     resolve_environment,
     strict_message,
@@ -70,8 +73,10 @@ from grelmicro.errors import (
     BackendScopeError,
     GrelmicroError,
     HealthNotServedWarning,
+    MiddlewarePlacementError,
     MultipleActiveAppsError,
     OutOfContextError,
+    RoutesNotDeclaredWarning,
     _AmbientMissError,
 )
 from grelmicro.health._served import unserved
@@ -1382,6 +1387,9 @@ class Grelmicro:
         Raises:
             TypeError: If `app` is not a recognized Starlette, FastAPI, or
                 FastStream application.
+            MiddlewarePlacementError: If `AuthenticatedRequests` is
+                registered and the app's integration cannot add its
+                middleware, before anything is wired.
         """
         integration = load_integration(app)
         if integration is None:
@@ -1390,6 +1398,7 @@ class Grelmicro:
             )
         if self._installed(app):
             return
+        self._refuse_unauthenticated(app, integration)
         integration.install(app, self, ambient=ambient)
         framework = framework_of(app)
         if framework is not None:  # pragma: no branch
@@ -1427,6 +1436,7 @@ class Grelmicro:
             wire_middleware = getattr(integration, "install_middleware", None)
             if wire_middleware is not None:
                 wire_middleware(app, middleware)
+        self._report_undeclared_routes(app, integration)
         self._install_route_gate(app, integration, errors)
         endpoints = getattr(integration, "health_endpoints", None)
         if endpoints is not None:
@@ -1447,7 +1457,9 @@ class Grelmicro:
         integration's `install_route_gate(app, gate)` wraps each route with
         it. `route_declarations(app)` lists the same routes, each of which
         must then carry a gate, now and when the app starts. Both are
-        feature-detected, like `install_middleware`. A first-party
+        feature-detected, like `install_middleware`. Without
+        `install_route_gate` no route is gated, and the listing is not
+        checked. A first-party
         integration may carry `_routed_middleware(app)` too, listing the
         middleware the app runs once its router matched a route.
 
@@ -1456,7 +1468,7 @@ class Grelmicro:
         """
         wire = getattr(integration, "install_route_gate", None)
         listed = getattr(integration, "route_declarations", None)
-        if wire is None and listed is None:
+        if wire is None:
             return
         gating: Any = next(
             (
@@ -1477,11 +1489,68 @@ class Grelmicro:
         )
         if gate is None:
             return
-        if wire is not None:
-            wire(app, gate)
+        wire(app, gate)
         gate.hold(
-            wired=wire is not None,
             listing=None if listed is None else functools.partial(listed, app),
+        )
+
+    def _refuse_unauthenticated(
+        self, app: object, integration: Integration
+    ) -> None:
+        """Refuse an app whose integration cannot add `AuthenticatedRequests`.
+
+        An integration without `install_middleware` adds no middleware, so
+        no request would be authenticated. An app its integration says
+        serves no HTTP, where `health_endpoints(app)` returns `None`, is
+        not refused.
+
+        Raises:
+            MiddlewarePlacementError: Naming the integration and the hooks
+                to ship.
+        """
+        if hasattr(integration, "install_middleware") or not any(
+            getattr(component, "asgi_authenticates", False)
+            for component in self.components
+        ):
+            return
+        endpoints = getattr(integration, "health_endpoints", None)
+        if endpoints is not None and endpoints(app) is None:
+            return
+        msg = diagnostic(
+            MIDDLEWARE_PLACEMENT,
+            f"AuthenticatedRequests is registered, and the integration for "
+            f"{framework_of(app)} has no install_middleware, so no request to "
+            f"the app would be authenticated. Ship install_middleware, "
+            f"install_route_gate and route_declarations in the integration.",
+        )
+        raise MiddlewarePlacementError(msg)
+
+    def _report_undeclared_routes(
+        self, app: object, integration: Integration
+    ) -> None:
+        """Warn when the app authenticates requests and its integration gates no route.
+
+        An integration serving HTTP without `install_route_gate` declares no
+        route that serves a caller with no credential, so every route needs
+        one, a route declaring `Anonymous()` included.
+        """
+        if not hasattr(integration, "install_middleware") or hasattr(
+            integration, "install_route_gate"
+        ):
+            return
+        if not any(
+            getattr(component, "asgi_authenticates", False)
+            for component in self.components
+        ):
+            return
+        report_diagnostic(
+            ROUTES_NOT_DECLARED,
+            f"AuthenticatedRequests is installed on a {framework_of(app)} app "
+            f"whose integration has no install_route_gate, so every route "
+            f"answers 401 to a request without a credential, a route "
+            f"declaring Anonymous() included. Ship install_route_gate and "
+            f"route_declarations in the integration.",
+            RoutesNotDeclaredWarning,
         )
 
     def _install_marks(self, app: object) -> tuple[WeakSet[object], object]:

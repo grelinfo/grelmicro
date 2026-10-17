@@ -557,14 +557,14 @@ def _authenticated_by(components: Sequence[Any], endpoint: _Endpoint) -> bool:
 
 def _authentication_of(
     app: object,
-) -> Callable[[Any, str, str], tuple[bool, tuple[str, ...]]]:
+) -> Callable[[str, str], tuple[bool, tuple[str, ...]]]:
     """Return what says how a route is authenticated, from its declaration.
 
-    It answers whether the route is served without a credential, and the
-    scopes it requires. Read off the app the report is about, never off
-    the running middleware, so a report on one app changes nothing another
-    one serves. An authentication the app added by hand serves no route
-    publicly.
+    Asked with the route's path and a method, it answers whether the route
+    is served without a credential, and the scopes it requires. Read off
+    the declarations the app's integration lists, never off the running
+    middleware, so a report on one app changes nothing another one serves.
+    An authentication the app added by hand serves no route publicly.
     """
     from grelmicro.http._authentication import (  # noqa: PLC0415
         route_authentication,
@@ -575,12 +575,8 @@ def _authentication_of(
     if serves_anonymous_routes(app):
         return read
 
-    def protected(
-        route: Any,  # noqa: ANN401
-        method: str,
-        prefix: str,
-    ) -> tuple[bool, tuple[str, ...]]:
-        _, scopes = read(route, method, prefix)
+    def protected(path: str, method: str) -> tuple[bool, tuple[str, ...]]:
+        _, scopes = read(path, method)
         return False, scopes
 
     return protected
@@ -681,7 +677,7 @@ def _describe_endpoints(
                 regex=compiled.get(path),
             )
             if authentication is not None:
-                public, scopes = authentication(route, method, prefix)
+                public, scopes = authentication(path, method)
                 endpoint = replace(endpoint, public=public, scopes=scopes)
             endpoint = replace(
                 endpoint,
