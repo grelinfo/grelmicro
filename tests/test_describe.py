@@ -409,8 +409,10 @@ def test_describe_lists_middleware_wrapped_mounted_endpoints(
     )
 
 
-def test_describe_does_not_apply_parent_cache_to_child_declaration() -> None:
-    """A child marker remains behind its mounted middleware boundary."""
+def test_describe_cache_declared_behind_a_wrapped_mount_reports_it_cached() -> (
+    None
+):
+    """A route declaring `CachedResponse()` is cached at its route, as reported."""
     child = FastAPI()
 
     @child.get("/x", dependencies=[CachedResponse()])
@@ -432,7 +434,7 @@ def test_describe_does_not_apply_parent_cache_to_child_declaration() -> None:
         row for row in micro.describe(app).endpoints if row.path == "/api/x"
     )
 
-    assert endpoint.applies == ()
+    assert endpoint.applies == ("cache 60s",)
 
 
 def test_describe_does_not_apply_cache_before_an_ordinary_dependency() -> None:
@@ -754,7 +756,6 @@ def test_describe_idempotency_refreshes_dynamic_auth_topology() -> None:
             ),
         )
     )
-    assert component.route_is_gated("POST", "/private/charge")
     after = {row.path: row.applies for row in micro.describe(app).endpoints}
 
     assert before == {"/public": ("idempotent 86400s",)}
@@ -909,3 +910,76 @@ def test_report_types_stay_out_of_the_import_path() -> None:
     )
 
     assert result.stdout.strip() == "False"
+
+
+def _counted_reads(app: FastAPI, calls: dict[str, int]) -> None:
+    """Add `GET /a` declaring `CachedResponse(ttl=60)`, and `GET /b` declaring none."""
+
+    @app.get("/a", dependencies=[CachedResponse(ttl=60)])
+    async def a() -> dict[str, int]:
+        calls["a"] = calls.get("a", 0) + 1
+        return {"calls": calls["a"]}
+
+    @app.get("/b")
+    async def b() -> dict[str, int]:
+        calls["b"] = calls.get("b", 0) + 1
+        return {"calls": calls["b"]}
+
+
+def test_describe_cache_under_app_authentication_reports_what_is_cached() -> (
+    None
+):
+    """Checks above a route stop a pattern, not the route's own declaration."""
+    # Arrange
+    calls: dict[str, int] = {}
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(
+        AuthenticationMiddleware, backend=_AnonymousAuthentication()
+    )
+    _counted_reads(app, calls)
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), CachedResponses(include=("/b",))]
+    )
+    micro.install(app)
+
+    # Act
+    applies = {row.path: row.applies for row in micro.describe(app).endpoints}
+    with TestClient(app) as client:
+        for path in ("/a", "/a", "/b", "/b"):
+            client.get(path)
+
+    # Assert
+    assert applies["/a"] == ("cache 60s",)
+    assert applies["/b"] == ()
+    assert calls == {"a": 1, "b": 2}
+
+
+def test_describe_cache_declared_under_a_mount_with_middleware_reports_it_cached() -> (
+    None
+):
+    """A route declaring `CachedResponse()` under a mounted app's middleware is cached."""
+    # Arrange
+    calls: dict[str, int] = {}
+    sub = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    sub.add_middleware(CORSMiddleware, allow_origins=["*"])
+    _counted_reads(sub, calls)
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.mount("/sub", sub)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=("/sub/b",)),
+        ]
+    )
+    micro.install(app)
+
+    # Act
+    applies = {row.path: row.applies for row in micro.describe(app).endpoints}
+    with TestClient(app) as client:
+        for path in ("/sub/a", "/sub/a", "/sub/b", "/sub/b"):
+            client.get(path)
+
+    # Assert
+    assert applies["/sub/a"] == ("cache 60s",)
+    assert applies["/sub/b"] == ()
+    assert calls == {"a": 1, "b": 2}

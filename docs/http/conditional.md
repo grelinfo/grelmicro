@@ -256,6 +256,16 @@ creates under enforcement.
 Setting both is fine. The middleware answers first, and the handler's own check
 then never sees a request without a precondition.
 
+`ConditionalRequestsMiddleware` added by hand answers before routing, and
+refuses a method `require_precondition` names on every path `include=` and
+`exclude=` select, a URL no route answers included.
+
+!!! warning "Added by hand, it does not see a route's own checks"
+    A `428` is answered before an authentication dependency, or before
+    middleware on a mount that reads a header such as a tenant. Do not name
+    such a route in `include=`, or register `ConditionalRequests()` and call
+    `micro.install(app)`, which reads them.
+
 ## Which endpoints it applies to
 
 The two halves are selected differently, on purpose.
@@ -550,7 +560,7 @@ registered, and `ProblemDetail` otherwise.
 ## Component parameters
 
 `ConditionalRequests` and `ConditionalRequestsMiddleware` take the same
-options, so a registered component and a hand-added middleware answer the same.
+options. Only the registered one reads the routes.
 
 | Parameter | Default | Behaviour |
 |---|---|---|

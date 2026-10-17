@@ -87,6 +87,9 @@ that a client library used to accept.
 | `404` or `405` where a write without `If-Match` got `428`, on an app without `AuthenticatedRequests` | 0.42 | [Expected, the route answers first](#0-42-answered-at-route) |
 | `404` or `405` where a request without `Idempotency-Key` got `400` from `require_key=True`, on an app without `AuthenticatedRequests` | 0.42 | [Expected, the route answers first](#0-42-answered-at-route) |
 | A path an `include=` pattern names under middleware on a mount or a mounted app is no longer cached | 0.42 | [Declare `CachedResponse()` on the route](#0-42-answered-at-route) |
+| A route declaring `CachedResponse()` is no longer cached by a `CachedResponsesMiddleware` added by hand | 0.42 | [Register the component](#0-42-hand-added) |
+| A middleware added by hand answers before a route's own checks, such as an authentication dependency | 0.42 | [Register the component](#0-42-hand-added) |
+| `TypeError: ... got an unexpected keyword argument 'policies'` from `CachedResponsesMiddleware` | 0.42 | [Drop it](#0-42-hand-added) |
 
 ## 0.42
 
@@ -327,6 +330,23 @@ lists every field and rule. Until the hooks ship, list the public paths in
 ### The cache, idempotency and conditional requests answer at the route {#0-42-answered-at-route}
 
 `CachedResponses`, `IdempotentRequests` and `ConditionalRequests` run at the route on every app, with `AuthenticatedRequests` or without it. On an app without it, a URL no route answers is neither cached nor replayed, such as the `200` a not-found handler of your own answers, and a `HEAD` is read from the stored `GET` only on a route that answers both. Declare a route for what has to be cached or replayed. A write `require_precondition=` names gets `428`, and a request without a key `require_key=True` asks for gets `400`, only on a route that takes it: an unknown URL gets `404`, and a method the route does not take gets `405`. An `include=` pattern never caches a route under middleware on a mount, a router or a mounted app, with `AuthenticatedRequests` or without. Declare `CachedResponse()` on such a route when its response is the same for every caller. The rate limit still counts every request in front of the router. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
+
+### A middleware added by hand reads no route {#0-42-hand-added}
+
+`CachedResponsesMiddleware`, `IdempotencyMiddleware` and `ConditionalRequestsMiddleware` added by hand no longer read the app's routes. Each one decides from its own `include=` and `exclude=` and the request headers. A request carrying `Authorization` or `Cookie` still skips the cache and the default idempotency key, and a response setting a cookie is still not stored. A route's own checks, such as an authentication dependency or middleware on a mount that reads a tenant header, are not seen there, and neither is its `CachedResponse()`. Register the component, which reads them:
+
+```python
+# Before
+app.add_middleware(
+    CachedResponsesMiddleware, cache=TTLCache(), include={"/products/*": 60}
+)
+
+# After
+micro = Grelmicro(uses=[..., CachedResponses(include={"/products/*": 60})])
+micro.install(app)
+```
+
+Or keep it added by hand and leave such routes out of `include=`. `CachedResponsesMiddleware(policies=...)` is removed, so drop it. ([#1065](https://github.com/grelinfo/grelmicro/issues/1065))
 
 ### `CacheError` is removed {#0-42-cache-error}
 

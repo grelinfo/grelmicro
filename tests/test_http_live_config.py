@@ -31,7 +31,7 @@ from grelmicro._describe import (
     _Endpoint,
     _reach,
 )
-from grelmicro._paths import selects
+from grelmicro._paths import matches, selects
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
@@ -52,9 +52,8 @@ from grelmicro.http import (
     RateLimitedRequestsConfig,
 )
 from grelmicro.http._ratelimit import describe_rate_limit
-from grelmicro.http._response_cache import _Policies
 from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import CachedResponse
+from grelmicro.integrations.fastapi import CachedResponse, route_declarations
 from grelmicro.log import AccessLog, AccessLogConfig
 from grelmicro.resilience import RateLimiter
 from grelmicro.security import TrustedProxies
@@ -141,6 +140,21 @@ def _cached_responses(micro: Grelmicro) -> CachedResponses:
     )
 
 
+def _ttl_at_route(
+    component: CachedResponses,
+    app: FastAPI,
+    path: str,
+    method: str = "GET",
+) -> timedelta | None:
+    """Return how long the route's gate lets the cache keep `path`, as it runs."""
+    (declaration,) = (
+        declaration
+        for declaration in route_declarations(app)
+        if declaration.path == path and method in (declaration.methods or ())
+    )
+    return component._live.state.policies.ttl_at(declaration, path, DEFAULT_TTL)
+
+
 def _mounted(tmp_path: Path, text: str = YAML) -> str:
     """Write a config document and return the path to it."""
     path = tmp_path / "config.yaml"
@@ -192,11 +206,14 @@ async def test_a_pattern_keyed_mapping_survives_the_flattening(
     async with ExternalConfig(_mounted(tmp_path), reload_interval=60):
         # Assert
         policies = cache._live.state.policies
-        assert policies.ttl_for("/products/hot", cache.config.ttl) == HOT_TTL
         assert (
-            policies.ttl_for("/products/other", cache.config.ttl) == DEFAULT_TTL
+            policies.pattern_ttl("/products/hot", cache.config.ttl) == HOT_TTL
         )
-        assert policies.ttl_for("/orders", cache.config.ttl) is None
+        assert (
+            policies.pattern_ttl("/products/other", cache.config.ttl)
+            == DEFAULT_TTL
+        )
+        assert policies.pattern_ttl("/orders", cache.config.ttl) is None
 
 
 async def test_the_window_is_tuned_where_the_store_lives(
@@ -257,23 +274,21 @@ async def test_a_live_include_cannot_cache_a_gated_read() -> None:
     app = FastAPI()
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
 
-    @app.get("/private", dependencies=[Depends(gate)])
-    async def private() -> dict[str, str]:
-        return {"secret": "kept"}
+    @app.get("/private")
+    async def private(key: Annotated[str, Depends(gate)]) -> dict[str, str]:
+        return {"secret": key}
 
     micro.install(app)
     component = _cached_responses(micro)
 
     # Act
     await component.reconfigure(CachedResponsesConfig(include={"/private": 60}))
+    with TestClient(app) as client:
+        client.get("/private", headers={"X-Key": "first"})
+        second = client.get("/private", headers={"X-Key": "second"})
 
     # Assert
-    assert (
-        component._live.state.policies.ttl_for(
-            "/private", timedelta(seconds=60)
-        )
-        is None
-    )
+    assert second.json() == {"secret": "second"}
 
 
 async def test_a_bad_live_value_keeps_the_running_config(
@@ -721,9 +736,9 @@ def test_a_tuple_include_keeps_every_path_for_the_component_ttl() -> None:
     policies = component._live.state.policies
 
     # Assert
-    assert policies.ttl_for("/products/list", TUPLE_TTL) == TUPLE_TTL
-    assert policies.ttl_for("/catalog", TUPLE_TTL) == TUPLE_TTL
-    assert policies.ttl_for("/orders", TUPLE_TTL) is None
+    assert policies.pattern_ttl("/products/list", TUPLE_TTL) == TUPLE_TTL
+    assert policies.pattern_ttl("/catalog", TUPLE_TTL) == TUPLE_TTL
+    assert policies.pattern_ttl("/orders", TUPLE_TTL) is None
 
 
 def test_a_head_route_is_not_a_row_of_its_own() -> None:
@@ -1308,10 +1323,9 @@ def test_a_gated_read_under_a_marked_router_is_not_reported_as_cached() -> None:
     assert rows[("GET", "/open")] == ("cache 60s",)
     assert rows[("GET", "/secret")] == ()
     assert rows[("POST", "/write")] == ()
-    policies = component._live.state.policies
-    assert policies.ttl_for("/open", DEFAULT_TTL) == DEFAULT_TTL
-    assert policies.ttl_for("/secret", DEFAULT_TTL) is None
-    assert policies.ttl_for("/write", DEFAULT_TTL) is None
+    assert _ttl_at_route(component, app, "/open") == DEFAULT_TTL
+    assert _ttl_at_route(component, app, "/secret") is None
+    assert _ttl_at_route(component, app, "/write", "POST") is None
 
 
 def test_a_duplicate_may_be_answered_without_waiting() -> None:
@@ -1671,8 +1685,6 @@ def test_a_route_with_no_regex_reaches_no_pattern() -> None:
     endpoint = _Endpoint(
         method="GET",
         path="/orders/{placed:date}",
-        route=None,
-        contexts=(),
         regex=None,
     )
 
@@ -1758,8 +1770,8 @@ def test_the_hand_wired_cache_takes_the_tuple_form_too() -> None:
 
     # Assert
     policies = middleware._live.state.policies
-    assert policies.ttl_for("/products/list", DEFAULT_TTL) == DEFAULT_TTL
-    assert policies.ttl_for("/orders", DEFAULT_TTL) is None
+    assert policies.pattern_ttl("/products/list", DEFAULT_TTL) == DEFAULT_TTL
+    assert policies.pattern_ttl("/orders", DEFAULT_TTL) is None
 
 
 def test_a_pattern_naming_a_gated_url_is_never_cached() -> None:
@@ -1929,15 +1941,21 @@ def test_what_the_app_refuses_is_never_cached_however_it_is_asked() -> None:
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(router)
-    policies = _Policies({"/products/open": DEFAULT_TTL})
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            ErrorResponses(),
+            CachedResponses(include={"/products/*": DEFAULT_TTL}),
+        ]
+    )
 
     # Act
-    policies.read(app)
+    micro.install(app)
+    component = _cached_responses(micro)
 
-    # Assert: asked directly, with no pattern naming either of them.
-    assert policies.pattern_ttl("/products/open", DEFAULT_TTL) == DEFAULT_TTL
-    assert policies.pattern_ttl("/products/secret", DEFAULT_TTL) is None
-    assert policies.ttl_for("/products/secret", DEFAULT_TTL) is None
+    # Assert: the route's declaration is asked, whatever the pattern names.
+    assert _ttl_at_route(component, app, "/products/open") == DEFAULT_TTL
+    assert _ttl_at_route(component, app, "/products/secret") is None
 
 
 def test_a_pattern_written_for_a_write_is_refused() -> None:
@@ -1989,7 +2007,7 @@ def test_exclude_carves_a_gated_read_out_of_a_prefix() -> None:
     """
 
     # Arrange
-    def build(**kwargs: Any) -> _Policies:  # noqa: ANN401
+    def build(**kwargs: Any) -> Callable[[str], timedelta | None]:  # noqa: ANN401
         app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
         micro = Grelmicro(
             uses=[
@@ -2008,18 +2026,25 @@ def test_exclude_carves_a_gated_read_out_of_a_prefix() -> None:
             return {}
 
         micro.install(app)
-        return _cached_responses(micro)._live.state.policies
+        component = _cached_responses(micro)
+
+        def ttl(path: str) -> timedelta | None:
+            if matches(path, component.config.exclude):
+                return None
+            return _ttl_at_route(component, app, path)
+
+        return ttl
 
     # Act
-    policies = build(include=("/api/*",), exclude=("/api/private",))
+    carved = build(include=("/api/*",), exclude=("/api/private",))
 
     # Assert: the open read is kept, the gated one is not.
-    assert policies.pattern_ttl("/api/public", DEFAULT_TTL) == DEFAULT_TTL
-    assert policies.pattern_ttl("/api/private", DEFAULT_TTL) is None
+    assert carved("/api/public") == DEFAULT_TTL
+    assert carved("/api/private") is None
     # And without the carve-out the gated one is still left uncached.
     whole = build(include=("/api/*",))
-    assert whole.pattern_ttl("/api/public", DEFAULT_TTL) == DEFAULT_TTL
-    assert whole.pattern_ttl("/api/private", DEFAULT_TTL) is None
+    assert whole("/api/public") == DEFAULT_TTL
+    assert whole("/api/private") is None
 
 
 def test_a_prefix_cutting_into_a_parameter_names_the_route() -> None:

@@ -12,26 +12,21 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import FastAPI
 from litestar import Litestar
 from litestar import Request as LitestarRequest
 from litestar import get as litestar_get
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
-from starlette.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
-from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.exceptions import ExceptionMiddleware
 from starlette.routing import Mount, Route, Router, compile_path
 
 from grelmicro._paths import (
     _request_authority,
-    _RouteTopologyState,
-    _TopologyWatch,
+    _routing_app,
     _transparent_routing_source,
-    _watch_dependency_topology,
-    _watch_topology_node,
     matches,
     names_route,
     route_path,
@@ -47,7 +42,6 @@ from grelmicro.http import (
     RateLimitedRequests,
 )
 from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.log import AccessLog, AccessLogMiddleware
 from grelmicro.resilience import RateLimiter
 from grelmicro.security import TrustedProxies
@@ -178,253 +172,6 @@ def test_route_walker_stops_at_a_mounted_app_with_middleware_of_its_own() -> (
 
     # Act / Assert
     assert walk_routes(Mount("/private", app=guarded)) == []
-
-
-def test_dependency_walk_stops_a_cycle_instead_of_recursing() -> None:
-    """A dependency that reaches itself is registered once, not walked forever."""
-    dependency = SimpleNamespace(call=None, dependencies=[])
-    dependency.dependencies.append(dependency)
-    watch = _TopologyWatch()
-
-    _watch_dependency_topology(dependency, watch=watch)
-
-    entries = watch.signature()[5]
-    assert len(entries) == 1
-    assert entries[0][0] == id(dependency)
-    assert entries[0][3] == (id(dependency),)
-
-
-def test_topology_generation_collects_router_declared_dependencies() -> None:
-    """Router-level dependencies participate in the guarded full snapshot."""
-    router = APIRouter(dependencies=[Depends(app)])
-
-    snapshot = _RouteTopologyState(router)
-
-    assert not snapshot.changed()
-    assert snapshot.value[5]
-
-
-def test_topology_generation_detects_same_length_replacement_and_reorder() -> (
-    None
-):
-    """Ordered route identities catch mutations that preserve list length."""
-    first = Route("/first", app, methods=["GET"])
-    second = Route("/second", app, methods=["GET"])
-    router = Router(routes=[first, second])
-    snapshot = _RouteTopologyState(router)
-
-    router.routes[0] = Route("/replacement", app, methods=["GET"])
-    assert snapshot.changed()
-
-    snapshot.rebuild()
-    router.routes.reverse()
-    assert snapshot.changed()
-
-
-def test_topology_generation_detects_policy_mutation_on_existing_nodes() -> (
-    None
-):
-    """Dependency, method, authentication, and middleware edits invalidate."""
-
-    class Backend(AuthenticationBackend):
-        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
-            return None
-
-    web = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-
-    @web.get("/x")
-    async def x() -> None:
-        return None
-
-    route = cast("Any", web.routes[0])
-    snapshot = _RouteTopologyState(web)
-
-    route.methods.add("POST")
-    assert snapshot.changed()
-
-    snapshot.rebuild()
-    dependency = SimpleNamespace(
-        call=app,
-        dependencies=[],
-        dependency_overrides_provider=None,
-    )
-    route.dependant.dependencies.append(dependency)  # codespell:ignore
-    assert snapshot.changed()
-
-    snapshot.rebuild()
-    dependency.call = x
-    assert snapshot.changed()
-
-    snapshot.rebuild()
-    route.app = AuthenticationMiddleware(route.app, backend=Backend())
-    assert snapshot.changed()
-
-    snapshot.rebuild()
-    web.user_middleware.append(
-        Middleware(CORSMiddleware, allow_origins=["https://example.test"])
-    )
-    assert snapshot.changed()
-
-
-def test_topology_generation_watches_nothing_without_an_application() -> None:
-    """An entry point with no application holds a signature that never moves."""
-    snapshot = _RouteTopologyState(None)
-
-    assert not any(snapshot.value)
-    assert not snapshot.changed()
-
-
-def test_route_topology_reads_a_bound_router_as_its_router() -> None:
-    """A bound `Router.app` describes the router it belongs to, not a wrapper."""
-    router = Router(routes=[Route("/x", app)])
-
-    assert (
-        _RouteTopologyState(router.app).value
-        == _RouteTopologyState(router).value
-    )
-
-
-def test_snapshot_walk_watches_the_nodes_whose_later_edits_matter() -> None:
-    """A snapshot walk handed a watch registers what a later edit can change."""
-
-    class Backend(AuthenticationBackend):
-        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
-            return None
-
-    child = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-
-    @child.get("/x")
-    async def x() -> None:
-        return None
-
-    web = FastAPI(
-        docs_url=None,
-        redoc_url=None,
-        openapi_url=None,
-        dependencies=[Depends(app)],
-    )
-    web.mount("/sub", child)
-    web.mount("/other", Router())
-    guarded = AuthenticationMiddleware(web, backend=Backend())
-
-    watch = _TopologyWatch()
-    _watch_topology_node(guarded, frozenset(), watch=watch)
-
-    # The wrapper, so replacing the application it delegates to is seen.
-    before = watch.signature()
-    guarded.app = Router()
-    assert watch.signature() != before
-
-    # The mounted route, so swapping the application behind it is seen.
-    before = watch.signature()
-    cast("Any", web.routes[-1]).app = Router()
-    assert watch.signature() != before
-
-    # The leaf route, so widening the methods it answers is seen.
-    before = watch.signature()
-    cast("Any", child.routes[0]).methods.add("POST")
-    assert watch.signature() != before
-
-    # The router, so replacing a route in place is seen.
-    before = watch.signature()
-    child.router.routes[0] = Route("/replacement", app)
-    assert watch.signature() != before
-
-    # The override provider each holder and dependency resolved to.
-    before = watch.signature()
-    web.dependency_overrides[app] = x
-    assert watch.signature() != before
-
-
-def test_route_topology_tracks_dependency_override_identities() -> None:
-    """Override keys, values, and effective calls invalidate route policy."""
-    web = FastAPI()
-    marker = CachedResponse()
-
-    @web.get("/x", dependencies=[marker])
-    async def x() -> None:
-        return None
-
-    async def first() -> None:
-        return None
-
-    async def second() -> None:
-        return None
-
-    async def unrelated() -> None:
-        return None
-
-    original = _RouteTopologyState(web).value
-    web.dependency_overrides[marker.dependency] = first
-    first_override = _RouteTopologyState(web).value
-    web.dependency_overrides[marker.dependency] = second
-    second_override = _RouteTopologyState(web).value
-    web.dependency_overrides[unrelated] = first
-    unrelated_override = _RouteTopologyState(web).value
-    web.dependency_overrides.clear()
-
-    assert first_override != original
-    assert second_override != first_override
-    assert unrelated_override != second_override
-    assert _RouteTopologyState(web).value == original
-
-
-def test_included_topology_inherits_an_empty_contexts_override_provider() -> (
-    None
-):
-    """Provider identity and mappings count without include dependencies."""
-    web = FastAPI()
-    router = FastAPI().router
-    marker = CachedResponse()
-
-    @router.get("/x", dependencies=[marker])
-    async def x() -> None:
-        return None
-
-    web.include_router(router)
-    inclusion = web.routes[-1]
-    context = cast("Any", inclusion).include_context
-    assert context.dependencies == []
-
-    original = _RouteTopologyState(web).value
-    replacement = SimpleNamespace(dependency_overrides={})
-    context.dependency_overrides_provider = replacement
-    provider_changed = _RouteTopologyState(web).value
-    replacement.dependency_overrides[marker.dependency] = app
-    mapping_changed = _RouteTopologyState(web).value
-    replacement.dependency_overrides.clear()
-
-    assert provider_changed != original
-    assert mapping_changed != provider_changed
-    assert _RouteTopologyState(web).value == provider_changed
-
-
-def test_included_topology_ignores_shadowed_child_override_providers() -> None:
-    """Only the outer include provider can change its effective topology."""
-    marker = CachedResponse()
-    child = FastAPI()
-
-    @child.get("/x", dependencies=[marker])
-    async def x() -> None:
-        return None
-
-    parent = FastAPI()
-    parent.include_router(child.router)
-    original = _RouteTopologyState(parent).value
-
-    async def child_override() -> None:
-        return None
-
-    child.dependency_overrides[marker.dependency] = child_override
-    child_changed = _RouteTopologyState(parent).value
-
-    async def parent_override() -> None:
-        return None
-
-    parent.dependency_overrides[marker.dependency] = parent_override
-
-    assert child_changed == original
-    assert _RouteTopologyState(parent).value != original
 
 
 @pytest.mark.parametrize(
@@ -579,6 +326,20 @@ def test_request_authority_is_canonical_and_uses_server_fallback(
     assert _request_authority(scope) == expected
 
 
+def test_routing_app_middleware_loop_returns_the_loop() -> None:
+    """A malformed middleware cycle terminates without inventing routes."""
+
+    # Arrange
+    class Loop:
+        app: Any
+
+    loop = Loop()
+    loop.app = loop
+
+    # Act / Assert
+    assert _routing_app(loop) is loop
+
+
 def test_route_walker_stops_cycles_per_path_not_globally() -> None:
     """Cycles stop while repeated mounts retain both distinct prefixes."""
     # Arrange
@@ -603,14 +364,10 @@ def test_route_walker_stops_cycles_per_path_not_globally() -> None:
         f"{prefix}{route.path}"
         for prefix, route, _contexts in walk_routes(cyclic)
     ]
-    before = _RouteTopologyState(cyclic).value
-    cyclic.add_api_route("/later", charge, methods=["POST"])
-    after = _RouteTopologyState(cyclic).value
 
     # Assert
     assert repeated_paths == ["/one/items", "/two/items"]
     assert cyclic_paths.count("/charge") == 1
-    assert before != after
 
 
 def components() -> list[tuple[str, Any]]:

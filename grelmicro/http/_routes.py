@@ -8,11 +8,13 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, Protocol
 
 from typing_extensions import Doc
 
+from grelmicro._discovery import load_integration
 from grelmicro._duration import in_range
+from grelmicro._paths import path_format
 from grelmicro.errors import _scope_tokens
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, MutableMapping
+    from collections.abc import Awaitable, Callable, Iterable, MutableMapping
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -20,7 +22,15 @@ if TYPE_CHECKING:
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
-__all__ = ["Gate", "RouteDeclaration", "refuse_impossible", "route_name"]
+__all__ = [
+    "DeclaredRoutes",
+    "Gate",
+    "RouteDeclaration",
+    "listed_routes",
+    "refuse_impossible",
+    "route_name",
+    "runs_checks",
+]
 
 _READS: Final = frozenset({"GET", "HEAD"})
 """The methods whose responses may be cached."""
@@ -250,6 +260,47 @@ def _refuse_impossible_cache(declaration: RouteDeclaration, route: str) -> None:
             f"HEAD response is cached, so declare cache on the reads alone."
         )
         raise ValueError(msg)
+
+
+def listed_routes(app: object) -> list[RouteDeclaration]:
+    """Return what the routes of `app` declare, as its integration lists them.
+
+    An app whose integration has no `route_declarations` declares nothing.
+    """
+    listed = getattr(load_integration(app), "route_declarations", None)
+    return [] if listed is None else list(listed(app))
+
+
+class DeclaredRoutes:
+    """The declarations an integration lists, found by path and method.
+
+    A path matches a declaration written the same way, or, when none is,
+    one written without the path's converters.
+    """
+
+    __slots__ = ("_exact",)
+
+    def __init__(self, declarations: Iterable[RouteDeclaration]) -> None:
+        """Index each declaration under every method it answers."""
+        self._exact: dict[tuple[str, str | None], RouteDeclaration] = {}
+        for declaration in declarations:
+            for method in declaration.methods or (None,):
+                self._exact.setdefault((declaration.path, method), declaration)
+
+    def of(self, path: str, method: str) -> RouteDeclaration | None:
+        """Return the declaration of `method` on `path`, or `None`."""
+        return self._written(path, method) or self._written(
+            path_format(path), method
+        )
+
+    def _written(self, path: str, method: str) -> RouteDeclaration | None:
+        """Return the declaration of `method` on `path` written as it is, or `None`."""
+        return self._exact.get((path, method)) or self._exact.get((path, None))
+
+
+def runs_checks(declaration: RouteDeclaration) -> bool:
+    """Return whether checks run before the route's handler, its own or above it."""
+    return declaration.own_checks or declaration.checked_above
 
 
 def route_name(declaration: RouteDeclaration) -> str:

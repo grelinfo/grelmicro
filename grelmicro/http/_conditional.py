@@ -738,6 +738,9 @@ class ConditionalRequestsMiddleware:
     Register `ConditionalRequests()` instead to have `micro.install(app)`
     add it for you.
 
+    Added by hand, it decides from `include` and `exclude` alone, and does
+    not see a route's own checks.
+
     The `304` saves the response, not the work: the handler has already
     run by the time the body is there to hash. A handler that knows its
     resource's version cheaply should compare it itself and skip the load.

@@ -31,7 +31,6 @@ from grelmicro._discovery import load_integration
 from grelmicro._paths import (
     PathPatterns,
     as_patterns,
-    path_format,
     route_path,
     route_template,
     selects,
@@ -83,7 +82,12 @@ from grelmicro.http._openapi import (
 )
 from grelmicro.http._ratelimit import bucket_of
 from grelmicro.http._requirement import TOKEN_SCOPE_KEY
-from grelmicro.http._routes import RouteDeclaration, route_name
+from grelmicro.http._routes import (
+    DeclaredRoutes,
+    RouteDeclaration,
+    listed_routes,
+    route_name,
+)
 from grelmicro.security._events import SCOPE_KEY, SecurityEvents
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
@@ -306,7 +310,7 @@ def route_authentication(
     gated = hasattr(integration, "install_route_gate") and hasattr(
         integration, "route_declarations"
     )
-    declared = _Declared(_listed(app))
+    declared = DeclaredRoutes(listed_routes(app))
     shadowed = _shadowed(integration, app) if gated else frozenset()
 
     def read(path: str, method: str) -> tuple[bool, tuple[str, ...]]:
@@ -324,12 +328,6 @@ def route_authentication(
     return read
 
 
-def _listed(app: Any) -> Iterable[RouteDeclaration]:  # noqa: ANN401
-    """Return the declarations the app's integration lists, none without `route_declarations`."""
-    listed = getattr(load_integration(app), "route_declarations", None)
-    return () if listed is None else listed(app)
-
-
 def _shadowed(
     integration: object,
     app: Any,  # noqa: ANN401
@@ -341,33 +339,6 @@ def _shadowed(
     """
     shadowed = getattr(integration, "_shadowed_routes", None)
     return frozenset(() if shadowed is None else shadowed(app))
-
-
-class _Declared:
-    """The declarations an integration lists, found by path and method.
-
-    A path matches a declaration written the same way, or, when none is,
-    one written without the path's converters.
-    """
-
-    __slots__ = ("_exact",)
-
-    def __init__(self, declarations: Iterable[RouteDeclaration]) -> None:
-        """Index each declaration under every method it answers."""
-        self._exact: dict[tuple[str, str | None], RouteDeclaration] = {}
-        for declaration in declarations:
-            for method in declaration.methods or (None,):
-                self._exact.setdefault((declaration.path, method), declaration)
-
-    def of(self, path: str, method: str) -> RouteDeclaration | None:
-        """Return the declaration of `method` on `path`, or `None`."""
-        return self._written(path, method) or self._written(
-            path_format(path), method
-        )
-
-    def _written(self, path: str, method: str) -> RouteDeclaration | None:
-        """Return the declaration of `method` on `path` written as it is, or `None`."""
-        return self._exact.get((path, method)) or self._exact.get((path, None))
 
 
 def serves_anonymous_routes(app: Any) -> bool:  # noqa: ANN401
@@ -471,7 +442,7 @@ def operation_declarations(
     """
     read = route_authentication(app)
     found: list[RouteDeclaration] = []
-    for declaration in _listed(app):
+    for declaration in listed_routes(app):
         # `None` answers every method, as a mount or a websocket route does.
         for method in declaration.methods or (None,):
             served, required = read(declaration.path, method or "")
@@ -2282,7 +2253,7 @@ def refuse_routes_at_metadata(
     """
     if metadata is None:
         return
-    for declaration in _listed(app):
+    for declaration in listed_routes(app):
         if declaration.path not in metadata.paths:
             continue
         msg = (

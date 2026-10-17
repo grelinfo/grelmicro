@@ -54,6 +54,7 @@ from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsMiddleware,
     CachedResponses,
+    ConditionalRequestsMiddleware,
     ErrorResponses,
     IdempotentRequests,
     RateLimitedRequests,
@@ -63,7 +64,6 @@ from grelmicro.http import (
 from grelmicro.http._routes import refuse_impossible
 from grelmicro.integrations import fastapi as fastapi_integration
 from grelmicro.integrations import starlette as starlette_integration
-from grelmicro.integrations._route_gate import declarations_of, lists_routes
 from grelmicro.integrations.fastapi import Anonymous, CachedResponse
 from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
 from grelmicro.integrations.litestar import (
@@ -902,7 +902,11 @@ class TestUngated:
         self, monkeypatch: pytest.MonkeyPatch, *, lists: bool
     ) -> None:
         """No gate serves a caller with no credential, so the report names none."""
-        for module in ("grelmicro._app", "grelmicro.http._authentication"):
+        for module in (
+            "grelmicro._app",
+            "grelmicro.http._authentication",
+            "grelmicro.http._routes",
+        ):
             monkeypatch.setattr(
                 f"{module}.load_integration",
                 lambda app: fake_integration(  # noqa: ARG005
@@ -1028,7 +1032,11 @@ class TestReadFromDeclarations:
         integration: Any,  # noqa: ANN401
     ) -> None:
         """Make `integration` the one every reader of the app loads."""
-        for module in ("grelmicro._app", "grelmicro.http._authentication"):
+        for module in (
+            "grelmicro._app",
+            "grelmicro.http._authentication",
+            "grelmicro.http._routes",
+        ):
             monkeypatch.setattr(
                 f"{module}.load_integration",
                 lambda app: integration,  # noqa: ARG005
@@ -2683,6 +2691,26 @@ class TestDeclarations:
             ("/checked/b", False, True),
         ]
 
+    def test_route_declarations_router_with_grelmicro_middleware_declares_no_check(
+        self,
+    ) -> None:
+        """Middleware of grelmicro's own on a router checks no caller."""
+        # Arrange
+        router = Router(
+            routes=[Route("/a", served, methods=["POST"])],
+            middleware=[Middleware(ConditionalRequestsMiddleware)],
+        )
+        app = Starlette(routes=[Mount("/r", app=router)])
+
+        # Act
+        declared = route_declarations(app)
+
+        # Assert
+        assert [
+            (item.path, item.own_checks, item.checked_above)
+            for item in declared
+        ] == [("/r/a", False, False)]
+
     def test_route_declarations_router_authentication_matches_the_gates(
         self,
     ) -> None:
@@ -2706,29 +2734,6 @@ class TestDeclarations:
             (item.path, item.own_checks, item.checked_above)
             for item in route_declarations(app)
         ] == [("/r/a", False, True)]
-
-    def test_declarations_of_authentication_around_an_app_declares_own_checks(
-        self,
-    ) -> None:
-        """Starlette's authentication wrapped around an app checks every route of it."""
-        # Arrange
-        wrapped = AuthenticationMiddleware(
-            Starlette(routes=[Route("/a", served, methods=["POST"])]),
-            backend=_NoCaller(),
-        )
-        opaque = AuthenticationMiddleware(Counted(), backend=_NoCaller())
-
-        # Act
-        declared = declarations_of(wrapped)
-
-        # Assert
-        assert [
-            (item.path, item.own_checks, item.checked_above)
-            for item in declared
-        ] == [("/a", False, True)]
-        assert declarations_of(opaque) == []
-        assert lists_routes(wrapped)
-        assert not lists_routes(Counted())
 
     @pytest.mark.parametrize("placement", ["mount middleware", "app auth"])
     def test_install_cached_route_under_checks_keeps_its_cache(

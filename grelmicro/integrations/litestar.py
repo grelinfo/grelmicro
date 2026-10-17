@@ -898,11 +898,6 @@ def route_declarations(
     ]
 
 
-def _lists_routes(app: object) -> bool:
-    """Return whether `route_declarations` reads the routes of `app`, a Litestar app."""
-    return isinstance(app, Litestar)
-
-
 def _handler_declarations(
     app: Litestar,
 ) -> list[tuple[Any, str, RouteDeclaration]]:

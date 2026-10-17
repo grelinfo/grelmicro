@@ -156,12 +156,10 @@ from one function, so they cannot disagree. Test them against real routes:
 an included router, a mount and a class-based endpoint are where a missed
 `scopes` hides, and it lets any authenticated caller in.
 
-The response cache and idempotency read the declaration the gate carries.
-An `IdempotencyMiddleware` added by hand, or one on an integration without
-`install_route_gate`, calls `route_declarations` on each object of your
-framework it meets between it and the routes instead, or only on those your
-`_lists_routes(obj)` accepts when the integration carries it. An exception
-`route_declarations` raises fails the request.
+The response cache, idempotency and conditional requests read the
+declaration the gate carries. Added by hand, or on an integration without
+`install_route_gate`, they read no route and decide from their own
+`include=` and `exclude=` patterns and the request headers.
 
 For Starlette, where your own decorators set `anonymous` and `scopes` on the
 endpoint:

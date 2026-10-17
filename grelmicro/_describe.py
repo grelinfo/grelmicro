@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
     from grelmicro._app import Grelmicro
     from grelmicro._component import Component
+    from grelmicro.http._routes import RouteDeclaration
     from grelmicro.providers._base import Provider
     from grelmicro.types import Environment
 
@@ -325,12 +326,11 @@ class _Endpoint:
 
     method: str
     path: str
-    route: Any
-    contexts: tuple[Any, ...]
     regex: Any = None
     authenticated: bool = False
     public: bool = False
     scopes: tuple[str, ...] = ()
+    declaration: RouteDeclaration | None = None
 
 
 SOME_PATHS = " (some paths)"
@@ -426,14 +426,8 @@ def _seconds_text(duration: timedelta) -> str:
 
 
 def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
-    """Return what a `CachedResponses` does to one endpoint.
-
-    The route's own declaration is read off the route, not matched
-    against its path. A declared path is a pattern rather than a URL, so
-    matching `/products/{pid:int}` against the regex compiled from it
-    answers `no` and the endpoint would be reported as uncached.
-    """
-    from grelmicro.http._response_cache import declared_ttl  # noqa: PLC0415
+    """Return what a `CachedResponses` does to one endpoint."""
+    from grelmicro.http._routes import runs_checks  # noqa: PLC0415
 
     def read(endpoint: _Endpoint) -> str | None:
         state = component._live.state  # noqa: SLF001
@@ -441,15 +435,16 @@ def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: 
         # An authenticated request is answered by its handler, never the cache.
         if endpoint.method not in {"GET", "HEAD"} or endpoint.authenticated:
             return None
-        if state.policies._refuses_template(endpoint.path):  # noqa: SLF001
-            return None
-        declared, ttl = declared_ttl(
-            endpoint.route, endpoint.contexts, endpoint.path
-        )
-        if declared:
-            # The route said so itself, so it holds for every URL the
-            # route answers, and only `exclude` can take part of it back.
-            seconds = config.ttl if ttl is None else ttl
+        declaration = endpoint.declaration
+        if declaration is not None and (
+            declaration.cache is not False or runs_checks(declaration)
+        ):
+            # The route's declaration decides, as it does at the route: its
+            # own `cache` holds for every URL the route answers, and only
+            # `exclude` takes part of it back.
+            seconds = state.policies.ttl_at(
+                declaration, endpoint.path, config.ttl
+            )
             reach = _reach(endpoint, (), tuple(config.exclude))
         else:
             # A pattern, which may name the template or one URL under it.
@@ -505,6 +500,7 @@ def _reads_conditional(component: Any) -> Callable[[_Endpoint], str | None]:  # 
 
 def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what an `IdempotentRequests` does to one endpoint."""
+    from grelmicro.http._routes import runs_checks  # noqa: PLC0415
 
     def read(endpoint: _Endpoint) -> str | None:
         config = component.config
@@ -514,7 +510,10 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
             return None
         if component._key_function is None and (  # noqa: SLF001
             endpoint.authenticated
-            or component.route_is_gated(endpoint.method, endpoint.path)
+            or (
+                endpoint.declaration is not None
+                and runs_checks(endpoint.declaration)
+            )
         ):
             return None
         window = component.idempotency.config.ttl
@@ -645,14 +644,12 @@ def _describe_endpoints(
     lose routes hidden behind a CORS or authentication wrapper. Component
     readers still apply their own runtime boundaries to those routes.
     """
+    from grelmicro.http._routes import (  # noqa: PLC0415
+        DeclaredRoutes,
+        listed_routes,
+    )
+
     components = list(micro.components)
-    for component in components:
-        if getattr(component, "kind", None) == "cached_responses":
-            cached: Any = component
-            cached._live.state.policies.refresh(app)  # noqa: SLF001
-        refresh_routes = getattr(component, "refresh_routes", None)
-        if refresh_routes is not None:
-            refresh_routes(app)
     rules = _endpoint_rules(components)
     authenticating = [
         component
@@ -663,8 +660,9 @@ def _describe_endpoints(
     if not rules:
         return ()
     compiled = dict(_declared_paths(app))
+    declared = DeclaredRoutes(listed_routes(app))
     found: list[EndpointReport] = []
-    for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
+    for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
         path = f"{prefix}{getattr(route, 'path', '')}"
         for method in sorted(getattr(route, "methods", ()) or ()):
             if method == "HEAD":
@@ -672,9 +670,8 @@ def _describe_endpoints(
             endpoint = _Endpoint(
                 method=method,
                 path=path,
-                route=route,
-                contexts=contexts,
                 regex=compiled.get(path),
+                declaration=declared.of(path, method),
             )
             if authentication is not None:
                 public, scopes = authentication(path, method)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import sys
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from inspect import iscoroutinefunction
@@ -24,6 +25,9 @@ from fastapi import (
 )
 from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
+from litestar import Litestar
+from litestar import post as litestar_post
+from litestar.params import FromPath
 from starlette.applications import Starlette
 from starlette.authentication import (
     AuthCredentials,
@@ -37,7 +41,6 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route, Router
 
 from grelmicro import Grelmicro
-from grelmicro._paths import _RouteTopologyState
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import SettingsValidationError
@@ -53,11 +56,9 @@ from grelmicro.http._response_cache import (
     _WARNED_LIMIT,
     UNSET,
     _authentication_state,
-    _Policies,
     declare_cached,
-    declared_ttl,
 )
-from grelmicro.integrations.fastapi import CachedResponse
+from grelmicro.integrations.fastapi import CachedResponse, route_declarations
 from tests._logs import records_of
 
 if TYPE_CHECKING:
@@ -82,7 +83,6 @@ OTHER_TTL = timedelta(seconds=300)
 READS = 3
 FOUR = 4
 SHARED_SECONDS = 50.0
-BULK_ROUTES = 1000
 
 
 async def _header_principal(
@@ -137,6 +137,28 @@ class _OpaqueASGI:
     ) -> None:
         """Pass the request through without publishing route metadata."""
         await self.target(scope, receive, send)
+
+
+def _ttl_at_route(
+    component: CachedResponses,
+    app: FastAPI,
+    path: str,
+    default: timedelta,
+) -> timedelta | None:
+    """Return how long the GET route's gate lets the cache keep `path`."""
+    (declaration,) = (
+        declaration
+        for declaration in route_declarations(app)
+        if declaration.path == path and "GET" in (declaration.methods or ())
+    )
+    return component._policies.ttl_at(declaration, path, default)
+
+
+def _install_cache(app: Any, **options: Any) -> None:  # noqa: ANN401
+    """Register `CachedResponses(**options)` on `app` through `micro.install(app)`."""
+    Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), CachedResponses(**options)]
+    ).install(app)
 
 
 def _app(component: CachedResponses) -> FastAPI:
@@ -379,29 +401,24 @@ def test_nested_head_dependency_refuses_an_outer_shared_cache_key() -> None:
         calls["get"] += 1
         return Response(str(calls["get"]))
 
-    app = Router(
+    app = Starlette(
         routes=[
             Route("/reads", inner, methods=["HEAD"]),
             Route("/reads", reads, methods=["GET"]),
         ]
     )
-    wrapped = CachedResponsesMiddleware(
-        app,
-        cache=_cache(),
-        include={"/reads": TTL},
-    )
+    _install_cache(app, include={"/reads": TTL})
 
-    with TestClient(wrapped) as client:
+    with TestClient(app) as client:
         first = client.get("/reads")
         second = client.get("/reads")
         anonymous = client.head("/reads")
         authorized = client.head("/reads", headers={"X-API-Key": "alice"})
 
-    assert first.text == "1"
-    assert second.text == "2"
+    assert first.text == second.text == "1"
     assert anonymous.status_code == HTTP_401_UNAUTHORIZED
     assert authorized.status_code == HTTP_200_OK
-    assert calls == {"get": 2, "head": 1}
+    assert calls == {"get": 1, "head": 1}
 
 
 def test_head_authentication_middleware_refuses_the_shared_cache_key() -> None:
@@ -429,7 +446,7 @@ def test_head_authentication_middleware_refuses_the_shared_cache_key() -> None:
         calls["get"] += 1
         return Response(str(calls["get"]))
 
-    app = Router(
+    app = Starlette(
         routes=[
             Route(
                 "/reads",
@@ -445,23 +462,18 @@ def test_head_authentication_middleware_refuses_the_shared_cache_key() -> None:
             Route("/reads", reads, methods=["GET"]),
         ]
     )
-    wrapped = CachedResponsesMiddleware(
-        app,
-        cache=_cache(),
-        include={"/reads": TTL},
-    )
+    _install_cache(app, include={"/reads": TTL})
 
-    with TestClient(wrapped) as client:
+    with TestClient(app) as client:
         first = client.get("/reads")
         second = client.get("/reads")
         anonymous = client.head("/reads")
         authorized = client.head("/reads", headers={"X-API-Key": "alice"})
 
-    assert first.text == "1"
-    assert second.text == "2"
+    assert first.text == second.text == "1"
     assert anonymous.status_code == HTTP_401_UNAUTHORIZED
     assert authorized.status_code == HTTP_200_OK
-    assert calls == {"get": 2, "head": 1}
+    assert calls == {"get": 1, "head": 1}
 
 
 def test_post_authentication_does_not_disable_public_get_caching() -> None:
@@ -1599,15 +1611,11 @@ def test_leaf_fastapi_dependency_is_an_exact_cache_boundary() -> None:
         return Response(f"{request.headers['x-api-key']}:{calls}")
 
     middle = Router(routes=[Route("/private", inner)])
-    app = Router(routes=[Route("/private", middle)])
-    wrapped = CachedResponsesMiddleware(
-        app,
-        cache=_cache(),
-        include={"/private": TTL},
-    )
+    app = Starlette(routes=[Route("/private", middle)])
+    _install_cache(app, include={"/private": TTL})
 
     # Act
-    with TestClient(wrapped) as client:
+    with TestClient(app) as client:
         alice = client.get("/private", headers={"X-API-Key": "alice"})
         bob = client.get("/private", headers={"X-API-Key": "bob"})
         anonymous = client.get("/private")
@@ -1796,42 +1804,6 @@ def test_route_transparent_mounted_wrapper_runs_before_a_hit(
     assert second.json() == {"calls": 1 if policy == "declaration" else 2}
 
 
-def test_a_policy_never_read_reads_nothing_until_it_is_handed_an_app() -> None:
-    """A request carrying no app leaves the patterns to answer alone."""
-    # Arrange
-    policies = _Policies({"/reads": TTL})
-
-    # Act
-    policies.refresh(None)
-
-    # Assert
-    assert policies.ttl_for("/reads", TTL) == TTL
-
-
-def test_the_report_reads_the_nearest_declaration_past_other_dependencies() -> (
-    None
-):
-    """A router's own dependencies before its declaration are passed over."""
-
-    # Arrange
-    async def audit() -> None:
-        """Stand in for a check the router runs."""
-
-    router = APIRouter(dependencies=[Depends(audit), CachedResponse(ttl=TTL)])
-
-    @router.get("/reads")
-    async def reads() -> None:
-        """Answer nothing."""  # pragma: no cover
-
-    (route,) = router.routes
-
-    # Act
-    declared = declared_ttl(route, (router,), "/reads")
-
-    # Assert
-    assert declared == (True, TTL)
-
-
 def test_a_router_caching_a_read_beside_another_dependency_leaves_it() -> None:
     """A read its router caches that runs a dependency of its own is left alone."""
     # Arrange
@@ -1983,7 +1955,9 @@ def test_a_router_caching_beside_a_principal_keeps_each_caller_private(
     assert "age" not in bob.headers
 
 
-def test_hand_wired_include_does_not_replay_dependency_responses() -> None:
+def test_cached_responses_include_naming_a_route_with_a_dependency_reaches_handler_every_time() -> (
+    None
+):
     """An include policy cannot answer before an ordinary dependency."""
     app = FastAPI()
     calls = 0
@@ -1996,12 +1970,8 @@ def test_hand_wired_include_does_not_replay_dependency_responses() -> None:
         calls += 1
         return {"user": user, "calls": calls}
 
-    wrapped = CachedResponsesMiddleware(
-        app,
-        cache=_cache(),
-        include={"/private": TTL},
-    )
-    with TestClient(wrapped) as client:
+    _install_cache(app, include={"/private": TTL})
+    with TestClient(app) as client:
         alice = client.get("/private", headers={"X-API-Key": "alice"})
         bob = client.get("/private", headers={"X-API-Key": "bob"})
         anonymous = client.get("/private")
@@ -2050,8 +2020,10 @@ def test_a_route_added_after_install_is_read_when_the_app_starts() -> None:
     assert calls == 1
 
 
-def test_hand_wired_cache_revalidates_routes_added_after_a_request() -> None:
-    """A late FastAPI gate cannot inherit stale hand-wired cache policy."""
+def test_cached_responses_route_added_after_a_request_is_decided_by_its_declaration() -> (
+    None
+):
+    """A route added while the app serves is decided by its own declaration."""
     app = FastAPI()
     calls = 0
 
@@ -2059,11 +2031,7 @@ def test_hand_wired_cache_revalidates_routes_added_after_a_request() -> None:
     async def public() -> dict[str, bool]:
         return {"public": True}
 
-    wrapped = CachedResponsesMiddleware(
-        app,
-        cache=_cache(),
-        include={"/private": TTL},
-    )
+    _install_cache(app, include={"/private": TTL})
     api_key = APIKeyHeader(name="X-API-Key")
 
     async def require_key(
@@ -2076,7 +2044,7 @@ def test_hand_wired_cache_revalidates_routes_added_after_a_request() -> None:
         calls += 1
         return {"calls": calls}
 
-    with TestClient(wrapped) as client:
+    with TestClient(app) as client:
         assert client.get("/public").status_code == HTTP_200_OK
         app.add_api_route(
             "/private",
@@ -2120,14 +2088,10 @@ def test_cache_revalidates_same_length_route_replacement() -> None:
         private_calls += 1
         return Response(f"{request.user.display_name}:{private_calls}")
 
-    app = Router(routes=[Route("/same", public, methods=["GET"])])
-    wrapped = CachedResponsesMiddleware(
-        app,
-        cache=_cache(),
-        include={"/same": TTL},
-    )
+    app = Starlette(routes=[Route("/same", public, methods=["GET"])])
+    _install_cache(app, include={"/same": TTL})
 
-    with TestClient(wrapped) as client:
+    with TestClient(app) as client:
         alice = client.get("/same", headers={"X-API-Key": "alice"})
         replayed = client.get("/same", headers={"X-API-Key": "mallory"})
         app.routes[0] = Route(
@@ -2150,56 +2114,9 @@ def test_cache_revalidates_same_length_route_replacement() -> None:
     assert public_calls == private_calls == 1
 
 
-@pytest.mark.timeout(30)
-def test_cache_topology_rebuilds_once_only_after_mutation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An unchanged request skips the full walker; one route addition rebuilds.
-
-    Registering `BULK_ROUTES` routes is the slow part and it is setup, not
-    what the test measures, so this one carries more than the file's five
-    seconds. A loaded runner sharing two cores between workers takes far
-    longer over that setup than an idle machine does, and the assertion
-    counts rebuilds rather than time.
-    """
-    app = FastAPI()
-
-    @app.get("/reads")
-    async def reads() -> dict[str, bool]:
-        return {"ok": True}
-
-    for index in range(BULK_ROUTES):
-        app.add_api_route(f"/bulk/{index}", reads, methods=["GET"])
-
-    wrapped = CachedResponsesMiddleware(
-        app,
-        cache=_cache(),
-        include={"/reads": TTL},
-    )
-
-    with TestClient(wrapped) as client:
-        client.get("/reads")
-        rebuilds = 0
-        original = _RouteTopologyState.rebuild
-
-        def counted(snapshot: _RouteTopologyState) -> None:
-            nonlocal rebuilds
-            rebuilds += 1
-            original(snapshot)
-
-        monkeypatch.setattr(_RouteTopologyState, "rebuild", counted)
-        client.get("/reads")
-        assert rebuilds == 0
-
-        app.add_api_route("/later", reads, methods=["GET"])
-        client.get("/reads")
-        assert rebuilds == 1
-
-        client.get("/reads")
-        assert rebuilds == 1
-
-
-def test_hand_wired_cache_revalidates_a_lifespan_added_route() -> None:
+def test_cached_responses_route_added_during_lifespan_is_decided_by_its_declaration() -> (
+    None
+):
     """A route created during startup is validated before its first cache read."""
     api_key = APIKeyHeader(name="X-API-Key")
 
@@ -2226,13 +2143,9 @@ def test_hand_wired_cache_revalidates_a_lifespan_added_route() -> None:
         yield
 
     app = FastAPI(lifespan=lifespan)
-    wrapped = CachedResponsesMiddleware(
-        app,
-        cache=_cache(),
-        include={"/private": TTL},
-    )
+    _install_cache(app, include={"/private": TTL})
 
-    with TestClient(wrapped) as client:
+    with TestClient(app) as client:
         alice = client.get("/private", headers={"X-API-Key": "alice"})
         bob = client.get("/private", headers={"X-API-Key": "bob"})
 
@@ -2915,6 +2828,42 @@ def test_something_that_is_not_a_route_is_passed_over() -> None:
 
     # Assert
     assert component.name == "default"
+
+
+@pytest.mark.parametrize(
+    ("named", "refused"),
+    [
+        ("/items/7", True),
+        ("/files/a/b.txt", True),
+        ("/items/7/more", False),
+    ],
+)
+def test_cached_responses_include_naming_a_litestar_write_without_starlette_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    named: str,
+    refused: bool,  # noqa: FBT001
+) -> None:
+    """A Litestar route template is matched without Starlette's route compiler."""
+
+    # Arrange
+    @litestar_post("/items/{item_id:int}")
+    async def item(item_id: FromPath[int]) -> int:
+        return item_id  # pragma: no cover
+
+    @litestar_post("/files/{name:path}")
+    async def file(name: FromPath[str]) -> str:
+        return name  # pragma: no cover
+
+    app = Litestar(route_handlers=[item, file])
+    monkeypatch.setitem(sys.modules, "starlette.routing", None)
+    component = CachedResponses(include=(named,))
+
+    # Act / Assert
+    if refused:
+        with pytest.raises(TypeError, match="POST and no GET"):
+            component.read_routes(app)
+    else:
+        component.read_routes(app)
 
 
 def test_a_mount_of_nothing_carries_no_handler_to_read() -> None:
@@ -3617,7 +3566,7 @@ def test_the_nearest_router_declaration_decides() -> None:
     micro.install(app)
 
     # Act
-    seconds = component._policies.ttl_for("/x", OTHER_TTL)
+    seconds = _ttl_at_route(component, app, "/x", OTHER_TTL)
 
     # Assert
     assert seconds == TTL
@@ -3922,7 +3871,7 @@ def test_a_route_that_declared_one_is_not_overridden_by_a_pattern() -> None:
     micro.install(app)
 
     # Act
-    seconds = component._policies.ttl_for("/products/hot", TTL)
+    seconds = _ttl_at_route(component, app, "/products/hot", TTL)
 
     # Assert
     assert seconds == OTHER_TTL
@@ -4074,7 +4023,7 @@ def test_the_most_specific_pattern_decides() -> None:
     )
 
     # Act
-    seconds = component._policies.ttl_for("/products/hot", TTL)
+    seconds = component._policies.pattern_ttl("/products/hot", TTL)
 
     # Assert
     assert seconds == OTHER_TTL

@@ -5,7 +5,6 @@ from __future__ import annotations
 import warnings
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Self, cast
 
 import pytest
@@ -42,8 +41,7 @@ from grelmicro import (
     MiddlewarePlacementWarning,
     Usable,
 )
-from grelmicro._paths import _routing_app
-from grelmicro.cache import Cache, JsonSerializer, TTLCache
+from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
@@ -54,7 +52,6 @@ from grelmicro.http import (
 )
 from grelmicro.http._idempotency import (
     _checked_key,
-    _GatedRoutes,
 )
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyFunctionError
@@ -1154,68 +1151,6 @@ def test_litestar_warns_when_the_wrap_sits_outside_app_middleware() -> None:
         micro.install(app)
 
 
-def test_litestar_security_probe_needs_no_starlette(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A Litestar app's checks are matched without Starlette's route compiler."""
-    # Arrange
-    import sys  # noqa: PLC0415
-
-    @post("/items/{item_id:int}", guards=[_caller_guard])
-    async def item(item_id: FromPath[int]) -> int:
-        return item_id
-
-    @post("/files/{name:path}", guards=[_caller_guard])
-    async def file(name: FromPath[str]) -> str:
-        return name
-
-    app = Litestar(route_handlers=[item, file])
-    monkeypatch.setitem(sys.modules, "starlette.routing", None)
-    gated = _GatedRoutes()
-
-    # Act
-    gated.read(app)
-
-    # Assert
-    assert gated.matches_route("POST", "/items/7")
-    assert gated.matches_route("POST", "/files/a/b.txt")
-    assert not gated.matches_route("POST", "/items/7/more")
-    assert not gated.matches_route("GET", "/items/7")
-
-
-def test_security_probe_handles_repeated_mounted_application() -> None:
-    """The same mounted app is read once and cannot form a loop."""
-    # Arrange
-    child = Starlette()
-    app = Starlette()
-    app.mount("/one", child)
-    app.mount("/two", child)
-    gated = _GatedRoutes()
-
-    # Act
-    gated.read(app)
-
-    # Assert
-    assert not gated.matches_route("POST", "/one")
-
-
-def test_security_probe_handles_an_asgi_middleware_loop() -> None:
-    """A malformed middleware cycle terminates without inventing routes."""
-
-    # Arrange
-    class Loop:
-        app: Any
-
-    loop = Loop()
-    loop.app = loop
-
-    # Act / Assert
-    gated = _GatedRoutes()
-    gated.read(loop)
-    assert _routing_app(loop) is loop
-    assert not gated.matches_route("POST", "/")
-
-
 def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:
     """Wired at construction is the better place, and one is enough."""
 
@@ -1898,48 +1833,6 @@ def test_idempotent_requests_mounted_app_middleware_never_replays_across_callers
     assert alice.json() == {"caller": "a"}
     assert bob.json() == {"caller": "b"}
     assert REPLAY_HEADER not in bob.headers
-
-
-def test_idempotency_middleware_listing_error_propagates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An integration failing to list the routes of its app fails the request.
-
-    Added by hand, the middleware reads the routes before routing.
-    """
-
-    # Arrange
-    def broken(app: object) -> list[object]:  # noqa: ARG001
-        msg = "routes moved"
-        raise AttributeError(msg)
-
-    integration = SimpleNamespace(route_declarations=broken)
-    monkeypatch.setattr(
-        "grelmicro.http._idempotency.load_integration",
-        lambda app: integration,  # noqa: ARG005
-    )
-    app = Starlette(
-        routes=[Route("/whoami", _starlette_caller, methods=["POST"])],
-        middleware=[
-            Middleware(
-                IdempotencyMiddleware,
-                idempotency=Idempotency(
-                    "http",
-                    cache=TTLCache(
-                        backend=MemoryCacheAdapter(),
-                        serializer=JsonSerializer(),
-                    ),
-                ),
-            )
-        ],
-    )
-
-    # Act / Assert
-    with (
-        TestClient(app) as client,
-        pytest.raises(AttributeError, match="routes moved"),
-    ):
-        client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
 
 
 def test_idempotent_requests_starlette_router_middleware_never_replays_across_callers() -> (
