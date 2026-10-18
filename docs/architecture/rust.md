@@ -117,7 +117,7 @@ IPv4 against the standard library's 680, because it returns the same
 `ipaddress.IPv6Address` and adds validation dispatch on top of building it.
 
 A Rust parser meets the same wall unless it stops returning an `ipaddress`
-object, which means `clientip.py` working in canonical strings and a prebuilt
+object, which means `clientip.py` working in normalized strings and a prebuilt
 matcher instead. That is a restructuring of security-sensitive parsing to save
 about a microsecond on a request that spends forty to sixty microseconds in
 Python. The standard library is correct, well tested, and stays.

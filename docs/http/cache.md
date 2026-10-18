@@ -181,7 +181,7 @@ last of them is how the one that refused the store goes missing.
 
 By default the key is the scheme, the host, the prefix the app is served
 under, the path, and the whole parsed query. Distinct parameter names are put
-in one canonical order, so `page=1&sort=name` and `sort=name&page=1` share an
+in one fixed order, so `page=1&sort=name` and `sort=name&page=1` share an
 entry. Repeated values keep their request order: `role=admin&role=user` is not
 the same resource as `role=user&role=admin`. Percent-encoded names are compared
 after decoding. The key also carries every occurrence of each header named in
@@ -332,8 +332,9 @@ request still passes middleware authentication before either can answer.
 
 ## Changing it while it runs
 
-Every option below except the store and the two callables is tuned from a
-mounted ConfigMap, so a TTL is raised under load without a redeploy:
+Every option below except `cache`, `key`, `skip`, `lock`, `namespace` and
+`name` is tuned from a mounted ConfigMap, so a TTL is raised under load
+without a redeploy:
 
 ```yaml
 grel:
@@ -365,4 +366,5 @@ options. Only the registered one reads the routes.
 | `skip` | leaves one response unstored |
 | `max_body_size` | largest body stored, 1 MB by default |
 | `cache` | the `TTLCache` to store in |
+| `lock` | how far concurrent misses on one key wait for one handler call, `"process"` by default |
 | `namespace`, `name` | keep two sets of rules apart on one app |

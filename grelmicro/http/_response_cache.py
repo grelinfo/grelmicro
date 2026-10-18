@@ -605,9 +605,10 @@ class CachedResponsesMiddleware:
     it for you, and to declare `CachedResponse(ttl=...)` on a route.
 
     A miss runs the handler once. Every other request for the same key
-    waits for that one and is answered from what it stored, in process and
-    across replicas, so a cold key never fans one computation out to every
-    caller at once.
+    waits for that one and is answered from what it stored, so a cold key
+    never fans one computation out to every caller at once. The wait is in
+    the process by default. `lock="host"` or `lock="cluster"` also folds
+    it through the lock backend of the app's `Coordination`.
 
     A request asking for a range is passed through, because what is
     stored is the whole resource.
@@ -623,9 +624,9 @@ class CachedResponsesMiddleware:
     app whose integration gates its routes, with authentication or
     without, so a URL no route answers is never cached. At a route whose
     gate admitted the request, the route's declaration decides. A
-    protected route declaring `cache` shares its response
-    among every caller it admits, a credential included, keyed by the
-    protection it declares. A request carrying a credential to an
+    protected route declaring `CachedResponse(shared=True)` shares its
+    response among every caller it admits, a credential included, keyed by
+    the protection it declares. A request carrying a credential to an
     anonymous route is answered by its handler. A route running checks of
     its own is never cached by a pattern. A `Cookie` still keeps a request
     out.
