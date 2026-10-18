@@ -49,7 +49,7 @@ that a client library used to accept.
 | `OutOfContextError` from a `@cached` function or `get_or_set` with `lock="cluster"` | 0.42 | [Register a lock backend](#0-42-fold-scope) |
 | A `get_or_set` value computed once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-fold-scope) |
 | `TypeError: ... got an unexpected keyword argument 'wait_timeout'` | 0.42 | [Pass `max_wait=`](#0-42-max-wait) |
-| `SettingsValidationError` on `BulkheadConfig.max_wait` set to `None` | 0.42 | [Pass `0`](#0-42-max-wait) |
+| `ValidationError` from `BulkheadConfig(max_wait=None)`, or `SettingsValidationError` on `GREL_BULKHEAD_{NAME}_MAX_WAIT` set to `none` | 0.42 | [Pass `0`](#0-42-max-wait) |
 | `BackendScopeError: ... is bound to InProcessLock` on `Idempotency` or `IdempotentRequests` | 0.42 | [Register a lock backend](#0-42-idempotency-lock) |
 | `CachedResponses` misses run once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-idempotency-lock) |
 | `ImportError: cannot import name 'metrics_router' from 'grelmicro.metrics'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
@@ -59,7 +59,6 @@ that a client library used to accept.
 | `SettingsValidationError` or `ValueError`: `... must be whole seconds or a timedelta` | 0.42 | [Pass whole seconds or a `timedelta`](#0-42-durations) |
 | `TypeError: TaskRouter.every() got an unexpected keyword argument 'seconds'` | 0.42 | [Pass `interval=`](#0-42-durations) |
 | `TypeError: ... got an unexpected keyword argument 'misfire_grace_seconds'` | 0.42 | [Pass `misfire_grace=`](#0-42-durations) |
-| `TypeError: ... declares cache=60` on a route | 0.42 | [Pass `True` or a `timedelta`](#0-42-durations) |
 | `TypeError: ... got an unexpected keyword argument 'ignore_exceptions'` from a `CircuitBreaker` | 0.42 | [Pass `when=`](#0-42-when) |
 | `TypeError: ... got an unexpected keyword argument 'timeout_errors'` from a `Shield` | 0.42 | [Pass `when=`](#0-42-when) |
 | `SettingsValidationError: ... when: Field required` from a `Shield` | 0.42 | [Pass `when=`](#0-42-when) |
@@ -72,7 +71,6 @@ that a client library used to accept.
 | `TypeError: ... got an unexpected keyword argument 'key_maker'` | 0.42 | [Pass `key=`](#0-42-key-function) |
 | `ImportError: cannot import name 'IdempotencyKeyMakerError'` | 0.42 | [Catch `IdempotencyKeyFunctionError`](#0-42-key-function) |
 | `SettingsValidationError` naming `GREL_SHIELD_{NAME}_PROFILE` or `GREL_SHIELD_PROFILE`: `is no longer read` | 0.42 | [Choose the preset in code](#0-42-shield-profile-env) |
-| `TypeError: AuthenticatedRequests.from_config takes the verifier first: pass from_config(verifier, config)` | 0.42 | [Pass the verifier first](#0-42-from-config) |
 | `SettingsValidationError: TaskLock has no name` | 0.42 | [Name the lock or gate a task with it](#0-42-lock-names) |
 | `SettingsValidationError: Invalid lock name ...` from a `TaskLock`, a `LeaderElection` or a gated task | 0.42 | [Pass a valid name](#0-42-lock-names) |
 | `SettingsValidationError: Invalid task name ... The prefix 'task-' is reserved` | 0.42 | [Pass a valid name](#0-42-lock-names) |
@@ -81,8 +79,7 @@ that a client library used to accept.
 | `AttributeError: 'Coordination' object has no attribute 'rwlock_backend'` or `'election_backend'` | 0.42 | [Read `readwritelock_backend`](#0-42-backend-names) |
 | `TypeError: Coordination.__init__() got an unexpected keyword argument 'rwlock'` or `'election'` | 0.42 | [Pass `readwritelock=` or `leaderelection=`](#0-42-backend-names) |
 | `TypeError: Rename MyProvider.lock() to lock_backend()` | 0.42 | [Rename it `lock_backend()`](#0-42-backend-names) |
-| `ImportError: cannot import name 'document_idempotency'`, or `'document_conditional_requests'`, `'document_rate_limited_requests'` and `'document_authenticated_requests'` | 0.42 | [Register the component](#0-42-document-functions) |
-| `RoutesNotDeclaredWarning` from `micro.install(app)`, and a route declaring `Anonymous()` answers `401` on a framework a third-party integration serves | 0.42 | [Ship the route hooks](#0-42-route-hooks) |
+| `ImportError: cannot import name 'document_idempotency'`, or `'document_conditional_requests'` and `'document_rate_limited_requests'` | 0.42 | [Register the component](#0-42-document-functions) |
 | A URL no route answers is no longer served from the cache or replayed, on an app without `AuthenticatedRequests` | 0.42 | [Expected, declare a route](#0-42-answered-at-route) |
 | `404` or `405` where a write without `If-Match` got `428`, on an app without `AuthenticatedRequests` | 0.42 | [Expected, the route answers first](#0-42-answered-at-route) |
 | `404` or `405` where a request without `Idempotency-Key` got `400` from `require_key=True`, on an app without `AuthenticatedRequests` | 0.42 | [Expected, the route answers first](#0-42-answered-at-route) |
@@ -106,7 +103,7 @@ from grelmicro.coordination import Lock
 
 # Before
 tasks.every(seconds=0.5)
-tasks.cron("0 * * * *", gate="claim", misfire_grace_seconds=600)
+tasks.cron("0 * * * *", misfire_grace_seconds=600)
 Lock("cart", lease_duration=0.5)
 
 # After
@@ -129,12 +126,11 @@ What moved:
 - **Cache**: `TTLCacheConfig.ttl`, `Cache.ttl`, `cached(ttl, stale_ttl)`, and
   the `ttl` and `stale_ttl` of `TTLCache.set`, `.get_or_set` and `.set_many`.
 - **HTTP**: `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl` and its
-  per-path `include` TTLs, and `CachedResponse(ttl)`. `RouteDeclaration.cache`
-  takes `True` for the component TTL or a `timedelta`. A number is refused.
+  per-path `include` TTLs, and `CachedResponse(ttl)`.
 - **Rate limiter**: the sliding window `window`.
 - **Circuit breaker**: `reset_timeout` on `CircuitBreaker.consecutive_count`
   and `ConsecutiveCountConfig`.
-- **Security**: `ClientBans` `window` and `duration`, `JWTVerifier` `ttl` and `cache_ttl` (`0` still turns the cache off), and `OAuthClient` `refresh_before` and `default_lifetime`.
+- **Security**: `ClientBans` `window` and `duration`, and `JWTVerifier` `ttl` and `cache_ttl` (`0` still turns the cache off).
 - **Outbox**: `lease_duration`, `keep_delivered` and `purge(older_than=...)`.
   `keep_delivered` takes no bool. Write `0` for `False` (delete on delivery)
   and `None` for `True` (keep for good). `keep_delivered=1` now means one
@@ -272,7 +268,7 @@ from grelmicro.integrations.fastapi import metrics_router
 
 ### The `document_*` functions are removed {#0-42-document-functions}
 
-`document_idempotency`, `document_conditional_requests`, `document_rate_limited_requests` and `document_authenticated_requests` are gone from `grelmicro.integrations.fastapi`. A registered component needs nothing: `micro.install(app)` describes it in the OpenAPI schema on FastAPI and Litestar.
+`document_idempotency`, `document_conditional_requests` and `document_rate_limited_requests` are gone from `grelmicro.integrations.fastapi`. A registered component needs nothing: `micro.install(app)` describes it in the OpenAPI schema on FastAPI and Litestar.
 
 A middleware you added by hand and documented with one of them is registered as its component instead, with the same options:
 
@@ -289,13 +285,12 @@ micro.install(app)
 ### A third-party integration declares its routes {#0-42-route-hooks}
 
 This is for authors of an integration published through the
-`grelmicro.integrations` entry point. `AuthenticatedRequests` decides which
-route serves a caller with no credential once the framework routed the
-request, from the declarations the integration hands it. An integration
-without `install_route_gate` declares no route, so every route answers `401`
-to a request without a credential, and `micro.install(app)` warns
-`RoutesNotDeclaredWarning`. In 0.41.1 grelmicro found the public routes of
-such an app itself, when its routes were Starlette routes or Litestar handlers.
+`grelmicro.integrations` entry point. The response cache, idempotency and
+conditional requests decide per route, once the framework routed the request,
+from the declarations the integration hands them. `grelmicro check` and
+`micro.describe(app)` list the routes those declarations name. An integration
+without the hooks declares no route, and `grelmicro check` warns
+`routes-not-declared`.
 
 Ship both hooks in the integration module, built from one function so they
 cannot disagree:
@@ -324,12 +319,18 @@ def _declare(route):
 
 `install_route_gate` replaces what the router dispatches to with the app the
 gate returns. [Declare the routes](architecture/plugins.md#declare-the-routes)
-lists every field and rule. Until the hooks ship, list the public paths in
-`exclude=` on `AuthenticatedRequests`.
+lists every field and rule.
 
 ### The cache, idempotency and conditional requests answer at the route {#0-42-answered-at-route}
 
-`CachedResponses`, `IdempotentRequests` and `ConditionalRequests` run at the route on every app, with `AuthenticatedRequests` or without it. On an app without it, a URL no route answers is neither cached nor replayed, such as the `200` a not-found handler of your own answers, and a `HEAD` is read from the stored `GET` only on a route that answers both. Declare a route for what has to be cached or replayed. A write `require_precondition=` names gets `428`, and a request without a key `require_key=True` asks for gets `400`, only on a route that takes it: an unknown URL gets `404`, and a method the route does not take gets `405`. An `include=` pattern never caches a route under middleware on a mount, a router or a mounted app, with `AuthenticatedRequests` or without. Declare `CachedResponse()` on such a route when its response is the same for every caller. The rate limit still counts every request in front of the router. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
+`CachedResponses`, `IdempotentRequests` and `ConditionalRequests` run at the route on every app.
+
+- A URL no route answers is neither cached nor replayed, such as the `200` of a not-found handler of your own. Declare a route for what has to be cached or replayed.
+- A `HEAD` is read from the stored `GET` only on a route that answers both.
+- `require_precondition=` and `require_key=True` answer `428` and `400` only on a route that takes the request. An unknown URL gets `404`, and a method the route does not take gets `405`.
+- An `include=` pattern never caches a route under middleware on a mount, a router or a mounted app. Declare `CachedResponse()` on such a route when its response is the same for every caller.
+
+The rate limit still counts every request in front of the router.
 
 ### A middleware added by hand reads no route {#0-42-hand-added}
 
@@ -346,7 +347,7 @@ micro = Grelmicro(uses=[..., CachedResponses(include={"/products/*": 60})])
 micro.install(app)
 ```
 
-Or keep it added by hand and leave such routes out of `include=`. `CachedResponsesMiddleware(policies=...)` is removed, so drop it. ([#1065](https://github.com/grelinfo/grelmicro/issues/1065))
+Or keep it added by hand and leave such routes out of `include=`. `CachedResponsesMiddleware(policies=...)` is removed, so drop it.
 
 ### `CacheError` is removed {#0-42-cache-error}
 
@@ -371,7 +372,7 @@ Idempotency spells its wait the way the bulkhead and the rate limiter do:
 
 | Before | After |
 |---|---|
-| `Idempotency(..., wait_timeout=5)` | `Idempotency(..., max_wait=5)` |
+| `async with idem(key, wait_timeout=5)` | `async with idem(key, max_wait=5)` |
 | `idem.run(key, fn, wait_timeout=5)` | `idem.run(key, fn, max_wait=5)` |
 | `IdempotentRequests(wait_timeout=5)` | `IdempotentRequests(max_wait=5)` |
 | `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` | `GREL_IDEMPOTENT_REQUESTS_MAX_WAIT` |
@@ -441,19 +442,6 @@ IdempotentRequests(key=tenant_key)
 
 `IdempotencyMiddleware(key_maker=...)` is `IdempotencyMiddleware(key=...)` the
 same way. `IdempotencyKeyMakerError` is renamed `IdempotencyKeyFunctionError`.
-
-### `from_config` takes the constructor's arguments in its order {#0-42-from-config}
-
-`AuthenticatedRequests.from_config` takes the verifier first, like
-`AuthenticatedRequests(verifier)`:
-
-```python title="fragment"
-# Before
-AuthenticatedRequests.from_config(config, verifier)
-
-# After
-AuthenticatedRequests.from_config(verifier, config)
-```
 
 ### A `TaskLock` needs a name {#0-42-lock-names}
 
