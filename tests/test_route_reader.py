@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, NamedTuple, cast
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, NamedTuple, cast
 
 import httpx
 import pytest
@@ -26,6 +27,7 @@ from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.routing import Router as StarletteRouter
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocket
 
@@ -239,6 +241,37 @@ def _wrapped_docs() -> Any:  # noqa: ANN401
     return CORSMiddleware(inner, allow_origins=["https://app.example"])
 
 
+class _ListsNoRoute:
+    """A middleware that carries an empty `routes`, around the app it wraps."""
+
+    routes: ClassVar[list[Any]] = []
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        """Wrap `app`."""
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Run the wrapped app."""
+        await self.app(scope, receive, send)
+
+
+def _cycle() -> Any:  # noqa: ANN401
+    """Return the first of two wrappers that wrap each other."""
+    first = SimpleNamespace()
+    second = SimpleNamespace(app=first)
+    first.app = second
+    return first
+
+
+def _looping() -> Any:  # noqa: ANN401
+    """Return an app whose `app` is itself, as a malformed wrapper is."""
+    looping = SimpleNamespace()
+    looping.app = looping
+    return looping
+
+
 STARLETTE_SHAPES: dict[str, Callable[[], Starlette]] = {
     "route": lambda: Starlette(routes=_items()),
     "mount": lambda: Starlette(routes=[Mount("/v1", routes=_items())]),
@@ -277,6 +310,25 @@ STARLETTE_SHAPES: dict[str, Callable[[], Starlette]] = {
     "fastapi-plain-route": lambda: Starlette(
         routes=[Mount("/api", app=_fastapi_plain())]
     ),
+    "empty-routes-wrapper": lambda: Starlette(
+        routes=[Mount("/w", app=_ListsNoRoute(Starlette(routes=_items())))]
+    ),
+    "bound-call": lambda: Starlette(
+        routes=[Mount("/b", app=Starlette(routes=_items()).__call__)]
+    ),
+    "wrapped-bound-router": lambda: Starlette(
+        routes=[
+            Mount(
+                "/br", app=_ListsNoRoute(StarletteRouter(routes=_items()).app)
+            )
+        ]
+    ),
+    "wrapper-cycle": lambda: Starlette(
+        routes=[Mount("/cy", app=_ListsNoRoute(_cycle()))]
+    ),
+    "looping-wrapper": lambda: Starlette(
+        routes=[Mount("/loop", app=_ListsNoRoute(_looping()))]
+    ),
     "gated-route": lambda: Starlette(routes=_gated_items()),
     "gated-mount": lambda: Starlette(
         routes=[Mount("/t/{tenant}", routes=_gated_items())]
@@ -290,6 +342,21 @@ STARLETTE_SHAPES: dict[str, Callable[[], Starlette]] = {
         ("route", "GET", "/items/3", HTTP_200, "/items/{n}"),
         ("route", "GET", "/nowhere", HTTP_404, None),
         ("mount", "GET", "/v1/items/3", HTTP_200, "/v1/items/{n}"),
+        (
+            "empty-routes-wrapper",
+            "GET",
+            "/w/items/3",
+            HTTP_200,
+            "/w/items/{n}",
+        ),
+        ("bound-call", "GET", "/b/items/3", HTTP_200, "/b/items/{n}"),
+        (
+            "wrapped-bound-router",
+            "GET",
+            "/br/items/3",
+            HTTP_200,
+            "/br/items/{n}",
+        ),
         (
             "parameterised-mount",
             "GET",
@@ -398,6 +465,56 @@ REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
             "forged",
             HTTP_401,
             "/items/{n}",
+            None,
+        ),
+        (
+            "empty-routes-wrapper",
+            "GET",
+            "/w/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/w/items/{n}",
+            None,
+        ),
+        (
+            "bound-call",
+            "GET",
+            "/b/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/b/{path}",
+            None,
+        ),
+        (
+            "looping-wrapper",
+            "GET",
+            "/loop/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/loop/{path}",
+            None,
+        ),
+        (
+            "wrapper-cycle",
+            "GET",
+            "/cy/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/cy/{path}",
+            None,
+        ),
+        (
+            "wrapped-bound-router",
+            "GET",
+            "/br/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/br/items/{n}",
             None,
         ),
         (

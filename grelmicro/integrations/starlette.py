@@ -293,10 +293,14 @@ def _litestar_reached(app: Any, scope: Scope) -> str | None:  # noqa: ANN401
     """Return the route a Litestar app mounted under this one would route a request to.
 
     Read through any middleware wrapping the app, before it routed the
-    request. `None` when the mount holds no Litestar app, or when no route
-    of it matches the path.
+    request. `None` when the mount holds no Litestar app, when what wraps
+    it loops back on itself, or when no route of it matches the path.
     """
+    seen: set[int] = set()
     while app is not None and not hasattr(app, "asgi_router"):
+        if id(app) in seen:
+            return None
+        seen.add(id(app))
         app = getattr(app, "app", None)
     if app is None:
         return None

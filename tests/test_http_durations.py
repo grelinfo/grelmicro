@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from grelmicro._describe import _Endpoint, _reads_idempotent, _seconds_text
 from grelmicro._duration import MAX_DURATION
+from grelmicro._paths import segment_pattern
 from grelmicro.cache import JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import SettingsValidationError
@@ -392,7 +393,9 @@ def test_describe_idempotent_window_of_thirty_days_written_in_seconds() -> None:
             config=SimpleNamespace(ttl=timedelta(days=30))
         ),
     )
-    endpoint = _Endpoint(method="POST", path="/orders")
+    endpoint = _Endpoint(
+        method="POST", path="/orders", regex=segment_pattern("/orders")
+    )
 
     # Act
     applied = _reads_idempotent(component)(endpoint)

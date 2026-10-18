@@ -42,7 +42,6 @@ from grelmicro._paths import (
     BARE_STRING_MESSAGE,
     FieldNames,
     PathPatterns,
-    _declared_pattern,
     _request_authority,
     _request_root_path,
     _request_scheme,
@@ -51,6 +50,7 @@ from grelmicro._paths import (
     matches,
     names_route,
     route_path,
+    segment_pattern,
 )
 from grelmicro.cache._stampede import (
     Fold,
@@ -467,7 +467,9 @@ def _refuse_named_write(
     a path written out, never a prefix: a prefix names a router, and a
     router holds writes beside its reads, which are simply left to their
     handlers. A path written out that answers no read is a typo, and it
-    would otherwise cache nothing while reading as though it did.
+    would otherwise cache nothing while reading as though it did. A path
+    names a route one path segment per parameter, and every segment left
+    for a `path` parameter.
 
     Raises:
         TypeError: If a pattern names only routes that answer no `GET`.
@@ -479,7 +481,7 @@ def _refuse_named_write(
         for declaration in declarations:
             template = declaration.path
             if declaration.methods is None or not names_route(
-                pattern, template, _declared_pattern(template)
+                pattern, template, segment_pattern(template)
             ):
                 continue
             methods |= declaration.methods

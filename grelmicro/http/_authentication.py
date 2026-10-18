@@ -1754,6 +1754,14 @@ class AuthenticatedRequests:
             "enduser": self._config.enduser,
         }
 
+    def _metadata_paths(self) -> frozenset[str]:
+        """Return every path the protected resource metadata is served at.
+
+        Empty without `resource=`.
+        """
+        metadata = resource_metadata_of(self._options())
+        return frozenset() if metadata is None else metadata.paths
+
     @property
     def name(self) -> str:
         """Return the registration name."""

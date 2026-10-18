@@ -67,7 +67,7 @@ configuration it names. Each entry below says which.
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
 | `leader-not-running` | `LeaderNotRunningWarning` | none | A task is gated on a leader election that does not run, so it skips every fire. |
 | `health-not-served` | `HealthNotServedWarning` | none | A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404. |
-| `routes-not-declared` | `RoutesNotDeclaredWarning` | none | `AuthenticatedRequests` is installed through an integration with no `install_route_gate`, so every route needs a credential, `Anonymous()` included. |
+| `routes-not-declared` | `RoutesNotDeclaredWarning` | none | `AuthenticatedRequests` is installed through an integration with no `install_route_gate`, so every route needs a credential, `Anonymous()` included. `grelmicro check` also reports an HTTP integration with no `route_declarations` when a component acting per endpoint is registered. |
 
 ### `env-load-off`
 
@@ -180,3 +180,9 @@ Reported by `micro.install(app)`. Ship `install_route_gate` and
 `route_declarations` in the integration, as
 [Declare the routes](architecture/plugins.md#declare-the-routes) shows. Until
 then, list the public paths in `exclude=`.
+
+`python -m grelmicro check` and `micro.describe(app)` report the same code
+when a component acting per endpoint, such as `CachedResponses` or
+`AccessLog`, is registered and the integration serves HTTP without
+`route_declarations`. The endpoint table then stays empty and no
+`include=` pattern is checked until the integration ships it.

@@ -105,6 +105,11 @@ class Integration(Protocol):
         ...
 
 
+def serves_http(integration: object) -> bool:
+    """Return whether an integration serves HTTP, which it says by shipping `install_middleware`."""
+    return hasattr(integration, "install_middleware")
+
+
 def load_integration(app: object) -> Integration | None:
     """Return the integration module for `app`, or `None` when none matches.
 

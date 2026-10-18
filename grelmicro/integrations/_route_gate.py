@@ -41,7 +41,12 @@ from starlette.routing import (
 )
 
 from grelmicro._asgi import GrelmicroMiddleware
-from grelmicro._paths import path_format, read_route, starlette_route
+from grelmicro._paths import (
+    ROUTE_PARAMETER,
+    path_format,
+    read_route,
+    starlette_route,
+)
 from grelmicro.http import (
     CachedResponsesMiddleware,
     ConditionalRequestsMiddleware,
@@ -297,13 +302,17 @@ def _inner_router(
 ) -> tuple[Router | None, Starlette | None]:
     """Return the Starlette router an app routes with, and the Starlette app holding it.
 
-    What wraps the app is looked through. Only a router of Starlette's own
-    class is read, and an app's router when the app is a Starlette app.
-    Anything else is not read.
+    What wraps the app is looked through, and a bound `Router.app` reads
+    as its router. Only a router of Starlette's own class is read, and an
+    app's router when the app is a Starlette app. Anything else is not
+    read.
     """
     seen: set[int] = set()
     while app is not None and id(app) not in seen:
         seen.add(id(app))
+        owner = getattr(app, "__self__", None)
+        if getattr(app, "__name__", None) == "app" and type(owner) in _ROUTERS:
+            return owner, None
         if type(app) in _ROUTERS:
             return app, None
         if isinstance(app, Starlette):
@@ -818,11 +827,6 @@ def _unread(scope: Scope) -> None:
     """Read no route of a mounted app of another framework."""
 
 
-_STARLETTE_PARAMETER: Final = re.compile(
-    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([a-zA-Z_][a-zA-Z0-9_]*))?\}"
-)
-"""A path parameter in a Starlette route's path, with its optional converter."""
-
 _SAMPLES: Final = {
     "str": "grelmicro-probe",
     "path": "grelmicro/probe",
@@ -850,7 +854,7 @@ def _sample_url(template: str) -> str | None:
     """
     pieces: list[str] = []
     last = 0
-    for match in _STARLETTE_PARAMETER.finditer(template):
+    for match in ROUTE_PARAMETER.finditer(template):
         name = match.group(2) or "str"
         regex = CONVERTOR_TYPES[name].regex
         candidates = (
