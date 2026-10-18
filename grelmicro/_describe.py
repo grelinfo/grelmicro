@@ -11,24 +11,28 @@ binding in `Grelmicro.check_ambient_binding`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from typing_extensions import Doc
 
+from grelmicro._diagnostics import ROUTES_NOT_DECLARED
+from grelmicro._discovery import framework_of, load_integration, serves_http
 from grelmicro._duration import SECOND, microseconds
 from grelmicro._environment import recorded_bindings, unmet_requirements
-from grelmicro._paths import matches, names_route, walk_routes
+from grelmicro._paths import matches, names_route, segment_pattern
 from grelmicro._redact import redact_url
 from grelmicro.providers._base import PATTERNS
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
     from datetime import timedelta
     from re import Pattern
 
     from grelmicro._app import Grelmicro
     from grelmicro._component import Component
+    from grelmicro._discovery import Integration
     from grelmicro.http._routes import RouteDeclaration
     from grelmicro.providers._base import Provider
     from grelmicro.types import Environment
@@ -326,11 +330,15 @@ class _Endpoint:
 
     method: str
     path: str
-    regex: Any = None
+    regex: Pattern[str]
     authenticated: bool = False
     public: bool = False
     scopes: tuple[str, ...] = ()
     declaration: RouteDeclaration | None = None
+
+
+type _EndpointRules = list[tuple[str, Callable[[_Endpoint], str | None]]]
+"""Each registered component's label, and what it says about one endpoint."""
 
 
 SOME_PATHS = " (some paths)"
@@ -382,16 +390,14 @@ def _under(endpoint: _Endpoint, patterns: tuple[str, ...]) -> bool:
     )
 
 
-def _endpoint_rules(
-    components: Sequence[Any],
-) -> list[tuple[str, Callable[[_Endpoint], str | None]]]:
+def _endpoint_rules(components: Sequence[Any]) -> _EndpointRules:
     """Return what each registered component says about one endpoint.
 
     Each entry is the component's label and a reader that answers for one
     `(method, path)`, or `None` when the component leaves it alone. Built
     once per report rather than per route.
     """
-    rules: list[tuple[str, Callable[[_Endpoint], str | None]]] = []
+    rules: _EndpointRules = []
     for component in components:
         kind = getattr(component, "kind", None)
         reader = _ENDPOINT_READERS.get(kind or "")
@@ -634,43 +640,62 @@ of the view rather than reported as doing nothing.
 """
 
 
+@dataclass(frozen=True, slots=True)
+class _Routes:
+    """The app's integration, and the routes it lists.
+
+    Each declared path comes with the regex a URL is matched against: a
+    parameter matches one path segment, and a `path` parameter every
+    segment left.
+    """
+
+    integration: Integration | None
+    listed: tuple[RouteDeclaration, ...]
+    patterns: Mapping[str, Pattern[str]]
+
+    @classmethod
+    def of(cls, app: object) -> _Routes:
+        """Load the integration of `app` and read its routes, compiling each declared path once."""
+        from grelmicro.http._routes import routes_listed_by  # noqa: PLC0415
+
+        integration = load_integration(app)
+        listed = tuple(routes_listed_by(integration, app))
+        paths = dict.fromkeys(declaration.path for declaration in listed)
+        patterns = {path: segment_pattern(path) for path in paths}
+        return cls(integration, listed, patterns)
+
+
 def _describe_endpoints(
     micro: Grelmicro,
     app: object,
+    routes: _Routes,
+    rules: _EndpointRules,
 ) -> tuple[EndpointReport, ...]:
-    """Return one row per endpoint the app declares, in path order.
+    """Return one row per method the app's routes declare, in path order.
 
-    Endpoint enumeration crosses mounted middleware so the report does not
-    lose routes hidden behind a CORS or authentication wrapper. Component
-    readers still apply their own runtime boundaries to those routes.
+    The routes are the ones the app's integration lists, mounted and
+    wrapped ones included. A route declared for every method, such as a
+    mount or a websocket route, has no row.
     """
-    from grelmicro.http._routes import (  # noqa: PLC0415
-        DeclaredRoutes,
-        listed_routes,
-    )
+    from grelmicro.http._routes import DeclaredRoutes  # noqa: PLC0415
 
-    components = list(micro.components)
-    rules = _endpoint_rules(components)
-    authenticating = [
-        component
-        for component in components
-        if getattr(component, "kind", None) == "authenticated_requests"
-    ]
-    authentication = _authentication_of(app) if authenticating else None
     if not rules:
         return ()
-    compiled = dict(_declared_paths(app))
-    declared = DeclaredRoutes(listed_routes(app))
+    authenticating = [
+        component for component in micro.components if _authenticates(component)
+    ]
+    authentication = _authentication_of(app) if authenticating else None
+    declared = DeclaredRoutes(routes.listed)
     found: list[EndpointReport] = []
-    for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
-        path = f"{prefix}{getattr(route, 'path', '')}"
-        for method in sorted(getattr(route, "methods", ()) or ()):
+    for listing in routes.listed:
+        path = listing.path
+        for method in sorted(listing.methods or ()):
             if method == "HEAD":
                 continue
             endpoint = _Endpoint(
                 method=method,
                 path=path,
-                regex=compiled.get(path),
+                regex=routes.patterns[path],
                 declaration=declared.of(path, method),
             )
             if authentication is not None:
@@ -694,52 +719,25 @@ def _describe_endpoints(
     return tuple(sorted(found, key=lambda row: (row.path, row.method)))
 
 
-def _declared_paths(app: object) -> list[tuple[str, Pattern[str] | None]]:
-    """Return every route the app declares, as its template and its regex.
+def _served_paths(routes: _Routes) -> list[tuple[str, Pattern[str]]]:
+    """Return every path the app's routes serve, as a template and its regex.
 
     The template answers a pattern written the way the route was, and
-    the regex answers one written as a URL the route serves.
-
-    A template no compiler here understands contributes its template and
-    no regex. Starlette owns the compiler and is not a dependency of
-    grelmicro, and a framework that is not Starlette spells a converter
-    its own way, so a report on a Litestar app must come back with what
-    it could read rather than not come back at all.
+    the regex answers one written as a URL the route serves, one path
+    segment per parameter. A route declared for every method, such as a
+    mount, also serves every path under it.
     """
-    try:
-        from starlette.routing import compile_path  # noqa: PLC0415
-    except ImportError:  # pragma: no cover - starlette is in the test env
-        compile_path = None  # type: ignore[assignment]
-    found: list[tuple[str, Pattern[str] | None]] = []
-    for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
-        template = f"{prefix}{getattr(route, 'path', '')}"
-        found.append((template, _compiled(compile_path, template)))
+    found: list[tuple[str, Pattern[str]]] = []
+    for declaration in routes.listed:
+        path = declaration.path
+        found.append((path, routes.patterns[path]))
+        if declaration.methods is None:
+            under = f"{path.rstrip('/')}/{{path:path}}"
+            found.append((under, segment_pattern(under)))
     return found
 
 
-def _compiled(
-    compile_path: Any,  # noqa: ANN401
-    template: str,
-) -> Pattern[str] | None:
-    """Return the regex this template matches with, or `None` for neither.
-
-    Every failure is the same answer: the template stands for itself and
-    nothing is read into it. A converter another framework declares is
-    an `AssertionError` here rather than an exception of its own, which
-    is why this catches broadly.
-    """
-    if compile_path is None:
-        return None
-    try:
-        regex, _, _ = compile_path(template)
-    except Exception:  # noqa: BLE001
-        return None
-    return cast("Pattern[str]", regex)
-
-
-def _names_any(
-    pattern: str, declared: list[tuple[str, Pattern[str] | None]]
-) -> bool:
+def _names_any(pattern: str, declared: list[tuple[str, Pattern[str]]]) -> bool:
     """Return whether any declared route could be selected by `pattern`.
 
     One question, one answer: the same `names_route` the response cache
@@ -751,28 +749,19 @@ def _names_any(
     )
 
 
-def _pattern_checks(
-    micro: Grelmicro,
-    app: object,
-) -> list[CheckReport]:
+def _pattern_checks(micro: Grelmicro, routes: _Routes) -> list[CheckReport]:
     """Report a path pattern that names none of the app's routes.
 
-    A pattern is a string, and a mistyped one turns a rule off without
-    saying so: nothing matches, so nothing happens, and the endpoint
-    table shows no row for it because rows come from routes. This is
-    where it becomes visible.
-
     A pattern naming a concrete path under a parameterized route counts
-    as matched, because at runtime it is matched against the URL and not
-    against the template: `"/users/me"` does select the request that
-    `GET /users/{uid}` answers. Every route is read, including the ones
-    that declare no method and so have no row in the table.
+    as matched: `"/users/me"` names `GET /users/{uid}`. Every route is
+    read, including the ones that declare no method and so have no row in
+    the table. A path under a route declared for every method, such as a
+    mount, counts as matched. So does a path an `AuthenticatedRequests`
+    publishes its protected resource metadata at.
 
-    A warning rather than a failure. A router mounted after `install` is
-    legitimate, and so is a pattern written for a path another service
-    behind the same prefix serves.
+    Only `include` patterns are checked, each as a warning.
     """
-    declared = _declared_paths(app)
+    declared = _served_paths(routes) + _metadata_paths(micro)
     if not declared:
         return []
     found: list[CheckReport] = []
@@ -781,12 +770,8 @@ def _pattern_checks(
             continue
         component: Any = entry
         config = component.config
-        # `include` only. An `exclude` that matches nothing is usually
-        # deliberate: the probe paths a service names are served by
-        # `OpsServer` on a port of its own, and a router may be mounted
-        # after this ran. A pattern that turns a rule *on* and matches
-        # nothing is the one that silently does nothing. A component with
-        # no `include` at all, such as `AuthenticatedRequests`, has none.
+        # `include` only. A component with no `include` at all, such as
+        # `AuthenticatedRequests`, has none.
         patterns = tuple(getattr(config, "include", ()))
         missing = sorted(
             pattern for pattern in patterns if not _names_any(pattern, declared)
@@ -805,11 +790,58 @@ def _pattern_checks(
     return found
 
 
+def _metadata_paths(micro: Grelmicro) -> list[tuple[str, Pattern[str]]]:
+    """Return each path a registered `AuthenticatedRequests` serves its metadata at."""
+    found: list[tuple[str, Pattern[str]]] = []
+    for entry in micro.components:
+        if not _authenticates(entry):
+            continue
+        component: Any = entry
+        found.extend(
+            (path, segment_pattern(path))
+            for path in sorted(component._metadata_paths())  # noqa: SLF001
+        )
+    return found
+
+
+def _authenticates(component: object) -> bool:
+    """Return whether `component` is an `AuthenticatedRequests`."""
+    return getattr(component, "kind", None) == "authenticated_requests"
+
+
+def _routes_check(
+    app: object, routes: _Routes, rules: _EndpointRules
+) -> list[CheckReport]:
+    """Report an app whose integration serves HTTP and lists no route.
+
+    Only when a registered component acts per endpoint.
+    """
+    integration = routes.integration
+    if (
+        not rules
+        or not serves_http(integration)
+        or hasattr(integration, "route_declarations")
+    ):
+        return []
+    return [
+        CheckReport(
+            name=ROUTES_NOT_DECLARED,
+            status="warn",
+            detail=(
+                f"the {framework_of(app)} integration has no "
+                f"route_declarations, so no endpoint is listed and no "
+                f"include= pattern is checked. Ship route_declarations in "
+                f"the integration."
+            ),
+        )
+    ]
+
+
 def build_report(micro: Grelmicro, app: object = None) -> AppReport:
     """Build the full report for `micro`.
 
     Reads only what is already registered, so it is safe before the app is
-    open as well as while it runs.
+    open as well as while it runs. The app's routes are read once.
     """
     components = tuple(
         describe_component(component) for component in micro.components
@@ -818,9 +850,14 @@ def build_report(micro: Grelmicro, app: object = None) -> AppReport:
         describe_provider(provider) for provider in micro.providers
     )
     checks = _scope_checks(list(micro.components), micro.environment)
-    endpoints = () if app is None else _describe_endpoints(micro, app)
+    endpoints: tuple[EndpointReport, ...] = ()
     if app is not None:
-        checks += _pattern_checks(micro, app)
+        routes = _Routes.of(app)
+        rules = _endpoint_rules(list(micro.components))
+        endpoints = _describe_endpoints(micro, app, routes, rules)
+        checks += _pattern_checks(micro, routes) + _routes_check(
+            app, routes, rules
+        )
     return AppReport(
         environment=micro.environment,
         components=components,

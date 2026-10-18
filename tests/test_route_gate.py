@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from litestar import Litestar
 from litestar import get as litestar_get
 from litestar.routes import HTTPRoute
@@ -61,6 +61,7 @@ from grelmicro.http import (
     RateLimitMiddleware,
     RouteDeclaration,
 )
+from grelmicro.http._authentication import route_authentication
 from grelmicro.http._routes import refuse_impossible
 from grelmicro.integrations import fastapi as fastapi_integration
 from grelmicro.integrations import starlette as starlette_integration
@@ -897,20 +898,48 @@ class TestUngated:
         assert client.get("/catalog").status_code == UNAUTHORIZED
         assert client.get("/nowhere").status_code == UNAUTHORIZED
 
-    @pytest.mark.parametrize("lists", [False, True])
+    @pytest.mark.parametrize(
+        ("lists", "expected"),
+        [
+            pytest.param(False, {}, id="no-listing"),
+            pytest.param(
+                True,
+                {
+                    "/catalog": ("authenticated",),
+                    "/tags/{tag}": ("authenticated",),
+                },
+                id="listing",
+            ),
+        ],
+    )
     def test_an_integration_without_gates_describes_every_route_as_authenticated(
-        self, monkeypatch: pytest.MonkeyPatch, *, lists: bool
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        lists: bool,
+        expected: dict[str, tuple[str, ...]],
     ) -> None:
-        """No gate serves a caller with no credential, so the report names none."""
+        """No gate serves a caller with no credential, so the report names none.
+
+        The rows are the routes the integration lists, so one listing none
+        has no row.
+        """
+        listed = tuple(
+            RouteDeclaration(
+                path, methods=frozenset({"GET", "HEAD"}), anonymous=True
+            )
+            for path in ("/catalog", "/tags/{tag}")
+        )
         for module in (
             "grelmicro._app",
+            "grelmicro._describe",
             "grelmicro.http._authentication",
             "grelmicro.http._routes",
         ):
             monkeypatch.setattr(
                 f"{module}.load_integration",
                 lambda app: fake_integration(  # noqa: ARG005
-                    gates=False, lists=lists, listed=()
+                    gates=False, lists=lists, listed=listed
                 ),
             )
         app = public_catalog()
@@ -926,10 +955,7 @@ class TestUngated:
             row.path: row.applies for row in micro.describe(app).endpoints
         }
 
-        assert applies == {
-            "/catalog": ("authenticated",),
-            "/tags/{tag}": ("authenticated",),
-        }
+        assert applies == expected
 
     def test_an_integration_without_hooks_refuses_an_app_with_no_public_route(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1034,6 +1060,7 @@ class TestReadFromDeclarations:
         """Make `integration` the one every reader of the app loads."""
         for module in (
             "grelmicro._app",
+            "grelmicro._describe",
             "grelmicro.http._authentication",
             "grelmicro.http._routes",
         ):
@@ -1090,10 +1117,10 @@ class TestReadFromDeclarations:
         assert applies[("GET", "/catalog")] == ("anonymous",)
         assert applies[("GET", "/orders")] == ("authenticated a",)
 
-    def test_describe_matches_a_starlette_route_to_its_own_declaration_only(
+    def test_describe_lists_a_route_under_the_path_its_declaration_names(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A declaration written with another converter is another route's."""
+        """The row is the declaration's, whatever path the app's own route has."""
         declared = (
             RouteDeclaration(
                 "/items/{item_id:int}",
@@ -1122,12 +1149,14 @@ class TestReadFromDeclarations:
             for row in micro.describe(app).endpoints
         }
 
-        assert applies[("GET", "/items/{item_id}")] == ("authenticated",)
+        assert applies == {
+            ("GET", "/items/{item_id:int}"): ("authenticated items",)
+        }
 
-    def test_describe_without_hooks_reads_a_litestar_anonymous_handler_as_authenticated(
+    def test_describe_without_hooks_lists_no_litestar_handler(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """With no declaration, the handler's own `opt` serves no caller without one."""
+        """With no declaration, a handler's own `opt` is not read into a row."""
 
         @litestar_get("/catalog", opt=LitestarAnonymous())
         async def catalog() -> None: ...  # pragma: no cover
@@ -1136,12 +1165,9 @@ class TestReadFromDeclarations:
         app = Litestar(route_handlers=[catalog])
         micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
 
-        applies = {
-            (row.method, row.path): row.applies
-            for row in micro.describe(app).endpoints
-        }
+        report = micro.describe(app)
 
-        assert applies[("GET", "/catalog")] == ("authenticated",)
+        assert report.endpoints == ()
 
     def test_openapi_requires_the_scopes_a_route_declares(
         self, monkeypatch: pytest.MonkeyPatch
@@ -3600,3 +3626,137 @@ def test_a_route_gate_installed_by_hand_gates_every_route() -> None:
 
     assert TestClient(app).get("/orders").json() == {"path": "/orders"}
     assert checked == ["/orders"]
+
+
+def test_route_authentication_reads_a_path_no_route_declares_as_authenticated() -> (
+    None
+):
+    """A path no declaration names requires a caller and no scope."""
+    # Arrange
+    app = Starlette(routes=[Route("/listed", served)])
+
+    # Act
+    read = route_authentication(app)
+
+    # Assert
+    assert read("/unlisted", "GET") == (False, ())
+
+
+class TestBoundRouterMount:
+    """A mount of a router's bound `app` is gated route by route, as the router is."""
+
+    @staticmethod
+    def fastapi_app(*, cached: bool = False) -> FastAPI:
+        """Return a FastAPI app mounting a router's bound `app` at `/b`."""
+        router = APIRouter()
+        calls: list[None] = []
+
+        @router.get("/pub", dependencies=[Anonymous()])
+        async def pub() -> dict[str, int]:
+            calls.append(None)
+            return {"calls": len(calls)}
+
+        @router.get("/priv")
+        async def priv() -> dict[str, bool]:
+            return {"priv": True}
+
+        if cached:
+
+            @router.get("/cached", dependencies=[CachedResponse(ttl=60)])
+            async def stored() -> dict[str, int]:
+                calls.append(None)
+                return {"calls": len(calls)}
+
+        app = FastAPI()
+        app.mount("/b", router.app)
+        return app
+
+    def test_an_anonymous_fastapi_route_there_serves_a_caller_with_no_credential(
+        self,
+    ) -> None:
+        """`Anonymous()` is read under the mount, and every other route there needs a caller."""
+        # Arrange
+        app = installed(self.fastapi_app())
+
+        # Act
+        with TestClient(app) as client:
+            public = client.get("/b/pub")
+            private = client.get("/b/priv")
+            signed = client.get("/b/priv", headers=bearer(token()))
+
+        # Assert
+        assert [
+            public.status_code,
+            private.status_code,
+            signed.status_code,
+        ] == [
+            OK,
+            UNAUTHORIZED,
+            OK,
+        ]
+
+    def test_a_starlette_route_there_requires_a_caller_and_its_scopes(
+        self,
+    ) -> None:
+        """No route there is public, and a scope its endpoint declares is required."""
+        # Arrange
+        router = Router(
+            routes=[
+                Route("/orders", served),
+                Route("/orders/{order_id}", written, methods=["DELETE"]),
+            ]
+        )
+        app = installed(Starlette(routes=[Mount("/b", app=router.app)]))
+
+        # Act
+        with TestClient(app) as client:
+            anonymous = client.get("/b/orders")
+            signed = client.get("/b/orders", headers=bearer(token()))
+            unscoped = client.delete("/b/orders/1", headers=bearer(token()))
+
+        # Assert
+        assert [
+            anonymous.status_code,
+            signed.status_code,
+            unscoped.status_code,
+        ] == [UNAUTHORIZED, OK, FORBIDDEN]
+
+    def test_a_fastapi_route_there_declaring_cached_response_is_cached(
+        self,
+    ) -> None:
+        """The second read is answered from the cache, not the handler."""
+        # Arrange
+        app = self.fastapi_app(cached=True)
+        Grelmicro(
+            uses=[Cache(MemoryCacheAdapter()), CachedResponses()]
+        ).install(app)
+
+        # Act
+        with TestClient(app) as client:
+            first = client.get("/b/cached")
+            second = client.get("/b/cached")
+
+        # Assert
+        assert second.json() == first.json() == {"calls": 1}
+        assert "age" in second.headers
+
+    def test_a_fastapi_route_there_caching_for_a_caller_fails_install(
+        self,
+    ) -> None:
+        """`CachedResponse()` on a route there requiring a caller is refused, as anywhere."""
+        # Arrange
+        app = self.fastapi_app(cached=True)
+        micro = Grelmicro(
+            uses=[
+                ErrorResponses(),
+                Cache(MemoryCacheAdapter()),
+                CachedResponses(),
+                authenticated(),
+            ]
+        )
+
+        # Act / Assert
+        with pytest.raises(
+            ValueError, match=r"GET /b/cached declares CachedResponse\(\)"
+        ):
+            micro.install(app)

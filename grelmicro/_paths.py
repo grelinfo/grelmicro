@@ -7,7 +7,6 @@ once: `include` narrows, `exclude` carves out, and `exclude` wins.
 from __future__ import annotations
 
 import functools
-import itertools
 import re
 from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Annotated, Any, Final, Protocol
@@ -61,13 +60,13 @@ __all__ = [
     "BARE_STRING_MESSAGE",
     "MALFORMED_JSON_MESSAGE",
     "ROUTE_KEY",
+    "ROUTE_PARAMETER",
     "ROUTE_READER_KEY",
     "FieldNames",
     "MethodNames",
     "PathPatterns",
     "RouteReading",
     "as_patterns",
-    "compile_route",
     "holds_control_character",
     "litestar_mount",
     "litestar_owned_handler",
@@ -81,10 +80,10 @@ __all__ = [
     "refuse_bare_string",
     "route_path",
     "route_template",
+    "segment_pattern",
     "selects",
     "starlette_route",
     "starlette_route_path",
-    "walk_routes",
 ]
 
 _WHY_NOT_A_STRING = (
@@ -262,50 +261,34 @@ _MAX_PORT = 65535
 """Largest valid TCP port."""
 
 
-_ROUTE_PARAMETER = re.compile(
-    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(:[a-zA-Z_][a-zA-Z0-9_]*)?\}"
+ROUTE_PARAMETER = re.compile(
+    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([a-zA-Z_][a-zA-Z0-9_]*))?\}"
 )
-"""A path parameter in a Starlette route's path, with its optional converter."""
-
-
-def compile_route(
-    template: Annotated[
-        str, Doc("A route's path, joined with every mount path above it.")
-    ],
-) -> Pattern[str]:
-    """Return the regex Starlette matches this path with.
-
-    Starlette compiles a mount and each route under it apart, so the two may
-    name the same parameter. Each parameter is given a name of its own before
-    the joined path is compiled, which changes no URL it matches.
-    """
-    from starlette.routing import compile_path  # noqa: PLC0415
-
-    compiled, _, _ = compile_path(_renamed(template))
-    return compiled
+"""A path parameter in a route's path, with its optional converter's name."""
 
 
 _PARAMETER = re.compile(r"\{[^{}:]+(:[^{}]+)?\}")
 """A parameter in a route template, with its converter if it names one."""
 
 
-def _declared_pattern(template: str) -> re.Pattern[str]:
-    """Return the regex a route template matches a request path with.
+def segment_pattern(
+    template: Annotated[
+        str, Doc("A route's path, such as `/items/{item_id}`.")
+    ],
+) -> re.Pattern[str]:
+    """Return the regex matching a request path one segment per parameter.
 
-    Starlette's own when it is installed. Without it, a `path` parameter
-    matches every remaining segment and any other parameter one segment.
+    A `path` parameter matches every remaining segment, and any other
+    parameter one segment, whatever converter it names.
     """
-    try:
-        return compile_route(template)
-    except ImportError:
-        parts: list[str] = []
-        last = 0
-        for found in _PARAMETER.finditer(template):
-            parts.append(re.escape(template[last : found.start()]))
-            parts.append(".*" if found.group(1) == ":path" else "[^/]+")
-            last = found.end()
-        parts.append(re.escape(template[last:]))
-        return re.compile(f"^{''.join(parts)}$")
+    parts: list[str] = []
+    last = 0
+    for found in _PARAMETER.finditer(template):
+        parts.append(re.escape(template[last : found.start()]))
+        parts.append(".*" if found.group(1) == ":path" else "[^/]+")
+        last = found.end()
+    parts.append(re.escape(template[last:]))
+    return re.compile(f"^{''.join(parts)}$")
 
 
 def path_format(
@@ -317,15 +300,7 @@ def path_format(
 
     `/items/{item_id:int}` reads `/items/{item_id}`, as the schema names it.
     """
-    return _ROUTE_PARAMETER.sub(r"{\1}", template)
-
-
-def _renamed(template: str) -> str:
-    """Return the template with each parameter given a name of its own."""
-    names = itertools.count()
-    return _ROUTE_PARAMETER.sub(
-        lambda match: f"{{p{next(names)}{match.group(2) or ''}}}", template
-    )
+    return ROUTE_PARAMETER.sub(r"{\1}", template)
 
 
 _CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
@@ -609,9 +584,6 @@ def _routing_app(app: Any) -> Any:  # noqa: ANN401
         if nested is not None:
             app = nested
             continue
-        router = getattr(app, "router", None)
-        if hasattr(app, "routes") or hasattr(router, "routes"):
-            return app
         return app
     return app
 
@@ -645,28 +617,8 @@ def _is_route(app: Any) -> bool:  # noqa: ANN401
     )
 
 
-def _is_exception_middleware(app: Any) -> bool:  # noqa: ANN401
-    """Return whether `app` is Starlette's built-in exception router."""
-    klass = type(app)
-    return (
-        klass.__module__ == "starlette.middleware.exceptions"
-        and klass.__name__ == "ExceptionMiddleware"
-    )
-
-
-def _is_fastapi_exit_stack_middleware(app: Any) -> bool:  # noqa: ANN401
-    """Return whether `app` is FastAPI's built-in dependency exit stack."""
-    klass = type(app)
-    return (
-        klass.__module__ == "fastapi.middleware.asyncexitstack"
-        and klass.__name__ == "AsyncExitStackMiddleware"
-    )
-
-
 def _wrapped_app(app: Any) -> Any | None:  # noqa: ANN401
     """Return the application an explicit ASGI wrapper delegates to."""
-    if _is_mount(app) or _is_route(app):
-        return None
     nested = getattr(app, "app", None)
     if (
         nested is None
@@ -675,137 +627,6 @@ def _wrapped_app(app: Any) -> Any | None:  # noqa: ANN401
     ):
         return None
     return nested
-
-
-def _transparent_routing_source(app: Any) -> Any:  # noqa: ANN401
-    """Unwrap framework plumbing that adds no request policy boundary."""
-    seen: set[int] = set()
-    while app is not None and id(app) not in seen:
-        seen.add(id(app))
-        bound = _bound_router(app)
-        if bound is not None:
-            app = bound
-            continue
-        if not (
-            _is_exception_middleware(app)
-            or _is_fastapi_exit_stack_middleware(app)
-        ):
-            break
-        nested = _wrapped_app(app)
-        if nested is None:
-            break
-        app = nested
-    return app
-
-
-def _has_configured_middleware(app: Any) -> bool:  # noqa: ANN401
-    """Return whether a routing application declares middleware of its own."""
-    app = _transparent_routing_source(app)
-    if _wrapped_app(app) is not None:
-        return True
-    if getattr(app, "user_middleware", ()):
-        return True
-    routed = getattr(app, "router", None) or app
-    stack = getattr(routed, "middleware_stack", None)
-    endpoint = getattr(routed, "app", None)
-    return stack is not None and endpoint is not None and stack != endpoint
-
-
-def _route_source(app: Any, *, unwrap_middleware: bool) -> Any | None:  # noqa: ANN401
-    """Resolve the routing object visible through the requested boundary."""
-    app = _transparent_routing_source(app)
-    if unwrap_middleware:
-        return _routing_app(app)
-    if _wrapped_app(app) is not None:
-        return None
-    return app
-
-
-def _walk_mounted_routes(
-    app: Any,  # noqa: ANN401
-    prefix: str,
-    ancestors: frozenset[int],
-    *,
-    unwrap_middleware: bool,
-) -> list[tuple[str, Any, tuple[Any, ...]]] | None:
-    """Walk a direct `Mount`, or return `None` for another routing object."""
-    if not _is_mount(app):
-        return None
-    nested = getattr(app, "app", app)
-    if not unwrap_middleware and _has_configured_middleware(nested):
-        return []
-    return _walk_routes(
-        nested,
-        f"{prefix}{getattr(app, 'path', '')}",
-        (),
-        ancestors,
-        unwrap_middleware=unwrap_middleware,
-    )
-
-
-def _walk_routes(
-    app: Any,  # noqa: ANN401
-    prefix: str,
-    contexts: tuple[Any, ...],
-    ancestors: frozenset[int],
-    *,
-    unwrap_middleware: bool,
-) -> list[tuple[str, Any, tuple[Any, ...]]]:
-    """Walk one routing branch while stopping only its own ancestry."""
-    app = _route_source(app, unwrap_middleware=unwrap_middleware)
-    if app is None or id(app) in ancestors:
-        return []
-    nested_ancestors = ancestors | {id(app)}
-    mounted = _walk_mounted_routes(
-        app,
-        prefix,
-        nested_ancestors,
-        unwrap_middleware=unwrap_middleware,
-    )
-    if mounted is not None:
-        return mounted
-    if _is_route(app):
-        return (
-            [(prefix, app, contexts)]
-            if getattr(app, "path", None) is not None
-            else []
-        )
-    own = getattr(app, "router", None)
-    if own is not None:
-        contexts = (*contexts, own)
-    found: list[tuple[str, Any, tuple[Any, ...]]] = []
-    for route in getattr(app, "routes", ()):
-        context = getattr(route, "include_context", None)
-        included = getattr(route, "original_router", None)
-        if included is not None:
-            found.extend(
-                _walk_routes(
-                    included,
-                    f"{prefix}{getattr(context, 'prefix', '')}",
-                    (*contexts, context, included),
-                    nested_ancestors,
-                    unwrap_middleware=unwrap_middleware,
-                )
-            )
-            continue
-        inner = getattr(route, "routes", None)
-        if inner or (unwrap_middleware and inner is not None):
-            nested = getattr(route, "app", route)
-            if not unwrap_middleware and _has_configured_middleware(nested):
-                continue
-            found.extend(
-                _walk_routes(
-                    nested,
-                    f"{prefix}{getattr(route, 'path', '')}",
-                    (),
-                    nested_ancestors,
-                    unwrap_middleware=unwrap_middleware,
-                )
-            )
-            continue
-        if getattr(route, "path", None) is not None:
-            found.append((prefix, route, contexts))
-    return found
 
 
 def read_route(scope: MutableMapping[str, Any]) -> str | None:
@@ -977,44 +798,6 @@ def starlette_route(  # noqa: C901
     return redirected() or mounts + "/{path}"
 
 
-def walk_routes(
-    app: Annotated[  # noqa: ANN401
-        Any, Doc("The application, or the router, to read the routes off.")
-    ],
-    prefix: Annotated[str, Doc("What the routes below sit under.")] = "",
-    contexts: Annotated[
-        tuple[Any, ...],
-        Doc("The include contexts above them, outermost first."),
-    ] = (),
-    *,
-    unwrap_middleware: Annotated[
-        bool,
-        Doc("Whether to inspect routes behind mounted ASGI middleware."),
-    ] = False,
-) -> list[tuple[str, Any, tuple[Any, ...]]]:
-    """Return every route the app declares, with the path it sits under.
-
-    A route is `(prefix, route, contexts)`, where the prefix is what the
-    mounts and the routers above it add to the path it was written with,
-    and the contexts are what was declared above it, outermost first:
-    the app's own router, each inclusion, and the router it included.
-
-    An included router is a node of its own rather than the routes it
-    holds, so what it was included under has to be carried down to them
-    from here. A mount starts a new application boundary: the parent
-    router's dependencies do not apply inside it. Middleware around a
-    mounted app is a boundary too unless the caller explicitly asks to
-    inspect through it.
-    """
-    return _walk_routes(
-        app,
-        prefix,
-        contexts,
-        frozenset(),
-        unwrap_middleware=unwrap_middleware,
-    )
-
-
 def as_patterns(
     value: Annotated[
         tuple[str, ...] | list[str],
@@ -1079,8 +862,8 @@ def names_route(
     pattern: Annotated[str, Doc("A pattern a component was given.")],
     template: Annotated[str, Doc("The path a route is declared under.")],
     regex: Annotated[
-        Pattern[str] | None,
-        Doc("What the router compiled that path into, if anything."),
+        Pattern[str],
+        Doc("The regex a URL is matched against for that path."),
     ],
 ) -> bool:
     """Return whether this pattern can select a request this route answers.
@@ -1093,15 +876,12 @@ def names_route(
     this. The response cache refuses a pattern naming a read behind a
     security scheme, and a refusal that asked the template alone would
     let the URL through and answer over the gate.
-
-    A route the router could not compile carries no regex, and is
-    answered by its template alone, which is all there is to compare.
     """
     if pattern.endswith(_PREFIX):
         return _prefix_names(pattern[: -len(_PREFIX)], template)
     if template == pattern:
         return True
-    return regex is not None and bool(regex.fullmatch(pattern))
+    return bool(regex.fullmatch(pattern))
 
 
 def _prefix_names(under: str, template: str) -> bool:
@@ -1117,7 +897,9 @@ def _prefix_names(under: str, template: str) -> bool:
     `/users/me/*` names `/users/{uid}/settings`. The last segment of the
     prefix may cut into a segment of the template, because a prefix is
     matched against the URL rather than against a boundary, so
-    `/products/co*` names `/products/cold`.
+    `/products/co*` names `/products/cold`. A literal glued to a `path`
+    parameter, such as `/raw{path:path}`, absorbs every segment of a
+    prefix starting with that literal.
     """
     boundary = under.endswith("/")
     parts = under.rstrip("/").split("/")
@@ -1132,6 +914,9 @@ def _prefix_names(under: str, template: str) -> bool:
                 # after the literal and typed segments before it agreed.
                 return True
             continue
+        head, brace, rest = against.partition("{")
+        if brace and ":path}" in rest and part.startswith(head):
+            return True
         if index == len(parts) - 1 and not boundary:
             # The prefix may stop inside this one.
             if not against.startswith(part):

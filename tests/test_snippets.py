@@ -48,7 +48,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 import grelmicro
-from grelmicro._paths import walk_routes
+from grelmicro.integrations.fastapi import route_declarations
 from tests._containers import CONTAINER_LOG_TIMEOUT
 
 if TYPE_CHECKING:
@@ -430,10 +430,10 @@ def test_fastapi_snippet_routes_answer(
         pytest.skip(f"{rel} builds no app")
     paths = sorted(
         {
-            f"{prefix}{route.path}"
-            for prefix, route, _ in walk_routes(app)
-            if "GET" in (getattr(route, "methods", None) or set())
-            and "{" not in route.path
+            declaration.path
+            for declaration in route_declarations(app)
+            if "GET" in (declaration.methods or set())
+            and "{" not in declaration.path
         }
     )
     micro = getattr(module, "micro", None)

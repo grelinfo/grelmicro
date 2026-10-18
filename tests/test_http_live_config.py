@@ -25,13 +25,7 @@ from starlette.testclient import TestClient
 
 from grelmicro import Grelmicro
 from grelmicro._config import _is_container
-from grelmicro._describe import (
-    _compiled,
-    _declared_paths,
-    _Endpoint,
-    _reach,
-)
-from grelmicro._paths import matches, selects
+from grelmicro._paths import matches, segment_pattern, selects
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
@@ -1617,26 +1611,14 @@ def test_a_rule_reaching_part_of_a_route_says_so() -> None:
     assert not [c for c in report.checks if c.name == "path-patterns"]
 
 
-def test_describe_reads_a_route_no_compiler_here_understands() -> None:
-    """A report answers questions, so it comes back with what it could read.
-
-    Starlette owns the path compiler and is not a dependency of
-    grelmicro, and another framework spells a converter its own way. A
-    template neither can read stands for itself.
-    """
-
+def test_a_route_template_matches_one_segment_per_parameter() -> None:
+    """A converter reads as one path segment, whichever framework spells it."""
     # Arrange
-    class Route:
-        path = "/orders/{placed:date}"
+    regex = segment_pattern("/orders/{placed:date}")
 
-    class App:
-        routes = (Route(),)
-
-    # Act
-    declared = _declared_paths(App())
-
-    # Assert
-    assert declared == [("/orders/{placed:date}", None)]
+    # Act / Assert
+    assert regex.fullmatch("/orders/2026-01-01")
+    assert not regex.fullmatch("/orders/2026/01")
 
 
 async def test_a_steady_config_map_does_not_warn_every_poll(
@@ -1672,32 +1654,6 @@ async def test_a_steady_config_map_does_not_warn_every_poll(
     assert not [
         r for r in records if "only applies at startup" in r.getMessage()
     ]
-
-
-def test_a_route_with_no_regex_reaches_no_pattern() -> None:
-    """A template no compiler read stands for itself and nothing more.
-
-    Without a regex there is no way to ask whether a pattern names one
-    of the URLs it serves, so it does not, and the row says only what
-    the template itself answers.
-    """
-    # Arrange
-    endpoint = _Endpoint(
-        method="GET",
-        path="/orders/{placed:date}",
-        regex=None,
-    )
-
-    # Act / Assert
-    assert _reach(endpoint, ("/orders/2026-01-01",), ()) is None
-    assert _reach(endpoint, ("/orders/{placed:date}",), ()) == ""
-
-
-def test_no_compiler_leaves_every_template_standing_for_itself() -> None:
-    """Starlette owns the compiler and grelmicro does not depend on it."""
-    # Arrange
-    # Act / Assert
-    assert _compiled(None, "/orders") is None
 
 
 def test_exclude_only_narrows_what_include_already_reaches() -> None:

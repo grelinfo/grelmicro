@@ -53,6 +53,7 @@ from grelmicro._discovery import (
     framework_of,
     integration_names,
     load_integration,
+    serves_http,
 )
 from grelmicro._environment import (
     _PACKAGE_DIR,
@@ -1573,7 +1574,7 @@ class Grelmicro:
         route that serves a caller with no credential, so every route needs
         one, a route declaring `Anonymous()` included.
         """
-        if not hasattr(integration, "install_middleware") or hasattr(
+        if not serves_http(integration) or hasattr(
             integration, "install_route_gate"
         ):
             return

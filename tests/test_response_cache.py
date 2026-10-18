@@ -34,6 +34,10 @@ from starlette.authentication import (
     AuthenticationBackend,
     SimpleUser,
 )
+from starlette.convertors import (  # codespell:ignore
+    Convertor,  # codespell:ignore
+    register_url_convertor,  # codespell:ignore
+)
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.cors import CORSMiddleware
@@ -4101,3 +4105,93 @@ def test_a_trailing_newline_never_caches_a_gated_read() -> None:
     assert allowed.json() == {"calls": 1}
     assert without_key.status_code != allowed.status_code
     assert "age" not in without_key.headers
+
+
+class _Slug(Convertor[str]):  # codespell:ignore
+    """A converter the app registers itself, matching lower-case words and dashes."""
+
+    regex = "[a-z-]+"
+
+    def convert(self, value: str) -> str:
+        """Return the value as it is."""
+        return value
+
+    def to_string(self, value: str) -> str:
+        """Return the value as it is."""
+        return value
+
+
+register_url_convertor("grelmicro_slug", _Slug())
+
+
+async def _answered(_request: object) -> JSONResponse:
+    """Answer any route."""
+    return JSONResponse({})  # pragma: no cover
+
+
+@pytest.mark.parametrize(
+    ("routes", "named", "refused"),
+    [
+        pytest.param(
+            [Route("/w/{n:int}", _answered, methods=["POST"])],
+            "/w/abc",
+            True,
+            id="int-takes-a-word",
+        ),
+        pytest.param(
+            [Route("/w/{n:int}", _answered, methods=["POST"])],
+            "/w/5",
+            True,
+            id="int-takes-a-number",
+        ),
+        pytest.param(
+            [Route("/w/{u:uuid}", _answered, methods=["POST"])],
+            "/w/5",
+            True,
+            id="uuid-takes-a-number",
+        ),
+        pytest.param(
+            [Route("/w/{s:grelmicro_slug}", _answered, methods=["POST"])],
+            "/w/5",
+            True,
+            id="custom-converter-takes-any-segment",
+        ),
+        pytest.param(
+            [Route("/w/{n:int}", _answered, methods=["POST"])],
+            "/w/a/b",
+            False,
+            id="one-segment-per-parameter",
+        ),
+        pytest.param(
+            [Route("/w/{p:path}", _answered, methods=["POST"])],
+            "/w/a/b",
+            True,
+            id="path-takes-the-rest",
+        ),
+        pytest.param(
+            [
+                Route("/w/{n:int}", _answered),
+                Route("/w/abc", _answered, methods=["POST"]),
+            ],
+            "/w/abc",
+            False,
+            id="a-read-beside-the-write",
+        ),
+    ],
+)
+def test_cached_responses_include_names_a_route_one_path_segment_per_parameter(
+    routes: list[Route],
+    named: str,
+    refused: bool,  # noqa: FBT001
+) -> None:
+    """A parameter takes one segment whatever its converter, and a `path` parameter the rest."""
+    # Arrange
+    app = Starlette(routes=routes)
+    component = CachedResponses(include=(named,))
+
+    # Act / Assert
+    if refused:
+        with pytest.raises(TypeError, match="POST and no GET"):
+            component.read_routes(app)
+    else:
+        component.read_routes(app)

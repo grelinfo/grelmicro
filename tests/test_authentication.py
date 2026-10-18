@@ -80,6 +80,7 @@ from starlette.websockets import WebSocket
 
 from grelmicro import ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro._describe import _Endpoint, _reads_idempotent
+from grelmicro._paths import segment_pattern
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import (
@@ -2924,13 +2925,11 @@ class TestReport:
         """A guard's scopes and a public handler read the same way."""
         app = litestar_app(AuthenticatedRequests(verifier()))
 
-        assert self.applies(app, "GET", "/catalog/{item_id:int}") == (
-            "anonymous",
-        )
-        assert self.applies(app, "POST", "/catalog/{item_id:int}") == (
+        assert self.applies(app, "GET", "/catalog/{item_id}") == ("anonymous",)
+        assert self.applies(app, "POST", "/catalog/{item_id}") == (
             "authenticated",
         )
-        assert self.applies(app, "DELETE", "/orders/{order_id:int}") == (
+        assert self.applies(app, "DELETE", "/orders/{order_id}") == (
             "authenticated orders:write",
         )
 
@@ -2946,7 +2945,9 @@ class TestReport:
             ),
         )
         read = _reads_idempotent(idempotent)
-        public = _Endpoint(method="POST", path="/signup")
+        public = _Endpoint(
+            method="POST", path="/signup", regex=segment_pattern("/signup")
+        )
 
         assert read(public) == "idempotent 3600s"
         assert read(replace(public, authenticated=True)) is None
@@ -2974,10 +2975,10 @@ class TestReport:
         micro.install(app)
         app.state.micro = micro
 
-        assert self.applies(app, "GET", "/orders/{order_id:int}") == (
+        assert self.applies(app, "GET", "/orders/{order_id}") == (
             "authenticated",
         )
-        assert self.applies(app, "DELETE", "/orders/{order_id:int}") == (
+        assert self.applies(app, "DELETE", "/orders/{order_id}") == (
             "authenticated orders:write",
         )
 
@@ -4676,7 +4677,7 @@ class TestConsistency:
     def test_a_public_route_under_a_mount_of_a_mount_is_authenticated(
         self,
     ) -> None:
-        """The outer mount is one protected route, as its gate serves it."""
+        """The outer mount is one protected route with no row, as its gate serves it."""
         app = FastAPI()
         app.mount(
             "/t",
@@ -4687,7 +4688,11 @@ class TestConsistency:
         )
         self.reported(app)
 
-        assert self.applies(app, "GET", "/t/r/a") == ("authenticated",)
+        assert not [
+            row
+            for row in app.state.micro.describe(app).endpoints
+            if row.path.startswith("/t")
+        ]
         assert TestClient(app).get("/t/r/a").status_code == (
             HTTP_401_UNAUTHORIZED
         )

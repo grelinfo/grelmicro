@@ -12,25 +12,19 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from fastapi import FastAPI
 from litestar import Litestar
 from litestar import Request as LitestarRequest
 from litestar import get as litestar_get
 from litestar.testing import TestClient as LitestarTestClient
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
-from starlette.middleware.exceptions import ExceptionMiddleware
 from starlette.routing import Mount, Route, Router, compile_path
 
 from grelmicro._paths import (
     _request_authority,
     _routing_app,
-    _transparent_routing_source,
     matches,
     names_route,
     route_path,
-    walk_routes,
 )
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
@@ -49,129 +43,6 @@ from grelmicro.security import TrustedProxies
 
 async def app(scope: object, receive: object, send: object) -> None:
     """Stand in for the app a middleware wraps."""
-
-
-def test_route_walker_reads_nothing_through_a_wrapper() -> None:
-    """A wrapper it cannot see into hides its routes."""
-    # Arrange
-    wrapped = SimpleNamespace(app=Router())
-
-    # Act / Assert
-    assert walk_routes(wrapped) == []
-
-
-def test_direct_mount_and_bound_router_keep_their_routing_context() -> None:
-    """Direct routing nodes retain prefixes and configured boundaries."""
-    # Arrange
-    route = Route("/items", app)
-    router = Router(routes=[route])
-    mounted = Mount("/api", app=router)
-    protected = Mount(
-        "/private",
-        app=Router(
-            routes=[route],
-            middleware=[
-                Middleware(
-                    CORSMiddleware,
-                    allow_origins=["https://example.test"],
-                )
-            ],
-        ),
-    )
-
-    # Act / Assert
-    assert [
-        (prefix, found.path) for prefix, found, _ in walk_routes(mounted)
-    ] == [("/api", "/items")]
-    assert [
-        (prefix, found.path) for prefix, found, _ in walk_routes(router.app)
-    ] == [("", "/items")]
-    assert [
-        (prefix, found.path) for prefix, found, _ in walk_routes(route)
-    ] == [("", "/items")]
-    assert walk_routes(protected) == []
-
-
-def test_transparent_routing_source_stops_at_what_it_cannot_unwrap() -> None:
-    """Nothing, and an exception router wrapping nothing, are read as they are."""
-    # Arrange
-    broken_exception = ExceptionMiddleware(cast("Any", None))
-
-    # Act / Assert
-    assert _transparent_routing_source(None) is None
-    assert _transparent_routing_source(broken_exception) is broken_exception
-
-
-def test_route_walker_reads_through_plumbing_and_a_bound_router() -> None:
-    """An exception router is looked through, and a wrapped bound router is read."""
-    # Arrange
-    router = Router(routes=[Route("/items", app)])
-
-    # Act
-    unwrapped = _transparent_routing_source(ExceptionMiddleware(router))
-    walked = walk_routes(
-        SimpleNamespace(app=router.app), unwrap_middleware=True
-    )
-
-    # Assert
-    assert unwrapped is router
-    assert [(prefix, found.path) for prefix, found, _ in walked] == [
-        ("", "/items")
-    ]
-
-
-def test_route_walker_stops_at_a_mounted_router_with_middleware() -> None:
-    """Routes behind middleware of their own are not read from above it."""
-    # Arrange
-    guarded = Router(
-        routes=[Route("/items", app)],
-        middleware=[
-            Middleware(CORSMiddleware, allow_origins=["https://example.test"])
-        ],
-    )
-    root = Router(routes=[Mount("/private", app=guarded)])
-
-    # Act / Assert
-    assert walk_routes(root) == []
-
-
-def test_route_walker_reads_nothing_through_a_cycle_of_wrappers() -> None:
-    """Two wrappers delegating to each other hide no route and end the walk."""
-    # Arrange
-    first = SimpleNamespace()
-    second = SimpleNamespace(app=first)
-    first.app = second
-
-    # Act / Assert
-    assert walk_routes(first, unwrap_middleware=True) == []
-
-
-def test_route_walker_stops_at_a_mount_whose_app_is_wrapped() -> None:
-    """A middleware wrapping the mounted app guards every route behind it."""
-    # Arrange
-    wrapped = CORSMiddleware(
-        Router(routes=[Route("/items", app)]),
-        allow_origins=["https://example.test"],
-    )
-
-    # Act / Assert
-    assert walk_routes(Mount("/private", app=wrapped)) == []
-
-
-def test_route_walker_stops_at_a_mounted_app_with_middleware_of_its_own() -> (
-    None
-):
-    """Middleware the mounted app declares guards every route behind it."""
-    # Arrange
-    guarded = Starlette(
-        routes=[Route("/items", app)],
-        middleware=[
-            Middleware(CORSMiddleware, allow_origins=["https://example.test"])
-        ],
-    )
-
-    # Act / Assert
-    assert walk_routes(Mount("/private", app=guarded)) == []
 
 
 @pytest.mark.parametrize(
@@ -326,6 +197,26 @@ def test_request_authority_is_canonical_and_uses_server_fallback(
     assert _request_authority(scope) == expected
 
 
+def test_routing_app_stops_at_a_wrapped_mount() -> None:
+    """A mount behind a middleware is the routing node read."""
+    # Arrange
+    mount = Mount("/r", routes=[Route("/items", app)])
+
+    # Act / Assert
+    assert _routing_app(CORSMiddleware(mount, allow_origins=["*"])) is mount
+
+
+def test_routing_app_reads_a_wrapped_bound_router_as_its_router() -> None:
+    """A middleware around a router's bound `app` reads that router."""
+    # Arrange
+    router = Router(routes=[Route("/items", app)])
+
+    # Act / Assert
+    assert (
+        _routing_app(CORSMiddleware(router.app, allow_origins=["*"])) is router
+    )
+
+
 def test_routing_app_middleware_loop_returns_the_loop() -> None:
     """A malformed middleware cycle terminates without inventing routes."""
 
@@ -338,36 +229,6 @@ def test_routing_app_middleware_loop_returns_the_loop() -> None:
 
     # Act / Assert
     assert _routing_app(loop) is loop
-
-
-def test_route_walker_stops_cycles_per_path_not_globally() -> None:
-    """Cycles stop while repeated mounts retain both distinct prefixes."""
-    # Arrange
-    child = Router(routes=[Route("/items", app)])
-    repeated = Router(
-        routes=[Mount("/one", app=child), Mount("/two", app=child)]
-    )
-    cyclic = FastAPI()
-
-    @cyclic.post("/charge")
-    async def charge() -> dict[str, bool]:
-        return {"charged": True}
-
-    cyclic.mount("/v1", cyclic)
-
-    # Act
-    repeated_paths = [
-        f"{prefix}{route.path}"
-        for prefix, route, _contexts in walk_routes(repeated)
-    ]
-    cyclic_paths = [
-        f"{prefix}{route.path}"
-        for prefix, route, _contexts in walk_routes(cyclic)
-    ]
-
-    # Assert
-    assert repeated_paths == ["/one/items", "/two/items"]
-    assert cyclic_paths.count("/charge") == 1
 
 
 def components() -> list[tuple[str, Any]]:

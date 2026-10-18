@@ -10,7 +10,6 @@ from typing_extensions import Doc
 
 from grelmicro._discovery import load_integration
 from grelmicro._duration import in_range
-from grelmicro._paths import path_format
 from grelmicro.errors import _scope_tokens
 
 if TYPE_CHECKING:
@@ -29,6 +28,7 @@ __all__ = [
     "listed_routes",
     "refuse_impossible",
     "route_name",
+    "routes_listed_by",
     "runs_checks",
 ]
 
@@ -267,15 +267,24 @@ def listed_routes(app: object) -> list[RouteDeclaration]:
 
     An app whose integration has no `route_declarations` declares nothing.
     """
-    listed = getattr(load_integration(app), "route_declarations", None)
+    return routes_listed_by(load_integration(app), app)
+
+
+def routes_listed_by(
+    integration: object, app: object
+) -> list[RouteDeclaration]:
+    """Return what the routes of `app` declare, as `integration` lists them.
+
+    An integration without `route_declarations` declares nothing.
+    """
+    listed = getattr(integration, "route_declarations", None)
     return [] if listed is None else list(listed(app))
 
 
 class DeclaredRoutes:
     """The declarations an integration lists, found by path and method.
 
-    A path matches a declaration written the same way, or, when none is,
-    one written without the path's converters.
+    A path matches a declaration written the same way.
     """
 
     __slots__ = ("_exact",)
@@ -289,12 +298,6 @@ class DeclaredRoutes:
 
     def of(self, path: str, method: str) -> RouteDeclaration | None:
         """Return the declaration of `method` on `path`, or `None`."""
-        return self._written(path, method) or self._written(
-            path_format(path), method
-        )
-
-    def _written(self, path: str, method: str) -> RouteDeclaration | None:
-        """Return the declaration of `method` on `path` written as it is, or `None`."""
         return self._exact.get((path, method)) or self._exact.get((path, None))
 
 
