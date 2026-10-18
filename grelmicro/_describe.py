@@ -438,10 +438,18 @@ def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: 
     def read(endpoint: _Endpoint) -> str | None:
         state = component._live.state  # noqa: SLF001
         config = state.config
-        # An authenticated request is answered by its handler, never the cache.
-        if endpoint.method not in {"GET", "HEAD"} or endpoint.authenticated:
-            return None
         declaration = endpoint.declaration
+        # An authenticated request is answered by its handler, unless its
+        # route declares one response shared among every caller it admits.
+        shared = (
+            declaration is not None
+            and declaration.shared
+            and declaration.cache is not False
+        )
+        if endpoint.method not in {"GET", "HEAD"} or (
+            endpoint.authenticated and not shared
+        ):
+            return None
         if declaration is not None and (
             declaration.cache is not False or runs_checks(declaration)
         ):

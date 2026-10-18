@@ -6,18 +6,25 @@ grelmicro is not a web framework. It plugs into the one you picked, and
 **Every pattern and every component works on every framework grelmicro
 supports.** A `Lock`, a `RateLimiter`, `@cached`, the outbox, the scheduler,
 health checks, logging, tracing, and metrics behave the same whichever one you
-picked. What differs is the wiring `install` does for you, and two routers
-that only FastAPI has. Both halves of that are named below, and a test holds
-them.
+picked. What differs is the wiring `install` does for you, two routers that
+only FastAPI has, and the route declarations FastAPI reads as dependencies.
+All of it is named below, and a test holds the patterns.
 
 ## What `install` wires
 
 | Framework | Extra | What `install` wires | Not portable |
 |---|---|---|---|
 | [FastAPI](https://fastapi.tiangolo.com/) | `grelmicro[fastapi]` | The lifespan, the per-request binding, the error responses, the middleware you registered, and the OpenAPI schema. | Nothing. |
-| [Starlette](https://www.starlette.io/) | `grelmicro[starlette]` | The lifespan, the per-request binding, the error responses, and the middleware you registered. | The [health router](health.md) and the metrics router. Starlette builds no OpenAPI schema. |
-| [Litestar](https://litestar.dev/) | `grelmicro[litestar]` | The startup and shutdown hooks, the per-request binding, the error responses, the middleware you registered, and the OpenAPI schema. | The same two routers, and request auto-instrumentation, which Litestar does with its own plugin. |
+| [Starlette](https://www.starlette.io/) | `grelmicro[starlette]` | The lifespan, the per-request binding, the error responses, and the middleware you registered. | The [health router](health.md) and the metrics router. The per-route declarations `CachedResponse()` (name the path in `include=`), `RateLimited` and `ConditionalRequired` (use `require_precondition=`). `Anonymous()` (use `exclude=`). Starlette builds no OpenAPI schema. |
+| [Litestar](https://litestar.dev/) | `grelmicro[litestar]` | The startup and shutdown hooks, the per-request binding, the error responses, the middleware you registered, and the OpenAPI schema. | The same two routers and the same three per-route declarations, and request auto-instrumentation, which Litestar does with its own plugin. |
 | [FastStream](https://faststream.airt.ai/) | `grelmicro[faststream]` | The startup and shutdown hooks, the per-message binding, and the broker telemetry middleware. | Everything HTTP, because FastStream serves none. |
+
+The rest of what FastAPI injects has a form on every framework. A Starlette
+or Litestar handler reads the caller from `request.user` and the token with
+`current_token(request)`, where FastAPI injects `CurrentPrincipal`,
+`OptionalPrincipal`, `Claims` and `CurrentToken`. `Conditional` is the
+injected form of `check_freshness` and `check_precondition`, which work on
+every framework.
 
 `install` also wires what you registered. `ErrorResponses()` has grelmicro's
 rejections answered as RFC 9457 responses, `IdempotentRequests()` has repeated
@@ -45,8 +52,8 @@ FastAPI and Litestar build an OpenAPI schema, and `install` describes every
 registered component in it the same way on both: the bearer token, the `429`
 of a rate limit, the `Idempotency-Key` header, and the precondition headers.
 Starlette builds no schema, so there is nothing to describe. A route marks
-`If-Match` required with `ConditionalRequired` on FastAPI, and with
-`require_precondition=` on every framework.
+`If-Match` required with `ConditionalRequired` on FastAPI. On every framework,
+`ConditionalRequests(require_precondition=...)` requires it per method.
 
 ## The routers
 

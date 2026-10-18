@@ -293,11 +293,12 @@ Components
   idempotent_requests/default  IdempotentRequests
 
 Endpoints
-  POST   /orders                idempotent 86400s
-  GET    /products              cache 60s
+  POST   /orders    idempotent 86400s
+  GET    /products  cache 60s
 
 Checks
   FAIL  backend-scope: IdempotentRequests('default') rides Cache('default'), which is bound to MemoryCacheAdapter and provides scope 'process', but requires scope 'cluster'
+  FAIL  backend-scope: IdempotentRequests('default') is bound to InProcessLock, which provides scope 'process', but requires scope 'cluster'
   warn  path-patterns: cached_responses/default names /product, which no route matches
   ok    ambient-binding: patterns resolve their backend inside request handlers
   ok    health-not-served: every registered HealthChecks has its endpoints served
@@ -314,6 +315,7 @@ route.
 | `path-patterns` | An `include=` pattern that names no route, which turns its rule off without a word. Needs `--app`. | `warn` |
 | `ambient-binding` | An app or mounted sub-app that `micro.install(app)` never saw. Needs `--app`. | `FAIL`, or `warn` for a framework it does not recognize |
 | `health-not-served` | A registered `HealthChecks` whose endpoints nothing serves, once an app is installed. | `warn` |
+| `routes-not-declared` | An integration that lists no routes while a component acting per endpoint is registered, so no endpoint row is shown and no `include=` pattern is checked. Needs `--app`. | `warn` |
 
 The command exits `0` when no check fails, `1` when one does, and `2` when the
 target does not resolve, for example a misspelled module or one that raises

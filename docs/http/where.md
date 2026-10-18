@@ -99,10 +99,10 @@ python -m grelmicro check app:micro --app app:app
 
 ```
 Endpoints
-  GET    /products      access-log  cache 60s   rate-limit burst, daily
-  GET    /products/hot  access-log  cache 300s  rate-limit burst, daily
-  POST   /orders        access-log  idempotent 3600s  rate-limit burst, daily
   GET    /livez         -
+  POST   /orders        idempotent 3600s  rate-limit burst, daily  access-log
+  GET    /products      cache 60s  rate-limit burst, daily  access-log
+  GET    /products/hot  cache 300s  rate-limit burst, daily  access-log
 ```
 
 One line per endpoint, read from the routes the app declares and the
@@ -171,7 +171,7 @@ anyone can call it.
 
 So those three are configured at startup, every field of them, and changed by
 a deploy where they are reviewed. Not a chosen list of fields: every one of
-theirs turns out to protect something. Turn off `fingerprint_body` and a key
+theirs turns out to protect something. Switch `fingerprint_body` off and a key
 reused with a different payload replays the first response. Lower
 `max_body_size` and a large response stops being stored, or stops carrying
 an `ETag`. A list would also have to be maintained, and the field somebody
@@ -200,10 +200,10 @@ other key in the same file still applies.
 And a file never changes what the app is made of. It cannot register a
 component, choose a cache store, add a rate limiter, or supply a `key=`
 function. So a cache pattern arriving from a ConfigMap is checked against
-the same rules `micro.install(app)` checks: one naming a read behind a security
-scheme is refused and the running configuration is kept, one naming a read
-with an ordinary FastAPI dependency is left uncached, and one written for a
-path that answers no `GET` is refused as the typo it is. A prefix is not,
+the same rules `micro.install(app)` checks. One naming a read that runs
+checks of its own, a security scheme or an ordinary FastAPI dependency, is
+left uncached. One written for a path that answers no `GET` is refused as the
+typo it is, and the running configuration is kept. A prefix is not,
 because a router holds writes beside its reads and those are simply left to
 their handlers.
 

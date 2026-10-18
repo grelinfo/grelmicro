@@ -48,6 +48,7 @@ def install_error_responses(app, errors) -> None: ...
 def install_middleware(app, components) -> None: ...
 def install_route_gate(app, gate) -> None: ...
 def route_declarations(app) -> Iterable[RouteDeclaration]: ...
+def health_endpoints(app) -> Iterable[HealthEndpoint] | None: ...
 ```
 
 `install_error_responses` answers every rejection in the format the registered
@@ -57,7 +58,9 @@ and the arguments to build it with, and adds each one the way your framework
 takes a middleware. Keep the binding outermost, so a middleware that resolves
 a backend ambiently runs inside the request scope. `install_route_gate` and
 `route_declarations` declare your routes, as
-[Declare the routes](#declare-the-routes) shows.
+[Declare the routes](#declare-the-routes) shows. `health_endpoints` yields the
+health endpoints the app serves, so a registered `HealthChecks` none of them
+serves is reported, or returns `None` for an app that serves no HTTP.
 
 Leave them out for a framework that serves no HTTP. Nothing anywhere reads a
 framework's name to decide, so an absent attribute is the whole answer.
@@ -112,9 +115,10 @@ method set. The returned app:
 refuses nothing. It runs the response cache, idempotency and conditional
 requests around the handler of every request whose method the route takes,
 with the declaration of that method, and the rate limit stays in front of the
-router. One the app runs behind its router, as `_routed_middleware(app)` lists
-it, answers there instead. A route that gate wraps is gated again by an app
-with `AuthenticatedRequests` that shares it, so it stays refused there.
+router. A middleware the app runs behind its router, as Litestar runs the one
+declared in `Litestar(middleware=[...])`, answers there instead. A route that
+gate wraps is gated again by an app with `AuthenticatedRequests` that shares
+it, so it stays refused there.
 
 Pass `name=`, a function of the request's ASGI scope, to name a refusal by
 another path, such as the mounts the request came through. Pass `door=True`

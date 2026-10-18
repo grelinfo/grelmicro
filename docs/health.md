@@ -313,7 +313,7 @@ Set `Liveness` to catch both, in every setup:
 ```
 
 - **The loop watchdog.** With `stall_timeout`, a thread checks that the loop still runs callbacks, four times per `stall_timeout` and at most once a second. Past `stall_timeout`, it logs where the loop thread is stuck and exits the process. It pauses while the app opens or closes.
-- **Liveness checks.** A check with `liveness=True` runs every `interval` seconds (10 by default), never on `/readyz` or `/healthz`. `/livez` answers `503` from the first failed round. After `failure_threshold` failed rounds in a row, the worker stops itself with `SIGTERM`. A check with `critical=False` is logged when it fails, like a readiness check, and never counts as a failed round.
+- **Liveness checks.** A check with `liveness=True` runs every `interval` seconds (10 by default), never on `/readyz` or `/healthz`. `/livez` answers `503` from the first failed round. After `failure_threshold` failed rounds in a row, the worker stops itself with `SIGTERM`. If it has not exited `shutdown_timeout` seconds later (30 by default), it exits at once. A check with `critical=False` is logged when it fails, like a readiness check, and never counts as a failed round.
 
 Either way the worker exits, and whatever runs it starts another: Kubernetes restarts the container, Gunicorn replaces the worker, and so does the `uvicorn --workers` supervisor.
 

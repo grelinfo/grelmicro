@@ -716,7 +716,7 @@ def _state_of(
 class ConditionalRequestsMiddleware:
     """Bind each request's preconditions and put an `ETag` on the response.
 
-    Three things, none of which a handler should have to write:
+    Four things, none of which a handler should have to write:
 
     - Every `If-Match` and `If-None-Match` header is parsed and bound for
       the request, so `check_precondition(...)` reads them with no request

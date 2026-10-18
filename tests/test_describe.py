@@ -31,15 +31,17 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.describe import AppReport as PublicAppReport
 from grelmicro.health import HealthChecks
 from grelmicro.http import (
+    AuthenticatedRequests,
     CachedResponses,
     CachedResponsesConfig,
     IdempotentRequests,
 )
-from grelmicro.integrations.fastapi import CachedResponse
+from grelmicro.integrations.fastapi import Authenticated, CachedResponse
 from grelmicro.providers._base import Provider
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
+from tests.test_authentication import verifier
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -482,6 +484,37 @@ def test_describe_does_not_apply_cache_before_an_ordinary_dependency() -> None:
     )
 
     assert endpoint.applies == ()
+
+
+def test_describe_reports_cache_on_a_protected_route_declaring_shared() -> None:
+    """A protected route declaring `CachedResponse(shared=True)` reports its cache."""
+    app = FastAPI(openapi_url=None)
+
+    @app.get(
+        "/products",
+        dependencies=[
+            CachedResponse(ttl=60, shared=True),
+            Authenticated(scopes=["r"]),
+        ],
+    )
+    async def products() -> list[str]:
+        return []  # pragma: no cover
+
+    micro = Grelmicro(
+        uses=[
+            AuthenticatedRequests(verifier()),
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(),
+        ],
+        environment="development",
+    )
+    micro.install(app)
+
+    endpoint = next(
+        row for row in micro.describe(app).endpoints if row.path == "/products"
+    )
+
+    assert endpoint.applies == ("authenticated r", "cache 60s")
 
 
 def test_dynamic_typed_dependency_report_is_stable_around_traffic() -> None:

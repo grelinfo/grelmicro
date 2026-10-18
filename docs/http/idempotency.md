@@ -10,7 +10,7 @@ Handlers stay as they are. There is no key parameter to thread through and no bl
 
 Register `IdempotentRequests()` and `micro.install(app)` adds the middleware and describes it in the OpenAPI schema. The bare form keeps a response for a day. `ttl=` says how long, and `namespace=` and `cache=` say where.
 
-The middleware itself is pure ASGI and runs in front of any ASGI app. Add it by hand when the app never goes through `install`:
+The middleware itself is pure ASGI and runs in front of any ASGI app. Add it by hand beside `micro.install(app)`:
 
 ```python
 from grelmicro.http import IdempotencyMiddleware
@@ -21,7 +21,7 @@ app.add_middleware(
 )
 ```
 
-Either way it resolves its `Cache` through the grelmicro request scope, and `install` keeps that scope outside every other middleware.
+Either way it resolves its `Cache` through the grelmicro request scope, and `install` keeps that scope outside every other middleware. An app that never goes through `install` passes `cache=` to `Idempotency`, a `TTLCache` with a `backend=` and a `serializer=` of its own.
 
 Registered, it runs at the route the request reaches, with `AuthenticatedRequests` or without it. A URL no route answers is never stored or replayed, and is not refused for a missing key. Added by hand, it answers before routing, and decides from `include=`, `exclude=` and the request headers alone.
 
@@ -223,7 +223,7 @@ Use it for a response that is technically replayable but should not be. The four
 
 ## Keys are scoped per route
 
-The stored key combines the canonical authority, scheme, root path, method,
+The stored key combines the normalized authority, scheme, root path, method,
 route path, query string, and header value. The same client key on
 `POST /charge` and `POST /refund`, on two host-routed tenants, or on two mounts
 stores separate entries. Equivalent authority spellings, such as host-name
@@ -302,15 +302,16 @@ outside this middleware, or configure an identity-aware `key=` function.
 
     That last one is the general rule: **a key that is partly missing does not fail, it merges.** Callers whose key lost the same component land in one entry and replay each other, while the request still answers normally.
 
-    `scope["user"]` is set by an authentication middleware, and reading it requires that middleware to run **outside** this one, which means adding it **after**. That ordering also ensures authentication runs before a replay is served. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
+    `scope["user"]` is set by an authentication middleware. A registered `IdempotentRequests()` runs innermost, behind every middleware the app added, so the key reads it whichever order the two were wired in. A hand-added `IdempotencyMiddleware` needs that middleware to run **outside** it, which means adding it **after**. That ordering also ensures authentication runs before a replay is served. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
 
     ```python
-    micro = Grelmicro(uses=[redis, IdempotentRequests(key=tenant_key)])
-    micro.install(app)
+    app.add_middleware(
+        IdempotencyMiddleware, idempotency=Idempotency("http"), key=tenant_key
+    )
     app.add_middleware(AuthenticationMiddleware, backend=...)
     ```
 
-    Get that backwards and the value is not set yet. `IdempotencyMiddleware` refuses a key carrying an unresolved `None` rather than storing under it, so the mistake surfaces on the first request instead of quietly merging callers.
+    Get that backwards on the hand-added one and the value is not set yet. `IdempotencyMiddleware` refuses a key carrying an unresolved `None` rather than storing under it, so the mistake surfaces on the first request instead of quietly merging callers.
 
 !!! warning "A client address is not a tenant identity"
     `ClientAddressMiddleware` resolves who connected, not who they are. Carrier-grade NAT puts many subscribers behind one address, so they would share an idempotency entry, and a caller moving between networks changes address mid-retry and loses the replay. Use it to rate limit, not to separate tenants.
@@ -366,7 +367,7 @@ The block form raises `IdempotencyConflictError` to your handler instead, which 
 
 ## OpenAPI
 
-The middleware runs outside the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists, and Swagger offers no field for it. `micro.install(app)` writes it there on FastAPI and Litestar, so a registered component needs nothing else. Pass `openapi=False` to leave the schema alone:
+Nothing the middleware answers reaches the schema FastAPI or Litestar generates on its own. A client built from that schema never learns the header exists, and Swagger offers no field for it. `micro.install(app)` writes it there on FastAPI and Litestar, so a registered component needs nothing else. Pass `openapi=False` to leave the schema alone:
 
 ```python
 IdempotentRequests(openapi=False)

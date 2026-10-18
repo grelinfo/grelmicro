@@ -11,7 +11,7 @@ COPY pyproject.toml README.md ./
 COPY grelmicro ./grelmicro
 RUN uv pip install --system --no-cache \
     ".[redis,postgres,standard]" \
-    "fastapi==0.139.0" "uvicorn[standard]==0.51.0" "typer==0.24.1"
+    "fastapi==0.142.2" "uvicorn[standard]==0.54.0" "typer==0.24.1"
 
 COPY examples/fastapi-demo/app.py ./app.py
 

@@ -513,7 +513,8 @@ answer a request, whatever order it was registered in, so no cached or replayed
 response reaches a caller that was never authenticated. It sits inside the
 middleware your app adds itself, so CORS still answers a preflight.
 
-The [response cache](cache.md) never stores an authenticated request, and an
+The [response cache](cache.md) never stores an authenticated request unless
+its route declares `CachedResponse(shared=True)`. An
 [idempotent](idempotency.md) replay is skipped for one unless that component
 builds its own key. An `Anonymous()` route stays cacheable and replayable.
 

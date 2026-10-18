@@ -339,8 +339,8 @@ etag_of(cart)  # a pydantic model -> "b1946ac9..."
 | `int`, `str`, `UUID` | `"7"`, `"v7"`, `"0000...0001"` | Used as it stands, in quotes. |
 | `datetime` | `"2026-08-20T10:00:00+00:00"` | ISO 8601, in quotes. |
 | `bytes` | `"2cf24dba..."` | SHA-256 of the bytes. |
-| A pydantic model | `"b1946ac9..."` | `model_dump(mode="json")`, then SHA-256 of the canonical JSON. |
-| A dict, list or tuple | `"b1946ac9..."` | SHA-256 of the canonical JSON. |
+| A pydantic model | `"b1946ac9..."` | `model_dump(mode="json")`, then SHA-256 of the sorted, compact JSON. |
+| A dict, list or tuple | `"b1946ac9..."` | SHA-256 of the sorted, compact JSON. |
 | `weak=True` | `W/"7"` | The same tag, marked weak. |
 
 A version token is used rather than hashed, because it already identifies the
@@ -357,10 +357,10 @@ again. A version column moves only when the resource does.
 |---|---|---|
 | A `version` integer column | `"7"` | Nothing. This is the one to reach for. |
 | `updated_at` | `"2026-08-20T10:00:00+00:00"` | Two writes inside one clock tick share a tag. |
-| A pydantic model or dict | SHA-256 of the canonical JSON | Every serialization change invalidates every client's tag. |
+| A pydantic model or dict | SHA-256 of the sorted, compact JSON | Every serialization change invalidates every client's tag. |
 | Postgres `xmin` | `"84213"` | A `VACUUM FREEZE` rewrites it, so tags change with no write. |
 
-The serialization is canonical: sorted keys, no spaces, and the standard
+The serialization is fixed: sorted keys, no spaces, and the standard
 library rather than whichever JSON library is installed. Two replicas therefore
 produce the same tag for the same value, which a mixed fleet during a rollout
 depends on.
