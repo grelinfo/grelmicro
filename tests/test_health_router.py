@@ -513,19 +513,21 @@ def test_openapi_documents_the_empty_probe_bodies(
     }
 
 
-def test_health_router_raises_without_fastapi() -> None:
+def test_health_router_raises_without_fastapi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """health_router raises DependencyNotFoundError without FastAPI."""
+    package = importlib.import_module("grelmicro.integrations")
+    # Restore the module every other test imported, on the package too.
+    monkeypatch.setattr(
+        package, "fastapi", sys.modules[health_router.__module__]
+    )
     with patch.dict(sys.modules, {"fastapi": None, "fastapi.responses": None}):
-        if "grelmicro.integrations.fastapi" in sys.modules:
-            del sys.modules["grelmicro.integrations.fastapi"]
+        del sys.modules["grelmicro.integrations.fastapi"]
         module = importlib.import_module("grelmicro.integrations.fastapi")
 
         with pytest.raises(DependencyNotFoundError):
             module.health_router()
-
-    if "grelmicro.integrations.fastapi" in sys.modules:
-        del sys.modules["grelmicro.integrations.fastapi"]
-    importlib.import_module("grelmicro.integrations.fastapi")  # restore
 
 
 def test_router_prefix(health: HealthChecks) -> None:
