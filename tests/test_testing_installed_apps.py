@@ -416,12 +416,12 @@ async def test_a_faked_run_leaves_no_readiness_check_behind(
 async def test_a_registration_made_while_faked_outlives_the_run() -> None:
     """`micro.use(...)` on a faked app is kept, as on a real run."""
     micro = Grelmicro(uses=[RedisProvider("redis://127.0.0.1:1/0")])
-    sessions = Cache(MemoryCacheAdapter(), name="sessions")
+    health = HealthChecks()
 
     async with micro.fake(), micro:
-        micro.use(sessions)
+        micro.use(health)
 
-    assert micro.get(Cache, "sessions") is sessions
+    assert micro.get(HealthChecks) is health
     assert type(micro.get(Cache).backend).__name__ == "RedisCacheAdapter"
 
 

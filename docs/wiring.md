@@ -85,18 +85,31 @@ if os.getenv("STORE_BACKEND") == "redis":
 
 !!! note "A Provider fills the kinds nothing else claims"
     A Provider registers a default component for every kind it serves that no
-    component already claims, whether you list it in `uses=` or pass it to
-    `micro.use(provider)`. Explicit wins, the provider fills the rest.
+    component claims. Explicit wins, the provider fills the rest. `uses=[...]`
+    and `micro.use(...)` follow the same rule, in any order:
+
+    ```python
+    micro = Grelmicro(uses=[redis])
+    micro.use(Coordination(redis))  # wins coordination, as in uses=[redis, Coordination(redis)]
+    ```
+
+    The defaults are registered when the app opens, or the first time you call
+    `micro.components`, `micro.providers`, `micro.describe()`,
+    `micro.check_backends()`, `micro.install(app)` or
+    `micro.check_ambient_binding(app)`. Reading `micro.<kind>` or calling
+    `micro.get(kind)` registers them too, when a provider fills that kind. After that, a component of a kind a
+    default holds raises `ComponentAlreadyRegisteredError`, and so does a
+    provider that would fill such a kind. A provider that fills only free kinds
+    registers its defaults at once. The error names what registered the
+    defaults.
 
     `Outbox` is the exception, and it is always written out. It carries the
     handlers your messages are delivered to and the relay that delivers them,
     so it belongs where those are declared. See [Outbox](outbox/index.md).
 
-    Two providers are the one case where the forms differ. `uses=[p1, p2]` sees
-    both at once and raises `AmbiguousProviderError`, because neither can be the
-    default for a kind they share. `micro.use(p1)` then `micro.use(p2)` is
-    ordered, so `p1` fills its kinds first and `p2` finds them claimed and fills
-    only what is left. Register the components explicitly when you want two
+    Two bare providers and no component raise `AmbiguousProviderError` when the
+    app opens or first reads its components, because neither can be the default
+    for a kind they share. Register the components explicitly when you want two
     providers to serve different kinds.
 
 ## FastAPI
