@@ -268,6 +268,7 @@
 * ✅ The snippet tests exercise each FastAPI snippet's routes, run the snippets that need no service, and compare a page's output block with what the snippet prints. ([#888](https://github.com/grelinfo/grelmicro/pull/888))
 * ♻️ One shared duration type takes whole seconds or a `timedelta`, and a test fails when a `*Config` gains a float or `timedelta` field that no list names. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 👷 CI runs the tests on the oldest version of every dependency grelmicro allows. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
+* ✅ The test that imports the FastAPI integration without FastAPI restores the module afterwards, so later tests patch the module the app reads. ([#1074](https://github.com/grelinfo/grelmicro/pull/1074))
 * 👷 One release ships `grelmicro` and `grelmicro-core`. When PyPI lacks the crate version, the release builds the core and publishes it first, so `grelmicro[jwt]` always resolves. A `jwt` pin that names another version, or a crate changed after its version was published, fails the pull request. ([#875](https://github.com/grelinfo/grelmicro/issues/875))
 
 ## 0.41.1 - 2026-09-12
