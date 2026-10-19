@@ -354,7 +354,7 @@ class ClientAuth:
             else SecretStr(secret)
         )
         auth = object.__new__(cls)
-        auth._setup(_SECRET, secret=held, method=method)  # noqa: SLF001
+        auth._setup(_SECRET, secret=held, method=method)
         return auth
 
     @classmethod
@@ -416,7 +416,7 @@ class ClientAuth:
             raise SettingsValidationError(str(error)) from None
         thumbprint = None if certificate is None else _thumbprint(certificate)
         auth = object.__new__(cls)
-        auth._setup(  # noqa: SLF001
+        auth._setup(
             _PRIVATE_KEY,
             signer=signer,
             algorithm=algorithm,
@@ -444,9 +444,7 @@ class ClientAuth:
         platform rotates in place is always current.
         """
         auth = object.__new__(cls)
-        auth._setup(  # noqa: SLF001
-            _ASSERTION_FILE, path=None if path is None else str(path)
-        )
+        auth._setup(_ASSERTION_FILE, path=None if path is None else str(path))
         return auth
 
     def __repr__(self) -> str:
