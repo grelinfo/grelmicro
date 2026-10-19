@@ -108,4 +108,4 @@ grelmicro is modular. Install only the extras you need.
 
 Combine multiple extras in one call, for example `pip install "grelmicro[redis,valkey,opentelemetry,structlog]"`.
 
-A framework extra installs the framework at the oldest version grelmicro runs on, as the table lists. Install the extra even when your app already depends on the framework. An older framework raises `DependencyVersionError` at import, naming the extra to install. The [Frameworks](frameworks.md) page lists what `micro.install(app)` wires for each.
+A framework extra installs the framework at the oldest version grelmicro runs on, as the table lists. Install the extra even when your app already depends on the framework, or pin the framework at that floor in your own dependencies. An older framework raises `DependencyVersionError` at import, naming the extra to install. The [Frameworks](frameworks.md) page lists what `micro.install(app)` wires for each.
