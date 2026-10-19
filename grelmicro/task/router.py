@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
@@ -10,6 +10,7 @@ from typing_extensions import Doc
 
 from grelmicro._duration import check_duration
 from grelmicro._markers import Registered, mark_registered
+from grelmicro._unset import UNSET, Unset
 from grelmicro.task._cron import CronTask
 from grelmicro.task._interval import IntervalTask
 from grelmicro.task._utils import normalize_timezone
@@ -323,12 +324,15 @@ class TaskRouter:
             ),
         ] = None,
         gate: Annotated[
-            Literal["claim"] | LeaderElection | None,
+            Literal["claim"] | LeaderElection | Unset | None,
             Doc(
                 """
                 Which workers run each fire.
 
-                - `None` (the default): every worker runs every fire.
+                - `None`: every worker runs every fire. Left out, it is the
+                  same, and the task reports `ungated-cron` each time it
+                  starts beside a schedule backend, except in `development`
+                  and `test`. Pass `None` to say every worker on purpose.
                 - `"claim"`: one worker claims each fire against the durable
                   schedule backend and runs it. A fire missed while every
                   worker was down replays once on restart.
@@ -341,7 +345,7 @@ class TaskRouter:
                 coordination error on every fire and runs nothing.
                 """,
             ),
-        ] = None,
+        ] = UNSET,
         sync: Annotated[
             LockPrimitive | None,
             Doc(
@@ -364,7 +368,9 @@ class TaskRouter:
         Runs the task whenever the wall-clock time matches the cron
         expression in the given timezone.
 
-        Every worker runs each fire by default. With `gate="claim"` or a
+        Every worker runs each fire by default. Left out beside a schedule
+        backend, `gate` is reported as `ungated-cron` each time the task
+        starts, except in `development` and `test`. With `gate="claim"` or a
         `LeaderElection`, each fire is claimed against a durable last-fire
         state, so the task runs at most once across every worker per fire.
         A fire missed while every worker was down replays once on restart,
@@ -439,3 +445,21 @@ class TaskRouter:
         self._started = True
         for router in self._routers:
             router.do_mark_as_started()
+
+
+def ungated_cron_names(items: Iterable[object]) -> list[str] | None:
+    """Return the names of the cron tasks in `items` that left `gate=` out.
+
+    Reads every `TaskRouter` in `items`, with the routers it includes.
+    Returns `None` when no cron task is found.
+    """
+    crons = [
+        task
+        for item in items
+        if isinstance(item, TaskRouter)
+        for task in item.tasks
+        if isinstance(task, CronTask)
+    ]
+    if not crons:
+        return None
+    return [task.name for task in crons if task.gate_omitted]

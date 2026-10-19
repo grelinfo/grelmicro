@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from grelmicro._diagnostics import ROUTES_NOT_DECLARED
+from grelmicro._diagnostics import ROUTES_NOT_DECLARED, UNGATED_CRON
 from grelmicro._discovery import framework_of, load_integration, serves_http
 from grelmicro._duration import SECOND, microseconds
 from grelmicro._environment import recorded_bindings, unmet_requirements
@@ -845,6 +845,44 @@ def _routes_check(
     ]
 
 
+def _cron_checks(micro: Grelmicro) -> list[CheckReport]:
+    """Report each cron task that left `gate=` out beside a schedule backend.
+
+    One `warn` entry per such task, or one `ok` entry when every cron task
+    names its gate or the tier is `development` or `test`. Nothing without
+    a cron task or a schedule backend.
+    """
+    from grelmicro._environment import QUIET_ENVIRONMENTS  # noqa: PLC0415
+    from grelmicro.task._gate import (  # noqa: PLC0415
+        has_schedule_backend,
+        ungated_cron_finding,
+    )
+    from grelmicro.task.router import ungated_cron_names  # noqa: PLC0415
+
+    names = ungated_cron_names(micro._items)  # noqa: SLF001
+    if names is None or not has_schedule_backend(micro):
+        return []
+    environment = micro.environment
+    if not names or environment in QUIET_ENVIRONMENTS:
+        return [
+            CheckReport(
+                name=UNGATED_CRON,
+                status="ok",
+                detail=(
+                    "every cron task names its gate"
+                    if not names
+                    else f"cron tasks with no gate are expected in {environment!r}"
+                ),
+            )
+        ]
+    return [
+        CheckReport(
+            name=UNGATED_CRON, status="warn", detail=ungated_cron_finding(name)
+        )
+        for name in names
+    ]
+
+
 def build_report(micro: Grelmicro, app: object = None) -> AppReport:
     """Build the full report for `micro`.
 
@@ -858,6 +896,7 @@ def build_report(micro: Grelmicro, app: object = None) -> AppReport:
         describe_provider(provider) for provider in micro.providers
     )
     checks = _scope_checks(list(micro.components), micro.environment)
+    checks += _cron_checks(micro)
     endpoints: tuple[EndpointReport, ...] = ()
     if app is not None:
         routes = _Routes.of(app)

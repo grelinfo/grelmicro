@@ -72,6 +72,9 @@ ROUTES_NOT_DECLARED: Final = "routes-not-declared"
 LEADER_NOT_RUNNING: Final = "leader-not-running"
 """A task is gated on a leader election that does not run, so it never fires."""
 
+UNGATED_CRON: Final = "ungated-cron"
+"""A cron task with no `gate=` runs on every worker beside a schedule backend."""
+
 SENTINEL_PASSWORD: Final = "sentinel-password"  # noqa: S105
 """A Sentinel password is set but the URL scheme cannot apply it.
 

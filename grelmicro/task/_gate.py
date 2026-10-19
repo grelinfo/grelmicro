@@ -2,21 +2,37 @@
 
 from __future__ import annotations
 
+import inspect
 import warnings
 from contextlib import suppress
 from logging import getLogger
+from types import FunctionType
 from typing import TYPE_CHECKING
 
-from grelmicro._diagnostics import LEADER_NOT_RUNNING, diagnostic
+from grelmicro._app import ComponentNotRegisteredError, _current_micro
+from grelmicro._diagnostics import LEADER_NOT_RUNNING, UNGATED_CRON, diagnostic
+from grelmicro._environment import _PACKAGE_DIR, QUIET_ENVIRONMENTS
 from grelmicro.clock import monotonic
+from grelmicro.coordination._component import Coordination
+from grelmicro.coordination.errors import CoordinationBackendError
 from grelmicro.coordination.leaderelection import LeaderElection, _LeaderGuard
 from grelmicro.coordination.tasklock import TaskLock
-from grelmicro.errors import LeaderNotRunningWarning
+from grelmicro.errors import LeaderNotRunningWarning, UngatedCronWarning
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from grelmicro._app import Grelmicro
     from grelmicro.coordination._protocol import LockPrimitive
 
-__all__ = ["LeaderWatch", "check_sync", "gate_label"]
+__all__ = [
+    "LeaderWatch",
+    "check_sync",
+    "gate_label",
+    "has_schedule_backend",
+    "report_ungated_cron",
+    "ungated_cron_finding",
+]
 
 logger = getLogger("grelmicro.task")
 
@@ -107,3 +123,76 @@ class LeaderWatch:
         # task loop. The log record above still carries the report.
         with suppress(LeaderNotRunningWarning):
             warnings.warn(msg, LeaderNotRunningWarning, stacklevel=2)
+
+
+def has_schedule_backend(micro: Grelmicro) -> bool:
+    """Return whether `micro` resolves a `Coordination` with a schedule backend."""
+    try:
+        coordination = micro.get("coordination")
+    except ComponentNotRegisteredError:
+        return False
+    if not isinstance(coordination, Coordination):
+        return False
+    try:
+        _ = coordination.schedule_backend
+    except CoordinationBackendError:
+        return False
+    return True
+
+
+def ungated_cron_finding(task: str) -> str:
+    """Return what a cron task named `task` with no `gate=` does, and the fix."""
+    return (
+        f"Cron task {task!r} has no gate, so it runs each fire on every "
+        f"worker, although a schedule backend is registered. Pass "
+        f"gate='claim' to run each fire on one worker, or gate=None to "
+        f"keep every worker."
+    )
+
+
+def report_ungated_cron(task: str, function: Callable[..., object]) -> None:
+    """Report a cron task named `task`, running `function`, that left `gate=` out.
+
+    Reported each time the task starts inside an open app with a
+    schedule backend, and quiet in `development` and `test`. The report
+    is a log record on the `grelmicro.task` logger and an
+    `UngatedCronWarning`, both carrying the `ungated-cron` code. The
+    warning points at the definition of `function`, past any
+    `functools.wraps` decorator, so a filter on its module matches it.
+    A warnings filter set to `error` never raises it into the task.
+    """
+    micro = _current_micro.get(None)
+    if (
+        micro is None
+        or micro.environment in QUIET_ENVIRONMENTS
+        or not has_schedule_backend(micro)
+    ):
+        return
+    msg = diagnostic(UNGATED_CRON, ungated_cron_finding(task))
+    logger.warning(msg, extra={"diagnostic": UNGATED_CRON})
+    with suppress(UngatedCronWarning):
+        _warn_at_definition(msg, function)
+
+
+def _warn_at_definition(msg: str, function: Callable[..., object]) -> None:
+    """Warn `msg` as an `UngatedCronWarning` at the definition of `function`.
+
+    A callable with no code of its own, such as a callable object, warns
+    at the first frame outside grelmicro instead.
+    """
+    target = inspect.unwrap(function)
+    if not isinstance(target, FunctionType):
+        warnings.warn(
+            msg, UngatedCronWarning, skip_file_prefixes=(_PACKAGE_DIR,)
+        )
+        return
+    module_globals = target.__globals__
+    warnings.warn_explicit(
+        msg,
+        UngatedCronWarning,
+        filename=target.__code__.co_filename,
+        lineno=target.__code__.co_firstlineno,
+        module=target.__module__,
+        registry=module_globals.setdefault("__warningregistry__", {}),
+        module_globals=module_globals,
+    )

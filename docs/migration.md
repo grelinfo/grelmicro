@@ -177,6 +177,12 @@ A gated task with no backend reports a coordination error on every fire
 instead of running on every worker. Register a `Coordination` component, or
 drop the gate when every worker should run it.
 
+In 0.42.0, a cron task with no `gate=` runs each fire on every worker and
+nothing reports it. Pass `gate="claim"` to keep one worker per fire. From
+0.42.1, such a task warns [`ungated-cron`](diagnostics.md#ungated-cron) when it
+starts beside a schedule backend. Pass `gate=None` to keep every worker on
+purpose.
+
 ### Every resilience pattern takes `when=` {#0-42-when}
 
 `CircuitBreaker` and `Shield` name the errors they react to with `when=`, like
