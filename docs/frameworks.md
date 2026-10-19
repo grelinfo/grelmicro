@@ -42,9 +42,9 @@ Nothing else about how your framework answers a request changes. The
 per-request binding adds one middleware that sets a context variable, and
 changes nothing a client can see.
 
-The extra installs the framework itself. grelmicro imports nothing from it
-until you call `install`, so an app that already depends on FastAPI needs no
-extra at all.
+The extra installs the framework and sets the oldest version grelmicro runs
+on. Install it even when your app already depends on the framework.
+[Installation](installation.md#optional-extras) lists each floor.
 
 ## The OpenAPI schema
 

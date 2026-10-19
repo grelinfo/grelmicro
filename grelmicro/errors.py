@@ -386,6 +386,35 @@ class DependencyNotFoundError(GrelmicroError, ImportError):
         )
 
 
+class DependencyVersionError(GrelmicroError, ImportError):
+    """Raised at import when a framework is older than its extra allows.
+
+    The message names the version found, the oldest version grelmicro runs
+    on and the grelmicro extra that installs a matching one. A module whose
+    version cannot be read is refused the same way.
+    """
+
+    def __init__(
+        self,
+        *,
+        module: str,
+        version: str | None,
+        floor: str,
+        extra: str,
+    ) -> None:
+        """Initialize the error."""
+        install = f"try running 'pip install \"grelmicro[{extra}]\"'"
+        if version is None:
+            message = (
+                f"Could not read the version of module {module}, {install}"
+            )
+        else:
+            message = (
+                f"Module {module} {version} is older than {floor}, {install}"
+            )
+        super().__init__(message)
+
+
 class MultipleActiveAppsError(GrelmicroError, RuntimeError):
     """Raised when a second `Grelmicro` app is opened while one is active.
 
