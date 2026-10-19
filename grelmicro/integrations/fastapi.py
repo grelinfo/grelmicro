@@ -85,8 +85,7 @@ from grelmicro.http import (
 )
 from grelmicro.http._authentication import (
     declare_anonymous,
-    operation_declarations,
-    serves_anonymous_routes,
+    describe_app_schema,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import (
@@ -95,7 +94,6 @@ from grelmicro.http._conditional import (
 )
 from grelmicro.http._openapi import (
     add_error_schema,
-    describe_schema,
     describing,
     referenced,
 )
@@ -980,13 +978,7 @@ def _document_components(app: FastAPI, components: Sequence[Any]) -> None:
         schema = original()
         if edited and edited[0] is schema:
             return schema
-        # Read when the schema is built, so the order of this and an
-        # `ErrorResponses` installed later never decides the format.
-        errors = getattr(app.state, "grelmicro_error_responses", None)
-        routes = operation_declarations(
-            app, anonymous=serves_anonymous_routes(app)
-        )
-        describe_schema(schema, documenting, routes=routes, errors=errors)
+        describe_app_schema(app, schema, documenting)
         # One slot, so serving the schema per request holds one reference.
         edited[:] = [schema]
         return schema

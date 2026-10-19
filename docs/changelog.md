@@ -15,6 +15,9 @@
 ### Fixed
 * 🐛 Importing the FastAPI or Starlette integration with a framework older than its extra's floor raises `DependencyVersionError`, naming the extra to install. ([#1077](https://github.com/grelinfo/grelmicro/issues/1077))
 * 🐛 `micro.use(component)` after `micro.use(provider)` replaces the provider's default for that kind instead of raising `ComponentAlreadyRegisteredError`. ([#1078](https://github.com/grelinfo/grelmicro/issues/1078))
+* 🐛 Litestar's `app.openapi_schema` documents the security, headers and refusals grelmicro adds, from `install` on. ([#1071](https://github.com/grelinfo/grelmicro/issues/1071))
+* 🐛 A Litestar route registered after `install` is described. ([#1071](https://github.com/grelinfo/grelmicro/issues/1071))
+* 🐛 On Litestar, each component describes only the responses of the components registered before it, so `IdempotentRequests` registered before `AuthenticatedRequests` no longer lists `Idempotent-Replayed` on the `401`. ([#1071](https://github.com/grelinfo/grelmicro/issues/1071))
 
 ## 0.42.0 - 2026-10-19
 

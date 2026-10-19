@@ -77,6 +77,7 @@ from grelmicro.http._openapi import (
     add_error_schema,
     declaration_of,
     declared_operations,
+    describe_schema,
     error_format,
     operations_of,
 )
@@ -111,6 +112,7 @@ if TYPE_CHECKING:
 
     from grelmicro.http._component import RenderedError
     from grelmicro.http._gate import Answering
+    from grelmicro.http._openapi import DescribesItself
     from grelmicro.security.bans import ClientBans
     from grelmicro.security.clientip import TrustedProxies
     from grelmicro.security.jwt import TokenVerifier
@@ -457,6 +459,27 @@ def operation_declarations(
                 )
             )
     return found
+
+
+def describe_app_schema(
+    app: Any,  # noqa: ANN401
+    schema: dict[str, Any],
+    components: Iterable[DescribesItself],
+) -> None:
+    """Hand an app's schema to each component, in order, which edits it in place.
+
+    Each one is handed the operations the app's integration declares and
+    the `ErrorResponses` registered on the app, read when the schema is
+    built, so the order `install` met them in never decides the format.
+    """
+    describe_schema(
+        schema,
+        components,
+        routes=operation_declarations(
+            app, anonymous=serves_anonymous_routes(app)
+        ),
+        errors=getattr(app.state, "grelmicro_error_responses", None),
+    )
 
 
 def document_operations(

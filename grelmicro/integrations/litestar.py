@@ -42,17 +42,15 @@ from grelmicro.http import (
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     METADATA_MARKER,
-    operation_declarations,
+    describe_app_schema,
     refuse_anonymous_caller,
     refuse_routes_at_metadata,
     resource_metadata_of,
-    serves_anonymous_routes,
     template_under_root,
 )
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED, UNHANDLED_KEY
 from grelmicro.http._openapi import (
     add_error_schema,
-    describe_schema,
     describing,
 )
 from grelmicro.http._requirement import (
@@ -61,6 +59,7 @@ from grelmicro.http._requirement import (
     declared_scopes,
 )
 from grelmicro.http._routes import RouteDeclaration
+from grelmicro.integrations._litestar_openapi import add_openapi_edit
 from grelmicro.trace._autoinstrument import request_spans
 
 if TYPE_CHECKING:
@@ -206,6 +205,17 @@ def install(
         )
     reader = _wire_route_reading(app)
     _wire_request_telemetry(app, micro, reader)
+    # Described once, by the error responses or the middleware installed
+    # next, with every edit.
+    _document_components(
+        app,
+        [
+            component
+            for component in micro.components
+            if hasattr(component, "asgi_middleware")
+        ],
+        describe=False,
+    )
 
 
 def _wire_route_reading(app: Litestar) -> RouteReader:
@@ -540,7 +550,7 @@ def install_middleware(
             # ours name their paths in `include=` on Litestar.
             _route_resource_metadata(app, component)
             component.read_routes(app)
-    _document_components(app, ordered)
+    _document_components(app, components)
 
 
 _FLOOD_BEHIND_ROUTER = (
@@ -1522,58 +1532,49 @@ def _document_error_responses(app: Litestar, errors: ErrorResponses) -> None:
     `HTTPException`. That is no longer what those operations answer with, so
     a generated client would decode the wrong body.
 
-    Runs on startup rather than here. Litestar builds the schema lazily and
-    caches it, and a route registered after `install` would be missing from
-    one built too early.
+    Applied to `app.openapi_schema` now, with every edit `install` added
+    before it, so the schema says it before the app starts. Applied again
+    to each schema Litestar builds anew when a route is registered later,
+    before or after the app started.
     """
-
-    async def rewrite() -> None:
-        from litestar._openapi.plugin import (  # noqa: PLC0415
-            OpenAPIPlugin,
-        )
-
-        if app.openapi_config is None:
-            # `openapi_config=None` publishes no schema, and asking the
-            # plugin to build one raises rather than returning nothing.
-            return
-        plugin = app.plugins.get(OpenAPIPlugin)
-        # Built once and cached by the plugin, so rewriting the dict it
-        # returns is what every later reader sees.
-        _rewrite_error_responses(plugin.provide_openapi_schema(), errors)
-
-    app.on_startup.append(rewrite)
+    add_openapi_edit(
+        app,
+        functools.partial(_rewrite_error_responses, errors=errors),
+        key="error_responses",
+    )
 
 
-def _document_components(app: Litestar, components: Sequence[Any]) -> None:
+def _document_components(
+    app: Litestar,
+    components: Sequence[Any],
+    *,
+    describe: bool = True,
+) -> None:
     """Hand the schema Litestar builds to each component that describes itself.
 
-    Runs on startup, as the error responses do, so a handler registered
-    after `install` is described too. Each component carrying
-    `_document_openapi` is handed the schema, the route declarations and the
-    registered error format. A handler declaring `Anonymous()` lists the
-    scheme as optional when `micro.install(app)` added authentication.
+    Applied as the error responses are. Each component carrying
+    `_document_openapi` is handed the schema in the order it was
+    registered, whatever order its middleware runs in, so one describes
+    the responses the ones registered before it added. It is handed the
+    route declarations and the registered error format too. A handler
+    declaring `Anonymous()` lists the scheme as optional when
+    `micro.install(app)` added authentication.
+
+    Added once per set of components, so the call `install` makes and the
+    one `install_middleware` makes hand the schema to them once, and a
+    second `Grelmicro` installed on the app adds its own. With `describe`
+    false the current schema is left for a later edit to describe, with
+    this one.
     """
     documenting = describing(components)
     if not documenting:
         return
-
-    async def document() -> None:
-        from litestar._openapi.plugin import (  # noqa: PLC0415
-            OpenAPIPlugin,
-        )
-
-        if app.openapi_config is None:
-            return
-        # Built once and cached by the plugin, so editing the dict it
-        # returns is what every later reader sees.
-        schema = app.plugins.get(OpenAPIPlugin).provide_openapi_schema()
-        errors = getattr(app.state, "grelmicro_error_responses", None)
-        routes = operation_declarations(
-            app, anonymous=serves_anonymous_routes(app)
-        )
-        describe_schema(schema, documenting, routes=routes, errors=errors)
-
-    app.on_startup.append(document)
+    add_openapi_edit(
+        app,
+        functools.partial(describe_app_schema, app, components=documenting),
+        key=("components", *map(id, documenting)),
+        describe=describe,
+    )
 
 
 def _rewrite_error_responses(
