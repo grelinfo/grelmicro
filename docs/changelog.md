@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.42.1 - 2026-10-19
 
 ### Breaking
 * 💥 On Starlette, a route under a `Mount` or a `Host` whose app is a `Mount` names every mount, such as `/mm/r/a` instead of `/mm/a`. ([#1070](https://github.com/grelinfo/grelmicro/issues/1070))
