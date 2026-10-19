@@ -13,6 +13,7 @@ from grelmicro._duration import check_duration
 from grelmicro._environment import record_coordination
 from grelmicro._task import Task
 from grelmicro._timezone import UTC_NAME
+from grelmicro._unset import UNSET, Unset
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.metrics import _emit
 from grelmicro.task import _gate
@@ -323,7 +324,9 @@ class CronTask(Task):
 
     The ``gate`` decides which workers run each fire:
 
-    - ``None``: every worker, every fire.
+    - ``None``: every worker, every fire. Left out, it is the same, and a
+      task reports ``ungated-cron`` each time it starts beside a schedule
+      backend, except in ``development`` and ``test``.
     - ``"claim"``: each tick computes the most recent scheduled fire at or
       before now and asks the schedule backend to claim it. Exactly one
       worker wins the claim and runs the body. The backend stores the last
@@ -344,7 +347,7 @@ class CronTask(Task):
         name: str | None = None,
         misfire_grace: int | timedelta | None = None,
         backend: ScheduleBackend | None = None,
-        gate: Literal["claim"] | LeaderElection | None = None,
+        gate: Literal["claim"] | LeaderElection | Unset | None = UNSET,
         sync: LockPrimitive | None = None,
     ) -> None:
         """Initialize the CronTask.
@@ -360,6 +363,11 @@ class CronTask(Task):
                 `timedelta`, is not greater than zero, or is over 100
                 years.
         """
+        if isinstance(gate, Unset):
+            self._gate_omitted = True
+            gate = None
+        else:
+            self._gate_omitted = False
         gate_label = _gate.gate_label(gate, takes_lock=False)
         _gate.check_sync(sync)
         if backend is not None and gate is None:
@@ -543,8 +551,13 @@ class CronTask(Task):
             self._running = False
             logger.info("Task stopped: %s", self.name)
 
+    @property
+    def gate_omitted(self) -> bool:
+        """Whether the task was built without `gate=`."""
+        return self._gate_omitted
+
     def _begin(self, ready: asyncio.Future[None] | None) -> None:
-        """Mark the task running, start the leader watch and signal ready."""
+        """Mark the task running, report a left-out gate and signal ready."""
         self._running = True
         logger.info(
             "Task started (cron: %s, timezone: %s, gate: %s): %s",
@@ -553,6 +566,8 @@ class CronTask(Task):
             self._gate_label,
             self.name,
         )
+        if self._gate_omitted:
+            _gate.report_ungated_cron(self.name, self._function)
         if self._watch is not None:
             self._watch.start()
         if ready is not None and not ready.done():  # pragma: no branch

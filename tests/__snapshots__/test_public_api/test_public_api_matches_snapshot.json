@@ -57,6 +57,7 @@
     "SettingsValidationError": {
       "()": "(error) -> None"
     },
+    "UngatedCronWarning": null,
     "UnknownEnvironmentWarning": null,
     "Usable": null
   },

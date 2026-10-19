@@ -66,6 +66,7 @@ configuration it names. Each entry below says which.
 | `provider-order` | none | `LifecycleOrderError` | A Provider is listed after the Component that borrows it. |
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
 | `leader-not-running` | `LeaderNotRunningWarning` | none | A task is gated on a leader election that does not run, so it skips every fire. |
+| `ungated-cron` | `UngatedCronWarning` | none | A cron task with no `gate=` runs each fire on every worker, although a schedule backend is registered. |
 | `health-not-served` | `HealthNotServedWarning` | none | A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404. |
 | `routes-not-declared` | `RoutesNotDeclaredWarning` | none | `AuthenticatedRequests` is installed through an integration with no `install_route_gate`, so every route needs a credential, `Anonymous()` included. `grelmicro check` also reports an HTTP integration with no `route_declarations` when a component acting per endpoint is registered. |
 
@@ -154,6 +155,14 @@ it skips a lease duration after it started. Register the election beside the
 task with `tasks.add_task(election)`, or start it yourself. An election started
 later, by another `Tasks` or a lifespan, is fine as long as it runs within the
 lease duration. See [Leader Election](coordination/leader-election.md).
+
+### `ungated-cron`
+
+A cron task runs each fire on every worker unless it passes `gate=`. With a
+schedule backend registered, a task that leaves `gate=` out is reported each
+time it starts. Pass `gate="claim"` to run each fire on one worker, or `gate=None` to
+keep every worker. Quiet in `development` and `test`. `python -m grelmicro
+check` shows the same check. See [Run on one worker](task.md#run-on-one-worker).
 
 ### `health-not-served`
 

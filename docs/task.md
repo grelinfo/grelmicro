@@ -203,6 +203,8 @@ A gated task needs a [`Coordination`](coordination/index.md) component to hold i
 
 Each task logs its resolved gate once when it starts, for example `Task started (interval: 60s, gate: claim): cleanup`.
 
+A cron task that leaves `gate` out while a schedule backend is registered also warns each time it starts, with [`ungated-cron`](diagnostics.md#ungated-cron), except in `development` and `test`. Pass `gate=None` to say every worker on purpose.
+
 ### Claim
 
 ```python

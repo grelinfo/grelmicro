@@ -135,6 +135,16 @@ class LeaderNotRunningWarning(GrelmicroConfigWarning):
     code: ClassVar[str] = "leader-not-running"
 
 
+class UngatedCronWarning(GrelmicroConfigWarning):
+    """A cron task with no `gate=` starts beside a schedule backend.
+
+    The task runs each fire on every worker, although the backend could
+    run it on one.
+    """
+
+    code: ClassVar[str] = "ungated-cron"
+
+
 class MiddlewarePlacementError(GrelmicroError, RuntimeError):
     """Raised when `micro.install(app)` cannot place a middleware that must run.
 

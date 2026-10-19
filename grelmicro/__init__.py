@@ -35,6 +35,7 @@ from grelmicro.errors import (
     RoutesNotDeclaredWarning,
     SentinelPasswordWarning,
     SettingsValidationError,
+    UngatedCronWarning,
     UnknownEnvironmentWarning,
 )
 
@@ -71,6 +72,7 @@ __all__ = [
     "RoutesNotDeclaredWarning",
     "SentinelPasswordWarning",
     "SettingsValidationError",
+    "UngatedCronWarning",
     "UnknownEnvironmentWarning",
     "Usable",
 ]

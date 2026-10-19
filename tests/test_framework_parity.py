@@ -130,6 +130,10 @@ NOT_PER_REQUEST = {
         "Claims a fire against the schedule backend on the task loop, which "
         "no request handler enters."
     ),
+    "report_ungated_cron": (
+        "Looks for a schedule backend once as a cron task starts on the task "
+        "loop, which no request handler enters."
+    ),
 }
 """Ambient resolvers a request handler never runs, and why.
 
