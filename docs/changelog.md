@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.42.0 - 2026-10-19
 
 ### Breaking
 * 💥 On an app without authentication, a URL no route answers is neither cached nor replayed. ([#1055](https://github.com/grelinfo/grelmicro/issues/1055))
