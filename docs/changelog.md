@@ -5,12 +5,16 @@
 ### Breaking
 * 💥 On Starlette, a route under a `Mount` or a `Host` whose app is a `Mount` names every mount, such as `/mm/r/a` instead of `/mm/a`. ([#1070](https://github.com/grelinfo/grelmicro/issues/1070))
 * 💥 On Starlette, a `Mount` or a `Host` whose app is a `Route` names that route, such as `/t/{tenant}/items/{n}` instead of `/t/{tenant}/{path}`, or `/items/{n}` instead of none under a `Host`. ([#1070](https://github.com/grelinfo/grelmicro/issues/1070))
+* 💥 `micro.use(p1)` then `micro.use(p2)` with no component raises `AmbiguousProviderError`, as `uses=[p1, p2]` does. ([#1078](https://github.com/grelinfo/grelmicro/issues/1078))
+* 💥 `Grelmicro(uses=[p1, p2])` raises `AmbiguousProviderError` when the app opens or first reads its components, not at construction. ([#1078](https://github.com/grelinfo/grelmicro/issues/1078))
+* 💥 A Provider registers its default components when the app opens or first reads its components. A component of a kind a default holds raises `ComponentAlreadyRegisteredError` after that. ([#1078](https://github.com/grelinfo/grelmicro/issues/1078))
 
 ### Added
 * ✨ A cron task with no `gate=` beside a schedule backend warns `UngatedCronWarning`. Pass `gate="claim"` or `gate=None` to silence it. ([#1076](https://github.com/grelinfo/grelmicro/issues/1076))
 
 ### Fixed
 * 🐛 Importing the FastAPI or Starlette integration with a framework older than its extra's floor raises `DependencyVersionError`, naming the extra to install. ([#1077](https://github.com/grelinfo/grelmicro/issues/1077))
+* 🐛 `micro.use(component)` after `micro.use(provider)` replaces the provider's default for that kind instead of raising `ComponentAlreadyRegisteredError`. ([#1078](https://github.com/grelinfo/grelmicro/issues/1078))
 
 ## 0.42.0 - 2026-10-19
 

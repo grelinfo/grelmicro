@@ -341,11 +341,12 @@ class Grelmicro:
                 Accepts `Component` instances (registered with `(kind, name)`
                 lookup, exposed on `micro.<kind>`), bare adapter or component
                 classes (instantiated for you), `Provider` instances (a lone
-                Provider registers a default Component per kind it serves,
-                `outbox` aside), and
-                plain async context managers (lifecycled only, caller holds the
-                reference). Two bare Providers with no Components raise
-                `AmbiguousProviderError`.
+                Provider registers a default Component per kind no Component
+                claims, `outbox` aside), and plain async context managers
+                (lifecycled only, caller holds the reference). The same rules
+                apply to every later `micro.use(item)`. Two bare Providers
+                with no Components raise `AmbiguousProviderError` when the app
+                first opens or reads its components.
 
                 A `None` entry is skipped, so a component registered only for
                 one backend stays a plain expression:
@@ -428,18 +429,22 @@ class Grelmicro:
         self._strict = strict
         self._environment = resolve_environment(environment)
         self._allow_multiple = allow_multiple
-        self._pending_providers: list[Provider] = []
-        self._deferring_provider_defaults = uses is not None
+        self._bare_providers: list[Provider] = []
+        """Every Provider passed bare, each one once."""
+        self._pending_providers: list[tuple[Provider, list[Component]]] = []
+        """Bare Providers and their default Components, not registered yet."""
+        self._pending_kinds: set[str] = set()
+        """The kinds the pending default Components hold."""
+        self._default_kinds: dict[str, str] = {}
+        """The kinds a Provider default holds, with what registered it."""
+        self._defaults_registered = False
+        """Whether the pending Provider defaults have been registered once."""
         if uses is not None:
-            try:
-                for item in uses:
-                    # A `None` entry is a conditional registration that did
-                    # not apply.
-                    if item is not None:
-                        self.use(item)
-            finally:
-                self._deferring_provider_defaults = False
-            self._register_provider_defaults()
+            for item in uses:
+                # A `None` entry is a conditional registration that did
+                # not apply.
+                if item is not None:
+                    self.use(item)
 
     @property
     def opened(self) -> bool:
@@ -490,6 +495,10 @@ class Grelmicro:
             BackendScopeError: If any bound backend reaches less far than its
                 component requires, naming every one of them.
         """
+        if self._pending_providers:
+            self._register_provider_defaults(
+                "micro.check_backends() was called"
+            )
         unmet = unmet_requirements(
             self._items, recorded_bindings(), components=self._resolved
         )
@@ -540,10 +549,11 @@ class Grelmicro:
                 The item to register and lifecycle with the app. A `Component`
                 instance is indexed under `(kind, name)` and exposed on
                 `micro.<kind>`. A first-party backend is auto-wrapped into its
-                matching `Component`. A `Provider` on an app with no Components
-                registers one default Component per kind it serves, `outbox`
-                aside. A zero-arg class is instantiated first. Any other async context manager is
-                just lifecycled, and the caller keeps the reference.
+                matching `Component`. A `Provider` registers one default
+                Component per kind it serves that no Component claims,
+                `outbox` aside. A zero-arg class is instantiated first. Any
+                other async context manager is just lifecycled, and the
+                caller keeps the reference.
                 """,
             ),
         ],
@@ -557,10 +567,12 @@ class Grelmicro:
         2. A first-party backend (e.g. `RedisLockAdapter`): auto-wrapped
            into the matching `Component` (`Coordination` for lock backends,
            `Cache` for cache backends) before registration.
-        3. A `Provider` (e.g. `RedisProvider`): always lifecycled. On an app
-           with no Components, it also registers one default Component per
-           kind it serves, `outbox` aside. Once any Component is registered,
-           the Provider is lifecycle-only.
+        3. A `Provider` (e.g. `RedisProvider`): always lifecycled. It also
+           registers one default Component per kind it serves that no
+           Component claims, `outbox` aside. The defaults are registered when
+           the app first opens or reads its components, so a Component
+           registered before then claims its kind wherever it comes in the
+           calls, as in `Grelmicro(uses=[...])`.
         4. Any other async context manager: just lifecycled with the app,
            the caller keeps the reference.
 
@@ -592,7 +604,8 @@ class Grelmicro:
 
         Raises:
             ComponentAlreadyRegisteredError: A different component is already
-                registered under the same `(kind, name)` key. Plain async
+                registered under the same `(kind, name)` key, or a Provider
+                default already holds the component's kind. Plain async
                 context managers do not raise. They are appended.
             TypeError: If `item` is `None`. `Grelmicro(uses=[...])` skips a
                 `None` entry, a single call does not.
@@ -622,23 +635,57 @@ class Grelmicro:
             # Plain async context manager: lifecycle only, no kind/name lookup.
             self._items.append(item)
             return
+        registered_when = self._default_kinds.get(component.kind)
+        if registered_when is not None:
+            msg = (
+                f"component kind {component.kind!r} already holds the default "
+                f"of a Provider, registered when {registered_when}. Register "
+                f"{type(component).__name__} before that."
+            )
+            raise ComponentAlreadyRegisteredError(msg)
         self._register_component(component)
 
     def _use_provider(self, provider: Provider) -> None:
         """Lifecycle a bare Provider and queue its default-Component registration.
 
-        The Provider is always lifecycled here. It also auto-registers one
-        default Component for every kind it serves that no explicit Component
-        already claims. Inside `Grelmicro(uses=[...])` that registration is
-        deferred to `_register_provider_defaults` so a Component listed anywhere
-        in the list wins, whatever the order. A standalone `use(provider)` call
-        registers right away, against whatever is claimed so far.
+        The Provider is always lifecycled here. Its default Components are
+        built once, the first time the Provider is passed, and wait for
+        `_register_provider_defaults`, so a Component registered before then
+        wins its kind, whatever the order.
+
+        Once the defaults have been registered, a new Provider registers its
+        own right away, for the kinds nothing claims.
+
+        Raises:
+            ComponentAlreadyRegisteredError: The defaults have been registered,
+                and a kind the new Provider would fill already holds one.
         """
+        if any(bare is provider for bare in self._bare_providers):
+            self._items.append(provider)
+            return
+        defaults = _default_components_for_provider(provider)
+        name = type(provider).__name__
+        if self._defaults_registered:
+            for component in defaults:
+                registered_when = self._default_kinds.get(component.kind)
+                if registered_when is not None:
+                    msg = (
+                        f"{name} would fill component kind "
+                        f"{component.kind!r}, which already holds the default "
+                        f"of a Provider, registered when {registered_when}. "
+                        f"Register {name} before that, or wrap it in the "
+                        f"components it should serve."
+                    )
+                    raise ComponentAlreadyRegisteredError(msg)
         self._items.append(provider)
-        if self._deferring_provider_defaults:
-            self._pending_providers.append(provider)
-        else:
-            self._register_one_provider(provider)
+        self._bare_providers.append(provider)
+        if self._defaults_registered:
+            self._register_one_provider(
+                defaults, f"micro.use({name}) was called"
+            )
+            return
+        self._pending_providers.append((provider, defaults))
+        self._pending_kinds.update(component.kind for component in defaults)
 
     def _register_component(self, component: Component) -> None:
         """Index a Component under `(kind, name)` and append it for lifecycle.
@@ -684,62 +731,78 @@ class Grelmicro:
         self._items.append(component)
         answer_for(component)
 
-    def _register_provider_defaults(self) -> None:
-        """Auto-register default Components from Providers passed bare to `uses=`.
+    def _register_provider_defaults(
+        self,
+        registered_when: Annotated[
+            str,
+            Doc(
+                """
+                What triggered the registration, such as `"the app opened"`.
+                A later Component of a kind a default holds names it.
+                """,
+            ),
+        ],
+    ) -> None:
+        """Auto-register default Components from the pending bare Providers.
 
-        Runs once after every item in `uses=` is processed. Each kind a listed
-        Provider serves (`coordination`, `cache`, `ratelimiter`,
-        `circuitbreaker`) gets one default-named Component wired to that
-        Provider, unless an explicit Component already claims that kind.
-        Explicit wins, the Provider fills the rest.
+        Runs when the app first opens or reads its components. Callers
+        check `_pending_providers` first. Each kind a pending Provider serves gets one default-named
+        Component wired to that Provider, unless an explicit Component already
+        claims that kind. Explicit wins, the Provider fills the rest.
 
         Back-off is per kind, so a Component of an unrelated kind
         (`HealthChecks`, `Log`, `Trace`) leaves the provider defaults alone.
 
-        Two or more Providers never fill defaults, because neither can be the
-        default for a kind they both serve.
+        Two or more pending Providers never fill defaults, because neither can
+        be the default for a kind they both serve. The Providers stay pending
+        while that raises, so every later read raises too.
 
         Raises:
-            AmbiguousProviderError: Two or more bare Providers are listed with
+            AmbiguousProviderError: Two or more bare Providers are pending with
                 no explicit Component, so the default for each kind is
                 ambiguous.
         """
         pending = self._pending_providers
-        self._pending_providers = []
-        if not pending:
-            return
         if len(pending) > 1:
             # Two Providers cannot both be the default for a shared kind, so
             # neither fills anything. With Components present the app is
             # wiring explicitly and they are lifecycle-only, without them
-            # there is no way to guess and it is worth saying so early.
-            if self._by_key:
-                return
-            names = ", ".join(type(p).__name__ for p in pending)
-            msg = (
-                f"Grelmicro(uses=[...]) lists multiple providers ({names}) "
-                f"with no components, so the default component for each kind is "
-                f"ambiguous. Wrap each provider in the components it should "
-                f"serve, for example Cache(provider) or "
-                f"RateLimiterComponent(provider)."
-            )
-            raise AmbiguousProviderError(msg)
-        self._register_one_provider(pending[0])
+            # there is no way to guess and it is worth saying so.
+            if not self._by_key:
+                names = ", ".join(type(p).__name__ for p, _ in pending)
+                msg = (
+                    f"Grelmicro has multiple providers ({names}) with no "
+                    f"components, so the default component for each kind is "
+                    f"ambiguous. Wrap each provider in the components it "
+                    f"should serve, for example Cache(provider) or "
+                    f"RateLimiterComponent(provider)."
+                )
+                raise AmbiguousProviderError(msg)
+            self._pending_providers = []
+            self._pending_kinds = set()
+            self._defaults_registered = True
+            return
+        _, defaults = pending[0]
+        self._pending_providers = []
+        self._pending_kinds = set()
+        self._defaults_registered = True
+        self._register_one_provider(defaults, registered_when)
 
-    def _register_one_provider(self, provider: Provider) -> None:
-        """Register a default Component for every unclaimed kind `provider` serves.
+    def _register_one_provider(
+        self, defaults: list[Component], registered_when: str
+    ) -> None:
+        """Register every default Component whose kind nothing claims.
 
-        A kind is served when the matching Component builds without the provider
-        raising `NotImplementedError`. A kind an explicit Component already holds
-        is skipped, so an explicit choice is never overwritten. The provider
-        stays lifecycled where it was listed, the Components borrow its client
-        and are not lifecycled again.
+        A kind an explicit Component already holds is skipped, so an explicit
+        choice is never overwritten. The provider stays lifecycled where it was
+        listed, the Components borrow its client and are not lifecycled again.
         """
         claimed = {component.kind for component in self._by_key.values()}
-        for component in _default_components_for_provider(provider):
+        for component in defaults:
             if component.kind in claimed:
                 continue
             self._register_component(component)
+            self._default_kinds[component.kind] = registered_when
 
     @overload
     def get[ComponentT: Component](
@@ -807,6 +870,8 @@ class Grelmicro:
         """
         if isinstance(kind, type):
             kind = kind.kind
+        if kind in self._pending_kinds:
+            self._register_provider_defaults(f"micro.get({kind!r}) was called")
         # `resolve_ambient` resolves the same way for the pattern hot path.
         # Change one and change the other.
         key = (kind, name)
@@ -1093,6 +1158,8 @@ class Grelmicro:
         """
         from grelmicro._describe import build_report  # noqa: PLC0415
 
+        if self._pending_providers:
+            self._register_provider_defaults("micro.describe() was called")
         report = build_report(self, app)
         health = self._health_check()
         extra = () if health is None else (health,)
@@ -1215,6 +1282,8 @@ class Grelmicro:
         Useful for `/healthz`-style introspection that prints what is wired
         up on the running app.
         """
+        if self._pending_providers:
+            self._register_provider_defaults("micro.components was read")
         return tuple(self._by_key.values())
 
     @property
@@ -1227,6 +1296,8 @@ class Grelmicro:
         introspection and for `HealthChecks(auto_health=True)`, which
         registers a `provider:{short_name}` check per entry.
         """
+        if self._pending_providers:
+            self._register_provider_defaults("micro.providers was read")
         seen: dict[int, Provider] = {}
         for item in self._items:
             if isinstance(item, Provider) and id(item) not in seen:
@@ -1240,27 +1311,27 @@ class Grelmicro:
         Resolves the default-named entry, or the sole entry of kind
         `coordination`.
         """
-        return self._resolve_kind("coordination")
+        return self._kind("coordination")
 
     @property
     def cache(self) -> Cache:
         """The registered `Cache` component (default-named, or sole entry of kind `cache`)."""
-        return self._resolve_kind("cache")
+        return self._kind("cache")
 
     @property
     def log(self) -> Log:
         """The registered `Log` component (default-named, or sole entry of kind `log`)."""
-        return self._resolve_kind("log")
+        return self._kind("log")
 
     @property
     def trace(self) -> Trace:
         """The registered `Trace` component (default-named, or sole entry of kind `trace`)."""
-        return self._resolve_kind("trace")
+        return self._kind("trace")
 
     @property
     def metrics(self) -> Metrics:
         """The registered `Metrics` component (default-named, or sole entry of kind `metrics`)."""
-        return self._resolve_kind("metrics")
+        return self._kind("metrics")
 
     @property
     def health(self) -> HealthChecks:
@@ -1268,12 +1339,12 @@ class Grelmicro:
 
         Resolves the default-named entry, or the sole entry of kind `health`.
         """
-        return self._resolve_kind("health")
+        return self._kind("health")
 
     @property
     def outbox(self) -> Outbox:
         """The registered `Outbox` component (default-named, or sole entry of kind `outbox`)."""
-        return self._resolve_kind("outbox")
+        return self._kind("outbox")
 
     @property
     def ratelimiter(self) -> RateLimiterComponent:
@@ -1282,7 +1353,7 @@ class Grelmicro:
         Resolves the default-named entry, or the sole entry of kind
         `ratelimiter`.
         """
-        return self._resolve_kind("ratelimiter")
+        return self._kind("ratelimiter")
 
     @property
     def circuitbreaker(self) -> CircuitBreakerComponent:
@@ -1291,7 +1362,20 @@ class Grelmicro:
         Resolves the default-named entry, or the sole entry of kind
         `circuitbreaker`.
         """
-        return self._resolve_kind("circuitbreaker")
+        return self._kind("circuitbreaker")
+
+    def _kind(self, name: str) -> Any:  # noqa: ANN401
+        """Resolve a typed `micro.<kind>` property.
+
+        Registers the pending Provider defaults first when one of them holds
+        `name`.
+        """
+        if name in self._pending_kinds:
+            self._register_provider_defaults(f"micro.{name} was read")
+        component = self._resolved.get((name, "default"))
+        if component is not None:
+            return component
+        return self._resolve_kind(name)
 
     def _resolve_kind(self, name: str) -> Any:  # noqa: ANN401
         """Shared resolution logic for typed properties and `__getattr__`."""
@@ -1397,6 +1481,8 @@ class Grelmicro:
             raise TypeError(
                 _unsupported_framework_message("micro.install", app)
             )
+        if self._pending_providers:
+            self._register_provider_defaults("micro.install(app) was called")
         if self._installed(app):
             return
         self._refuse_unauthenticated(app, integration)
@@ -1615,8 +1701,14 @@ class Grelmicro:
         marks, key = self._install_marks(app)
         return key in marks
 
-    def _ambient_component_labels(self) -> list[str]:
-        """Return sorted `kind:name` labels of registered ambient components."""
+    def _ambient_component_labels(self, registered_when: str) -> list[str]:
+        """Return sorted `kind:name` labels of registered ambient components.
+
+        Pending Provider defaults are registered first, naming
+        `registered_when`.
+        """
+        if self._pending_providers:
+            self._register_provider_defaults(registered_when)
         return sorted(
             f"{component.kind}:{component.name}"
             for component in self._by_key.values()
@@ -1633,7 +1725,7 @@ class Grelmicro:
         was built with `strict=True`, matching the warn-or-raise policy of the
         provider-lifecycle check.
         """
-        labels = self._ambient_component_labels()
+        labels = self._ambient_component_labels("micro.install(app) was called")
         if not labels:
             return
         import warnings  # noqa: PLC0415
@@ -1679,7 +1771,9 @@ class Grelmicro:
             TypeError: If `app` is not a recognized Starlette, FastAPI, or
                 FastStream application and ambient components are registered.
         """
-        if not self._ambient_component_labels():
+        if not self._ambient_component_labels(
+            "micro.check_ambient_binding(app) was called"
+        ):
             return True
         integration = load_integration(app)
         if integration is None:
@@ -1798,6 +1892,8 @@ class Grelmicro:
         """
         if self._exit_stack is not None:
             raise OutOfContextError(_ALREADY_OPEN)
+        if self._pending_providers:
+            self._register_provider_defaults("the app opened")
         with _active_apps_lock:
             if (
                 not self._allow_multiple
