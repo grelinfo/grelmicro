@@ -39,8 +39,8 @@ grelmicro is modular. Install only the extras you need.
 | `postgres` | `asyncpg` for the PostgreSQL backends. | All platforms. |
 | `sqlite` | `aiosqlite` for the SQLite backends. | All platforms. |
 | `kubernetes` | `lightkube` for the Kubernetes Lease backend. | All platforms. |
-| `fastapi` | `fastapi` for the FastAPI integration. | All platforms. |
-| `starlette` | `starlette` for the Starlette integration. | All platforms. |
+| `fastapi` | `fastapi>=0.142.1` and `starlette>=1.7.0` for the FastAPI integration. | All platforms. |
+| `starlette` | `starlette>=1.7.0` for the Starlette integration. | All platforms. |
 | `litestar` | `litestar` for the Litestar integration. | All platforms. |
 | `faststream` | `faststream` for the FastStream integration. | All platforms. |
 | `opentelemetry` | OpenTelemetry API and SDK for the `Trace` and `Metrics` components. | All platforms. |
@@ -108,4 +108,4 @@ grelmicro is modular. Install only the extras you need.
 
 Combine multiple extras in one call, for example `pip install "grelmicro[redis,valkey,opentelemetry,structlog]"`.
 
-A framework extra installs the framework itself. Skip it when your app already depends on one. The [Frameworks](frameworks.md) page lists what `micro.install(app)` wires for each.
+A framework extra installs the framework at the oldest version grelmicro runs on, as the table lists. Install the extra even when your app already depends on the framework, or pin the framework at that floor in your own dependencies. An older framework raises `DependencyVersionError` at import, naming the extra to install. The [Frameworks](frameworks.md) page lists what `micro.install(app)` wires for each.

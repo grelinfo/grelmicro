@@ -19,6 +19,7 @@ through. It reports a wiring mistake, and no fallback value stands in for one.
         - AdmissionError
         - BackendScopeError
         - DependencyNotFoundError
+        - DependencyVersionError
         - MultipleActiveAppsError
         - OutOfContextError
         - AdapterNotRegisteredError

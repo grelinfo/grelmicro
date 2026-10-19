@@ -11,9 +11,26 @@ from collections.abc import Callable, Collection, Iterator, Sequence
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Final
 
+from grelmicro.integrations._floor import (
+    FASTAPI_FLOOR,
+    STARLETTE_FLOOR,
+    require,
+)
+
 try:
-    # The module has to import without FastAPI. Its annotations and
-    # dependencies are read at runtime, so FastAPI is imported here.
+    # The module has to import without FastAPI. The versions are checked
+    # before anything else is read from FastAPI.
+    import fastapi
+    import starlette
+except ImportError:  # pragma: no cover - the reimport test walks this
+    pass
+else:
+    require(fastapi, FASTAPI_FLOOR, extra="fastapi")
+    require(starlette, STARLETTE_FLOOR, extra="fastapi")
+
+try:
+    # Its annotations and dependencies are read at runtime, so FastAPI is
+    # imported here.
     from fastapi import APIRouter, FastAPI
     from fastapi import Depends as _Depends
     from fastapi import Header as _Header

@@ -8,6 +8,9 @@ A route added later is gated as it lands in a router's route list. On each
 request a router checks that its route list and its default are the ones
 it gated, and a mount or a host that its app is, and gates what replaced
 them before dispatching.
+
+Importing this module checks the installed Starlette against its floor
+before anything else is read from Starlette.
 """
 
 from __future__ import annotations
@@ -26,19 +29,7 @@ from typing import (
     SupportsIndex,
 )
 
-from starlette.applications import Starlette
-from starlette.convertors import CONVERTOR_TYPES  # codespell:ignore
-from starlette.endpoints import HTTPEndpoint
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.middleware.body_limit import RequestBodyLimitMiddleware
-from starlette.routing import (
-    BaseRoute,
-    Host,
-    Mount,
-    Route,
-    Router,
-    WebSocketRoute,
-)
+import starlette
 
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._paths import (
@@ -64,8 +55,31 @@ from grelmicro.http._requirement import declared_scopes, declares_optional
 from grelmicro.http._response_cache import declared_cache, declares_shared
 from grelmicro.http._routes import RouteDeclaration, route_name
 from grelmicro.integrations import _fastapi_internals as fastapi
+from grelmicro.integrations._floor import STARLETTE_FLOOR, require
 from grelmicro.log import AccessLogMiddleware
 from grelmicro.security import ClientAddressMiddleware
+
+require(starlette, STARLETTE_FLOOR, extra="starlette")
+
+from starlette.applications import Starlette  # noqa: E402
+from starlette.convertors import (  # noqa: E402  # codespell:ignore
+    CONVERTOR_TYPES,  # codespell:ignore
+)
+from starlette.endpoints import HTTPEndpoint  # noqa: E402
+from starlette.middleware.authentication import (  # noqa: E402
+    AuthenticationMiddleware,
+)
+from starlette.middleware.body_limit import (  # noqa: E402
+    RequestBodyLimitMiddleware,
+)
+from starlette.routing import (  # noqa: E402
+    BaseRoute,
+    Host,
+    Mount,
+    Route,
+    Router,
+    WebSocketRoute,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, MutableMapping

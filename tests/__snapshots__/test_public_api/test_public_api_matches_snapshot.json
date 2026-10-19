@@ -18,6 +18,9 @@
     "DependencyNotFoundError": {
       "()": "(*, module) -> None"
     },
+    "DependencyVersionError": {
+      "()": "(*, module, version, floor, extra) -> None"
+    },
     "EnvLoadOffWarning": null,
     "EventLoopDeadlockError": null,
     "ExternalConfig": {
