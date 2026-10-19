@@ -26,7 +26,7 @@ from opentelemetry.trace import SpanKind
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, PlainTextResponse
-from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.routing import Host, Mount, Route, WebSocketRoute
 from starlette.routing import Router as StarletteRouter
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocket
@@ -333,6 +333,51 @@ STARLETTE_SHAPES: dict[str, Callable[[], Starlette]] = {
     "gated-mount": lambda: Starlette(
         routes=[Mount("/t/{tenant}", routes=_gated_items())]
     ),
+    "mount-of-a-mount": lambda: Starlette(
+        routes=[Mount("/mm", app=Mount("/r", routes=_items()))]
+    ),
+    "parameterised-mount-of-a-mount": lambda: Starlette(
+        routes=[Mount("/t/{tenant}", app=Mount("/v/{v}", routes=_items()))]
+    ),
+    "mount-of-a-mount-of-a-mount": lambda: Starlette(
+        routes=[Mount("/a", app=Mount("/b", app=Mount("/c", routes=_items())))]
+    ),
+    "mount-of-a-wrapped-mount": lambda: Starlette(
+        routes=[Mount("/mm", app=_ListsNoRoute(Mount("/r", routes=_items())))]
+    ),
+    "mount-of-a-route": lambda: Starlette(
+        routes=[Mount("/mm", app=Route("/items/{n:int}", _item))]
+    ),
+    "mount-of-a-router-of-a-mount": lambda: Starlette(
+        routes=[
+            Mount(
+                "/mm",
+                app=StarletteRouter(routes=[Mount("/r", routes=_items())]),
+            )
+        ]
+    ),
+    "mount-of-an-app-of-a-mount": lambda: Starlette(
+        routes=[
+            Mount("/mm", app=Starlette(routes=[Mount("/r", routes=_items())]))
+        ]
+    ),
+    "host-of-a-mount": lambda: Starlette(
+        routes=[Host("testserver", app=Mount("/r", routes=_items()))]
+    ),
+    "mount-of-another-host": lambda: Starlette(
+        routes=[
+            Mount("/mm", app=Host("other", app=Mount("/r", routes=_items())))
+        ]
+    ),
+    "another-host": lambda: Starlette(
+        routes=[Host("other", app=Mount("/r", routes=_items()))]
+    ),
+    "host-of-a-route": lambda: Starlette(
+        routes=[Host("testserver", app=Route("/items/{n:int}", _item))]
+    ),
+    "gated-mount-of-a-mount": lambda: Starlette(
+        routes=[Mount("/mm", app=Mount("/r", routes=_gated_items()))]
+    ),
 }
 
 
@@ -430,6 +475,70 @@ STARLETTE_SHAPES: dict[str, Callable[[], Starlette]] = {
             HTTP_200,
             "/api/plain/{n}",
         ),
+        (
+            "mount-of-a-mount",
+            "GET",
+            "/mm/r/items/3",
+            HTTP_200,
+            "/mm/r/items/{n}",
+        ),
+        ("mount-of-a-mount", "GET", "/mm/r/nowhere", HTTP_404, "/mm/r/{path}"),
+        ("mount-of-a-mount", "GET", "/mm/nowhere", HTTP_404, "/mm/{path}"),
+        (
+            "parameterised-mount-of-a-mount",
+            "GET",
+            "/t/acme/v/2/items/3",
+            HTTP_200,
+            "/t/{tenant}/v/{v}/items/{n}",
+        ),
+        (
+            "mount-of-a-mount-of-a-mount",
+            "GET",
+            "/a/b/c/items/3",
+            HTTP_200,
+            "/a/b/c/items/{n}",
+        ),
+        (
+            "mount-of-a-wrapped-mount",
+            "GET",
+            "/mm/r/items/3",
+            HTTP_200,
+            "/mm/r/items/{n}",
+        ),
+        ("mount-of-a-route", "GET", "/mm/items/3", HTTP_200, "/mm/items/{n}"),
+        (
+            "mount-of-a-router-of-a-mount",
+            "GET",
+            "/mm/r/items/3",
+            HTTP_200,
+            "/mm/r/items/{n}",
+        ),
+        (
+            "mount-of-an-app-of-a-mount",
+            "GET",
+            "/mm/r/items/3",
+            HTTP_200,
+            "/mm/r/items/{n}",
+        ),
+        ("host-of-a-mount", "GET", "/r/items/3", HTTP_200, "/r/items/{n}"),
+        ("host-of-a-mount", "GET", "/r/nowhere", HTTP_404, "/r/{path}"),
+        ("mount-of-a-route", "GET", "/mm/nowhere", HTTP_404, "/mm/{path}"),
+        (
+            "mount-of-a-wrapped-mount",
+            "GET",
+            "/mm/r/nowhere",
+            HTTP_404,
+            "/mm/r/{path}",
+        ),
+        (
+            "mount-of-another-host",
+            "GET",
+            "/mm/r/items/3",
+            HTTP_404,
+            "/mm/{path}",
+        ),
+        ("another-host", "GET", "/r/items/3", HTTP_404, None),
+        ("host-of-a-route", "GET", "/items/3", HTTP_200, "/items/{n}"),
     ],
 )
 def test_starlette_names_one_route_per_request(
@@ -717,6 +826,136 @@ REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
             HTTP_403,
             "/t/{tenant}/items/{n}",
             "/t/{tenant}/items/{n}",
+        ),
+        (
+            "mount-of-a-mount",
+            "GET",
+            "/mm/r/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/mm/r/items/{n}",
+            None,
+        ),
+        (
+            "mount-of-a-mount",
+            "GET",
+            "/mm/r/nowhere",
+            "",
+            "forged",
+            HTTP_401,
+            "/mm/r/{path}",
+            None,
+        ),
+        (
+            "parameterised-mount-of-a-mount",
+            "GET",
+            "/t/acme/v/2/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/t/{tenant}/v/{v}/items/{n}",
+            None,
+        ),
+        (
+            "mount-of-a-mount-of-a-mount",
+            "GET",
+            "/proxy/a/b/c/items/3",
+            "/proxy",
+            "forged",
+            HTTP_401,
+            "/proxy/a/b/c/items/{n}",
+            None,
+        ),
+        (
+            "host-of-a-mount",
+            "GET",
+            "/r/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/r/items/{n}",
+            None,
+        ),
+        (
+            "host-of-a-mount",
+            "GET",
+            "/r/nowhere",
+            "",
+            "forged",
+            HTTP_401,
+            "/r/{path}",
+            None,
+        ),
+        (
+            "mount-of-a-route",
+            "GET",
+            "/mm/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/mm/items/{n}",
+            None,
+        ),
+        (
+            "mount-of-a-wrapped-mount",
+            "GET",
+            "/mm/r/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/mm/r/items/{n}",
+            None,
+        ),
+        (
+            "mount-of-another-host",
+            "GET",
+            "/mm/r/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/mm/{path}",
+            None,
+        ),
+        (
+            "host-of-a-route",
+            "GET",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        (
+            "mount-of-a-route",
+            "GET",
+            "/mm/nowhere",
+            "",
+            "forged",
+            HTTP_401,
+            "/mm/{path}",
+            None,
+        ),
+        (
+            "mount-of-a-wrapped-mount",
+            "GET",
+            "/mm/r/nowhere",
+            "",
+            "forged",
+            HTTP_401,
+            "/mm/r/{path}",
+            None,
+        ),
+        (
+            "gated-mount-of-a-mount",
+            "GET",
+            "/mm/r/items/3",
+            "",
+            "unscoped",
+            HTTP_403,
+            "/mm/r/items/{n}",
+            "/mm/r/items/{n}",
         ),
     ],
 )

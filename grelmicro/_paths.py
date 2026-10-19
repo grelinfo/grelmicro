@@ -570,7 +570,7 @@ def _request_authority(scope: MutableMapping[str, Any]) -> str:
 
 
 def _routing_app(app: Any) -> Any:  # noqa: ANN401
-    """Unwrap ASGI middleware until an application exposing routes is reached."""
+    """Unwrap ASGI middleware until a routing node or an application exposing routes is reached."""
     seen: set[int] = set()
     while app is not None and id(app) not in seen:
         seen.add(id(app))
@@ -578,7 +578,7 @@ def _routing_app(app: Any) -> Any:  # noqa: ANN401
         if bound is not None:
             app = bound
             continue
-        if _is_mount(app) or _is_route(app):
+        if _is_route(app):
             return app
         nested = _wrapped_app(app)
         if nested is not None:
@@ -600,21 +600,42 @@ def _bound_router(app: Any) -> Any | None:  # noqa: ANN401
     return owner
 
 
-def _is_mount(app: Any) -> bool:  # noqa: ANN401
-    """Return whether `app` is a Starlette `Mount` routing node."""
-    return any(
-        klass.__module__ == "starlette.routing" and klass.__name__ == "Mount"
-        for klass in type(app).__mro__
-    )
-
-
 def _is_route(app: Any) -> bool:  # noqa: ANN401
-    """Return whether `app` is a Starlette leaf routing node."""
-    return any(
-        klass.__module__ == "starlette.routing"
-        and klass.__name__ in {"Route", "WebSocketRoute"}
-        for klass in type(app).__mro__
-    )
+    """Return whether `app` is a Starlette routing node, such as a `Mount` or a `Host`."""
+    return _is_route_type(type(app))
+
+
+_ROUTE_TYPES: Final[dict[type, bool]] = {}
+"""Whether each class seen is a Starlette routing node class."""
+
+
+def _is_route_type(kind: type) -> bool:
+    """Return whether `kind` is a Starlette routing node class."""
+    found = _ROUTE_TYPES.get(kind)
+    if found is None:
+        found = _ROUTE_TYPES[kind] = any(
+            klass.__module__ == "starlette.routing"
+            and klass.__name__ == "BaseRoute"
+            for klass in kind.__mro__
+        )
+    return found
+
+
+def _inner_routes(node: Any) -> Any:  # noqa: ANN401
+    """Return the routes a request goes on to under a Starlette `Mount` or `Host`.
+
+    A mounted routing node, such as another `Mount`, a `Host` or a
+    `Route`, is the one route, so it matches with its own path or host.
+    Otherwise they are the routes of the router it mounts.
+    """
+    app = getattr(node, "app", None)
+    routes = getattr(node, "routes", None)
+    if routes and not _is_route_type(type(app)):
+        return routes
+    unwrapped = _routing_app(app)
+    if _is_route(unwrapped):
+        return [unwrapped]
+    return routes or getattr(unwrapped, "routes", None)
 
 
 def _wrapped_app(app: Any) -> Any | None:  # noqa: ANN401
@@ -750,9 +771,7 @@ def starlette_route(  # noqa: C901
             if isinstance(candidate, Mount)
             else ""
         )
-        inner = getattr(candidate, "routes", None) or getattr(
-            _routing_app(getattr(candidate, "app", None)), "routes", None
-        )
+        inner = _inner_routes(candidate)
         if not inner or not all(
             isinstance(entry, BaseRoute) for entry in inner
         ):
@@ -783,7 +802,7 @@ def starlette_route(  # noqa: C901
     if scope.get("router") is None:
         return reached() if reach else None
     matched = scope.get("route")
-    route = matched is not None and not isinstance(matched, Mount)
+    route = matched is not None and not isinstance(matched, (Mount, Host))
     if route and scope.get("root_path", "") == root_path:
         return template(scope, matched)
     mounts, walked = through_mounts(router.routes, start(path))
