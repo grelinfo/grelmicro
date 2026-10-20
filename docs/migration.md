@@ -165,7 +165,7 @@ reads and writes only its own keys.
 | Sliding window rate limit, on Redis, Postgres and SQLite | keys under `gcra:`, Postgres `<table>_gcra_*` functions | keys under `gcra_us:`, Postgres `<table>_gcra_us_*` functions | Each version counts on its own, so a caller gets up to twice the limit. A caller locked out on 0.41 starts with a full budget on 0.42. |
 | Redis leader election | record under `<name>` | record under `le_us:<name>` | Each version elects its own leader. |
 | An interval task whose function name is not a valid lock name | lock named `__main__:job` | lock named `task-__main__:job`, see [lock names](#0-42-lock-names) | The task runs once per version. |
-| A cached response | key without the route's protection | key under the route's protection | Every response is cached again, and each version serves its own copies. |
+| A cached response on a route that declares its protection | key without the route's protection | key under the route's protection | Each such response is cached again, and each version serves its own copies. |
 
 A token bucket keeps its keys.
 
@@ -178,7 +178,15 @@ a sliding window guards a security budget, such as failed sign-ins, expect
 every lockout to clear at the upgrade and keep the overlap short. The old Redis
 keys expire on their own within one window. The old Postgres and SQLite rows
 stay, as do the old Postgres functions. Once no 0.41 worker runs, you can
-delete the rows whose key starts with the adapter's `prefix` and then `gcra:`.
+delete them. With the default table and an empty `prefix`:
+
+```sql
+DELETE FROM grelmicro_rate_limiter WHERE substr(key, 1, 5) = 'gcra:';
+```
+
+With a `prefix`, put it before `gcra:` and count the whole string, such as
+`substr(key, 1, 9) = 'app:gcra:'`. Avoid `LIKE`, where a `_` in the prefix
+matches any character.
 
 ### One `gate=` for which workers run a task {#0-42-task-gate}
 
