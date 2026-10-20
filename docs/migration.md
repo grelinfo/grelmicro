@@ -9,8 +9,8 @@ with two lists:
   call fails, and the error names what to change.
 
 The detailed entries follow, with a Before and an After where code changes.
-Each section ends with a link to its full changelog. Seeing an error or an odd metric already? Match it
-in the table below.
+Each section ends with a link to its full changelog. Seeing an error or an
+odd metric already? Match it in the table below.
 
 For a version before 0.30, read the `Breaking` sections in the
 [changelog](changelog.md), newest first.
@@ -90,8 +90,8 @@ raises](#0-42-raising).
 | `SettingsValidationError: ... when: Field required` from a `Shield` | 0.42 | [Pass `when=`](#0-42-when) |
 | `TypeError: '_ShieldDecorator' object is not callable` from a bare `@shield` | 0.42 | [Pass a preset and `when=`](#0-42-when) |
 | `AttributeError: 'TaskLock' object has no attribute 'refresh'` | 0.42 | [Follow the `extend()` rename](#0-42-lock-extend) |
-| `LockExtendError` where you caught `LockAcquireError` or `LockReleaseError` from extending a lease | 0.42 | [Follow the `extend()` rename](#0-42-lock-extend) |
-| `LockNotOwnedError` passes an `except LockReleaseError` or `except LockBackendError` | 0.42 | [Follow the `extend()` rename](#0-42-lock-extend) |
+| `LockExtendError` where you caught `LockAcquireError` or `LockReleaseError` from extending a lease | 0.42 | [Catch `LockExtendError`](#0-42-lock-extend) |
+| `LockNotOwnedError` passes an `except LockReleaseError` or `except LockBackendError` | 0.42 | [Catch `LockNotOwnedError`](#0-42-lock-extend) |
 | A dashboard or alert on `grelmicro.lock.renewals` stopped receiving data | 0.42 | [Follow the `extend()` rename](#0-42-lock-extend) |
 | `TypeError: key must be a function, use key_template= for a template` from `@cached` or `@limiter` | 0.42 | [Pass `key_template=`](#0-42-key-function) |
 | `TypeError: ... got an unexpected keyword argument 'key_maker'` | 0.42 | [Pass `key=`](#0-42-key-function) |
@@ -107,8 +107,8 @@ raises](#0-42-raising).
 | `TypeError: Rename MyProvider.lock() to lock_backend()` | 0.42 | [Rename it `lock_backend()`](#0-42-backend-names) |
 | `ImportError: cannot import name 'document_idempotency'`, or `'document_conditional_requests'` and `'document_rate_limited_requests'` | 0.42 | [Register the component](#0-42-document-functions) |
 | A URL no route answers is no longer served from the cache or replayed, on an app without `AuthenticatedRequests` | 0.42 | [Declare the route](#0-42-answered-at-route) |
-| `404` or `405` where a write without `If-Match` got `428`, on an app without `AuthenticatedRequests` | 0.42 | [Declare the route](#0-42-answered-at-route) |
-| `404` or `405` where a request without `Idempotency-Key` got `400` from `require_key=True`, on an app without `AuthenticatedRequests` | 0.42 | [Declare the route](#0-42-answered-at-route) |
+| `404` or `405` where a write without `If-Match` got `428`, on an app without `AuthenticatedRequests` | 0.42 | [Nothing to change](#0-42-answered-at-route) |
+| `404` or `405` where a request without `Idempotency-Key` got `400` from `require_key=True`, on an app without `AuthenticatedRequests` | 0.42 | [Nothing to change](#0-42-answered-at-route) |
 | A path an `include=` pattern names under middleware on a mount or a mounted app is no longer cached | 0.42 | [Declare the route](#0-42-answered-at-route) |
 | A route declaring `CachedResponse()` is no longer cached by a `CachedResponsesMiddleware` added by hand | 0.42 | [Register the component](#0-42-hand-added) |
 | A middleware added by hand answers before a route's own checks, such as an authentication dependency | 0.42 | [Register the component](#0-42-hand-added) |
@@ -354,6 +354,8 @@ configs and the environment: `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS`
 and `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` become `GREL_CIRCUITBREAKER_{NAME}_WHEN`
 and `GREL_SHIELD_{NAME}_WHEN`. An ignore list in the environment cannot be
 written as an exclusion, so list the errors that count as failures instead.
+Name each by its full path, such as `builtins.ValueError` or
+`httpx.HTTPError`.
 
 ### The environment no longer picks a Shield preset {#0-42-shield-profile-env}
 
