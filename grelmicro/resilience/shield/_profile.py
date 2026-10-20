@@ -8,7 +8,7 @@ as Pydantic fields.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated, Any, ClassVar
 
 from pydantic import BaseModel, PositiveFloat
@@ -26,6 +26,18 @@ class _BaseShieldConfig(BaseModel, frozen=True, extra="forbid"):
     `ClassVar` attributes and declare the `kind` literal for the
     discriminated union.
     """
+
+    _RETIRED_FIELDS: ClassVar[Mapping[str, str]] = {
+        "profile": (
+            "is no longer read, choose the preset in code with "
+            "Shield.api, Shield.internal or Shield.slow"
+        ),
+        "timeout_errors": (
+            "is no longer read, set {prefix}WHEN to the errors that count "
+            "as transient, each by its full path"
+        ),
+    }
+    """Fields no longer read, each with its fix."""
 
     # --- Profile-frozen algorithm parameters (ClassVars) -----------------
     #

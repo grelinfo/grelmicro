@@ -169,6 +169,43 @@ def env_prefixes(
     return instance, (None if instance == kind else kind)
 
 
+def retired_fields(config_cls: type[BaseModel]) -> Mapping[str, str]:
+    """Return the fields `config_cls` no longer reads, each with its fix.
+
+    A config lists them in a `_RETIRED_FIELDS` class variable. Each fix
+    may name the variable prefix as `{prefix}`, such as
+    `{"ignore_exceptions": "is no longer read, set {prefix}WHEN ..."}`.
+    """
+    return getattr(config_cls, "_RETIRED_FIELDS", {})
+
+
+def _retired_message(prefix: str, field: str, fix: str) -> str:
+    """Name the retired variable and its fix, never its value."""
+    return f"- {prefix}{field.upper()}: {fix.format(prefix=prefix)}"
+
+
+def refuse_retired_env(
+    config_cls: type[BaseModel], prefixes: tuple[str | None, ...]
+) -> None:
+    """Raise when a variable names a field `config_cls` no longer reads.
+
+    Raises:
+        SettingsValidationError: Naming the first such variable and its fix.
+    """
+    retired = retired_fields(config_cls)
+    if not retired:
+        return
+    present = {key.upper() for key in os.environ}
+    for prefix in prefixes:
+        if not prefix:
+            continue
+        for field, fix in retired.items():
+            if f"{prefix}{field}".upper() in present:
+                raise SettingsValidationError(
+                    _retired_message(prefix.upper(), field, fix)
+                )
+
+
 _ENV_LOAD_VAR = "GREL_ENV_LOAD"
 _ENV_LOAD_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
@@ -351,6 +388,7 @@ def resolve_config[C: BaseModel](
                 )
             return config_cls.model_validate(provided)
 
+        refuse_retired_env(config_cls, (env_prefix, kind_env_prefix))
         _reject_cross_arm_env(config_cls, sibling, env_prefix, kind_env_prefix)
         settings_cls = _build_settings_cls(
             config_cls,
@@ -691,14 +729,6 @@ class Reconfigurable[ConfigT: BaseModel]:
     applies instead of being dropped when the whole instance is rejected.
     """
 
-    _RETIRED_RECONFIGURE_FIELDS: ClassVar[Mapping[str, str]] = {}
-    """Field names no longer read, each with the reason that names the fix.
-
-    A mounted key whose suffix names one of these fields refuses the whole
-    reload for the instance, and the log names the key and the reason,
-    never the value.
-    """
-
     @property
     def config(self) -> ConfigT:
         """Return the current configuration."""
@@ -794,7 +824,6 @@ def resolve_config_from_mapping[C: BaseModel](
     env_prefix: str,
     mapping: Mapping[str, str],
     immutable_fields: frozenset[str] = frozenset(),
-    retired_fields: Mapping[str, str] | None = None,
 ) -> C:
     """Patch `current` with values from a flat env-style `mapping`.
 
@@ -811,8 +840,8 @@ def resolve_config_from_mapping[C: BaseModel](
     from the environment. Returns `current` unchanged when the mapping
     carries nothing for this prefix.
 
-    A key naming a `retired_fields` entry raises `SettingsValidationError`
-    naming the key and the entry's reason.
+    A key naming a field the config lists as retired raises
+    `SettingsValidationError` naming the key and the fix.
 
     The raw `pydantic.ValidationError` propagates. This is the reload
     path, whose caller `reconfigure_all` logs a redacted summary and
@@ -824,6 +853,7 @@ def resolve_config_from_mapping[C: BaseModel](
     """
     cls = type(current)
     fields = cls.model_fields
+    retired = retired_fields(cls)
     prefix_len = len(env_prefix)
     prefix_upper = env_prefix.upper()
     overrides: dict[str, str] = {}
@@ -832,8 +862,8 @@ def resolve_config_from_mapping[C: BaseModel](
         if not key.upper().startswith(prefix_upper):
             continue
         field = key[prefix_len:].lower()
-        if retired_fields and field in retired_fields:
-            msg = f"- {prefix_upper}{field.upper()}: {retired_fields[field]}"
+        if field in retired:
+            msg = _retired_message(prefix_upper, field, retired[field])
             raise SettingsValidationError(msg)
         if field in immutable_fields:
             _warn_immutable_skipped(
@@ -1033,7 +1063,6 @@ async def reconfigure_all(mapping: Mapping[str, str]) -> None:
                 env_prefix=env_prefix,
                 mapping=mapping,
                 immutable_fields=instance._IMMUTABLE_RECONFIGURE_FIELDS,  # noqa: SLF001
-                retired_fields=instance._RETIRED_RECONFIGURE_FIELDS,  # noqa: SLF001
             )
         except SettingsValidationError as exc:
             # Raised only for a retired key, with a message that names the

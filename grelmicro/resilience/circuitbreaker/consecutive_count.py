@@ -1,7 +1,8 @@
 """Consecutive-count circuit breaker algorithm configuration."""
 
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, PositiveInt
 from typing_extensions import Doc
@@ -40,6 +41,14 @@ class ConsecutiveCountConfig(BaseModel, frozen=True, extra="forbid"):
 
     Read more in the [Circuit Breaker](../resilience/circuit-breaker.md) docs.
     """
+
+    _RETIRED_FIELDS: ClassVar[Mapping[str, str]] = {
+        "ignore_exceptions": (
+            "is no longer read, set {prefix}WHEN to the errors that count "
+            "as failures, each by its full path"
+        ),
+    }
+    """Fields no longer read, each with its fix."""
 
     kind: Annotated[
         Literal["consecutive_count"],
