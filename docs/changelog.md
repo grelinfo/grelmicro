@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+* 👷 The GitHub release becomes Latest only once PyPI has the version. ([#1084](https://github.com/grelinfo/grelmicro/issues/1084))
+
 ## 0.42.1 - 2026-10-19
 
 ### Breaking

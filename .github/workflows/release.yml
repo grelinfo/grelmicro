@@ -15,6 +15,31 @@ on:
         default: false
 permissions: {}
 jobs:
+  hold-latest:
+    # A release created without `--latest=false` is Latest at once. This
+    # hands Latest back to the newest earlier release, so the release page
+    # waits for PyPI either way. `mark-latest` takes it back after PyPI.
+    if: ${{ github.event_name == 'release' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Hold the release back from Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          releases=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 100 --json tagName,isLatest)
+          latest=$(jq -r '.[] | select(.isLatest) | .tagName' <<< "$releases")
+          if [ "$latest" != "$RELEASE_VERSION" ]; then
+            exit 0
+          fi
+          previous=$(jq -r --arg v "$RELEASE_VERSION" '.[].tagName | select(. != $v and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' <<< "$releases" | sort -V | tail -n 1)
+          if [ -n "$previous" ]; then
+            gh release edit "$previous" --latest --repo "$GITHUB_REPOSITORY"
+          fi
   full-checks:
     # Run the full test tier (matrix, slow, integration, demo) before any
     # artifact is built or published.
@@ -189,3 +214,37 @@ jobs:
       contents: read
       pages: write
       id-token: write
+  mark-latest:
+    # Runs on a published release only, even when `hold-latest` failed.
+    # Waits until PyPI serves the version, so `pip` and `uv` resolve it
+    # once it is Latest.
+    needs: [hold-latest, publish-pypi]
+    if: ${{ !cancelled() && github.event_name == 'release' && needs.publish-pypi.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Wait for PyPI to serve the version
+        run: |
+          for _ in $(seq 60); do
+            if curl -fsS -o /dev/null "https://pypi.org/pypi/grelmicro/$RELEASE_VERSION/json"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "PyPI does not serve grelmicro $RELEASE_VERSION after 10 minutes." >&2
+          exit 1
+      - name: Mark the release Latest
+        # A patch to an older line, such as 0.41.2 after 0.42.1, never
+        # becomes Latest. Only `X.Y.Z` tags count, so a `core-*` release
+        # never does either.
+        shell: bash
+        run: |
+          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' | sort -V | tail -n 1)
+          if [ "$newest" = "$RELEASE_VERSION" ]; then
+            gh release edit "$RELEASE_VERSION" --latest --repo "$GITHUB_REPOSITORY"
+          fi
