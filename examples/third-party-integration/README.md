@@ -57,9 +57,9 @@ micro = Grelmicro(uses=[AuthenticatedRequests(verifier)])
 micro.install(app)
 ```
 
-`verifier` is the app's `JWTVerifier`. `GET /catalog` is served without a credential. `GET /orders` answers `401`
-without one and `403` without the `orders:read` scope. An unknown URL answers
-`401`, because the app decides it before any route does.
+`verifier` is the app's `JWTVerifier`. `GET /catalog` is served without a
+credential. `GET /orders` answers `401` without one and `403` without the
+`orders:read` scope. An unknown URL answers `401` without a credential.
 
 `tests/test_third_party_integration.py` drives this example through
 `micro.install(app)` and an ASGI client.

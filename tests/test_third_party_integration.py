@@ -13,6 +13,7 @@ import importlib.metadata
 import itertools
 import sys
 import tomllib
+from http import HTTPStatus
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -21,7 +22,6 @@ import pytest
 from starlette.testclient import TestClient
 
 from grelmicro import Grelmicro, RoutesNotDeclaredWarning
-from grelmicro._discovery import INTEGRATION_GROUP
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.http import (
@@ -52,10 +52,8 @@ ALICE = {"authorization": "Bearer alice"}
 BOB = {"authorization": "Bearer bob"}
 """A caller holding `orders:read`."""
 
-OK = 200
-UNAUTHORIZED = 401
-FORBIDDEN = 403
-NOT_FOUND = 404
+GROUP = "grelmicro.integrations"
+"""The entry-point group integrations register under."""
 
 
 class Example(SimpleNamespace):
@@ -78,13 +76,13 @@ def example(monkeypatch: pytest.MonkeyPatch) -> Iterator[Example]:
     for name in MODULES:
         monkeypatch.delitem(sys.modules, name, raising=False)
     published = importlib.metadata.EntryPoint(
-        "tinyweb", "grelmicro_tinyweb", INTEGRATION_GROUP
+        "tinyweb", "grelmicro_tinyweb", GROUP
     )
     found = importlib.metadata.entry_points
 
     def entry_points(*, group: str) -> list[importlib.metadata.EntryPoint]:
         listed = list(found(group=group))
-        return [*listed, published] if group == INTEGRATION_GROUP else listed
+        return [*listed, published] if group == GROUP else listed
 
     monkeypatch.setattr("grelmicro._discovery.entry_points", entry_points)
     yield Example(
@@ -115,6 +113,20 @@ def counting() -> Callable[[Scope], Any]:
     return endpoint
 
 
+def checking_caller() -> Callable[[Scope], Any]:
+    """Return an endpoint that reads its caller off `x-api-key` itself.
+
+    It answers the caller and how many times it ran.
+    """
+    calls = itertools.count(1)
+
+    async def endpoint(scope: Scope) -> str:
+        caller = dict(scope["headers"]).get(b"x-api-key", b"").decode()
+        return f"{caller} {next(calls)}"
+
+    return endpoint
+
+
 def authenticated() -> AuthenticatedRequests:
     """Return the authentication: `alice` holds no scope, `bob` holds `orders:read`."""
     return AuthenticatedRequests(
@@ -123,6 +135,13 @@ def authenticated() -> AuthenticatedRequests:
             bob=fake_claims("bob", "orders:read"),
         )
     )
+
+
+def install(app: object) -> Grelmicro:
+    """Install the authentication on `app`, answering errors as problem details."""
+    micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
+    micro.install(app)
+    return micro
 
 
 def shop(example: Example) -> Any:  # noqa: ANN401
@@ -141,14 +160,14 @@ def test_third_party_integration_anonymous_route_without_credential_is_served(
     """A route declared `anonymous` answers a caller with no credential."""
     # Arrange
     app = shop(example)
-    Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+    install(app)
 
     # Act
     with TestClient(app) as client:
         response = client.get("/catalog")
 
     # Assert
-    assert response.status_code == OK
+    assert response.status_code == HTTPStatus.OK
     assert response.text == "catalog"
 
 
@@ -158,7 +177,7 @@ def test_third_party_integration_protected_route_without_credential_is_refused_4
     """A route that declares nothing needs a caller, and serves one."""
     # Arrange
     app = shop(example)
-    Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+    install(app)
 
     # Act
     with TestClient(app) as client:
@@ -166,8 +185,8 @@ def test_third_party_integration_protected_route_without_credential_is_refused_4
         alice = client.get("/cart", headers=ALICE)
 
     # Assert
-    assert anonymous.status_code == UNAUTHORIZED
-    assert alice.status_code == OK
+    assert anonymous.status_code == HTTPStatus.UNAUTHORIZED
+    assert alice.status_code == HTTPStatus.OK
 
 
 def test_third_party_integration_scoped_route_without_scope_is_refused_403(
@@ -176,7 +195,7 @@ def test_third_party_integration_scoped_route_without_scope_is_refused_403(
     """A caller lacking a scope the route declares is refused, and one holding it is served."""
     # Arrange
     app = shop(example)
-    Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+    install(app)
 
     # Act
     with TestClient(app) as client:
@@ -184,8 +203,8 @@ def test_third_party_integration_scoped_route_without_scope_is_refused_403(
         bob = client.get("/orders", headers=BOB)
 
     # Assert
-    assert alice.status_code == FORBIDDEN
-    assert bob.status_code == OK
+    assert alice.status_code == HTTPStatus.FORBIDDEN
+    assert bob.status_code == HTTPStatus.OK
 
 
 def test_third_party_integration_unknown_url_without_credential_is_refused_401(
@@ -194,7 +213,7 @@ def test_third_party_integration_unknown_url_without_credential_is_refused_401(
     """A URL no route answers needs a caller before the framework answers `404`."""
     # Arrange
     app = shop(example)
-    Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+    install(app)
 
     # Act
     with TestClient(app) as client:
@@ -202,8 +221,8 @@ def test_third_party_integration_unknown_url_without_credential_is_refused_401(
         alice = client.get("/nowhere", headers=ALICE)
 
     # Assert
-    assert anonymous.status_code == UNAUTHORIZED
-    assert alice.status_code == NOT_FOUND
+    assert anonymous.status_code == HTTPStatus.UNAUTHORIZED
+    assert alice.status_code == HTTPStatus.NOT_FOUND
 
 
 def test_third_party_integration_declared_read_is_served_from_cache_on_second_request(
@@ -241,7 +260,7 @@ def test_third_party_integration_route_added_after_install_fails_startup(
     """A listed route that carries no gate stops the app from starting, named."""
     # Arrange
     app = shop(example)
-    Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+    install(app)
     app.add_route(example.tinyweb.Route("/late", text("late")))
 
     # Act / Assert
@@ -263,7 +282,7 @@ def test_third_party_integration_without_hooks_every_route_requires_credential(
     monkeypatch.delattr(example.integration, "route_declarations")
     app = shop(example)
     with pytest.warns(RoutesNotDeclaredWarning):
-        Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+        install(app)
 
     # Act
     with TestClient(app) as client:
@@ -273,25 +292,25 @@ def test_third_party_integration_without_hooks_every_route_requires_credential(
         with_token = client.get("/catalog", headers=ALICE)
 
     # Assert
-    assert public.status_code == UNAUTHORIZED
-    assert protected.status_code == UNAUTHORIZED
-    assert nowhere.status_code == UNAUTHORIZED
-    assert with_token.status_code == OK
+    assert public.status_code == HTTPStatus.UNAUTHORIZED
+    assert protected.status_code == HTTPStatus.UNAUTHORIZED
+    assert nowhere.status_code == HTTPStatus.UNAUTHORIZED
+    assert with_token.status_code == HTTPStatus.OK
 
 
 def test_third_party_integration_route_with_own_checks_never_replays_across_callers(
     example: Example,
 ) -> None:
-    """A repeated key runs the endpoint again on a route with checks of its own.
+    """A second caller reusing a key runs the endpoint on a route with checks of its own.
 
-    The same key replays on a route without them.
+    The same caller reusing its key replays on a route without them.
     """
     # Arrange
     route = example.tinyweb.Route
     post = frozenset({"POST"})
     app = example.tinyweb.TinyWeb(
-        route("/pay", counting(), methods=post, own_checks=True),
-        route("/note", counting(), methods=post),
+        route("/pay", checking_caller(), methods=post, own_checks=True),
+        route("/note", checking_caller(), methods=post),
     )
     Grelmicro(
         uses=[
@@ -301,16 +320,17 @@ def test_third_party_integration_route_with_own_checks_never_replays_across_call
             IdempotentRequests(),
         ]
     ).install(app)
-    key = {"idempotency-key": "k1"}
+    alice = {"idempotency-key": "k1", "x-api-key": "alice"}
+    bob = {"idempotency-key": "k1", "x-api-key": "bob"}
 
     # Act
     with TestClient(app) as client:
-        paid = [client.post("/pay", headers=key).text for _ in range(2)]
-        noted = [client.post("/note", headers=key).text for _ in range(2)]
+        paid = [client.post("/pay", headers=h).text for h in (alice, bob)]
+        noted = [client.post("/note", headers=alice).text for _ in range(2)]
 
     # Assert
-    assert paid == ["1", "2"]
-    assert noted == ["1", "1"]
+    assert paid == ["alice 1", "bob 2"]
+    assert noted == ["alice 1", "alice 1"]
 
 
 def test_third_party_integration_describe_reports_declared_authentication(
@@ -319,8 +339,7 @@ def test_third_party_integration_describe_reports_declared_authentication(
     """Each endpoint reads as its route declares: public, authenticated or scoped."""
     # Arrange
     app = shop(example)
-    micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
-    micro.install(app)
+    micro = install(app)
 
     # Act
     endpoints = micro.describe(app).endpoints
@@ -341,7 +360,7 @@ def test_third_party_integration_example_entry_point_matches_pyproject(
     pyproject = tomllib.loads((EXAMPLE / "pyproject.toml").read_text())
 
     # Act
-    declared = pyproject["project"]["entry-points"][INTEGRATION_GROUP]
+    declared = pyproject["project"]["entry-points"][GROUP]
 
     # Assert
     assert declared == {example.entry_point.name: example.entry_point.value}
