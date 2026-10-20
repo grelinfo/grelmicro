@@ -6,7 +6,8 @@ step in the procedure and the easiest to get wrong. `check` then gates the
 release on that section existing and carrying today's date, so a tag is
 never cut against a changelog that still says `Unreleased` or carries
 yesterday's date. `notes` prints the section body, which is what the GitHub
-Release description should hold.
+Release description should hold. `misfiled_breaking` lists every `💥` entry
+outside a breaking heading, which a test holds at none.
 
 The writer and the checker live together on purpose: one parser, so they
 cannot disagree about the format.
@@ -59,17 +60,13 @@ BREAKING_HEADINGS = frozenset({"### Breaking", "### Breaking Changes"})
 def misfiled_breaking(text: str) -> list[str]:
     """Return every `💥` entry that sits outside a breaking heading."""
     found: list[str] = []
-    version: str | None = None
-    heading: str | None = None
-    for line in text.splitlines():
-        match = HEADING.match(line)
-        if match:
-            version = match["version"]
-            heading = None
-        elif line.startswith("### "):
-            heading = line.strip()
-        elif line.startswith("* 💥") and heading not in BREAKING_HEADINGS:
-            found.append(f"{version}, {heading}: {line}")
+    for version, (_, body) in sections(text).items():
+        heading: str | None = None
+        for line in body.splitlines():
+            if line.startswith("### "):
+                heading = line.strip()
+            elif line.startswith("* 💥") and heading not in BREAKING_HEADINGS:
+                found.append(f"{version}, {heading}: {line}")
     return found
 
 
