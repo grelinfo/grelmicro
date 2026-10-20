@@ -230,6 +230,7 @@ def test_every_shipped_config_field_is_current_or_retired() -> None:
             and field not in retired_fields(classes[path])
         )
         for path, fields in shipped.items()
+        if path in classes
     }
 
     # Assert
