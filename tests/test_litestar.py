@@ -18,26 +18,32 @@ from litestar.status_codes import (
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 from litestar.testing import AsyncTestClient, TestClient
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from starlette.testclient import TestClient as StarletteClient
 
 from grelmicro import Grelmicro, GrelmicroMiddleware
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.http import (
+    AuthenticatedRequests,
     CachedResponses,
     ConditionalRequests,
     ErrorResponses,
     IdempotentRequests,
     RateLimitedRequests,
 )
-from grelmicro.integrations.litestar import is_bound
+from grelmicro.integrations.litestar import Anonymous, is_bound
 from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.security import TrustedProxies
+from tests.test_authentication import bearer, token, verifier
 from tests.test_route_gate_litestar import Passing
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
+    from litestar import Request
     from litestar.types import Receive, Scope, Send
 
 pytestmark = [pytest.mark.timeout(5)]
@@ -241,6 +247,69 @@ def test_a_mounted_app_caches_a_read_matched_on_its_own_path(
 
     assert [response.text for response in responses] == ["fresh"] * 2
     assert served == ["read"]
+
+
+_HANDLERS_SEEN: list[tuple[str, bool]] = []
+"""Whether the scope held a matched handler, at the outer edge and at the route."""
+
+
+class _HandlerSeen:
+    """Record, for each request, whether its scope holds a matched handler."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        """Wrap `app`."""
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Record what the scope holds, then run the app."""
+        if scope["type"] == "http":
+            _HANDLERS_SEEN.append(("edge", "route_handler" in scope))
+        await self.app(scope, receive, send)
+
+
+class _SeeingHandlers(ConditionalRequests):
+    """An answering component whose middleware records the scope it reads."""
+
+    def asgi_middleware(self) -> tuple[type[Any], dict[str, Any]]:
+        """Return the recording middleware."""
+        return _HandlerSeen, {}
+
+
+def test_a_mounted_app_shows_the_outer_edge_the_request_before_routing() -> (
+    None
+):
+    """A Starlette app's middleware read no handler, and the Litestar route reads its own."""
+    # Arrange
+    _HANDLERS_SEEN.clear()
+
+    @get("/read", opt=Anonymous())
+    async def read(request: Request[Any, Any, Any]) -> str:
+        _HANDLERS_SEEN.append(("route", "route_handler" in request.scope))
+        return "read"
+
+    inner = Litestar([read])
+    Grelmicro(
+        uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+    ).install(inner)
+    outer = Starlette(routes=[Mount("/in", app=cast("Any", inner))])
+    Grelmicro(
+        uses=[
+            ErrorResponses(),
+            AuthenticatedRequests(verifier()),
+            _SeeingHandlers(),
+        ]
+    ).install(outer)
+
+    # Act
+    with StarletteClient(outer) as client:
+        response = client.get("/in/read", headers=bearer(token()))
+
+    # Assert
+    assert response.text == "read"
+    assert ("edge", True) not in _HANDLERS_SEEN
+    assert _HANDLERS_SEEN[-2:] == [("edge", False), ("route", True)]
 
 
 @post("/conflict")

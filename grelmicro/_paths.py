@@ -352,8 +352,9 @@ def route_path(
     check made against any other path checks a route other than the one
     that answers. The router is the one of the app in `scope["app"]`, which
     each framework sets to itself. The path reader an integration gave
-    that app's class reads it, and the first request of a class imports
-    the integration registered for its framework, which gives the reader.
+    that app's class reads it. The first request of a new app class scans
+    the entry points once and may import the integration registered for
+    its framework, which gives the reader.
     Without one, the ASGI rule reads it: the
     root path is taken off whole and as given, only at a segment boundary,
     so a `root_path` of `/api` leaves `/apikeys` alone and shortens
@@ -362,6 +363,8 @@ def route_path(
     Raises:
         RuntimeError: If the path reader cannot tell the path the router
             serves.
+        ImportError: If the integration of the framework of a new app
+            class fails to import.
     """
     path = _scope_text(scope["path"])
     root = _scope_text(scope.get("root_path", ""))
@@ -375,7 +378,7 @@ def route_path(
 
 
 def read_paths_with(
-    kind: Annotated[
+    qualified_name: Annotated[
         str,
         Doc("The app class, by its module and qualified name."),
     ],
@@ -391,26 +394,28 @@ def read_paths_with(
         ),
     ] = (),
 ) -> None:
-    """Have `route_path` read the path of a request an app of class `kind` serves with `reader`.
+    """Have `route_path` read the path of the app class `qualified_name` names with `reader`.
 
-    A subclass of `kind` reads the same way. Each key in `writes` joins
+    A subclass of the class reads the same way. Each key in `writes` joins
     `ROUTED_KEYS`.
     """
-    _PATH_READERS[kind] = reader
+    global ROUTED_KEYS  # noqa: PLW0603
+    _PATH_READERS[qualified_name] = reader
     _READERS_BY_CLASS.clear()
-    ROUTED_KEYS.extend(key for key in writes if key not in ROUTED_KEYS)
+    added = [key for key in dict.fromkeys(writes) if key not in ROUTED_KEYS]
+    ROUTED_KEYS = (*ROUTED_KEYS, *added)
 
 
-ROUTED_KEYS: Final[list[str]] = []
+ROUTED_KEYS: tuple[str, ...] = ()
 """The scope keys a router writes, besides the path, the root path and the app.
 
 Each one an integration named in `read_paths_with`.
 """
 
-_PATH_READERS: Final[dict[str, PathReader]] = {}
+_PATH_READERS: dict[str, PathReader] = {}
 """The path reader of each app class an integration named, by module and qualified name."""
 
-_READERS_BY_CLASS: Final[dict[type, PathReader | None]] = {}
+_READERS_BY_CLASS: dict[type, PathReader | None] = {}
 """The path reader each app class seen resolved to, `None` without one."""
 
 _UNREAD: Final[Any] = object()
@@ -420,9 +425,11 @@ _UNREAD: Final[Any] = object()
 def _reader_of(kind: type) -> PathReader | None:
     """Return the path reader of `kind` or of the nearest class it extends, and keep it.
 
-    When no integration gave one yet, the integration registered for the
-    class's framework is imported, which gives its reader, and the class
-    is read again. `None` is kept too, so each class is resolved once.
+    When no integration gave one yet, the entry points are scanned once
+    and the integration registered for the class's framework is imported,
+    which gives its reader, and the class is read again. `None` is kept
+    too, so each class is resolved once. What importing the integration
+    raises propagates, and nothing is kept.
     """
     found = _registered_reader(kind)
     if found is None and import_integration_of(kind):

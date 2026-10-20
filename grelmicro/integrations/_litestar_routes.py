@@ -1,9 +1,8 @@
 """How a Litestar router reads the path of a request, and which handler it matched.
 
 Importing this module has `route_path` read the path of a request a
-Litestar app serves as Litestar's router reads it. It does not import
-Litestar, so an integration of another framework imports it to read a
-Litestar app mounted under its own.
+Litestar app serves as Litestar's router reads it. Litestar itself is
+imported only when a path is first normalized.
 """
 
 from __future__ import annotations

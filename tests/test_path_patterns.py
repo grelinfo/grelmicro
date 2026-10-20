@@ -473,13 +473,11 @@ def _read_upper(app: object, scope: Any, path: str, root_path: str) -> str:  # n
 
 
 @pytest.fixture
-def readers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Give each test path readers and routed keys of its own, and return the keys."""
-    keys: list[str] = []
+def readers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test path readers and routed keys of its own."""
     monkeypatch.setattr(_paths, "_PATH_READERS", {})
     monkeypatch.setattr(_paths, "_READERS_BY_CLASS", {})
-    monkeypatch.setattr(_paths, "ROUTED_KEYS", keys)
-    return keys
+    monkeypatch.setattr(_paths, "ROUTED_KEYS", ())
 
 
 @pytest.mark.usefixtures("readers")
@@ -603,24 +601,23 @@ def test_the_first_request_of_an_app_class_imports_its_integration(
 
 
 @pytest.mark.usefixtures("readers")
-def test_an_integration_failing_to_import_reads_by_the_asgi_rule(
+def test_an_integration_failing_to_import_raises_on_each_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An integration whose framework cannot be imported gives no reader."""
+    """What importing the integration raises propagates, and is raised again on the next request."""
 
     # Arrange
     def load() -> None:
-        raise ImportError
+        msg = "the framework is too old"
+        raise ImportError(msg)
 
     _entries(monkeypatch, _Entry(load))
+    scope = {"path": "/keys", "app": _Router()}
 
-    # Act
-    path = route_path(
-        {"path": "/api/keys", "root_path": "/api", "app": _Router()}
-    )
-
-    # Assert
-    assert path == "/keys"
+    # Act / Assert
+    for _ in range(2):
+        with pytest.raises(ImportError, match="too old"):
+            route_path(scope)
 
 
 def test_a_litestar_path_reads_by_litestar_before_any_integration_is_imported() -> (
@@ -647,14 +644,15 @@ def test_a_litestar_path_reads_by_litestar_before_any_integration_is_imported() 
     assert result.stdout.split() == ["[]", "/x"]
 
 
-def test_each_key_a_router_writes_is_routed_once(readers: list[str]) -> None:
+@pytest.mark.usefixtures("readers")
+def test_each_key_a_router_writes_is_routed_once() -> None:
     """A key two path readers name is one key the gate keeps for the route."""
     # Act
     read_paths_with(_kind(_Router), _read_upper, writes=("handler",))
     read_paths_with(_kind(_Unread), _read_upper, writes=("handler", "endpoint"))
 
     # Assert
-    assert readers == ["handler", "endpoint"]
+    assert _paths.ROUTED_KEYS == ("handler", "endpoint")
 
 
 @pytest.mark.parametrize(

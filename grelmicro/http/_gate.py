@@ -40,9 +40,9 @@ from typing import (
 
 from typing_extensions import Doc
 
+from grelmicro import _paths
 from grelmicro._paths import (
     ROUTE_KEY,
-    ROUTED_KEYS,
     path_format,
     route_path,
     selects,
@@ -443,7 +443,11 @@ def _presented(chain: ASGIApp, hops: int) -> ASGIApp:
                 scope["path"],
                 scope.get("root_path", ""),
                 scope.get("app"),
-                {key: scope.pop(key) for key in ROUTED_KEYS if key in scope},
+                {
+                    key: scope.pop(key)
+                    for key in _paths.ROUTED_KEYS
+                    if key in scope
+                },
             )
         scope["path"] = arrived.path
         scope["root_path"] = arrived.root_path
