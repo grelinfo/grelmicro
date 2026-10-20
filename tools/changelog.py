@@ -52,6 +52,27 @@ def sections(text: str) -> dict[str, tuple[str | None, str]]:
     return found
 
 
+BREAKING_HEADINGS = frozenset({"### Breaking", "### Breaking Changes"})
+"""The headings a `💥` entry may sit under. `Breaking Changes` is the older spelling."""
+
+
+def misfiled_breaking(text: str) -> list[str]:
+    """Return every `💥` entry that sits outside a breaking heading."""
+    found: list[str] = []
+    version: str | None = None
+    heading: str | None = None
+    for line in text.splitlines():
+        match = HEADING.match(line)
+        if match:
+            version = match["version"]
+            heading = None
+        elif line.startswith("### "):
+            heading = line.strip()
+        elif line.startswith("* 💥") and heading not in BREAKING_HEADINGS:
+            found.append(f"{version}, {heading}: {line}")
+    return found
+
+
 def check(version: str, today: str) -> int:
     """Report whether `version` is ready to tag. Returns an exit code."""
     found = sections(CHANGELOG.read_text(encoding="utf-8"))
