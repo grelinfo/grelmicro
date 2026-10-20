@@ -8,7 +8,7 @@ as Pydantic fields.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated, Any, ClassVar
 
 from pydantic import BaseModel, PositiveFloat
@@ -31,6 +31,18 @@ class _BaseShieldConfig(BaseModel, frozen=True, extra="forbid"):
     #
     # Subclasses set these. They are NOT Pydantic fields, so they never
     # appear in `model_dump()` and cannot be overridden per instance.
+
+    __retired_fields__: ClassVar[Mapping[str, str]] = {
+        "profile": (
+            "is no longer read, choose the preset in code with "
+            "Shield.api, Shield.internal or Shield.slow"
+        ),
+        "timeout_errors": (
+            "is no longer read, set {prefix}WHEN to the errors that count "
+            "as transient, each by its full path"
+        ),
+    }
+    """Fields no longer read, each with its fix."""
 
     max_consecutive_failures: ClassVar[int]
     initial_max_rate: ClassVar[float]

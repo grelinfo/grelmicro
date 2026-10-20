@@ -1,0 +1,344 @@
+{
+  "grelmicro.cache.ttl.TTLCacheConfig": [
+    "maxsize",
+    "ttl"
+  ],
+  "grelmicro.coordination._base.BaseLockConfig": [
+    "worker"
+  ],
+  "grelmicro.coordination.leaderelection.LeaderElectionConfig": [
+    "backend_timeout",
+    "error_interval",
+    "lease_duration",
+    "renew_deadline",
+    "retry_interval",
+    "retry_jitter",
+    "worker"
+  ],
+  "grelmicro.coordination.lock.LockConfig": [
+    "lease_duration",
+    "retry_interval",
+    "retry_jitter",
+    "worker"
+  ],
+  "grelmicro.coordination.readwritelock.ReadWriteLockConfig": [
+    "lease_duration",
+    "retry_interval",
+    "retry_jitter",
+    "worker"
+  ],
+  "grelmicro.coordination.tasklock.TaskLockConfig": [
+    "lease_duration",
+    "min_hold_duration",
+    "worker"
+  ],
+  "grelmicro.health._checks.HealthChecksConfig": [
+    "cache_ttl",
+    "timeout"
+  ],
+  "grelmicro.http._authentication.AuthenticatedRequestsConfig": [
+    "authorization_servers",
+    "enduser",
+    "exclude",
+    "resource",
+    "scopes"
+  ],
+  "grelmicro.http._conditional.ConditionalRequestsConfig": [
+    "etag_responses",
+    "exclude",
+    "include",
+    "max_body_size",
+    "require_precondition"
+  ],
+  "grelmicro.http._idempotency.IdempotentRequestsConfig": [
+    "exclude",
+    "fingerprint_body",
+    "include",
+    "key_header",
+    "max_body_size",
+    "max_wait",
+    "methods",
+    "replay_header",
+    "require_key",
+    "reused_status",
+    "wait_timeout"
+  ],
+  "grelmicro.http._ratelimit.RateLimitedRequestsConfig": [
+    "cost",
+    "exclude",
+    "include",
+    "legacy_headers",
+    "max_wait"
+  ],
+  "grelmicro.http._response_cache.CachedResponsesConfig": [
+    "exclude",
+    "include",
+    "max_body_size",
+    "ttl",
+    "vary_by_headers",
+    "vary_by_query"
+  ],
+  "grelmicro.http._server.OpsServerConfig": [
+    "host",
+    "max_connections",
+    "port",
+    "request_timeout",
+    "show_details",
+    "shutdown_timeout"
+  ],
+  "grelmicro.idempotency.config.IdempotencyConfig": [
+    "ttl"
+  ],
+  "grelmicro.log._access.AccessLogConfig": [
+    "enduser",
+    "exclude",
+    "include",
+    "query",
+    "quiet",
+    "user_agent"
+  ],
+  "grelmicro.log._dedup.DuplicateFilterConfig": [
+    "allowed_repetitions",
+    "cache_size",
+    "key_mode",
+    "ttl"
+  ],
+  "grelmicro.log._ratelimit.RateLimitFilterConfig": [
+    "capacity",
+    "cost",
+    "key_mode",
+    "refill_rate"
+  ],
+  "grelmicro.log.config.LogConfig": [
+    "backend",
+    "caller_enabled",
+    "format",
+    "json_serializer",
+    "level",
+    "otel_enabled",
+    "queue_enabled",
+    "queue_size",
+    "timezone",
+    "uvicorn_enabled"
+  ],
+  "grelmicro.metrics.config.MetricsConfig": [
+    "basic_auth_password",
+    "basic_auth_username",
+    "endpoint",
+    "export_interval",
+    "export_timeout",
+    "exporter",
+    "headers",
+    "resource_attributes",
+    "service_name",
+    "shutdown_timeout"
+  ],
+  "grelmicro.outbox._config.OutboxConfig": [
+    "auto_migrate",
+    "batch_size",
+    "concurrency",
+    "dead_letter",
+    "keep_delivered",
+    "lease_duration",
+    "max_attempts",
+    "notify",
+    "poll_interval",
+    "relay",
+    "retry_base",
+    "retry_jitter",
+    "retry_max",
+    "table"
+  ],
+  "grelmicro.providers.postgres.PostgresConfig": [
+    "command_timeout",
+    "database",
+    "host",
+    "password",
+    "port",
+    "url",
+    "user"
+  ],
+  "grelmicro.providers.redis.RedisConfig": [
+    "db",
+    "host",
+    "password",
+    "port",
+    "sentinel_password",
+    "url"
+  ],
+  "grelmicro.providers.sqlite.SQLiteConfig": [
+    "path"
+  ],
+  "grelmicro.providers.valkey.ValkeyConfig": [
+    "db",
+    "host",
+    "password",
+    "port",
+    "sentinel_password",
+    "url"
+  ],
+  "grelmicro.resilience.bulkhead.BulkheadConfig": [
+    "max_concurrent",
+    "max_wait",
+    "max_workers"
+  ],
+  "grelmicro.resilience.circuitbreaker.consecutive_count.ConsecutiveCountConfig": [
+    "error_threshold",
+    "half_open_capacity",
+    "ignore_exceptions",
+    "kind",
+    "log_level",
+    "reset_timeout",
+    "success_threshold",
+    "when"
+  ],
+  "grelmicro.resilience.fallback.FallbackConfig": [
+    "default",
+    "factory",
+    "when"
+  ],
+  "grelmicro.resilience.ratelimiter.sliding_window.SlidingWindowConfig": [
+    "fail_open",
+    "kind",
+    "limit",
+    "window"
+  ],
+  "grelmicro.resilience.ratelimiter.token_bucket.TokenBucketConfig": [
+    "capacity",
+    "fail_open",
+    "kind",
+    "refill_rate"
+  ],
+  "grelmicro.resilience.retry.RetryConfig": [
+    "attempts",
+    "backoff",
+    "max_seconds",
+    "when"
+  ],
+  "grelmicro.resilience.shield._api.ApiShieldConfig": [
+    "cache",
+    "cache_key",
+    "fallback",
+    "kind",
+    "max_rate",
+    "profile",
+    "timeout_errors",
+    "when"
+  ],
+  "grelmicro.resilience.shield._internal.InternalShieldConfig": [
+    "cache",
+    "cache_key",
+    "fallback",
+    "kind",
+    "max_rate",
+    "profile",
+    "timeout_errors",
+    "when"
+  ],
+  "grelmicro.resilience.shield._slow.SlowShieldConfig": [
+    "cache",
+    "cache_key",
+    "fallback",
+    "kind",
+    "max_rate",
+    "profile",
+    "timeout_errors",
+    "when"
+  ],
+  "grelmicro.resilience.timeout.TimeoutConfig": [
+    "seconds"
+  ],
+  "grelmicro.security.bans.ClientBansConfig": [
+    "duration",
+    "failures",
+    "max_clients",
+    "window"
+  ],
+  "grelmicro.security.jwt.DiscoveryConfig": [
+    "algorithm",
+    "audience",
+    "cache_key",
+    "cache_size",
+    "cache_ttl",
+    "issuer",
+    "leeway",
+    "max_bytes",
+    "max_keys",
+    "required",
+    "retry_interval",
+    "scope_claims",
+    "timeout",
+    "token_type",
+    "ttl"
+  ],
+  "grelmicro.security.jwt.JWKSConfig": [
+    "algorithm",
+    "audience",
+    "cache_key",
+    "cache_size",
+    "cache_ttl",
+    "issuer",
+    "leeway",
+    "max_bytes",
+    "max_keys",
+    "required",
+    "retry_interval",
+    "scope_claims",
+    "timeout",
+    "token_type",
+    "ttl",
+    "url"
+  ],
+  "grelmicro.security.jwt.JWTKeysConfig": [
+    "audience",
+    "cache_key",
+    "cache_size",
+    "cache_ttl",
+    "issuer",
+    "keys",
+    "leeway",
+    "required",
+    "scope_claims",
+    "token_type"
+  ],
+  "grelmicro.security.oauth.ClientCredentialsConfig": [
+    "audience",
+    "resource",
+    "scopes"
+  ],
+  "grelmicro.security.oauth.OAuthClientConfig": [
+    "assertion_file",
+    "client_id",
+    "client_secret",
+    "default_lifetime",
+    "issuer",
+    "max_bytes",
+    "refresh_before",
+    "retry_interval",
+    "timeout",
+    "token_endpoint"
+  ],
+  "grelmicro.security.oauth.TokenExchangeConfig": [
+    "audience",
+    "cache_size",
+    "resource",
+    "scopes"
+  ],
+  "grelmicro.task._tasks.TasksConfig": [
+    "shutdown_timeout",
+    "timezone"
+  ],
+  "grelmicro.trace.config.TraceConfig": [
+    "basic_auth_password",
+    "basic_auth_username",
+    "endpoint",
+    "exporter",
+    "headers",
+    "processor",
+    "resource_attributes",
+    "sample_ratio",
+    "sampler",
+    "service_name",
+    "shutdown_timeout"
+  ]
+}

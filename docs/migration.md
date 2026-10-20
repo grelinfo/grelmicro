@@ -113,8 +113,10 @@ raises](#0-42-raising).
 | A route declaring `CachedResponse()` is no longer cached by a `CachedResponsesMiddleware` added by hand | 0.42 | [Register the component](#0-42-hand-added) |
 | A middleware added by hand answers before a route's own checks, such as an authentication dependency | 0.42 | [Register the component](#0-42-hand-added) |
 | `TypeError: ... got an unexpected keyword argument 'policies'` from `CachedResponsesMiddleware` | 0.42 | [Drop it](#0-42-hand-added) |
-| `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS` or `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` no longer applies, with no error | 0.42 | [Rename the variable to `_WHEN`](#0-42-when) |
-| `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` no longer applies, with no error | 0.42 | [Rename the variable to `_MAX_WAIT`](#0-42-max-wait) |
+| `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS` or `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` no longer applies, with no error | 0.42.0, 0.42.1 | [Rename the variable to `_WHEN`](#0-42-when) |
+| `SettingsValidationError: ... IGNORE_EXCEPTIONS: is no longer read` or `... TIMEOUT_ERRORS: is no longer read` | 0.42.2 | [Rename the variable to `_WHEN`](#0-42-when) |
+| `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` no longer applies, with no error | 0.42.0, 0.42.1 | [Rename the variable to `_MAX_WAIT`](#0-42-max-wait) |
+| `SettingsValidationError: ... WAIT_TIMEOUT: is no longer read` | 0.42.2 | [Rename the variable to `_MAX_WAIT`](#0-42-max-wait) |
 | A dashboard on `http.server.duration` stopped receiving data on FastAPI | 0.42 | [Read `http.server.request.duration`, in seconds](changelog.md#0420-2026-10-19) |
 
 ## 0.42
@@ -140,8 +142,8 @@ raises](#0-42-raising).
 - An access log added by hand names no route. A request answered before routing, such as a cached response, records a span with no route. [Register it with `micro.install(app)`](changelog.md#0420-2026-10-19).
 - A token with no `sub`, a `typ` other than `JWT`, `JOSE` or `at+jwt`, or a `cnf` claim is rejected. A `malformed` token no longer counts toward a ban. [Issue tokens with `sub` and a plain `typ`](changelog.md#0420-2026-10-19).
 - `grelmicro check` and `micro.describe(app)` list the routes the integration declares, so some rows change name, split per method or disappear. [Nothing to change](changelog.md#0420-2026-10-19).
-- `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS` and `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` are no longer read. [Rename the variable to `_WHEN`](#0-42-when).
-- `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` and `GREL_IDEMPOTENT_REQUESTS_{NAME}_WAIT_TIMEOUT` are no longer read. [Rename the variable to `_MAX_WAIT`](#0-42-max-wait).
+- In 0.42.0 and 0.42.1, `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS` and `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` are ignored without an error. From 0.42.2 they raise. [Rename the variable to `_WHEN`](#0-42-when).
+- In 0.42.0 and 0.42.1, `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` and `GREL_IDEMPOTENT_REQUESTS_{NAME}_WAIT_TIMEOUT` are ignored without an error. From 0.42.2 they raise. [Rename the variable to `_MAX_WAIT`](#0-42-max-wait).
 - A `HEAD` is answered from the stored `GET` only on a route that answers both, and a `HEAD` route of its own runs its handler. [Declare the route](#0-42-answered-at-route).
 - With `Trace` or `Metrics` registered, FastAPI no longer exports anything itself, and its log records are not exported. [Export through `Trace` and `Metrics`](changelog.md#0420-2026-10-19).
 - On FastAPI, a request span follows the semantic conventions 1.44 instead of 1.11. It has `fastapi.dependencies`, `fastapi.endpoint` and `fastapi.serialization` children instead of `send` and `receive`, and a WebSocket span is named like `WS /ws/{room}`. [Update trace queries](changelog.md#0420-2026-10-19).
@@ -157,6 +159,8 @@ raises](#0-42-raising).
 - `every` and `cron` refuse `lock=` and `leader=`, and a `TaskLock` gate that holds for less than the interval is refused. [Pass `gate=`](#0-42-task-gate).
 - `ignore_exceptions=`, `timeout_errors=` and the bare `@shield` are gone, and a Shield requires `when=`. [Pass `when=`](#0-42-when).
 - A Shield refuses to build while `GREL_SHIELD_{NAME}_PROFILE` or `GREL_SHIELD_PROFILE` is set. [Choose the preset in code](#0-42-shield-profile-env).
+- From 0.42.2, with env reads on, `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS` and `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` raise `SettingsValidationError`, at construction and on a reload. [Rename the variable to `_WHEN`](#0-42-when).
+- From 0.42.2, with env reads on, `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` raises `SettingsValidationError`, at construction and on a reload. [Rename the variable to `_MAX_WAIT`](#0-42-max-wait).
 - `metrics_router` no longer imports from `grelmicro.metrics`. [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved).
 - The `document_*` functions are removed. [Register the component](#0-42-document-functions).
 - `CachedResponsesMiddleware(policies=...)` is removed. [Drop it](#0-42-hand-added).

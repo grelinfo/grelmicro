@@ -12,7 +12,7 @@ import base64
 import hashlib
 import logging
 import re
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass, replace
 from typing import (
     TYPE_CHECKING,
@@ -341,6 +341,11 @@ class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
     `GREL_IDEMPOTENCY_{NAMESPACE}_TTL`, `GREL_IDEMPOTENCY_HTTP_TTL` by
     default.
     """
+
+    __retired_fields__: ClassVar[Mapping[str, str]] = {
+        "wait_timeout": "is no longer read, set {prefix}MAX_WAIT instead",
+    }
+    """Fields no longer read, each with its fix."""
 
     key_header: Annotated[
         StrictStr,

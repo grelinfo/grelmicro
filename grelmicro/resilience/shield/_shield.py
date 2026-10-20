@@ -7,10 +7,10 @@ import functools
 import inspect
 import os
 import random
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from logging import getLogger
-from typing import Annotated, Any, ClassVar, Literal, Self, TypeVar
+from typing import Annotated, Any, Literal, Self, TypeVar
 
 from pydantic import Discriminator, PositiveFloat, ValidationError
 from typing_extensions import Doc
@@ -21,6 +21,7 @@ from grelmicro._config import (
     default_env_prefix,
     env_load_default,
     env_prefixes,
+    refuse_retired_env,
     warn_ignored_env,
 )
 from grelmicro._wrapping import refuse_registered
@@ -64,13 +65,6 @@ _GIVE_UP_NON_RETRY = "non-retryable exception"
 
 _Profile = Literal["internal", "api", "slow"]
 """The name of a Shield preset."""
-
-
-_PROFILE_FIX = (
-    "is no longer read, choose the preset in code with "
-    "Shield.api, Shield.internal or Shield.slow"
-)
-"""The reason a `PROFILE` variable or mounted key is refused."""
 
 
 _PROFILE_BY_NAME: dict[_Profile, type[_BaseShieldConfig]] = {
@@ -145,16 +139,12 @@ def _resolve_config_from_env(
 ) -> _BaseShieldConfig:
     """Build the `profile` preset, filling unpassed values from the environment.
 
-    Raises `SettingsValidationError` when `GREL_SHIELD_{NAME}_PROFILE` or
-    `GREL_SHIELD_PROFILE` is set.
+    Raises `SettingsValidationError` when a variable names a retired field,
+    such as `GREL_SHIELD_{NAME}_PROFILE` or `GREL_SHIELD_PROFILE`.
     """
     cls = _PROFILE_BY_NAME[profile]
     env_prefix, kind_prefix = env_prefixes("SHIELD", name)
-    for prefix in (env_prefix, kind_prefix):
-        env_key = f"{prefix}PROFILE"
-        if prefix and env_key in os.environ:
-            msg = f"- {env_key}: {_PROFILE_FIX}"
-            raise SettingsValidationError(msg)
+    refuse_retired_env(cls, (env_prefix, kind_prefix))
 
     def _env(field: str) -> tuple[str, str] | None:
         """Read the instance variable, falling back to the kind-wide one.
@@ -319,10 +309,6 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
 
     Read more in the [Shield](../resilience/shield.md) docs.
     """
-
-    _RETIRED_RECONFIGURE_FIELDS: ClassVar[Mapping[str, str]] = {
-        "profile": _PROFILE_FIX
-    }
 
     def __init__(
         self,
