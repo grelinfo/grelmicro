@@ -148,10 +148,11 @@ A `docs/changelog.md` entry under `## Unreleased` is required.
 One short bullet, the PR link at the end. Match the surrounding
 entries.
 
-A change that moves stored state to new keys, tables or functions also
-adds a row to that minor's "State and rolling deploys" section in
-`docs/migration.md`: the old and new keys, what a mix of old and new
-workers does, and what to do about it.
+A change that makes a new version stop reading what an old one stored
+also adds a row to a "State and rolling deploys" section in that minor's
+`docs/migration.md` notes, creating the section if needed: the old and
+new keys, what a mix of old and new workers does, and what to do about
+it.
 
 If anything is unclear, open the PR as a draft and ask. Reviewing
 a partially-correct PR is faster than guessing.
