@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.42.2 - 2026-10-20
 
 ### Fixed
 * 🐛 With env reads on, `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS`, `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` and `GREL_IDEMPOTENT_REQUESTS_{NAME}_WAIT_TIMEOUT` raise `SettingsValidationError` naming the variable that replaces them, instead of being ignored. ([#1095](https://github.com/grelinfo/grelmicro/issues/1095))
