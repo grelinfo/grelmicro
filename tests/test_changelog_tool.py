@@ -358,3 +358,29 @@ def test_is_tagged_runs_against_the_real_repository() -> None:
     guard pass locally and vanish in CI, so only the type is asserted.
     """
     assert isinstance(changelog.is_tagged("99.99.99-never-a-tag"), bool)
+
+
+def test_a_breaking_entry_outside_breaking_is_reported() -> None:
+    """A `💥` entry under another heading is reported with its version."""
+    text = """# Changelog
+
+## 0.41.0 - 2026-09-12
+
+### Breaking
+
+* 💥 Filed right.
+
+### Added
+
+* 💥 Filed under Added.
+* ✨ Something new.
+"""
+    assert changelog.misfiled_breaking(text) == [
+        "0.41.0, ### Added: * 💥 Filed under Added."
+    ]
+
+
+def test_every_breaking_entry_sits_under_breaking() -> None:
+    """Every `💥` entry in the changelog sits under `### Breaking`."""
+    text = changelog.CHANGELOG.read_text(encoding="utf-8")
+    assert changelog.misfiled_breaking(text) == []

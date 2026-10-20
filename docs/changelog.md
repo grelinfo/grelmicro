@@ -3,9 +3,11 @@
 ## Unreleased
 
 ### Docs
+* 📝 Each minor's migration notes open with the changes that do not raise, then those that raise, and 0.33, 0.35, 0.38 and 0.41 have notes. ([#1082](https://github.com/grelinfo/grelmicro/issues/1082))
 * 📝 The 0.42 migration notes say what a rolling deploy sees while rate limits, leader election, derived task locks and cached responses move keys. ([#1083](https://github.com/grelinfo/grelmicro/issues/1083))
 
 ### Internal
+* ✅ A test fails when a `💥` entry sits outside `### Breaking`. ([#1082](https://github.com/grelinfo/grelmicro/issues/1082))
 * 👷 The GitHub release becomes Latest only once PyPI has the version. ([#1084](https://github.com/grelinfo/grelmicro/issues/1084))
 
 ## 0.42.1 - 2026-10-19
@@ -360,6 +362,9 @@
 * 💥 `health_router()` keeps `/livez`, `/readyz` and `/healthz` out of the OpenAPI schema. They answer exactly the same, and the schema names neither the probes nor the shape of the report. Pass `include_in_schema=True` to publish them. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
 * 💥 `metrics_router()` keeps `/metrics` out of the OpenAPI schema. A scrape target is not part of a client contract. Pass `include_in_schema=True` to publish it. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
 * 💥 A published endpoint is documented as what it sends. `/livez` and `/readyz` carry no content, and `/metrics` carries the Prometheus text exposition. All three used to be described as JSON, so a generated client tried to parse an empty body or a text one. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
+* 💥 An `Idempotency-Key` holding a byte outside printable ASCII is refused with `400`, and the OpenAPI schema publishes the same rule as a pattern. A control byte or a high byte reached the cache as a key and travelled through proxies that may rewrite it, while the schema already said ASCII. ([#687](https://github.com/grelinfo/grelmicro/issues/687))
+* 💥 Without an identity-aware `key_maker`, requests carrying `Authorization` or `Cookie`, authenticated Starlette scopes and FastAPI routes with dependencies bypass the default idempotency key and always run the application. The built-in key moves to a `v3:` format, so entries stored under the old format are not read. ([#822](https://github.com/grelinfo/grelmicro/pull/822))
+* 💥 `IdempotentRequests` takes `ttl=`, `namespace=` and `cache=` instead of an `Idempotency` instance, so the common case reads `IdempotentRequests(ttl=3600)`. The component still owns one and exposes it as `.idempotency` for code that needs the store itself. ([#687](https://github.com/grelinfo/grelmicro/issues/687))
 
 ### Added
 * ✨ `TTLCache(name=...)` names a cache, and every cache metric carries it. `micro.cache.ttl()` inherits the component's name, so name each cache when an app builds more than one. The caches grelmicro builds for you carry one too: `Idempotency` and `CachedResponses` use their registration name, and a private `@cached(ttl=...)` cache uses the function it serves. It is a metric label rather than a configuration address: a cache still reads no environment variable. ([#691](https://github.com/grelinfo/grelmicro/issues/691))
@@ -433,7 +438,6 @@
 * 🐛 `include=("/payments/*",)` selects `/payments` as well as what sits under it, so naming a router's prefix covers the create route on the router itself. ([#687](https://github.com/grelinfo/grelmicro/issues/687))
 * 🐛 A second `micro.install(app)` wires nothing twice. It used to add a second binding on Starlette and FastAPI, and a second copy of every registered middleware on Litestar, which stored, captured and answered twice. ([#687](https://github.com/grelinfo/grelmicro/issues/687))
 * 🐛 A streamed response carries the entity tag a handler recorded with `check_freshness`, and is still swapped for a `304` when the client already holds it. The tag is known before the first byte, so neither needs the body. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
-* 💥 An `Idempotency-Key` holding a byte outside printable ASCII is refused with `400`, and the OpenAPI schema publishes the same rule as a pattern. A control byte or a high byte reached the cache as a key and travelled through proxies that may rewrite it, while the schema already said ASCII. ([#687](https://github.com/grelinfo/grelmicro/issues/687))
 * 🐛 A `304` a handler answers itself carries the entity tag it recorded with `check_freshness`, which [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html) asks for. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
 * 🐛 `install_middleware` refuses an app that already built its middleware stack, the way `add_middleware` does, rather than editing a list nothing reads any more. ([#687](https://github.com/grelinfo/grelmicro/issues/687))
 * 🐛 A streamed response is never held back. `ConditionalRequestsMiddleware` buffers a body only while it arrives in one piece, so an event stream reaches the client as it is produced rather than as one message at the end. A streamed response carries no generated entity tag, and neither does a `204`, whose empty body would otherwise hash to one tag for every empty resource. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
@@ -446,7 +450,6 @@
 * ✨ `ConditionalRequired` declares the precondition on the route, so the schema marks `If-Match` required exactly where the service refuses without it, and a missing one answers `428` rather than a validation error. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
 * ✨ `Conditional` injects the same guards on FastAPI, so a handler writes `conditional.check(cart.version)` with the dependency the framework expects. One implementation underneath, and the imported functions stay the portable form. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
 * ✨ Every HTTP middleware selects paths the same way: `include=` names what it acts on, empty meaning everything, and `exclude=` carves out, winning over `include`. A pattern ending with `*` matches as a prefix, so `include=("/payments/*",)` selects a router by its prefix. The OpenAPI annotations follow the same selection. ([#687](https://github.com/grelinfo/grelmicro/issues/687))
-* 💥 `IdempotentRequests` takes `ttl=`, `namespace=` and `cache=` instead of an `Idempotency` instance, so the common case reads `IdempotentRequests(ttl=3600)`. The component still owns one and exposes it as `.idempotency` for code that needs the store itself. ([#687](https://github.com/grelinfo/grelmicro/issues/687))
 * ✨ `check_freshness(version)` puts the `ETag` on a read and returns whether the client already holds that version, so a handler needs no `Response` object and can skip the work behind a `304`. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
 * ✨ A registered HTTP component answers its own rejections. `ConditionalRequests()` alone returns `412` and `428` instead of a `500`, and `IdempotentRequests()` does the same for a conflict raised by the block form. `ErrorResponses()` chooses the format they render in, RFC 9457 by default. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
 * ✨ `micro.install(app)` describes the conditional headers in the OpenAPI schema, so Swagger offers `If-Match` on writes and `If-None-Match` on reads, with the `304`, `412` and `428` responses beside them. The header is marked required exactly when `require_precondition` refuses without it. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
