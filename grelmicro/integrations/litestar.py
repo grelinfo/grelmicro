@@ -23,12 +23,7 @@ from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
 from grelmicro._diagnostics import MIDDLEWARE_PLACEMENT, diagnostic
 from grelmicro._environment import _PACKAGE_DIR
-from grelmicro._paths import (
-    RouteReading,
-    litestar_mount,
-    litestar_owned_handler,
-    read_route,
-)
+from grelmicro._paths import RouteReading, read_route
 from grelmicro.errors import (
     MiddlewarePlacementWarning,
 )
@@ -60,6 +55,10 @@ from grelmicro.http._requirement import (
 )
 from grelmicro.http._routes import RouteDeclaration
 from grelmicro.integrations._litestar_openapi import add_openapi_edit
+from grelmicro.integrations._litestar_routes import (
+    litestar_mount,
+    litestar_owned_handler,
+)
 from grelmicro.trace._autoinstrument import request_spans
 
 if TYPE_CHECKING:

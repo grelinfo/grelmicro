@@ -130,10 +130,31 @@ def framework_of(app: object) -> str | None:
     return None if ep is None else ep.name
 
 
+def import_integration_of(kind: type) -> bool:
+    """Import the integration for apps of class `kind`, and return whether one was imported.
+
+    Walks the class's MRO as `load_integration` does. An integration that
+    fails to import counts as none.
+    """
+    ep = _class_entry(kind)
+    if ep is None:
+        return False
+    try:
+        ep.load()
+    except ImportError:
+        return False
+    return True
+
+
 def _integration_entry(app: object) -> EntryPoint | None:
     """Return the entry point of the integration for `app`, `None` without one."""
+    return _class_entry(type(app))
+
+
+def _class_entry(kind: type) -> EntryPoint | None:
+    """Return the entry point of the integration for apps of class `kind`, `None` without one."""
     eps = {ep.name: ep for ep in entry_points(group=INTEGRATION_GROUP)}
-    for klass in type(app).__mro__:
+    for klass in kind.__mro__:
         ep = eps.get(klass.__module__.partition(".")[0])
         if ep is not None:
             return ep

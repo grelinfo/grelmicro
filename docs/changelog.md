@@ -12,6 +12,7 @@
 ### Internal
 * ✅ A test fails when a `💥` entry sits outside `### Breaking`. ([#1082](https://github.com/grelinfo/grelmicro/issues/1082))
 * 👷 The GitHub release becomes Latest only once PyPI has the version. ([#1084](https://github.com/grelinfo/grelmicro/issues/1084))
+* ♻️ Each integration says how its router reads the path, and the gate names no framework scope key. ([#1056](https://github.com/grelinfo/grelmicro/issues/1056))
 
 ## 0.42.1 - 2026-10-19
 
