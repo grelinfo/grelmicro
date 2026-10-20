@@ -547,8 +547,8 @@ publishes to PyPI over OIDC. The release stays off Latest until PyPI
 serves the version, even without `--latest=false`, so the release page
 never announces a version `pip` cannot resolve. A patch to an older line
 never becomes Latest, and neither does a manual run of the workflow.
-When the workflow finishes, confirm the published
-artifacts with `just verify-release 0.40.0`.
+When the workflow finishes, confirm the published artifacts with
+`just verify-release 0.40.0`.
 
 ### Verifying a published release
 
