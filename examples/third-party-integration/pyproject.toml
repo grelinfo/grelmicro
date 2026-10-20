@@ -1,0 +1,16 @@
+[project]
+name = "grelmicro-tinyweb"
+version = "0.1.0"
+description = "Example third-party grelmicro integration for the tinyweb framework."
+requires-python = ">=3.14"
+dependencies = ["grelmicro"]
+
+# This entry point is what makes `micro.install(app)` find the integration.
+# The key is the top-level module of the app's class, `tinyweb`, and the
+# value is the integration module.
+[project.entry-points."grelmicro.integrations"]
+tinyweb = "grelmicro_tinyweb"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -65,12 +65,21 @@ serves is reported, or returns `None` for an app that serves no HTTP.
 Leave them out for a framework that serves no HTTP. Nothing anywhere reads a
 framework's name to decide, so an absent attribute is the whole answer.
 
+Your framework sets `scope["app"]` to itself when a request reaches it, as
+Starlette and Litestar do. The route gates read the app's policy through it,
+and paths are read the way the router of that app reads them. Without it,
+an anonymous route answers `401`.
+
 Declare it the same way as a Provider:
 
 ```toml
 [project.entry-points."grelmicro.integrations"]
 sanic = "grelmicro_sanic:integration"
 ```
+
+[`examples/third-party-integration/`](https://github.com/grelinfo/grelmicro/tree/main/examples/third-party-integration)
+integrates a small framework end to end, with tests that serve, refuse and
+cache its declared routes.
 
 ### Declare the routes
 

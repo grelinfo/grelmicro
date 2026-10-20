@@ -8,6 +8,7 @@
 ### Docs
 * 📝 Each minor's migration notes open with the changes that do not raise, then those that raise, and 0.33, 0.35, 0.38 and 0.41 have notes. ([#1082](https://github.com/grelinfo/grelmicro/issues/1082))
 * 📝 The 0.42 migration notes say what a rolling deploy sees while rate limits, leader election, derived task locks and cached responses move keys. ([#1083](https://github.com/grelinfo/grelmicro/issues/1083))
+* 📝 A worked third-party integration for a small framework, `examples/third-party-integration/`, with tests that serve, refuse and cache its declared routes. ([#1052](https://github.com/grelinfo/grelmicro/issues/1052))
 
 ### Internal
 * ✅ A test fails when a `💥` entry sits outside `### Breaking`. ([#1082](https://github.com/grelinfo/grelmicro/issues/1082))
