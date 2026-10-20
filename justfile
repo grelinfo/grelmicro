@@ -170,7 +170,7 @@ release version:
     echo
     echo "  just release-notes {{version}} > /tmp/notes-{{version}}.md"
     echo "  gh release create {{version}} --target main \\"
-    echo "      --title {{version}} --notes-file /tmp/notes-{{version}}.md"
+    echo "      --title {{version}} --notes-file /tmp/notes-{{version}}.md --latest=false"
     echo
     echo "Then, once the workflow finishes:"
     echo

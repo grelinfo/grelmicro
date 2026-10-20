@@ -189,3 +189,18 @@ jobs:
       contents: read
       pages: write
       id-token: write
+  mark-latest:
+    # The release is created with `--latest=false`, so it becomes Latest
+    # only once `pip` and `uv` can resolve it.
+    needs: publish-pypi
+    if: ${{ github.event.inputs.dry_run != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Mark the release Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ github.event.release.tag_name || github.event.inputs.version }}
+        run: gh release edit "$RELEASE_VERSION" --latest --repo "$GITHUB_REPOSITORY"

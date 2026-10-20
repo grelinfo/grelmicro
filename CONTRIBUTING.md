@@ -534,7 +534,7 @@ preflight, and on success prints:
 ```bash
 just release-notes 0.40.0 > /tmp/notes-0.40.0.md
 gh release create 0.40.0 --target main \
-    --title 0.40.0 --notes-file /tmp/notes-0.40.0.md
+    --title 0.40.0 --notes-file /tmp/notes-0.40.0.md --latest=false
 ```
 
 Creating the tag is deliberately left to you. It is immutable, and a
@@ -543,7 +543,9 @@ has been checked by this point.
 
 Pushing the tag starts `release.yml`, which runs the full matrix again,
 builds, attests provenance, verifies that provenance, and only then
-publishes to PyPI over OIDC. When it finishes, confirm the published
+publishes to PyPI over OIDC. A job after the PyPI publish then marks the
+release Latest, so the release page never announces a version `pip`
+cannot resolve. When the workflow finishes, confirm the published
 artifacts with `just verify-release 0.40.0`.
 
 ### Verifying a published release
