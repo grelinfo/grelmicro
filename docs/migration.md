@@ -45,6 +45,9 @@ that a client library used to accept.
 | `EventLoopDeadlockError` from a `CircuitBreaker` on a callable object, which an `except Exception` did not catch | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 | `TypeError: ... got an unexpected keyword argument 'lock'` or `'leader'` from `every` | 0.42 | [Pass `gate=`](#0-42-task-gate) |
 | A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
+| Rate limits and lockouts reset after upgrading | 0.42 | [Expected, keep the overlap short](#0-42-rolling-deploy) |
+| A caller gets twice its rate limit during a rolling deploy | 0.42 | [Expected while both versions run](#0-42-rolling-deploy) |
+| Two leaders, or a task running twice, during a rolling deploy | 0.42 | [Stop every 0.41 worker first](#0-42-rolling-deploy) |
 | `SettingsValidationError: lock= takes 'process', 'host', 'cluster' or None` | 0.42 | [Name the fold scope](#0-42-fold-scope) |
 | `OutOfContextError` from a `@cached` function or `get_or_set` with `lock="cluster"` | 0.42 | [Register a lock backend](#0-42-fold-scope) |
 | A `get_or_set` value computed once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-fold-scope) |
@@ -148,7 +151,31 @@ a `timedelta`, and `purge` takes `older_than` as a `timedelta` instead of
 `before_seconds`.
 
 Redis leader election stores its record under new `le_us:` keys, so a leader
-on the previous version is not seen. Upgrade every worker at once.
+on the previous version is not seen. Upgrade every worker at once, as
+[State and rolling deploys](#0-42-rolling-deploy) explains.
+
+### State and rolling deploys {#0-42-rolling-deploy}
+
+Three kinds of stored state move to new keys in 0.42. During a rolling or
+blue/green deploy, old and new workers share the backend, but each version
+reads and writes only its own keys.
+
+| State | 0.41 key | 0.42 key | While both versions run | Once every worker runs 0.42 |
+|---|---|---|---|---|
+| Sliding window rate limit | `gcra:<key>`, Postgres `<table>_gcra_*` functions | `gcra_us:<key>`, Postgres `<table>_gcra_us_*` functions | Each version counts on its own, so a caller gets up to twice the limit | Counts start empty, so a lockout built on a sliding window is cleared |
+| Redis leader election | `<name>` | `le_us:<name>` | Each version elects its own leader | One leader again |
+| A task gated under a derived lock name | `__main__:job` | `task-__main__:job` | The task runs once per version | One run again |
+
+A token bucket keeps its keys.
+
+For leader election and a task gated under a derived name, stop every 0.41
+worker before the first 0.42 worker starts. A recreate deploy does that.
+
+For a sliding window, the doubled budget lasts as long as the overlap. grelmicro
+ships no migration for the old counts, because they count a different unit. If
+a sliding window guards a security budget, such as failed sign-ins, expect
+every lockout to clear at the upgrade and keep the overlap short. The old Redis
+keys expire on their own within one window.
 
 ### One `gate=` for which workers run a task {#0-42-task-gate}
 
@@ -476,7 +503,8 @@ under a derived name. In a script run directly, `__main__:job` locks under
 `task-__main__:job`. That is also its gate log label and its
 `grelmicro.lock.name` metric label, so update dashboards that filter on the
 old one. Workers on the previous version lock it under the old key and do not
-block the new ones, so upgrade every worker running such a task at once.
+block the new ones, so upgrade every worker running such a task at once, as
+[State and rolling deploys](#0-42-rolling-deploy) explains.
 
 ### Provider methods end in `_backend` {#0-42-backend-names}
 

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Docs
+* 📝 The 0.42 migration notes say what a rolling deploy sees while rate limits, leader election and derived task locks move keys. ([#1083](https://github.com/grelinfo/grelmicro/issues/1083))
+
 ### Internal
 * 👷 The GitHub release becomes Latest only once PyPI has the version. ([#1084](https://github.com/grelinfo/grelmicro/issues/1084))
 
