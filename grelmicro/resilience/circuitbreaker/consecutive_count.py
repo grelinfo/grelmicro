@@ -42,7 +42,7 @@ class ConsecutiveCountConfig(BaseModel, frozen=True, extra="forbid"):
     Read more in the [Circuit Breaker](../resilience/circuit-breaker.md) docs.
     """
 
-    __retired_fields__: ClassVar[Mapping[str, str]] = {
+    _RETIRED_FIELDS: ClassVar[Mapping[str, str]] = {
         "ignore_exceptions": (
             "is no longer read, set {prefix}WHEN to the errors that count "
             "as failures, each by its full path"

@@ -27,12 +27,7 @@ class _BaseShieldConfig(BaseModel, frozen=True, extra="forbid"):
     discriminated union.
     """
 
-    # --- Profile-frozen algorithm parameters (ClassVars) -----------------
-    #
-    # Subclasses set these. They are NOT Pydantic fields, so they never
-    # appear in `model_dump()` and cannot be overridden per instance.
-
-    __retired_fields__: ClassVar[Mapping[str, str]] = {
+    _RETIRED_FIELDS: ClassVar[Mapping[str, str]] = {
         "profile": (
             "is no longer read, choose the preset in code with "
             "Shield.api, Shield.internal or Shield.slow"
@@ -43,6 +38,11 @@ class _BaseShieldConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     }
     """Fields no longer read, each with its fix."""
+
+    # --- Profile-frozen algorithm parameters (ClassVars) -----------------
+    #
+    # Subclasses set these. They are NOT Pydantic fields, so they never
+    # appear in `model_dump()` and cannot be overridden per instance.
 
     max_consecutive_failures: ClassVar[int]
     initial_max_rate: ClassVar[float]

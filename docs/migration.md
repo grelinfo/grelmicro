@@ -160,7 +160,7 @@ raises](#0-42-raising).
 - `ignore_exceptions=`, `timeout_errors=` and the bare `@shield` are gone, and a Shield requires `when=`. [Pass `when=`](#0-42-when).
 - A Shield refuses to build while `GREL_SHIELD_{NAME}_PROFILE` or `GREL_SHIELD_PROFILE` is set. [Choose the preset in code](#0-42-shield-profile-env).
 - From 0.42.2, with env reads on, `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS` and `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` raise `SettingsValidationError`, at construction and on a reload. [Rename the variable to `_WHEN`](#0-42-when).
-- From 0.42.2, with env reads on, `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` raises `SettingsValidationError`, at construction and on a reload. [Rename the variable to `_MAX_WAIT`](#0-42-max-wait).
+- From 0.42.2, with env reads on, `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` and `GREL_IDEMPOTENT_REQUESTS_{NAME}_WAIT_TIMEOUT` raise `SettingsValidationError`, at construction and on a reload. [Rename the variable to `_MAX_WAIT`](#0-42-max-wait).
 - `metrics_router` no longer imports from `grelmicro.metrics`. [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved).
 - The `document_*` functions are removed. [Register the component](#0-42-document-functions).
 - `CachedResponsesMiddleware(policies=...)` is removed. [Drop it](#0-42-hand-added).

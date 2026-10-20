@@ -169,18 +169,14 @@ def env_prefixes(
     return instance, (None if instance == kind else kind)
 
 
-RETIRED_FIELDS_ATTR = "__retired_fields__"
-"""The class attribute a config model lists its retired fields in.
-
-It maps each field the model no longer reads to the fix, which may name
-the variable prefix as `{prefix}`, such as
-`{"ignore_exceptions": "is no longer read, set {prefix}WHEN ..."}`.
-"""
-
-
 def retired_fields(config_cls: type[BaseModel]) -> Mapping[str, str]:
-    """Return the fields `config_cls` no longer reads, each with its fix."""
-    return getattr(config_cls, RETIRED_FIELDS_ATTR, {})
+    """Return the fields `config_cls` no longer reads, each with its fix.
+
+    A config lists them in a `_RETIRED_FIELDS` class variable. Each fix
+    may name the variable prefix as `{prefix}`, such as
+    `{"ignore_exceptions": "is no longer read, set {prefix}WHEN ..."}`.
+    """
+    return getattr(config_cls, "_RETIRED_FIELDS", {})
 
 
 def _retired_message(prefix: str, field: str, fix: str) -> str:

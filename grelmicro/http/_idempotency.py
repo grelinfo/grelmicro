@@ -342,7 +342,7 @@ class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
     default.
     """
 
-    __retired_fields__: ClassVar[Mapping[str, str]] = {
+    _RETIRED_FIELDS: ClassVar[Mapping[str, str]] = {
         "wait_timeout": "is no longer read, set {prefix}MAX_WAIT instead",
     }
     """Fields no longer read, each with its fix."""

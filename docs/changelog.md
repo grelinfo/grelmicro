@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Fixed
-* 🐛 With env reads on, `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS`, `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` and `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` raise `SettingsValidationError` naming the variable that replaces them, instead of being ignored. ([#1095](https://github.com/grelinfo/grelmicro/issues/1095))
+* 🐛 With env reads on, `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS`, `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` and `GREL_IDEMPOTENT_REQUESTS_{NAME}_WAIT_TIMEOUT` raise `SettingsValidationError` naming the variable that replaces them, instead of being ignored. ([#1095](https://github.com/grelinfo/grelmicro/issues/1095))
 
 ### Docs
 * 📝 Each minor's migration notes open with the changes that do not raise, then those that raise, and 0.33, 0.35, 0.38 and 0.41 have notes. ([#1082](https://github.com/grelinfo/grelmicro/issues/1082))
