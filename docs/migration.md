@@ -45,6 +45,9 @@ that a client library used to accept.
 | `EventLoopDeadlockError` from a `CircuitBreaker` on a callable object, which an `except Exception` did not catch | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 | `TypeError: ... got an unexpected keyword argument 'lock'` or `'leader'` from `every` | 0.42 | [Pass `gate=`](#0-42-task-gate) |
 | A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
+| Rate limits and lockouts reset after upgrading | 0.42 | [Keep the overlap short](#0-42-rolling-deploy) |
+| A caller gets twice its rate limit during a rolling deploy | 0.42 | [Keep the overlap short](#0-42-rolling-deploy) |
+| Two leaders, or a task running twice, during a rolling deploy | 0.42 | [Stop every 0.41 worker first](#0-42-rolling-deploy) |
 | `SettingsValidationError: lock= takes 'process', 'host', 'cluster' or None` | 0.42 | [Name the fold scope](#0-42-fold-scope) |
 | `OutOfContextError` from a `@cached` function or `get_or_set` with `lock="cluster"` | 0.42 | [Register a lock backend](#0-42-fold-scope) |
 | A `get_or_set` value computed once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-fold-scope) |
@@ -148,7 +151,42 @@ a `timedelta`, and `purge` takes `older_than` as a `timedelta` instead of
 `before_seconds`.
 
 Redis leader election stores its record under new `le_us:` keys, so a leader
-on the previous version is not seen. Upgrade every worker at once.
+on the previous version is not seen. Upgrade every worker at once, as
+[State and rolling deploys](#0-42-rolling-deploy) explains.
+
+### State and rolling deploys {#0-42-rolling-deploy}
+
+Four kinds of stored state move to new keys in 0.42. During a rolling or
+blue/green deploy, old and new workers share the backend, but each version
+reads and writes only its own keys.
+
+| State | 0.41 | 0.42 | While both versions run |
+|---|---|---|---|
+| Sliding window rate limit, on Redis, Postgres and SQLite | keys under `gcra:`, Postgres `<table>_gcra_*` functions | keys under `gcra_us:`, Postgres `<table>_gcra_us_*` functions | Each version counts on its own, so a caller gets up to twice the limit. A caller locked out on 0.41 starts with a full budget on 0.42. |
+| Redis leader election | record under `<name>` | record under `le_us:<name>` | Each version elects its own leader. |
+| An interval task whose function name is not a valid lock name | lock named `__main__:job` | lock named `task-__main__:job`, see [lock names](#0-42-lock-names) | The task runs once per version. |
+| A cached response on a route that declares its protection | key without the route's protection | key under the route's protection | Each such response is cached again, and each version serves its own copies. |
+
+A token bucket keeps its keys.
+
+For leader election and an interval task with a derived lock name, stop every
+0.41 worker before the first 0.42 worker starts.
+
+For a sliding window, the doubled budget lasts as long as the overlap. grelmicro
+ships no migration for the old counts, because they count a different unit. If
+a sliding window guards a security budget, such as failed sign-ins, expect
+every lockout to clear at the upgrade and keep the overlap short. The old Redis
+keys expire on their own within one window. The old Postgres and SQLite rows
+stay, as do the old Postgres functions. Once no 0.41 worker runs, you can
+delete them. With the default table and an empty `prefix`:
+
+```sql
+DELETE FROM grelmicro_rate_limiter WHERE substr(key, 1, 5) = 'gcra:';
+```
+
+With a `prefix`, put it before `gcra:` and count the whole string, such as
+`substr(key, 1, 9) = 'app:gcra:'`. Avoid `LIKE`, where a `_` in the prefix
+matches any character.
 
 ### One `gate=` for which workers run a task {#0-42-task-gate}
 
@@ -476,7 +514,8 @@ under a derived name. In a script run directly, `__main__:job` locks under
 `task-__main__:job`. That is also its gate log label and its
 `grelmicro.lock.name` metric label, so update dashboards that filter on the
 old one. Workers on the previous version lock it under the old key and do not
-block the new ones, so upgrade every worker running such a task at once.
+block the new ones, so upgrade every worker running such a task at once, as
+[State and rolling deploys](#0-42-rolling-deploy) explains.
 
 ### Provider methods end in `_backend` {#0-42-backend-names}
 
