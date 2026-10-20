@@ -69,8 +69,12 @@ Declare it the same way as a Provider:
 
 ```toml
 [project.entry-points."grelmicro.integrations"]
-sanic = "grelmicro_sanic:integration"
+sanic = "grelmicro_sanic"
 ```
+
+[`examples/third-party-integration/`](https://github.com/grelinfo/grelmicro/tree/main/examples/third-party-integration)
+integrates a small framework end to end, with tests that serve, refuse and
+cache its declared routes.
 
 ### Declare the routes
 
@@ -138,6 +142,12 @@ not refuse one whose `health_endpoints(app)` returns `None`, for an app that
 serves no HTTP. A
 middleware the app added by hand carries no policy, so if your integration
 skips ours for it, every gated route answers `401` as well.
+
+Your framework sets `scope["app"]` to itself when a request reaches it, as
+Starlette and Litestar do. The route gates read the app's policy and the
+route's declaration through it, and read paths the way the router of that app
+reads them. Without it, the gates read no declaration. An anonymous route
+answers `401`, and a route with its own checks replays a stored response.
 
 Gating an app that `gate` returned already counts its declarations and
 returns it as it is, so a route shared by two apps, or reached under two
