@@ -36,7 +36,7 @@ jobs:
           if [ "$latest" != "$RELEASE_VERSION" ]; then
             exit 0
           fi
-          previous=$(jq -r --arg v "$RELEASE_VERSION" '.[].tagName | select(. != $v)' <<< "$releases" | sort -V | tail -n 1)
+          previous=$(jq -r --arg v "$RELEASE_VERSION" '.[].tagName | select(. != $v and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' <<< "$releases" | sort -V | tail -n 1)
           if [ -n "$previous" ]; then
             gh release edit "$previous" --latest --repo "$GITHUB_REPOSITORY"
           fi
@@ -215,10 +215,11 @@ jobs:
       pages: write
       id-token: write
   mark-latest:
-    # Runs on a published release only. Waits until PyPI serves the
-    # version, so `pip` and `uv` resolve it once it is Latest.
+    # Runs on a published release only, even when `hold-latest` failed.
+    # Waits until PyPI serves the version, so `pip` and `uv` resolve it
+    # once it is Latest.
     needs: [hold-latest, publish-pypi]
-    if: ${{ github.event_name == 'release' }}
+    if: ${{ !cancelled() && github.event_name == 'release' && needs.publish-pypi.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -239,10 +240,11 @@ jobs:
           exit 1
       - name: Mark the release Latest
         # A patch to an older line, such as 0.41.2 after 0.42.1, never
-        # becomes Latest.
+        # becomes Latest. Only `X.Y.Z` tags count, so a `core-*` release
+        # never does either.
         shell: bash
         run: |
-          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName' | sort -V | tail -n 1)
+          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' | sort -V | tail -n 1)
           if [ "$newest" = "$RELEASE_VERSION" ]; then
             gh release edit "$RELEASE_VERSION" --latest --repo "$GITHUB_REPOSITORY"
           fi
