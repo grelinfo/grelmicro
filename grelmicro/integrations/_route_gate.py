@@ -36,7 +36,6 @@ from grelmicro._paths import (
     ROUTE_PARAMETER,
     path_format,
     read_route,
-    starlette_route,
 )
 from grelmicro.http import (
     CachedResponsesMiddleware,
@@ -56,6 +55,7 @@ from grelmicro.http._response_cache import declared_cache, declares_shared
 from grelmicro.http._routes import RouteDeclaration, route_name
 from grelmicro.integrations import _fastapi_internals as fastapi
 from grelmicro.integrations._floor import STARLETTE_FLOOR, require
+from grelmicro.integrations._starlette_routes import starlette_route
 from grelmicro.log import AccessLogMiddleware
 from grelmicro.security import ClientAddressMiddleware
 

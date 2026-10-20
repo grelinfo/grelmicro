@@ -8,6 +8,8 @@ nothing said. Every door that takes patterns refuses one.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -19,11 +21,12 @@ from litestar.testing import TestClient as LitestarTestClient
 from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount, Route, Router, compile_path
 
+from grelmicro import _discovery, _paths
 from grelmicro._paths import (
     _request_authority,
-    _routing_app,
     matches,
     names_route,
+    read_paths_with,
     route_path,
 )
 from grelmicro.errors import SettingsValidationError
@@ -36,6 +39,8 @@ from grelmicro.http import (
     RateLimitedRequests,
 )
 from grelmicro.idempotency import Idempotency
+from grelmicro.integrations import _litestar_routes  # noqa: F401
+from grelmicro.integrations._starlette_routes import _routing_app
 from grelmicro.log import AccessLog, AccessLogMiddleware
 from grelmicro.resilience import RateLimiter
 from grelmicro.security import TrustedProxies
@@ -449,6 +454,207 @@ def test_the_route_path_is_read_as_starlette_routes_it(
     assert route_path({"path": path, "root_path": root_path}) == expected
 
 
+class _Router:
+    """Stand in for an app whose router reads the path its own way."""
+
+
+class _Unread:
+    """Stand in for an app no integration gave a path reader."""
+
+
+def _kind(cls: type) -> str:
+    """Return the name `read_paths_with` names an app class by."""
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _read_upper(app: object, scope: Any, path: str, root_path: str) -> str:  # noqa: ANN401, ARG001
+    """Read the path in upper case, so a test sees this reader ran."""
+    return path.upper()
+
+
+@pytest.fixture
+def readers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test path readers and routed keys of its own."""
+    monkeypatch.setattr(_paths, "_PATH_READERS", {})
+    monkeypatch.setattr(_paths, "_READERS_BY_CLASS", {})
+    monkeypatch.setattr(_paths, "ROUTED_KEYS", ())
+
+
+@pytest.mark.usefixtures("readers")
+def test_a_path_no_integration_reads_is_read_by_the_asgi_rule() -> None:
+    """An app with no path reader has its root path taken off at a segment boundary."""
+    # Arrange
+    app = _Unread()
+
+    # Act
+    under = route_path({"path": "/api/keys", "root_path": "/api", "app": app})
+    beside = route_path({"path": "/apikeys", "root_path": "/api", "app": app})
+
+    # Assert
+    assert (under, beside) == ("/keys", "/apikeys")
+
+
+@pytest.mark.usefixtures("readers")
+def test_a_path_reader_reads_only_while_its_app_serves_the_request() -> None:
+    """An outer app's reader leaves alone the path of an app mounted under it."""
+    # Arrange
+    read_paths_with(_kind(_Router), _read_upper)
+    outer = {"path": "/api/keys", "root_path": "/api", "app": _Router()}
+    mounted = {**outer, "app": _Unread()}
+
+    # Act
+    served = (route_path(outer), route_path(mounted))
+
+    # Assert
+    assert served == ("/API/KEYS", "/keys")
+
+
+@pytest.mark.usefixtures("readers")
+def test_a_subclass_reads_the_path_as_the_app_class_it_extends() -> None:
+    """An app built on a class with a path reader reads through that reader."""
+
+    # Arrange
+    class Built(_Router):
+        pass
+
+    read_paths_with(_kind(_Router), _read_upper)
+
+    # Act
+    path = route_path({"path": "/keys", "app": Built()})
+
+    # Assert
+    assert path == "/KEYS"
+
+
+@pytest.mark.usefixtures("readers")
+def test_a_reader_given_later_replaces_the_rule_an_app_class_read_by() -> None:
+    """An app class already read by the ASGI rule reads through a reader given later."""
+    # Arrange
+    scope = {"path": "/keys", "app": _Router()}
+    before = route_path(scope)
+
+    # Act
+    read_paths_with(_kind(_Router), _read_upper)
+
+    # Assert
+    assert (before, route_path(scope)) == ("/keys", "/KEYS")
+
+
+class _Entry:
+    """Stand in for an integration's entry point, named after a framework's package."""
+
+    def __init__(self, load: Any) -> None:  # noqa: ANN401
+        """Answer for this test module's package, and run `load` when loaded."""
+        self.name = __name__.partition(".")[0]
+        self.load = load
+
+
+def _entries(monkeypatch: pytest.MonkeyPatch, *entries: _Entry) -> list[type]:
+    """List `entries` as the registered integrations, and return each class looked up."""
+    looked: list[type] = []
+    found = _discovery._class_entry
+
+    def entry_points(*, group: str) -> tuple[_Entry, ...]:  # noqa: ARG001
+        return entries
+
+    def class_entry(kind: type) -> Any:  # noqa: ANN401
+        looked.append(kind)
+        return found(kind)
+
+    monkeypatch.setattr(_discovery, "entry_points", entry_points)
+    monkeypatch.setattr(_discovery, "_class_entry", class_entry)
+    return looked
+
+
+@pytest.mark.usefixtures("readers")
+def test_an_app_class_no_integration_names_reads_by_the_asgi_rule_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A class with no integration for its framework is looked up on its first request only."""
+    # Arrange
+    looked = _entries(monkeypatch)
+    scope = {"path": "/api/keys", "root_path": "/api", "app": _Unread()}
+
+    # Act
+    paths = (route_path(scope), route_path(scope))
+
+    # Assert
+    assert (paths, looked) == (("/keys", "/keys"), [_Unread])
+
+
+@pytest.mark.usefixtures("readers")
+def test_the_first_request_of_an_app_class_imports_its_integration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The integration of the class's framework gives the reader the request reads by."""
+    # Arrange
+    _entries(
+        monkeypatch,
+        _Entry(lambda: read_paths_with(_kind(_Router), _read_upper)),
+    )
+
+    # Act
+    path = route_path({"path": "/keys", "app": _Router()})
+
+    # Assert
+    assert path == "/KEYS"
+
+
+@pytest.mark.usefixtures("readers")
+def test_an_integration_failing_to_import_raises_on_each_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """What importing the integration raises propagates, and is raised again on the next request."""
+
+    # Arrange
+    def load() -> None:
+        msg = "the framework is too old"
+        raise ImportError(msg)
+
+    _entries(monkeypatch, _Entry(load))
+    scope = {"path": "/keys", "app": _Router()}
+
+    # Act / Assert
+    for _ in range(2):
+        with pytest.raises(ImportError, match="too old"):
+            route_path(scope)
+
+
+def test_a_litestar_path_reads_by_litestar_before_any_integration_is_imported() -> (
+    None
+):
+    """Middleware added by hand to a Litestar app reads the path as Litestar routes it."""
+    # Arrange
+    code = (
+        "import sys\n"
+        "from litestar import Litestar\n"
+        "from grelmicro._paths import route_path\n"
+        "imported = [m for m in sys.modules if m.startswith('grelmicro.integrations')]\n"
+        "app = Litestar()\n"
+        "scope = {'path': '/v1/api/x/', 'root_path': '/api', 'app': app}\n"
+        "print(imported, route_path(scope))\n"
+    )
+
+    # Act
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", code], capture_output=True, check=True, text=True
+    )
+
+    # Assert
+    assert result.stdout.split() == ["[]", "/x"]
+
+
+@pytest.mark.usefixtures("readers")
+def test_each_key_a_router_writes_is_routed_once() -> None:
+    """A key two path readers name is one key the gate keeps for the route."""
+    # Act
+    read_paths_with(_kind(_Router), _read_upper, writes=("handler",))
+    read_paths_with(_kind(_Unread), _read_upper, writes=("handler", "endpoint"))
+
+    # Assert
+    assert _paths.ROUTED_KEYS == ("handler", "endpoint")
+
+
 @pytest.mark.parametrize(
     ("path", "root_path", "expected"),
     [
@@ -464,7 +670,7 @@ def test_the_route_path_is_read_as_litestar_routes_it(
     path: str, root_path: str, expected: str
 ) -> None:
     """Litestar takes the root path off where it first appears, and normalizes either way."""
-    app = object()
+    app = Litestar()
     scope = {
         "path": path,
         "root_path": root_path,
@@ -493,10 +699,10 @@ def test_a_path_litestar_routed_is_read_as_its_router_wrote_it() -> None:
 def test_a_litestar_mount_its_router_does_not_list_is_refused() -> None:
     """Without the mount's own path, the path it serves is unknown.
 
-    A real app always lists the mounts it owns, so the app and the mount
-    are stand-ins.
+    A real app always lists the mounts it owns, so the mount is a
+    stand-in.
     """
-    app = SimpleNamespace(asgi_router=SimpleNamespace(_mount_routes={}))
+    app = Litestar()
     scope = {
         "path": "/livez/",
         "app": app,

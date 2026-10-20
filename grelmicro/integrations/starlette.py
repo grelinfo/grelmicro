@@ -19,12 +19,7 @@ from typing_extensions import Doc
 from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
-from grelmicro._paths import (
-    RouteReading,
-    litestar_mount,
-    litestar_route_handler,
-    starlette_route,
-)
+from grelmicro._paths import RouteReading
 from grelmicro._wrapping import refuse_registered
 from grelmicro.health._served import HealthEndpoint, health_endpoints_in
 from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
@@ -34,11 +29,16 @@ from grelmicro.http._requirement import (
     Requirement,
     declared_scopes,
 )
+from grelmicro.integrations._litestar_routes import (
+    litestar_mount,
+    litestar_route_handler,
+)
 from grelmicro.integrations._route_gate import (
     declarations_of,
     gate_routes,
     shadowed_routes,
 )
+from grelmicro.integrations._starlette_routes import starlette_route
 from grelmicro.security.principal import VerifiedToken
 from grelmicro.trace._autoinstrument import request_spans
 

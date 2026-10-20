@@ -44,6 +44,11 @@ An integration module exposes `install(app, micro, *, ambient)` and
 `is_bound(app)`, and may expose `install_error_responses`,
 `install_middleware`, `install_route_gate`, `route_declarations` and
 `health_endpoints`.
+
+A first-party integration may also register a private path reader when it
+is imported, which reads the path its router matches a request with. An
+integration without one reads paths by the ASGI rule: `path` minus
+`root_path`.
 """
 
 
@@ -117,7 +122,7 @@ def load_integration(app: object) -> Integration | None:
     inherits from. The first root module registered under
     `INTEGRATION_GROUP` wins, and only that module is imported.
     """
-    ep = _integration_entry(app)
+    ep = _class_entry(type(app))
     return None if ep is None else cast("Integration", ep.load())
 
 
@@ -126,14 +131,28 @@ def framework_of(app: object) -> str | None:
 
     `None` when no integration matches.
     """
-    ep = _integration_entry(app)
+    ep = _class_entry(type(app))
     return None if ep is None else ep.name
 
 
-def _integration_entry(app: object) -> EntryPoint | None:
-    """Return the entry point of the integration for `app`, `None` without one."""
+def import_integration_of(kind: type) -> bool:
+    """Import the integration for apps of class `kind`, and return whether one was imported.
+
+    Walks the class's MRO as `load_integration` does. `False` when no
+    entry point names the package of the class or of a class it extends.
+    What importing the integration raises propagates.
+    """
+    ep = _class_entry(kind)
+    if ep is None:
+        return False
+    ep.load()
+    return True
+
+
+def _class_entry(kind: type) -> EntryPoint | None:
+    """Return the entry point of the integration for apps of class `kind`, `None` without one."""
     eps = {ep.name: ep for ep in entry_points(group=INTEGRATION_GROUP)}
-    for klass in type(app).__mro__:
+    for klass in kind.__mro__:
         ep = eps.get(klass.__module__.partition(".")[0])
         if ep is not None:
             return ep

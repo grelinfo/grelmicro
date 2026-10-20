@@ -40,7 +40,13 @@ from typing import (
 
 from typing_extensions import Doc
 
-from grelmicro._paths import ROUTE_KEY, path_format, route_path, selects
+from grelmicro import _paths
+from grelmicro._paths import (
+    ROUTE_KEY,
+    path_format,
+    route_path,
+    selects,
+)
 from grelmicro.errors import AuthenticationRequiredError, InsufficientScopeError
 from grelmicro.http._component import ErrorResponses, raw_headers_of, send_error
 from grelmicro.http._kinds import AUTHENTICATION_REQUIRED, INSUFFICIENT_SCOPE
@@ -254,16 +260,10 @@ CROSSED_KEY: Final = "grelmicro.crossed"
 """Where the authentication of each app a request crossed leaves a `Crossing`."""
 
 _ROUTED: Final = "grelmicro.routed"
-"""Where a lane keeps the path, root path, app and handler the router set."""
+"""Where a lane keeps the path, root path, app and the `ROUTED_KEYS` the router set."""
 
 _RAISED: Final = "grelmicro.raised"
 """Where a lane keeps the exception the route itself raised."""
-
-_ROUTED_HANDLER: Final = "route_handler"
-"""The key a router writes the handler it matched under, read as routed."""
-
-_UNSET: Final = object()
-"""A key the scope did not hold."""
 
 
 class Crossing(NamedTuple):
@@ -395,10 +395,9 @@ def _route(target: ASGIApp, *, restore: bool) -> ASGIApp:
                 scope["path"],
                 scope["root_path"],
                 scope["app"],
-                handler,
+                written,
             ) = scope.pop(_ROUTED)
-            if handler is not _UNSET:
-                scope[_ROUTED_HANDLER] = handler
+            scope.update(written)
         try:
             await target(scope, receive, send)
         except Exception as error:
@@ -428,7 +427,9 @@ def _segment(chain: ASGIApp, edge: Edge) -> ASGIApp:
 def _presented(chain: ASGIApp, hops: int) -> ASGIApp:
     """Return `chain`, run with the request as it arrived at the edge `hops` apps out.
 
-    What the router set is kept for the route, the first time.
+    What the router set is kept for the route, the first time. The
+    `ROUTED_KEYS` it wrote are kept with it, so the edge's middleware read
+    the request as before routing.
     """
 
     def presented(
@@ -442,7 +443,11 @@ def _presented(chain: ASGIApp, hops: int) -> ASGIApp:
                 scope["path"],
                 scope.get("root_path", ""),
                 scope.get("app"),
-                scope.pop(_ROUTED_HANDLER, _UNSET),
+                {
+                    key: scope.pop(key)
+                    for key in _paths.ROUTED_KEYS
+                    if key in scope
+                },
             )
         scope["path"] = arrived.path
         scope["root_path"] = arrived.root_path
