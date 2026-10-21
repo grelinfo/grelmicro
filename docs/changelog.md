@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.42.3 - 2026-10-21
 
 ### Added
 * ✨ `route_template(scope)` in `grelmicro.http` returns the route template a request reached. ([#1080](https://github.com/grelinfo/grelmicro/issues/1080))
