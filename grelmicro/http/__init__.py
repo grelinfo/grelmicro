@@ -68,6 +68,7 @@ from grelmicro.http._response_cache import (
     CachedResponsesConfig,
     CachedResponsesMiddleware,
 )
+from grelmicro.http._route import route_template
 from grelmicro.http._routes import Gate, RouteDeclaration
 from grelmicro.http._server import OpsServer, OpsServerConfig
 from grelmicro.http._tmf import TMFError
@@ -113,5 +114,6 @@ __all__ = [
     "check_precondition",
     "etag_of",
     "merge_headers",
+    "route_template",
     "send_error",
 ]

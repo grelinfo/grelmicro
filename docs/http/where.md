@@ -122,6 +122,38 @@ because carving out a path this app does not serve is usually deliberate.
 
 `micro.describe(app).endpoints` returns the same thing as data.
 
+## The route a request took
+
+`route_template(scope)` returns the template of the route a request reached,
+the same one the access log writes as `http.route`:
+
+```python
+--8<-- "http/route_template.py"
+```
+
+`GET /api/meals/v1/recipes/7` records `/api/meals/v1/recipes/{recipe_id}`,
+with every prefix the router was included under.
+
+- On Starlette, nested mounts are joined, so `/mm/r/a` reads as `/mm/r/a`.
+- On FastAPI, a route of a FastAPI app mounted with `app.mount` reads as its
+  full template, such as `/mm/r/{x}`. A Starlette app or `Mount` mounted in
+  FastAPI reads as the mount's own template, such as `/mm/{path}`.
+- A URL no route matches returns `None`. Under a mount, it returns the
+  mount's own template, such as `/admin/{path}`, because the mount took it.
+- A request answered before its route ran, such as a refused token or a
+  cached response, returns the route its path reaches.
+- On Starlette, a slash redirect returns `None`. The access log writes the
+  route it redirects to.
+- On Litestar, the app's own middleware runs only for a request a route
+  took. A request refused before routing is seen only from a wrapper
+  outside the app.
+- The template starts with the app's `root_path`, so it names the route as
+  the client sees it behind a proxy.
+
+Call it from a middleware or a handler of an app `micro.install(app)` wired.
+It raises `AppNotInstalledError` on any other app, and from a wrapper outside
+the app before the app runs.
+
 ## Changing it without a restart
 
 A mounted ConfigMap tunes the response cache, the rate limiter and the

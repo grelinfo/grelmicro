@@ -8,6 +8,9 @@
     "AmbientBindingWarning": null,
     "AmbiguousBackendError": null,
     "AmbiguousProviderError": null,
+    "AppNotInstalledError": {
+      "()": "() -> None"
+    },
     "BackendScopeError": null,
     "BackendScopeWarning": null,
     "Component": {
@@ -371,6 +374,9 @@
     },
     "merge_headers": {
       "()": "(rendered, theirs) -> 'dict[str, str]'"
+    },
+    "route_template": {
+      "()": "(scope) -> str | None"
     },
     "send_error": {
       "()": "(send, rendered) -> 'None'"

@@ -28,6 +28,9 @@ Register `RateLimitedRequests(limiter, trusted=...)` and a caller over its
 budget is answered `429` at the edge, with the quota it has left. Read [Rate
 Limit](../http/rate-limit.md).
 
+Call `route_template(request.scope)` for the route a request reached, the one
+the access log names. Read [The route a request took](../http/where.md#the-route-a-request-took).
+
 Register `OpsServer()` on a process that serves no HTTP, and the health probes
 and the Prometheus endpoint answer on a port of their own.
 
@@ -52,6 +55,7 @@ and the Prometheus endpoint answer on a port of their own.
         - RateLimitMiddleware
         - check_precondition
         - etag_of
+        - route_template
         - PreconditionError
         - PreconditionFailedError
         - PreconditionRequiredError
