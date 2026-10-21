@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 import httpx
 import pytest
 from fastapi import APIRouter, FastAPI
+from fastapi import Request as FastAPIRequest
 from litestar import Litestar, Request
 from litestar import Response as LitestarResponse
 from litestar import asgi as litestar_asgi
@@ -542,17 +543,51 @@ async def test_route_template_raises_when_read_before_installed_app_runs(
     [("fastapi", "/items/{item_id}"), ("starlette", None)],
 )
 async def test_route_template_slash_redirect_returns_its_target_on_fastapi_only(
+    caplog: pytest.LogCaptureFixture,
     framework: str,
     expected: str | None,
 ) -> None:
-    """A slash redirect names its target on FastAPI, and no route on Starlette."""
+    """A slash redirect names its target on FastAPI, and no route on Starlette.
+
+    The access log names the target on both.
+    """
     # Arrange
-    app, micro, seen = installed(framework)
+    caplog.set_level(logging.DEBUG, logger=ACCESS_LOGGER)
+    app, micro, seen = installed(framework, uses=[AccessLog()])
     # Act
     responses = await drive(micro, app, "/items/3/")
     # Assert
+    logged = [
+        record.__dict__.get("http.route")
+        for record in caplog.records
+        if record.name == ACCESS_LOGGER
+    ]
     assert responses[0].status_code == httpx.codes.TEMPORARY_REDIRECT
     assert seen == [expected]
+    assert logged == ["/items/{item_id}"]
+
+
+@pytest.mark.parametrize("framework", STARLETTE_FAMILY)
+async def test_route_template_handler_returns_its_route(framework: str) -> None:
+    """A handler reads the route it serves."""
+    # Arrange
+    seen: Seen = []
+
+    async def handler(request: FastAPIRequest) -> PlainTextResponse:
+        seen.append(read(request.scope))
+        return PlainTextResponse("ok")
+
+    if framework == "fastapi":
+        app: Any = FastAPI()
+        app.add_api_route("/items/{item_id}", handler)
+    else:
+        app = Starlette(routes=[Route("/items/{item_id}", handler)])
+    micro = Grelmicro()
+    micro.install(app)
+    # Act
+    await drive(micro, app, "/items/3")
+    # Assert
+    assert seen == ["/items/{item_id}"]
 
 
 @pytest.mark.parametrize(
