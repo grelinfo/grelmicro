@@ -26,6 +26,7 @@ from litestar import Request as LitestarRequest
 from litestar.exceptions import HTTPException as LitestarHTTPException
 from litestar.exceptions import NotFoundException, ValidationException
 from litestar.openapi.datastructures import ResponseSpec
+from litestar.params import JSONBody
 from litestar.response import Response as LitestarResponse
 from litestar.testing import TestClient as LitestarTestClient
 from pydantic import BaseModel
@@ -132,7 +133,7 @@ def _litestar() -> Litestar:
         raise NotFoundException(NOT_FOUND_DETAIL)
 
     @post("/charge")
-    async def charge(data: Charge) -> dict[str, bool]:  # noqa: ARG001
+    async def charge(data: JSONBody[Charge]) -> dict[str, bool]:  # noqa: ARG001
         return {"ok": True}
 
     return Litestar(route_handlers=[missing, charge])
@@ -971,7 +972,7 @@ def test_litestar_schema_follows_the_registered_format() -> None:
 
     # Arrange
     @post("/charge")
-    async def charge(data: Charge) -> dict[str, bool]:  # noqa: ARG001
+    async def charge(data: JSONBody[Charge]) -> dict[str, bool]:  # noqa: ARG001
         return {"ok": True}
 
     app = Litestar(route_handlers=[charge])
@@ -997,7 +998,7 @@ def test_litestar_schema_follows_the_tmf_format() -> None:
 
     # Arrange
     @post("/charge")
-    async def charge(data: Charge) -> dict[str, bool]:  # noqa: ARG001
+    async def charge(data: JSONBody[Charge]) -> dict[str, bool]:  # noqa: ARG001
         return {"ok": True}
 
     app = Litestar(route_handlers=[charge])
@@ -1022,7 +1023,7 @@ def test_litestar_schema_is_untouched_without_the_component() -> None:
 
     # Arrange
     @post("/charge")
-    async def charge(data: Charge) -> dict[str, bool]:  # noqa: ARG001
+    async def charge(data: JSONBody[Charge]) -> dict[str, bool]:  # noqa: ARG001
         return {"ok": True}
 
     app = Litestar(route_handlers=[charge])
@@ -1093,7 +1094,7 @@ def test_litestar_does_not_replace_a_model_of_yours() -> None:
 
     # Arrange
     @post("/items")
-    async def items(data: ProblemDetail) -> ProblemDetail:
+    async def items(data: JSONBody[ProblemDetail]) -> ProblemDetail:
         return data
 
     app = Litestar(route_handlers=[items])
@@ -1115,7 +1116,7 @@ def test_litestar_keeping_your_handler_keeps_your_schema() -> None:
 
     # Arrange
     @post("/charge")
-    async def charge(data: Charge) -> dict[str, bool]:  # noqa: ARG001
+    async def charge(data: JSONBody[Charge]) -> dict[str, bool]:  # noqa: ARG001
         return {"ok": True}
 
     def mine(
@@ -1178,7 +1179,7 @@ def test_litestar_says_nothing_when_both_names_are_taken() -> None:
 
     # Arrange
     @post("/items")
-    async def items(data: ProblemDetail) -> GrelmicroProblemDetail:
+    async def items(data: JSONBody[ProblemDetail]) -> GrelmicroProblemDetail:
         return GrelmicroProblemDetail(also_mine=data.mine)
 
     app = Litestar(route_handlers=[items])
