@@ -52,6 +52,9 @@
     "ProviderNotRegisteredError": {
       "()": "(short_name, available) -> None"
     },
+    "RouteReaderError": {
+      "()": "() -> None"
+    },
     "RoutesNotDeclaredWarning": null,
     "SentinelPasswordWarning": null,
     "SettingsValidationError": {
@@ -371,6 +374,9 @@
     },
     "merge_headers": {
       "()": "(rendered, theirs) -> 'dict[str, str]'"
+    },
+    "route_template": {
+      "()": "(scope) -> str | None"
     },
     "send_error": {
       "()": "(send, rendered) -> 'None'"

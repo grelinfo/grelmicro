@@ -487,6 +487,23 @@ class AdapterNotRegisteredError(GrelmicroError, LookupError):
         )
 
 
+class RouteReaderError(GrelmicroError, LookupError):
+    """Raised when `route_template(scope)` finds no route reader in the scope.
+
+    `micro.install(app)` leaves the app's route reader in the scope of
+    every request. A scope without one comes from an app `install` never
+    wired, or from a wrapper that reads it before the installed app runs.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the error."""
+        super().__init__(
+            "No route reader in this request's scope. Call "
+            "route_template(scope) from a middleware or a handler of an app "
+            "micro.install(app) wired."
+        )
+
+
 class SettingsValidationError(GrelmicroError, ValueError):
     """Raised when a configuration value fails validation.
 
