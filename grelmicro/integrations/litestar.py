@@ -703,10 +703,10 @@ def _gate_router(
     """Make Litestar's router dispatch each handler through `gated_for`.
 
     Litestar's own router internals are touched here, in
-    `_render_in_routes` and in `_trie_nodes` alone: the router gets a class
-    of its own, whose `handle_routing` returns the gated app of the handler
-    it matched, and whose `construct_routing_trie` gates each handler
-    registered later.
+    `_render_in_routes` and in `_trie_nodes` alone. The router gets a class
+    of its own. Its `handle_routing` routes as the router did, then returns
+    the gated app of the handler it matched. Its `construct_routing_trie`
+    gates each handler registered later.
 
     Raises:
         RuntimeError: If the router lacks what this relies on, naming it.
@@ -716,10 +716,10 @@ def _gate_router(
         router, "handle_routing", "construct_routing_trie"
     )
 
-    def handle_routing(self: Any, path: str, method: Any) -> Any:  # noqa: ANN401
-        asgi_app, handler, routed, parameters, template = base.handle_routing(
-            self, path, method
-        )
+    routing = router.handle_routing
+
+    def handle_routing(path: str, method: Any) -> Any:  # noqa: ANN401
+        asgi_app, handler, routed, parameters, template = routing(path, method)
         return (
             gated_for(asgi_app, handler, template),
             handler,
@@ -738,8 +738,8 @@ def _gate_router(
         (base,),
         {
             "__slots__": (),
-            "handle_routing": functools.lru_cache(_ROUTING_CACHE)(
-                handle_routing
+            "handle_routing": staticmethod(
+                functools.lru_cache(_ROUTING_CACHE)(handle_routing)
             ),
             "construct_routing_trie": construct_routing_trie,
         },

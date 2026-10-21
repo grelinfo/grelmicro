@@ -5,6 +5,9 @@
 ### Added
 * ✨ `route_template(scope)` in `grelmicro.http` returns the route template a request reached. ([#1080](https://github.com/grelinfo/grelmicro/issues/1080))
 
+### Fixed
+* 🐛 On Litestar 2.25, routes gated by `micro.install(app)` answer again instead of 500. ([#1101](https://github.com/grelinfo/grelmicro/issues/1101))
+
 ## 0.42.2 - 2026-10-20
 
 ### Fixed

@@ -14,6 +14,7 @@ import pytest
 from fastapi import APIRouter, FastAPI, WebSocket
 from litestar import Controller, Litestar, asgi, get, post, websocket
 from litestar import Router as LitestarRouter
+from litestar import WebSocket as LitestarWebSocket
 from litestar.params import FromPath
 from starlette.applications import Starlette
 from starlette.endpoints import HTTPEndpoint
@@ -166,7 +167,7 @@ async def _files(p: FromPath[str]) -> dict[str, str]:
 
 
 @websocket("/ws")
-async def _litestar_socket(socket: Any) -> None:  # noqa: ANN401
+async def _litestar_socket(socket: LitestarWebSocket[Any, Any, Any]) -> None:
     """Close at once."""
     await socket.close()
 
