@@ -2,7 +2,7 @@
 
 Each test builds an app, wires it with `micro.install(app)`, drives
 requests through it, and reads what `route_template(scope)` returned from
-a middleware of the app's own.
+a middleware of the app's own, or from a wrapper around the app.
 """
 
 from __future__ import annotations
@@ -28,8 +28,19 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse, Response
 from starlette.routing import Mount, Route
 
-from grelmicro import Grelmicro, RouteReaderError
-from grelmicro.http import AuthenticatedRequests, route_template
+from grelmicro import (
+    AppNotInstalledError,
+    Grelmicro,
+    MiddlewarePlacementWarning,
+)
+from grelmicro.cache import Cache
+from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.http import (
+    AuthenticatedRequests,
+    AuthenticatedRequestsMiddleware,
+    CachedResponses,
+    route_template,
+)
 from grelmicro.log import AccessLog
 from tests.test_authentication import verifier
 
@@ -41,21 +52,22 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.timeout(10)]
 
-Seen = list[str | RouteReaderError | None]
+Seen = list[str | AppNotInstalledError | None]
 """What each request read: the template, `None`, or the error raised."""
 
 FRAMEWORKS = ["fastapi", "starlette", "litestar"]
 STARLETTE_FAMILY = ["fastapi", "starlette"]
+OK = 200
 UNAUTHORIZED = 401
 ACCESS_LOGGER = "grelmicro.access"
 SNIPPET = Path(__file__).parent.parent / "docs/snippets/http/route_template.py"
 
 
-def read(scope: Scope) -> str | RouteReaderError | None:
+def read(scope: Scope) -> str | AppNotInstalledError | None:
     """Return what `route_template` gives the scope, or the error it raised."""
     try:
         return route_template(scope)
-    except RouteReaderError as error:
+    except AppNotInstalledError as error:
         return error
 
 
@@ -159,36 +171,51 @@ def client_for(app: Any, root_path: str = "") -> httpx.AsyncClient:  # noqa: ANN
     )
 
 
-async def seen_for(
+def installed(
     framework: str,
-    *paths: str,
-    root_path: str = "",
     **options: Any,  # noqa: ANN401
-) -> Seen:
-    """Return what each request to the framework's installed app read."""
+) -> tuple[Any, Grelmicro, Seen]:
+    """Return the framework's app, installed, and what its requests read."""
     seen: Seen = []
     app = BUILDERS[framework](seen)
     micro = Grelmicro(**options)
     micro.install(app)
-    async with micro, client_for(app, root_path) as client:
-        for path in paths:
-            await client.get(path)
-    return seen
+    return app, micro, seen
+
+
+async def drive(
+    micro: Grelmicro | None,
+    app: Any,  # noqa: ANN401
+    *paths: str,
+    root_path: str = "",
+) -> list[httpx.Response]:
+    """Send a `GET` to each path, with `micro` running when given."""
+    async with client_for(app, root_path) as client:
+        if micro is None:
+            return [await client.get(path) for path in paths]
+        async with micro:
+            return [await client.get(path) for path in paths]
 
 
 # --- A route the request matched ------------------------------------------
 
 
 @pytest.mark.parametrize("framework", FRAMEWORKS)
-async def test_a_matched_route_reads_its_template(framework: str) -> None:
+async def test_route_template_matched_route_returns_its_template(
+    framework: str,
+) -> None:
     """The route reads as its template, never the path."""
-    assert await seen_for(framework, "/items/3") == ["/items/{item_id}"]
+    # Arrange
+    app, micro, seen = installed(framework)
+    # Act
+    await drive(micro, app, "/items/3")
+    # Assert
+    assert seen == ["/items/{item_id}"]
 
 
-async def test_a_fastapi_route_reads_every_prefix_it_was_included_under() -> (
-    None
-):
+async def test_route_template_included_router_returns_every_prefix() -> None:
     """A router included under a prefix reads its prefix and the include's."""
+    # Arrange
     seen: Seen = []
     recipes = APIRouter(prefix="/recipes")
 
@@ -201,25 +228,85 @@ async def test_a_fastapi_route_reads_every_prefix_it_was_included_under() -> (
     app.add_middleware(Recorder, seen=seen)
     micro = Grelmicro()
     micro.install(app)
-
-    async with micro, client_for(app) as client:
-        await client.get("/api/meals/v1/recipes/7")
-
+    # Act
+    await drive(micro, app, "/api/meals/v1/recipes/7")
+    # Assert
     assert seen == ["/api/meals/v1/recipes/{recipe_id}"]
 
 
-async def test_a_route_under_nested_mounts_reads_every_mount() -> None:
+async def test_route_template_nested_starlette_mounts_returns_every_mount() -> (
+    None
+):
     """A route under a mount of a mount joins both mounts."""
-    assert await seen_for("starlette", "/mm/r/a") == ["/mm/r/a"]
+    # Arrange
+    app, micro, seen = installed("starlette")
+    # Act
+    await drive(micro, app, "/mm/r/a")
+    # Assert
+    assert seen == ["/mm/r/a"]
+
+
+async def test_route_template_fastapi_sub_app_returns_its_route() -> None:
+    """A route of a FastAPI app mounted in FastAPI reads its own template."""
+    # Arrange
+    seen: Seen = []
+    sub = FastAPI()
+
+    @sub.get("/r/{x}")
+    async def route(x: int) -> int:
+        return x
+
+    app = FastAPI()
+    app.mount("/mm", sub)
+    app.add_middleware(Recorder, seen=seen)
+    micro = Grelmicro()
+    micro.install(app)
+    # Act
+    await drive(micro, app, "/mm/r/1")
+    # Assert
+    assert seen == ["/mm/r/{x}"]
+
+
+@pytest.mark.parametrize(
+    "mounted",
+    [
+        Starlette(routes=[Route("/r/{x}", ok)]),
+        Mount("/r", routes=[Route("/{x}", ok)]),
+    ],
+    ids=["starlette-app", "starlette-mount"],
+)
+async def test_route_template_starlette_mounted_in_fastapi_returns_the_mount(
+    mounted: ASGIApp,
+) -> None:
+    """A Starlette app or `Mount` mounted in FastAPI reads as the mount."""
+    # Arrange
+    seen: Seen = []
+    app = FastAPI()
+    app.mount("/mm", mounted)
+    app.add_middleware(Recorder, seen=seen)
+    micro = Grelmicro()
+    micro.install(app)
+    # Act
+    [response] = await drive(micro, app, "/mm/r/1")
+    # Assert
+    assert response.status_code == OK
+    assert seen == ["/mm/{path}"]
 
 
 # --- A URL no route matched -----------------------------------------------
 
 
 @pytest.mark.parametrize("framework", FRAMEWORKS)
-async def test_a_url_no_route_matches_reads_none(framework: str) -> None:
+async def test_route_template_returns_none_when_no_route_matches(
+    framework: str,
+) -> None:
     """A URL nothing serves names no route."""
-    assert await seen_for(framework, "/nowhere") == [None]
+    # Arrange
+    app, micro, seen = installed(framework)
+    # Act
+    await drive(micro, app, "/nowhere")
+    # Assert
+    assert seen == [None]
 
 
 @pytest.mark.parametrize(
@@ -231,21 +318,31 @@ async def test_a_url_no_route_matches_reads_none(framework: str) -> None:
         ("litestar", "/mm/nowhere", "/mm/{path}"),
     ],
 )
-async def test_a_url_under_a_mount_reads_the_mount(
+async def test_route_template_unmatched_url_under_mount_returns_the_mount(
     framework: str, path: str, template: str
 ) -> None:
     """A URL under a mount reads as the template of the mount that took it."""
-    assert await seen_for(framework, path) == [template]
+    # Arrange
+    app, micro, seen = installed(framework)
+    # Act
+    await drive(micro, app, path)
+    # Assert
+    assert seen == [template]
 
 
 # --- Behind a proxy -------------------------------------------------------
 
 
 @pytest.mark.parametrize("framework", FRAMEWORKS)
-async def test_the_root_path_prefixes_the_template(framework: str) -> None:
+async def test_route_template_root_path_prefixes_the_template(
+    framework: str,
+) -> None:
     """The template starts with the root path the app is served under."""
-    seen = await seen_for(framework, "/proxy/items/3", root_path="/proxy")
-
+    # Arrange
+    app, micro, seen = installed(framework)
+    # Act
+    await drive(micro, app, "/proxy/items/3", root_path="/proxy")
+    # Assert
     assert seen == ["/proxy/items/{item_id}"]
 
 
@@ -253,20 +350,95 @@ async def test_the_root_path_prefixes_the_template(framework: str) -> None:
 
 
 @pytest.mark.parametrize("framework", STARLETTE_FAMILY)
-async def test_a_refused_request_reads_the_route_its_path_reaches(
+async def test_route_template_refused_request_returns_the_route_it_reaches(
     framework: str,
 ) -> None:
     """A request refused `401` before routing reads the route it would reach."""
-    seen: Seen = []
-    app = BUILDERS[framework](seen)
-    micro = Grelmicro(uses=[AuthenticatedRequests(verifier())])
-    micro.install(app)
-
-    async with micro, client_for(app) as client:
-        response = await client.get("/items/3")
-
+    # Arrange
+    app, micro, seen = installed(
+        framework, uses=[AuthenticatedRequests(verifier())]
+    )
+    # Act
+    [response] = await drive(micro, app, "/items/3")
+    # Assert
     assert response.status_code == UNAUTHORIZED
     assert seen == ["/items/{item_id}"]
+
+
+def bare_litestar_app(_seen: Seen) -> Litestar:
+    """Return a Litestar app serving items, with no middleware of its own."""
+
+    @litestar_get("/items/{item_id:int}")
+    async def item(item_id: Annotated[int, Parameter()]) -> int:
+        return item_id
+
+    return Litestar(route_handlers=[item], logging_config=None)
+
+
+@pytest.mark.parametrize(
+    "build", [fastapi_app, starlette_app, bare_litestar_app]
+)
+async def test_route_template_refused_request_read_outside_returns_the_route(
+    build: Callable[[Seen], Any],
+) -> None:
+    """A wrapper reading a refused request after the installed app ran reads its route."""
+    # Arrange
+    outer: Seen = []
+    app = build([])
+    micro = Grelmicro(uses=[AuthenticatedRequests(verifier())])
+    micro.install(app)
+    # Act
+    [response] = await drive(micro, Recorder(app, outer), "/items/3")
+    # Assert
+    assert response.status_code == UNAUTHORIZED
+    assert outer == ["/items/{item_id}"]
+
+
+async def test_route_template_litestar_refused_request_unseen_by_its_middleware() -> (
+    None
+):
+    """Litestar's own middleware never sees a request refused before routing."""
+    # Arrange
+    inner: Seen = []
+    outer: Seen = []
+    app: Any = litestar_app(inner)
+    micro = Grelmicro(uses=[AuthenticatedRequests(verifier())])
+    with pytest.warns(MiddlewarePlacementWarning):
+        micro.install(app)
+    # Act
+    [response] = await drive(micro, Recorder(app, outer), "/items/3")
+    # Assert
+    assert response.status_code == UNAUTHORIZED
+    assert inner == []
+    assert outer == ["/items/{item_id}"]
+
+
+async def test_route_template_cached_response_returns_the_route() -> None:
+    """A response the cache answers reads the route its path reaches."""
+    # Arrange
+    seen: Seen = []
+    served: list[int] = []
+    app = FastAPI()
+
+    @app.get("/items/{item_id}")
+    async def item(item_id: int) -> int:
+        served.append(item_id)
+        return item_id
+
+    app.add_middleware(Recorder, seen=seen)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include={"/items/*": 60}),
+        ]
+    )
+    micro.install(app)
+    # Act
+    responses = await drive(micro, app, "/items/3", "/items/3")
+    # Assert
+    assert [response.status_code for response in responses] == [OK, OK]
+    assert served == [3]
+    assert seen == ["/items/{item_id}"] * 2
 
 
 # --- Middleware the app adds ----------------------------------------------
@@ -292,20 +464,20 @@ class Routed(BaseHTTPMiddleware):
 
 
 @pytest.mark.parametrize("framework", STARLETTE_FAMILY)
-async def test_a_base_http_middleware_reads_the_route_after_call_next(
+async def test_route_template_base_http_middleware_returns_the_route(
     framework: str,
 ) -> None:
     """A `BaseHTTPMiddleware` reads the route after `call_next`."""
-    seen: Seen = []
+    # Arrange
     routed: Seen = []
+    seen: Seen = []
     app = BUILDERS[framework](seen)
     app.add_middleware(Routed, seen=routed)
     micro = Grelmicro()
     micro.install(app)
-
-    async with micro, client_for(app) as client:
-        await client.get("/items/3")
-
+    # Act
+    await drive(micro, app, "/items/3")
+    # Assert
     assert routed == seen == ["/items/{item_id}"]
 
 
@@ -313,40 +485,74 @@ async def test_a_base_http_middleware_reads_the_route_after_call_next(
 
 
 @pytest.mark.parametrize("framework", FRAMEWORKS)
-async def test_an_app_nothing_installed_raises(framework: str) -> None:
-    """An app `micro.install` never wired raises `RouteReaderError`."""
+async def test_route_template_raises_when_app_not_installed(
+    framework: str,
+) -> None:
+    """An app `micro.install` never wired raises `AppNotInstalledError`."""
+    # Arrange
     seen: Seen = []
     app = BUILDERS[framework](seen)
-
-    async with client_for(app) as client:
-        await client.get("/items/3")
-
+    # Act
+    await drive(None, app, "/items/3")
+    # Assert
     [error] = seen
-    assert isinstance(error, RouteReaderError)
+    assert isinstance(error, AppNotInstalledError)
     assert isinstance(error, LookupError)
     assert "micro.install(app)" in str(error)
 
 
-@pytest.mark.parametrize("framework", FRAMEWORKS)
-async def test_a_wrapper_outside_the_installed_app_raises(
+@pytest.mark.parametrize("framework", STARLETTE_FAMILY)
+async def test_route_template_raises_when_hand_added_middleware_refused_it(
     framework: str,
 ) -> None:
-    """A wrapper reading before the installed app runs raises `RouteReaderError`."""
-    inner: Seen = []
+    """A request an uninstalled app's own authentication refused raises."""
+    # Arrange
     outer: Seen = []
-    app = BUILDERS[framework](inner)
-    micro = Grelmicro()
-    micro.install(app)
-
-    async with micro, client_for(EarlyRecorder(app, outer)) as client:
-        await client.get("/items/3")
-
+    app = BUILDERS[framework]([])
+    app.add_middleware(AuthenticatedRequestsMiddleware, verifier=verifier())
+    # Act
+    [response] = await drive(None, Recorder(app, outer), "/items/3")
+    # Assert
+    assert response.status_code == UNAUTHORIZED
     [error] = outer
-    assert isinstance(error, RouteReaderError)
+    assert isinstance(error, AppNotInstalledError)
+
+
+@pytest.mark.parametrize("framework", FRAMEWORKS)
+async def test_route_template_raises_when_read_before_installed_app_runs(
+    framework: str,
+) -> None:
+    """A wrapper reading before the installed app runs raises `AppNotInstalledError`."""
+    # Arrange
+    outer: Seen = []
+    app, micro, inner = installed(framework)
+    # Act
+    await drive(micro, EarlyRecorder(app, outer), "/items/3")
+    # Assert
+    [error] = outer
+    assert isinstance(error, AppNotInstalledError)
     assert inner == ["/items/{item_id}"]
 
 
 # --- The same route the access log names ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("framework", "expected"),
+    [("fastapi", "/items/{item_id}"), ("starlette", None)],
+)
+async def test_route_template_slash_redirect_returns_its_target_on_fastapi_only(
+    framework: str,
+    expected: str | None,
+) -> None:
+    """A slash redirect names its target on FastAPI, and no route on Starlette."""
+    # Arrange
+    app, micro, seen = installed(framework)
+    # Act
+    responses = await drive(micro, app, "/items/3/")
+    # Assert
+    assert responses[0].status_code == httpx.codes.TEMPORARY_REDIRECT
+    assert seen == [expected]
 
 
 @pytest.mark.parametrize(
@@ -364,22 +570,24 @@ async def test_a_wrapper_outside_the_installed_app_raises(
     ],
 )
 @pytest.mark.parametrize("root_path", ["", "/proxy"])
-async def test_it_reads_the_route_the_access_log_names(
+async def test_route_template_returns_the_route_the_access_log_names(
     caplog: pytest.LogCaptureFixture,
     framework: str,
     paths: list[str],
     root_path: str,
 ) -> None:
     """Every request reads the route its access record names as `http.route`."""
+    # Arrange
     caplog.set_level(logging.DEBUG, logger=ACCESS_LOGGER)
-
-    seen = await seen_for(
-        framework,
+    app, micro, seen = installed(framework, uses=[AccessLog()])
+    # Act
+    await drive(
+        micro,
+        app,
         *(root_path + path for path in paths),
         root_path=root_path,
-        uses=[AccessLog()],
     )
-
+    # Assert
     logged = [
         record.__dict__.get("http.route")
         for record in caplog.records
@@ -392,12 +600,16 @@ async def test_it_reads_the_route_the_access_log_names(
 # --- The documented example -----------------------------------------------
 
 
-async def test_the_documented_example_records_the_full_template() -> None:
+async def test_route_template_documented_example_records_the_template() -> None:
     """The documented middleware records the template with every prefix."""
+    # Arrange
     namespace = runpy.run_path(str(SNIPPET))
-
-    async with namespace["micro"], client_for(namespace["app"]) as client:
-        await client.get("/api/meals/v1/recipes/7")
-        await client.get("/nowhere")
-
+    # Act
+    await drive(
+        namespace["micro"],
+        namespace["app"],
+        "/api/meals/v1/recipes/7",
+        "/nowhere",
+    )
+    # Assert
     assert namespace["seen"] == {"/api/meals/v1/recipes/{recipe_id}"}

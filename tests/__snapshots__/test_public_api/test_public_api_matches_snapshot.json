@@ -8,6 +8,9 @@
     "AmbientBindingWarning": null,
     "AmbiguousBackendError": null,
     "AmbiguousProviderError": null,
+    "AppNotInstalledError": {
+      "()": "() -> None"
+    },
     "BackendScopeError": null,
     "BackendScopeWarning": null,
     "Component": {
@@ -51,9 +54,6 @@
     },
     "ProviderNotRegisteredError": {
       "()": "(short_name, available) -> None"
-    },
-    "RouteReaderError": {
-      "()": "() -> None"
     },
     "RoutesNotDeclaredWarning": null,
     "SentinelPasswordWarning": null,

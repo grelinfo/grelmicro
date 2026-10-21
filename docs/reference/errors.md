@@ -25,7 +25,7 @@ through. It reports a wiring mistake, and no fallback value stands in for one.
         - AdapterNotRegisteredError
         - EventLoopDeadlockError
         - ProviderNotRegisteredError
-        - RouteReaderError
+        - AppNotInstalledError
         - GrelmicroConfigWarning
         - EnvLoadOffWarning
         - BackendScopeWarning

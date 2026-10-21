@@ -487,20 +487,21 @@ class AdapterNotRegisteredError(GrelmicroError, LookupError):
         )
 
 
-class RouteReaderError(GrelmicroError, LookupError):
-    """Raised when `route_template(scope)` finds no route reader in the scope.
+class AppNotInstalledError(GrelmicroError, LookupError):
+    """Raised when `route_template(scope)` cannot read the route of a request.
 
-    `micro.install(app)` leaves the app's route reader in the scope of
-    every request. A scope without one comes from an app `install` never
-    wired, or from a wrapper that reads it before the installed app runs.
+    `route_template(scope)` reads the route of a request to an app
+    `micro.install(app)` wired, once that app runs. It raises on a request
+    to any other app, and from a wrapper that calls it before the
+    installed app runs.
     """
 
     def __init__(self) -> None:
         """Initialize the error."""
         super().__init__(
-            "No route reader in this request's scope. Call "
-            "route_template(scope) from a middleware or a handler of an app "
-            "micro.install(app) wired."
+            "route_template(scope) was called on a request to an app "
+            "micro.install(app) did not wire, or before that app ran. Call "
+            "it from a middleware or a handler of an installed app."
         )
 
 

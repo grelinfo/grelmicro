@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Added
-* ✨ `route_template(scope)` in `grelmicro.http` returns the route template a request reached, the one the access log names, and raises `RouteReaderError` on an app `micro.install(app)` did not wire. ([#1080](https://github.com/grelinfo/grelmicro/issues/1080))
+* ✨ `route_template(scope)` in `grelmicro.http` returns the route template a request reached. ([#1080](https://github.com/grelinfo/grelmicro/issues/1080))
 
 ## 0.42.2 - 2026-10-20
 
