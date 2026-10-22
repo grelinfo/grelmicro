@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Docs
-* 📝 A new page, Coming from APScheduler, slowapi or aioredlock, maps each library to grelmicro and says what changes on more than one replica. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+* 📝 A new page, Coming from APScheduler, slowapi or aioredlock, maps each library to grelmicro and says what changes on more than one replica. ([#1116](https://github.com/grelinfo/grelmicro/pull/1116))
 
 ## 0.42.4 - 2026-10-22
 
