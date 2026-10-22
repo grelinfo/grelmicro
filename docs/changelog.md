@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+* ⚡️ `import grelmicro` loads pydantic-settings only when a config first reads the environment, which saves 36 modules, about 1.7 MB and 10 ms. ([#1122](https://github.com/grelinfo/grelmicro/pull/1122))
+
 ### Fixed
 * 🐛 A claimed task's first fire and an outbox message waiting at startup find their backends open. `Tasks` and `Outbox` open after every other item in `uses=`, whatever order it is listed in, so the first run no longer fails with `no such table` on SQLite and Postgres. ([#1113](https://github.com/grelinfo/grelmicro/pull/1113))
 
