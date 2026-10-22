@@ -47,8 +47,10 @@ Declare patterns at module load, next to your routes. `Lock("cart")`,
 the same `Lock` runs on Redis in production and on memory in tests with no
 rewiring.
 
-`async with micro:` opens everything in `uses=[...]` in order and closes it in
-reverse. `import grelmicro` imports no vendor SDK. A provider such as
+`async with micro:` opens everything in `uses=[...]` in dependency order and
+closes it in reverse. A Provider opens before the components that borrow it,
+and `Outbox` then `Tasks` open after everything else, so a first run finds
+every backend open. `import grelmicro` imports no vendor SDK. A provider such as
 `grelmicro.providers.redis` loads `redis` only when you import it.
 
 ## Register something conditionally

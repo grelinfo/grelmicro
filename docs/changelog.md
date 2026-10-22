@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+* 🐛 A claimed task's first fire and an outbox message waiting at startup find their backends open. `Tasks` and `Outbox` open after every other item in `uses=`, whatever order it is listed in, so the first run no longer fails with `no such table` on SQLite and Postgres. ([#1113](https://github.com/grelinfo/grelmicro/pull/1113))
+
 ### Docs
 * 📝 The installation guide warns that Python 3.13 or older installs 0.41.x and states the supported Python window. ([#1110](https://github.com/grelinfo/grelmicro/pull/1110))
 * 📝 A new page, Coming from APScheduler, slowapi or aioredlock, maps each library to grelmicro and says what changes on more than one replica. ([#1116](https://github.com/grelinfo/grelmicro/pull/1116))
