@@ -149,11 +149,11 @@ Alternative: `Show HN: Grelmicro: make a FastAPI app safe to run on more than on
 >
 > **Target Audience**
 >
-> Teams running FastAPI, Starlette, Litestar or FastStream services on more than one replica, typically on Kubernetes. Python 3.14+. It is pre-1.0 (add a line on your own production use if true). The API can still change on a minor release.
+> Teams running FastAPI, Starlette, Litestar or FastStream services on more than one replica, typically on Kubernetes. Python 3.14+. It is pre-1.0. I run it in a few internal tools in daily use and in my prototypes. The API can still change on a minor release.
 >
 > **Comparison**
 >
-> APScheduler runs a job in every process. slowapi and fastapi-limiter count per backend but stay FastAPI-only. pybreaker is sync-first. aioredlock is Redis-only and unmaintained since 2023. grelmicro covers these patterns with one provider and one lifecycle, on four backends. If you need only one pattern, the focused library is often the better pick, and the comparison page says which.
+> APScheduler 3 runs a job in every process. slowapi and fastapi-limiter count per backend but stay FastAPI-only. pybreaker is sync-first. aioredlock is Redis-only and unmaintained since 2023. grelmicro covers these patterns with one provider and one lifecycle, on four backends. If you need only one pattern, the focused library is often the better pick, and the comparison page says which.
 >
 > - Repo: https://github.com/grelinfo/grelmicro
 > - Docs: https://grelmicro.grel.info/
