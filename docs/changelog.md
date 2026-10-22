@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.42.4 - 2026-10-22
 
 ### Changed
 * ⬆️ `grelmicro[jwt]` requires `grelmicro-core` 0.1.4, built with PyO3 0.29.3 and aws-lc-rs 1.18.2. ([#1108](https://github.com/grelinfo/grelmicro/pull/1108))
