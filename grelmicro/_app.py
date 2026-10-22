@@ -382,7 +382,9 @@ class Grelmicro:
                 """
                 Raise `LifecycleOrderError` instead of warning when a
                 Component holds a Provider that is missing from `uses=`
-                or listed after the dependent Component. Default `False`
+                or listed after the dependent Component, and instead of
+                reordering when `Tasks` or `Outbox` is listed before a
+                Provider or a backend Component. Default `False`
                 preserves the lenient warn-only behavior so existing
                 apps keep starting.
                 """,
@@ -1884,7 +1886,11 @@ class Grelmicro:
                 self._exit_stack.callback(uninstrument_libraries, libraries)
 
     async def __aenter__(self) -> Self:
-        """Open every registered item in registration order.
+        """Open every registered item in dependency order.
+
+        Items open in registration order, except that a Provider opens before
+        the Components that borrow it, and `Outbox` then `Tasks` open after
+        everything else.
 
         The active-app `ContextVar` is set before entries so items can call
         `Grelmicro.current()` from their `__aenter__`. On partial-startup
@@ -1958,7 +1964,7 @@ class Grelmicro:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool | None:
-        """Close every item in reverse registration order (LIFO)."""
+        """Close every item in the reverse of the order it opened in (LIFO)."""
         if self._exit_stack is None:
             msg = (
                 "This Grelmicro app is not open, so there is nothing to "
@@ -1996,6 +2002,7 @@ class Grelmicro:
             self._swap_in_fakes()
         self._discover_shared_providers()
         self._order_providers_before_dependents()
+        self._open_runners_last()
         self._resolve_provider_sharing()
         if self._unfaked is None:
             report_unmet_requirements(
@@ -2072,6 +2079,29 @@ class Grelmicro:
         who want the list they wrote to be the list that runs.
         """
         _order_providers_first(self._items, strict=self._strict)
+
+    def _open_runners_last(self) -> None:
+        """Open the outbox and then the tasks after every other item.
+
+        `Tasks` fires a task and `Outbox` hands out a waiting message as soon
+        as they open, and that code resolves its backends through the app.
+        They open after everything else, so the first run finds every backend
+        open and its tables created, and they close first.
+
+        `Grelmicro(strict=True)` raises `LifecycleOrderError` instead when one
+        is listed before a Provider, a backend Component or a runner that
+        opens earlier. The default Components of a bare Provider are not
+        listed, so moving past them is not a reorder.
+        """
+        if self._strict:
+            implicit = {
+                id(self._by_key[kind, "default"])
+                for kind in self._default_kinds
+            }
+            _refuse_runner_before_backend(
+                [item for item in self._items if id(item) not in implicit]
+            )
+        _order_runners_last(self._items)
 
 
 class _ProviderBorrower(Protocol):
@@ -2433,6 +2463,53 @@ def _move_provider_ahead(
         )
         raise LifecycleOrderError(msg)
     items.insert(index, items.pop(position))
+
+
+def _open_rank(item: object) -> int:
+    """Return where `item` opens: 0 for most, higher ranks open later."""
+    return getattr(item, "_open_rank", 0)
+
+
+def _order_runners_last(
+    items: list[AbstractAsyncContextManager[object]],
+) -> None:
+    """Move the items that run work on open to the end.
+
+    The sort is stable, so items of one rank keep their listed order.
+    """
+    items.sort(key=_open_rank)
+
+
+def _refuse_runner_before_backend(
+    listed: list[AbstractAsyncContextManager[object]],
+) -> None:
+    """Raise when a runner is listed before an item its first run may use.
+
+    That is a Provider, a backend Component, or a runner of a lower rank
+    (a task may publish to the outbox). Items such as `HealthChecks` or
+    `Log` may follow a runner.
+    """
+    backend_types = tuple(
+        kind.factory
+        for kind in backend_kinds()
+        if isinstance(kind.factory, type)
+    )
+    for index, runner in enumerate(listed):
+        rank = _open_rank(runner)
+        if not rank:
+            continue
+        for later in listed[index + 1 :]:
+            if isinstance(later, (Provider, *backend_types)) or (
+                0 < _open_rank(later) < rank
+            ):
+                msg = diagnostic(
+                    PROVIDER_ORDER,
+                    f"{type(runner).__name__} is listed before "
+                    f"{type(later).__name__} in Grelmicro(uses=[...]), and "
+                    f"its first run may use it. List "
+                    f"{type(runner).__name__} after it.",
+                )
+                raise LifecycleOrderError(msg)
 
 
 def _default_components_for_provider(provider: Provider) -> list[Component]:

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+* 🐛 A claimed task's first fire and an outbox message waiting at startup find their backends open. `Tasks` and `Outbox` open after every other item in `uses=`, whatever order it is listed in, so the first run no longer fails with `no such table` on SQLite and Postgres. Under `Grelmicro(strict=True)`, listing `Tasks` or `Outbox` before a backend their first run may use raises `LifecycleOrderError` instead. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+
 ## 0.42.4 - 2026-10-22
 
 ### Changed

@@ -291,7 +291,8 @@ its lifecycle.
 
 **Order does not matter.** A Provider opens before the Components that
 borrow it, wherever you list it, and a Provider you leave out entirely is
-discovered and opened for you. `uses=` says what the app is made of, and
+discovered and opened for you. `Outbox` and `Tasks` open after everything
+else, so a task's first fire finds its lock table created. `uses=` says what the app is made of, and
 grelmicro opens it in dependency order.
 
 This matters because the resource is often lazy: `PostgresProvider` builds
@@ -300,7 +301,9 @@ reach for `provider.client` before the pool exists.
 
 Listing the Provider first still reads well and is worth doing for a human
 reader. If you want the list you wrote to be exactly the list that runs,
-`Grelmicro(strict=True)` raises `LifecycleOrderError` instead of reordering.
+`Grelmicro(strict=True)` raises `LifecycleOrderError` instead of reordering,
+also when `Tasks` or `Outbox` is listed before a Provider or a backend
+Component.
 
 ## SQLite
 

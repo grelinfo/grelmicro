@@ -63,7 +63,7 @@ configuration it names. Each entry below says which.
 | `backend-scope` | `BackendScopeWarning` | `BackendScopeError` | A bound backend reaches less far than its component requires. |
 | `ambient-binding` | `AmbientBindingWarning` | `AmbientBindingError` | Ambient components are registered but the binding middleware is missing. |
 | `middleware-placement` | `MiddlewarePlacementWarning` | `MiddlewarePlacementError` | A grelmicro middleware wraps middleware the app declared itself, so it would answer before them, cannot see a path it serves, or cannot be added. |
-| `provider-order` | none | `LifecycleOrderError` | A Provider is listed after the Component that borrows it. |
+| `provider-order` | none | `LifecycleOrderError` | A Provider is listed after the Component that borrows it, or `Tasks` or `Outbox` is listed before a backend it may use. |
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
 | `leader-not-running` | `LeaderNotRunningWarning` | none | A task is gated on a leader election that does not run, so it skips every fire. |
 | `ungated-cron` | `UngatedCronWarning` | none | A cron task with no `gate=` runs each fire on every worker, although a schedule backend is registered. |
@@ -137,10 +137,11 @@ says the app serves no HTTP, is not refused.
 
 ### `provider-order`
 
-List providers before the components that borrow them. grelmicro reorders them
-for you by default, and raises `LifecycleOrderError` under
-`Grelmicro(strict=True)`, which asks for the list you wrote to be the list that
-runs.
+List providers before the components that borrow them, and `Tasks` and
+`Outbox` after the providers and backend components their first run may use.
+grelmicro reorders them for you by default, and raises `LifecycleOrderError`
+under `Grelmicro(strict=True)`, which asks for the list you wrote to be the list
+that runs. Items such as `HealthChecks` or `Log` may follow `Tasks`.
 
 ### `sentinel-password`
 
