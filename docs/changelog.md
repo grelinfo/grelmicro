@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+* ✨ `GrelmicroFutureWarning` warns one release before a default changes or a name is removed. Passing the argument silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
+
 ## 0.42.4 - 2026-10-22
 
 ### Changed
