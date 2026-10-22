@@ -301,9 +301,7 @@ reach for `provider.client` before the pool exists.
 
 Listing the Provider first still reads well and is worth doing for a human
 reader. If you want the list you wrote to be exactly the list that runs,
-`Grelmicro(strict=True)` raises `LifecycleOrderError` instead of reordering,
-also when `Tasks` or `Outbox` is listed before a Provider or a backend
-Component.
+`Grelmicro(strict=True)` raises `LifecycleOrderError` instead of reordering.
 
 ## SQLite
 

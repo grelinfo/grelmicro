@@ -382,9 +382,7 @@ class Grelmicro:
                 """
                 Raise `LifecycleOrderError` instead of warning when a
                 Component holds a Provider that is missing from `uses=`
-                or listed after the dependent Component, and instead of
-                reordering when `Tasks` or `Outbox` is listed before a
-                Provider or a backend Component. Default `False`
+                or listed after the dependent Component. Default `False`
                 preserves the lenient warn-only behavior so existing
                 apps keep starting.
                 """,
@@ -2087,20 +2085,7 @@ class Grelmicro:
         as they open, and that code resolves its backends through the app.
         They open after everything else, so the first run finds every backend
         open and its tables created, and they close first.
-
-        `Grelmicro(strict=True)` raises `LifecycleOrderError` instead when one
-        is listed before a Provider, a backend Component or a runner that
-        opens earlier. The default Components of a bare Provider are not
-        listed, so moving past them is not a reorder.
         """
-        if self._strict:
-            implicit = {
-                id(self._by_key[kind, "default"])
-                for kind in self._default_kinds
-            }
-            _refuse_runner_before_backend(
-                [item for item in self._items if id(item) not in implicit]
-            )
         _order_runners_last(self._items)
 
 
@@ -2478,38 +2463,6 @@ def _order_runners_last(
     The sort is stable, so items of one rank keep their listed order.
     """
     items.sort(key=_open_rank)
-
-
-def _refuse_runner_before_backend(
-    listed: list[AbstractAsyncContextManager[object]],
-) -> None:
-    """Raise when a runner is listed before an item its first run may use.
-
-    That is a Provider, a backend Component, or a runner of a lower rank
-    (a task may publish to the outbox). Items such as `HealthChecks` or
-    `Log` may follow a runner.
-    """
-    backend_types = tuple(
-        kind.factory
-        for kind in backend_kinds()
-        if isinstance(kind.factory, type)
-    )
-    for index, runner in enumerate(listed):
-        rank = _open_rank(runner)
-        if not rank:
-            continue
-        for later in listed[index + 1 :]:
-            if isinstance(later, (Provider, *backend_types)) or (
-                0 < _open_rank(later) < rank
-            ):
-                msg = diagnostic(
-                    PROVIDER_ORDER,
-                    f"{type(runner).__name__} is listed before "
-                    f"{type(later).__name__} in Grelmicro(uses=[...]), and "
-                    f"its first run may use it. List "
-                    f"{type(runner).__name__} after it.",
-                )
-                raise LifecycleOrderError(msg)
 
 
 def _default_components_for_provider(provider: Provider) -> list[Component]:

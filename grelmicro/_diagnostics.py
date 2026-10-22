@@ -61,7 +61,7 @@ MIDDLEWARE_PLACEMENT: Final = "middleware-placement"
 """A grelmicro middleware sits where it answers before the app's own, or nothing places it."""
 
 PROVIDER_ORDER: Final = "provider-order"
-"""A Provider is listed after its Component, or a runner before a backend it may use."""
+"""A Provider is listed after the Component that borrows it."""
 
 HEALTH_NOT_SERVED: Final = "health-not-served"
 """A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404."""

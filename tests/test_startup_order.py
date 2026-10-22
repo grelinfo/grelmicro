@@ -16,7 +16,7 @@ from uuid import uuid4
 import pytest
 from pydantic import BaseModel
 
-from grelmicro import Grelmicro, LifecycleOrderError, Usable
+from grelmicro import Grelmicro, Usable
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.health import HealthChecks
 from grelmicro.outbox import Message, Outbox
@@ -168,42 +168,14 @@ async def test_runners_open_last_and_close_first(tmp_path: Path) -> None:
     assert order[-2:] == [outbox, tasks]
 
 
-async def test_strict_refuses_tasks_listed_before_a_provider(
+async def test_strict_opens_tasks_after_the_provider_listed_later(
     tmp_path: Path,
 ) -> None:
-    """`strict=True` raises rather than open the tasks later than written."""
-    tasks = Tasks()
-    micro = Grelmicro(
-        uses=[tasks, SQLiteProvider(tmp_path / "app.db")], strict=True
-    )
-
-    with pytest.raises(LifecycleOrderError, match="Tasks is listed before"):
-        async with micro:
-            pass
-
-
-async def test_strict_refuses_tasks_listed_before_the_outbox() -> None:
-    """A task may publish to the outbox, so it is listed after it."""
-    tasks = Tasks()
-    micro = Grelmicro(uses=[tasks, Outbox(MemoryOutboxAdapter())], strict=True)
-
-    with pytest.raises(LifecycleOrderError, match="before Outbox"):
-        async with micro:
-            pass
-
-
-async def test_strict_accepts_items_no_run_uses_after_tasks(
-    tmp_path: Path,
-) -> None:
-    """`strict=True` lets `HealthChecks` follow `Tasks`.
-
-    The defaults a bare provider fills are not in the list either, so the
-    tasks moving past them reorders nothing that was written.
-    """
+    """`strict=True` opens tasks last too, rather than raising."""
     tasks = Tasks()
 
     await _assert_first_claimed_run(
-        [SQLiteProvider(tmp_path / "app.db"), tasks, HealthChecks()],
+        [tasks, SQLiteProvider(tmp_path / "app.db"), HealthChecks()],
         tasks,
         strict=True,
     )
