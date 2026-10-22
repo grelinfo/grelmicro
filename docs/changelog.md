@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+* ⚡️ `import grelmicro` loads pydantic-settings only when a config first reads the environment, which saves 36 modules, about 1.7 MB and 10 ms. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+
 ## 0.42.4 - 2026-10-22
 
 ### Changed
