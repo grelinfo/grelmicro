@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+* 📝 A new page, Coming from APScheduler, slowapi or aioredlock, maps each library to grelmicro and says what changes on more than one replica. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+
 ## 0.42.4 - 2026-10-22
 
 ### Changed

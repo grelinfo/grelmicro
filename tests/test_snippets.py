@@ -92,6 +92,7 @@ _NEEDS_SERVICE = {
     "cache/refresh.py": "Redis",
     "cache/stream.py": "Redis",
     "cache/tags.py": "Redis",
+    "coming_from/shared_lock.py": "Redis",
     "coordination/leaderelection_asyncio.py": "Redis, and it runs forever",
     "coordination/quickstart_lock.py": "Redis",
     "idempotency/run.py": "Redis",
