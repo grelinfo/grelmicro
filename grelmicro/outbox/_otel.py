@@ -8,12 +8,13 @@ is absent, resolved once and cached so the hot path stays cheap.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from contextlib import contextmanager
 from functools import cache
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Mapping
     from uuid import UUID
 
 
@@ -45,7 +46,7 @@ def inject_trace_context(headers: dict[str, Any]) -> None:
 @contextmanager
 def consumer_span(
     *, topic: str, message_id: UUID, headers: Mapping[str, Any]
-) -> Iterator[None]:
+) -> Generator[None]:
     """Run the handler inside a consumer span linked to the publisher.
 
     A no-op when OpenTelemetry is not installed. The span uses the message's

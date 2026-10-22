@@ -23,6 +23,7 @@ import random
 import re
 import secrets
 import string
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
@@ -89,7 +90,6 @@ if TYPE_CHECKING:
         AsyncGenerator,
         Hashable,
         Iterable,
-        Iterator,
         Mapping,
         Sequence,
     )
@@ -354,7 +354,7 @@ class ClientAuth:
             else SecretStr(secret)
         )
         auth = object.__new__(cls)
-        auth._setup(_SECRET, secret=held, method=method)  # noqa: SLF001
+        auth._setup(_SECRET, secret=held, method=method)
         return auth
 
     @classmethod
@@ -416,7 +416,7 @@ class ClientAuth:
             raise SettingsValidationError(str(error)) from None
         thumbprint = None if certificate is None else _thumbprint(certificate)
         auth = object.__new__(cls)
-        auth._setup(  # noqa: SLF001
+        auth._setup(
             _PRIVATE_KEY,
             signer=signer,
             algorithm=algorithm,
@@ -444,9 +444,7 @@ class ClientAuth:
         platform rotates in place is always current.
         """
         auth = object.__new__(cls)
-        auth._setup(  # noqa: SLF001
-            _ASSERTION_FILE, path=None if path is None else str(path)
-        )
+        auth._setup(_ASSERTION_FILE, path=None if path is None else str(path))
         return auth
 
     def __repr__(self) -> str:
@@ -1931,7 +1929,7 @@ def _check_auth(
         raise SettingsValidationError(msg)
 
 
-class _TokenPattern:
+class _TokenPattern[C: _TargetConfig]:
     """What `ClientCredentials` and `TokenExchange` share: a name, a target, a client."""
 
     _PREFIX: ClassVar[str]
@@ -1939,7 +1937,7 @@ class _TokenPattern:
     """The lead and fix a miss on the ambient `OAuthClient` reports."""
 
     _name: str
-    _config: _TargetConfig
+    _config: C
     _client: OAuthClient | None
     _client_name: str
 
@@ -1957,7 +1955,7 @@ class _TokenPattern:
     def _hold(
         self,
         name: str,
-        config: _TargetConfig,
+        config: C,
         client: OAuthClient | str | None,
     ) -> None:
         """Hold the name, the target and the client to resolve."""
@@ -2028,7 +2026,7 @@ def _resolve_target[C: _TargetConfig](
     )
 
 
-class ClientCredentials(_TokenPattern):
+class ClientCredentials(_TokenPattern[ClientCredentialsConfig]):
     """A token for the service itself, to call another API.
 
     The name is the API it calls, and its environment namespace. It finds
@@ -2125,8 +2123,6 @@ class ClientCredentials(_TokenPattern):
             cacheable=True,
         )
 
-    _config: ClientCredentialsConfig
-
     @property
     def config(self) -> ClientCredentialsConfig:
         """The target in effect."""
@@ -2179,7 +2175,7 @@ class ClientCredentials(_TokenPattern):
         )
 
 
-class TokenExchange(_TokenPattern):
+class TokenExchange(_TokenPattern[TokenExchangeConfig]):
     """A token for another API, exchanged for the token a request presented.
 
     The issued token still names the user as its subject. It follows RFC
@@ -2350,8 +2346,6 @@ class TokenExchange(_TokenPattern):
         self._hold(name, config, client)
         self._grant = grant
         self._cache = _TokenCache(config.cache_size)
-
-    _config: TokenExchangeConfig
 
     @property
     def config(self) -> TokenExchangeConfig:
@@ -2829,7 +2823,7 @@ def _tracer() -> Any:  # noqa: ANN401
 
 
 @contextmanager
-def _span(attributes: Mapping[str, str]) -> Iterator[None]:
+def _span(attributes: Mapping[str, str]) -> Generator[None]:
     """Run a token request inside one client span, when tracing is installed."""
     handles = _tracer()
     if handles is None:  # pragma: no cover

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
@@ -22,7 +23,6 @@ from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
     from types import TracebackType
 
     from aiosqlite import Connection
@@ -487,7 +487,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
     @asynccontextmanager
-    async def _transaction(self) -> AsyncIterator[Connection]:
+    async def _transaction(self) -> AsyncGenerator[Connection]:
         """Run a body inside `BEGIN IMMEDIATE` on the shared connection."""
         conn = self._provider.client
         async with self._provider.connection_lock:

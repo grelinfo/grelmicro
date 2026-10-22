@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -23,7 +24,7 @@ from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, MutableMapping
+    from collections.abc import MutableMapping
     from typing import Any
 
     from starlette.requests import Request
@@ -165,7 +166,7 @@ def _build_litestar_app(*, with_middleware: bool) -> tuple[Litestar, Grelmicro]:
         return {"allowed": result.allowed}
 
     @asynccontextmanager
-    async def lifespan(app: Litestar) -> AsyncIterator[None]:  # noqa: ARG001
+    async def lifespan(app: Litestar) -> AsyncGenerator[None]:  # noqa: ARG001
         async with micro:
             yield
 

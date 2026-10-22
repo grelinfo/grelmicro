@@ -4,7 +4,7 @@ import asyncio
 import functools
 import logging
 import warnings
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from typing import Any, Self
 
@@ -52,7 +52,7 @@ def _tasks(**gate: Any) -> Tasks:  # noqa: ANN401
 
 
 @contextmanager
-def _reports() -> Iterator[list[warnings.WarningMessage]]:
+def _reports() -> Generator[list[warnings.WarningMessage]]:
     """Record every ungated-cron warning instead of raising it."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", UngatedCronWarning)

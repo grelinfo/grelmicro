@@ -108,9 +108,11 @@ def fastapi_pipelines(
 ) -> Iterator[list[object]]:
     """Return what FastAPI set up from the environment, and tear it down.
 
-    FastAPI starts with no global providers, so it sets up its own, and the
-    ones before are put back.
+    FastAPI starts with no global providers and with its export from the
+    environment turned on, so it sets up its own, and the ones before are put
+    back.
     """
+    monkeypatch.setenv("FASTAPI_OTEL_AUTO_CONFIGURE", "true")
     for module, name, once in (
         (trace, "_TRACER_PROVIDER", trace._TRACER_PROVIDER_SET_ONCE),
         (

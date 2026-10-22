@@ -2317,7 +2317,7 @@ class TestEarlyRefreshFailureIsObservable:
 
         # Assert
         assert failures
-        assert failures[0].exc_info is not None
+        assert isinstance(failures[0].exc_info, tuple)
         assert isinstance(failures[0].exc_info[1], RuntimeError)
 
     async def test_sync_refresh_failure_is_logged(

@@ -8,6 +8,7 @@ each route requires, both to gate it and to list it.
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -15,8 +16,6 @@ from grelmicro import Grelmicro, GrelmicroMiddleware
 from grelmicro.http import RouteDeclaration
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from tinyweb import Route, TinyWeb
 
     from grelmicro.http import Gate
@@ -27,7 +26,7 @@ def install(app: TinyWeb, micro: Grelmicro, *, ambient: bool = True) -> None:
     previous = app.lifespan
 
     @asynccontextmanager
-    async def lifespan(app: TinyWeb) -> AsyncIterator[None]:
+    async def lifespan(app: TinyWeb) -> AsyncGenerator[None]:
         async with previous(app), micro:
             yield
 

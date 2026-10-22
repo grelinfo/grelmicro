@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Self
 
@@ -26,8 +27,6 @@ from grelmicro.trace import Trace, TraceExporterType  # noqa: E402
 from tests._logs import records_of  # noqa: E402
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from grelmicro.trace._autoinstrument import InstrumentDirective
 
 pytestmark = [pytest.mark.timeout(5)]
@@ -50,7 +49,7 @@ class _RecordingComponent:
 
 
 @asynccontextmanager
-async def _running(app: FastStream) -> AsyncIterator[None]:
+async def _running(app: FastStream) -> AsyncGenerator[None]:
     """Run the FastStream startup and shutdown hooks around the block."""
     await app.start()
     try:
