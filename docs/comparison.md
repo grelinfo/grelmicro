@@ -8,6 +8,8 @@ Most Python libraries in this space are **point solutions**: one library for cac
 
 If you only need a single Pattern, a focused library is often the right pick and this page will say so. If you need two or more, the toolkit story wins by removing four or five config dialects from your codebase.
 
+Moving from APScheduler, slowapi or aioredlock? [Coming from APScheduler, slowapi or aioredlock](coming-from/python-libraries.md) maps each one, side by side.
+
 ## What should I pick?
 
 A short decision tree before the detailed tables:

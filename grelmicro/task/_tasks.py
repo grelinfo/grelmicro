@@ -63,6 +63,10 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         {"timezone"}
     )
 
+    _open_rank: ClassVar[int] = 2
+    """A `Grelmicro` app opens the tasks after every other item, so the
+    first fire finds every backend open."""
+
     def __init__(
         self,
         *,

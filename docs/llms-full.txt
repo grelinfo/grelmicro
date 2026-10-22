@@ -15,6 +15,7 @@
 - [Django](https://grelmicro.grel.info/coming-from/django/): `on_commit`, `cache_page`, django-ratelimit and DRF authentication mapped to grelmicro.
 - [Laravel](https://grelmicro.grel.info/coming-from/laravel/): atomic locks, `onOneServer()`, `afterCommit()` and Passport scopes mapped to grelmicro.
 - [Symfony](https://grelmicro.grel.info/coming-from/symfony/): Lock, RateLimiter, Scheduler, Messenger and the firewall mapped to grelmicro.
+- [APScheduler, slowapi or aioredlock](https://grelmicro.grel.info/coming-from/python-libraries/): scheduled jobs, route rate limits and Redis locks that hold across replicas.
 
 ## User guide
 

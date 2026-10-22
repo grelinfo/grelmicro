@@ -2,7 +2,13 @@
 
 grelmicro supports Python 3.14+ and depends on Pydantic v2+ and FastDepends. The async runtime is `asyncio`. Trio is not supported.
 
-## Why Python 3.14
+!!! warning "Python 3.13 or older installs an old release"
+    On Python 3.13 or older, `pip install grelmicro` installs 0.41.x, which these docs do not cover.
+    Install `"grelmicro>=0.42"` to get an error instead of the old release.
+
+## Supported Python versions
+
+grelmicro supports up to three Python releases, starting with 3.14. Today that is 3.14 and 3.15. Python 3.16 joins once CI tests it. When a fourth release joins, the oldest one drops.
 
 grelmicro builds on 3.14 features, such as the standard library
 [`uuid.uuid7`](https://docs.python.org/3/library/uuid.html#uuid.uuid7)
