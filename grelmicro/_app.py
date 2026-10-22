@@ -1884,7 +1884,11 @@ class Grelmicro:
                 self._exit_stack.callback(uninstrument_libraries, libraries)
 
     async def __aenter__(self) -> Self:
-        """Open every registered item in registration order.
+        """Open every registered item in dependency order.
+
+        Items open in registration order, except that a Provider opens before
+        the Components that borrow it, and `Outbox` then `Tasks` open after
+        everything else.
 
         The active-app `ContextVar` is set before entries so items can call
         `Grelmicro.current()` from their `__aenter__`. On partial-startup
@@ -1958,7 +1962,7 @@ class Grelmicro:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool | None:
-        """Close every item in reverse registration order (LIFO)."""
+        """Close every item in the reverse of the order it opened in (LIFO)."""
         if self._exit_stack is None:
             msg = (
                 "This Grelmicro app is not open, so there is nothing to "
@@ -1996,6 +2000,7 @@ class Grelmicro:
             self._swap_in_fakes()
         self._discover_shared_providers()
         self._order_providers_before_dependents()
+        self._open_runners_last()
         self._resolve_provider_sharing()
         if self._unfaked is None:
             report_unmet_requirements(
@@ -2072,6 +2077,16 @@ class Grelmicro:
         who want the list they wrote to be the list that runs.
         """
         _order_providers_first(self._items, strict=self._strict)
+
+    def _open_runners_last(self) -> None:
+        """Open the outbox and then the tasks after every other item.
+
+        `Tasks` fires a task and `Outbox` hands out a waiting message as soon
+        as they open, and that code resolves its backends through the app.
+        They open after everything else, so the first run finds every backend
+        open and its tables created, and they close first.
+        """
+        _order_runners_last(self._items)
 
 
 class _ProviderBorrower(Protocol):
@@ -2433,6 +2448,21 @@ def _move_provider_ahead(
         )
         raise LifecycleOrderError(msg)
     items.insert(index, items.pop(position))
+
+
+def _open_rank(item: object) -> int:
+    """Return where `item` opens: 0 for most, higher ranks open later."""
+    return getattr(item, "_open_rank", 0)
+
+
+def _order_runners_last(
+    items: list[AbstractAsyncContextManager[object]],
+) -> None:
+    """Move the items that run work on open to the end.
+
+    The sort is stable, so items of one rank keep their listed order.
+    """
+    items.sort(key=_open_rank)
 
 
 def _default_components_for_provider(provider: Provider) -> list[Component]:
