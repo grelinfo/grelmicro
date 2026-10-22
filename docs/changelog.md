@@ -4,6 +4,7 @@
 
 ### Docs
 * 📝 The installation guide warns that Python 3.13 or older installs 0.41.x and states the supported Python window. ([#1110](https://github.com/grelinfo/grelmicro/pull/1110))
+* 📝 A new page, Coming from APScheduler, slowapi or aioredlock, maps each library to grelmicro and says what changes on more than one replica. ([#1116](https://github.com/grelinfo/grelmicro/pull/1116))
 
 ## 0.42.4 - 2026-10-22
 
