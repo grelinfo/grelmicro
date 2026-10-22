@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 import warnings
 
 # Imported at runtime, not under `TYPE_CHECKING`: both appear in the
@@ -47,8 +48,6 @@ from typing import (
 from weakref import WeakSet
 
 from pydantic import AliasChoices, BaseModel, ValidationError
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic_settings.exceptions import SettingsError
 
 from grelmicro._diagnostics import ENV_LOAD_OFF, diagnostic
 from grelmicro._json import json_loads
@@ -56,6 +55,8 @@ from grelmicro.errors import EnvLoadOffWarning, SettingsValidationError
 
 if TYPE_CHECKING:
     import asyncio
+
+    from pydantic_settings import BaseSettings
 
 C = TypeVar("C", bound=BaseModel)
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
@@ -390,17 +391,9 @@ def resolve_config[C: BaseModel](
 
         refuse_retired_env(config_cls, (env_prefix, kind_env_prefix))
         _reject_cross_arm_env(config_cls, sibling, env_prefix, kind_env_prefix)
-        settings_cls = _build_settings_cls(
-            config_cls,
-            env_prefix,
-            tuple(sorted(shared_env.items())) if shared_env else (),
-            kind_env_prefix,
+        return _resolve_from_env(
+            config_cls, provided, env_prefix, shared_env, kind_env_prefix
         )
-        # The dynamic subclass is built at runtime via `type(...)` below, so
-        # ty cannot prove that `settings_cls` accepts the kwargs declared on
-        # `config_cls` or that it returns `C`. Pydantic's runtime validation
-        # enforces the contract.
-        return settings_cls(**provided)  # ty: ignore[invalid-return-type, invalid-argument-type]
     except ValidationError as error:
         # Never let the raw pydantic error escape: it carries `input_value`,
         # and the value came from the environment, where a credential can
@@ -408,6 +401,36 @@ def resolve_config[C: BaseModel](
         # and the reason without the input. The reload path already
         # redacts, so this makes both directions of the same layer agree.
         raise SettingsValidationError(error) from None
+
+
+def _resolve_from_env[C: BaseModel](
+    config_cls: type[C],
+    provided: Mapping[str, object],
+    env_prefix: str,
+    shared_env: Mapping[str, str] | None,
+    kind_env_prefix: str | None,
+) -> C:
+    """Build ``config_cls`` from ``provided`` and the environment.
+
+    Loads pydantic-settings on first use.
+
+    Raises:
+        SettingsValidationError: If a complex field holds malformed JSON.
+    """
+    from pydantic_settings.exceptions import SettingsError  # noqa: PLC0415
+
+    settings_cls = _build_settings_cls(
+        config_cls,
+        env_prefix,
+        tuple(sorted(shared_env.items())) if shared_env else (),
+        kind_env_prefix,
+    )
+    try:
+        # The dynamic subclass is built at runtime via `type(...)` below, so
+        # ty cannot prove that `settings_cls` accepts the kwargs declared on
+        # `config_cls` or that it returns `C`. Pydantic's runtime validation
+        # enforces the contract.
+        return settings_cls(**provided)  # ty: ignore[invalid-return-type, invalid-argument-type]
     except SettingsError as error:
         # A complex field (a dict or a list) is JSON-decoded by
         # pydantic-settings in the source stage, before validation runs, so a
@@ -616,6 +639,11 @@ def _build_settings_cls[C: BaseModel](
     component instance per process); the bound is a safety net for long-
     running processes that derive prefixes from runtime inputs.
     """
+    from pydantic_settings import (  # noqa: PLC0415
+        BaseSettings,
+        SettingsConfigDict,
+    )
+
     # `model_config` is a TypedDict (`SettingsConfigDict`/`ConfigDict`).
     # Spreading it into a plain dict to add `env_prefix` widens the value
     # type to `dict[str, object]`.
@@ -677,6 +705,17 @@ def build_config[C: BaseModel](config_cls: type[C], /, **fields: object) -> C:
         return config_cls(**fields)
     except ValidationError as error:
         raise SettingsValidationError(error) from None
+
+
+def _is_env_settings(config: BaseModel) -> bool:
+    """Return whether ``config`` was built from the environment.
+
+    Such a config is a ``BaseSettings`` subclass. Never loads
+    pydantic-settings: when it is not loaded, no config was built from
+    the environment.
+    """
+    settings = sys.modules.get("pydantic_settings")
+    return settings is not None and isinstance(config, settings.BaseSettings)
 
 
 class Live[StateT]:
@@ -775,8 +814,7 @@ class Reconfigurable[ConfigT: BaseModel]:
         # accepting it would trade a clean `TypeError` here for an
         # `AttributeError` deeper in `_apply_reconfigure`.
         if not isinstance(new_config, type(current)) and not (
-            isinstance(current, BaseSettings)
-            and isinstance(current, type(new_config))
+            _is_env_settings(current) and isinstance(current, type(new_config))
         ):
             msg = (
                 f"reconfigure requires {type(current).__name__}, "
