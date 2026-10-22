@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+* 📝 The installation guide warns that Python 3.13 or older installs 0.41.x and states the supported Python window. ([#1110](https://github.com/grelinfo/grelmicro/pull/1110))
+
 ## 0.42.4 - 2026-10-22
 
 ### Changed
