@@ -18,7 +18,7 @@ Run via `just release`, `just release-check` and `just release-notes`.
 from __future__ import annotations
 
 import argparse
-import datetime
+import datetime as dt
 import re
 import subprocess
 import sys
@@ -279,7 +279,7 @@ def main() -> int:
         item = sub.add_parser(name)
         item.add_argument("version")
     args = parser.parse_args()
-    today = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
+    today = dt.datetime.now(tz=dt.UTC).date().isoformat()
     if args.command == "release":
         return release(args.version, today)
     if args.command == "check":

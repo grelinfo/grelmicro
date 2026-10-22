@@ -7,6 +7,7 @@ request starts empty.
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -25,7 +26,7 @@ from grelmicro import Grelmicro
 from grelmicro.trace import add_context, get_context
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import Callable
 
     from starlette.requests import Request
 
@@ -101,7 +102,7 @@ def test_add_context_in_request_handler_adds_fields(framework: str) -> None:
 
 
 @asynccontextmanager
-async def _running(app: FastStream) -> AsyncIterator[None]:
+async def _running(app: FastStream) -> AsyncGenerator[None]:
     await app.start()
     try:
         yield

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -19,7 +20,6 @@ from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 if TYPE_CHECKING:
     from collections.abc import (
-        AsyncIterator,
         Awaitable,
         Callable,
         MutableMapping,
@@ -42,7 +42,7 @@ def _build_app(*, with_middleware: bool) -> FastAPI:
     micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:  # noqa: ARG001
         async with micro:
             yield
 
@@ -128,7 +128,7 @@ def _build_installed_app(
     if custom_lifespan is not None:
 
         @asynccontextmanager
-        async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
+        async def lifespan(app: FastAPI) -> AsyncGenerator[None]:  # noqa: ARG001
             custom_lifespan.append("enter")
             yield
             custom_lifespan.append("exit")

@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import inspect
 import weakref
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
@@ -44,7 +45,6 @@ from grelmicro.trace._autoinstrument import request_spans
 
 if TYPE_CHECKING:
     from collections.abc import (
-        AsyncIterator,
         Awaitable,
         Callable,
         Iterator,
@@ -146,7 +146,7 @@ def _wire(app: Starlette, micro: Grelmicro, *, ambient: bool) -> None:
     previous = app.router.lifespan_context
 
     @asynccontextmanager
-    async def lifespan(app: Starlette) -> AsyncIterator[Any]:
+    async def lifespan(app: Starlette) -> AsyncGenerator[Any]:
         _check_binding_outermost(app)
         async with previous(app) as state, micro:
             yield state

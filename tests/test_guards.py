@@ -47,7 +47,7 @@ class _HostileMeta(type):
     """A metaclass whose `__name__` raises, blocking the last resort."""
 
     @property
-    def __name__(cls) -> str:
+    def __name__(cls) -> str:  # ty: ignore[invalid-property-type-override]
         """Raise, so even the type name cannot be read."""
         msg = "metaclass __name__"
         raise RuntimeError(msg)
@@ -74,7 +74,7 @@ class _InterruptingMeta(type):
     """A metaclass whose `__name__` raises an interrupt."""
 
     @property
-    def __name__(cls) -> str:
+    def __name__(cls) -> str:  # ty: ignore[invalid-property-type-override]
         """Raise an interrupt, which no guard may swallow."""
         raise KeyboardInterrupt
 
@@ -176,7 +176,7 @@ class _SubclassNameMeta(type):
     """A metaclass whose `__name__` is a string subclass."""
 
     @property
-    def __name__(cls) -> str:
+    def __name__(cls) -> str:  # ty: ignore[invalid-property-type-override]
         """Return a hostile subclass, which `str()` accepts."""
         return _EvilName("Evil")
 

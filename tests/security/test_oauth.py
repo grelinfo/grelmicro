@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import datetime
+import datetime as dt
 import email.utils
 import hashlib
 import importlib
@@ -307,7 +307,7 @@ def basic_pair(request: httpx.Request) -> tuple[str, str]:
 def certificate_pem(key: ec.EllipticCurvePrivateKey) -> bytes:
     """Return a self-signed certificate for `key`, as PEM."""
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "orders-api")])
-    now = datetime.datetime.now(datetime.UTC)
+    now = dt.datetime.now(dt.UTC)
     certificate = (
         x509.CertificateBuilder()
         .subject_name(name)
@@ -315,7 +315,7 @@ def certificate_pem(key: ec.EllipticCurvePrivateKey) -> bytes:
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=1))
+        .not_valid_after(now + dt.timedelta(days=1))
         .sign(key, hashes.SHA256())
     )
     return certificate.public_bytes(serialization.Encoding.PEM)
@@ -874,7 +874,7 @@ class TestClientCredentials:
     ) -> None:
         """A token refreshes `refresh_before` ahead of expiry, to the nanosecond."""
         # Arrange
-        refresh_before = datetime.timedelta(milliseconds=1500)
+        refresh_before = dt.timedelta(milliseconds=1500)
         async with secret_client(refresh_before=refresh_before) as client:
             pattern = payments(client)
             await pattern.token()
@@ -897,7 +897,7 @@ class TestClientCredentials:
     ) -> None:
         """A token sent without `expires_in` is served until its default lifetime ends."""
         # Arrange
-        lifetime = datetime.timedelta(milliseconds=500)
+        lifetime = dt.timedelta(milliseconds=500)
         server.answers.append(token_response("short", expires_in=None))
         async with secret_client(default_lifetime=lifetime) as client:
             pattern = payments(client)
@@ -924,12 +924,12 @@ class TestClientCredentials:
         now=st.integers(min_value=0, max_value=10**15),
         lifetime=st.integers(min_value=1, max_value=10**15),
         before=st.timedeltas(
-            min_value=datetime.timedelta(microseconds=1),
-            max_value=datetime.timedelta(days=2),
+            min_value=dt.timedelta(microseconds=1),
+            max_value=dt.timedelta(days=2),
         ),
     )
     def test_oauth_client_refresh_never_later_than_refresh_before(
-        self, now: int, lifetime: int, before: datetime.timedelta
+        self, now: int, lifetime: int, before: dt.timedelta
     ) -> None:
         """A token refreshes at least `refresh_before` ahead, at most half again earlier."""
         # Arrange
@@ -941,7 +941,7 @@ class TestClientCredentials:
             env_load=False,
         )
         ahead = min(
-            before // datetime.timedelta(microseconds=1) * 1_000, lifetime // 2
+            before // dt.timedelta(microseconds=1) * 1_000, lifetime // 2
         )
         expires = now + lifetime
 

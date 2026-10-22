@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import logging
 from collections import OrderedDict
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, cast, get_args
 
@@ -98,7 +99,7 @@ class Fold:
         return self.scope != "process"
 
     @asynccontextmanager
-    async def across(self, key: str) -> AsyncIterator[bool]:
+    async def across(self, key: str) -> AsyncGenerator[bool]:
         """Hold `key` across processes for the body, when the scope asks it.
 
         Yields whether the body runs under the cross-process lock. A lock

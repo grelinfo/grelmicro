@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Self, cast
@@ -63,7 +64,7 @@ from grelmicro.providers.memory import MemoryProvider
 from tests.test_route_gate_litestar import Passing
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import Callable
 
     from starlette.requests import Request
     from starlette.types import Scope
@@ -728,7 +729,7 @@ def test_litestar_install_middleware_alone_never_replays_a_crash() -> None:
         raise RuntimeError(msg)
 
     @asynccontextmanager
-    async def opened(app: Litestar) -> AsyncIterator[None]:  # noqa: ARG001
+    async def opened(app: Litestar) -> AsyncGenerator[None]:  # noqa: ARG001
         async with micro:
             yield
 

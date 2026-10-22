@@ -248,7 +248,7 @@ async def test_metrics_shutdown_exception_logged_not_propagated(
 
     assert any(
         "MeterProvider.shutdown raised an exception" in record.message
-        and record.exc_info is not None
+        and isinstance(record.exc_info, tuple)
         and isinstance(record.exc_info[1], RuntimeError)
         for record in caplog.records
     )

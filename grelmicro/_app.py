@@ -9,6 +9,7 @@ import logging
 import warnings
 import weakref
 from collections import Counter
+from collections.abc import AsyncGenerator
 from contextlib import (
     AbstractAsyncContextManager,
     AsyncExitStack,
@@ -87,7 +88,6 @@ _logger = logging.getLogger("grelmicro")
 
 if TYPE_CHECKING:
     from collections.abc import (
-        AsyncIterator,
         Callable,
         Iterable,
         Mapping,
@@ -961,7 +961,7 @@ class Grelmicro:
         return _Fake(self, tuple(keep))
 
     @asynccontextmanager
-    async def _fake_open_app(self) -> AsyncIterator[None]:
+    async def _fake_open_app(self) -> AsyncGenerator[None]:
         """Swap every fakeable component of the open app for the block."""
         from grelmicro.providers.memory import MemoryProvider  # noqa: PLC0415
 
@@ -1066,7 +1066,7 @@ class Grelmicro:
                 """,
             ),
         ],
-    ) -> AsyncIterator[None]:
+    ) -> AsyncGenerator[None]:
         """Swap component registrations for a block, restore them on exit.
 
         Used in tests to substitute mock components:

@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import warnings
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import timedelta
 
@@ -60,7 +60,7 @@ def _app(clock: VirtualClock, *uses: Tasks) -> Grelmicro:
 
 
 @contextmanager
-def _reports() -> Iterator[list[warnings.WarningMessage]]:
+def _reports() -> Generator[list[warnings.WarningMessage]]:
     """Record every leader-not-running warning instead of raising it."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", LeaderNotRunningWarning)
@@ -77,7 +77,7 @@ async def _wait_for(caught: list[warnings.WarningMessage]) -> None:
 
 
 @asynccontextmanager
-async def _running(election: LeaderElection) -> AsyncIterator[None]:
+async def _running(election: LeaderElection) -> AsyncGenerator[None]:
     """Drive `election` by hand for the duration of the block."""
     stop = asyncio.Event()
     async with asyncio.TaskGroup() as tg:
@@ -188,7 +188,7 @@ async def test_election_run_by_a_later_lifespan_does_not_warn() -> None:
     election = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
         async with Tasks(tasks=[election]):
             yield
 

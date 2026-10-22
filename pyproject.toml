@@ -166,7 +166,7 @@ instrumentation = [
 # one through pydantic-core, so this adds no platform that was not already
 # required, and a single implementation keeps one behaviour to verify.
 jwt = [
-    "grelmicro-core>=0.1.3",
+    "grelmicro-core>=0.1.4",
 ]
 structlog = [
     "structlog>=24.1.0",
@@ -409,9 +409,9 @@ filterwarnings = [
     # testcontainers' own deprecation banners, not driven by our code.
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning:testcontainers",
     "ignore:The wait_for_logs function with string or callable predicates is deprecated:DeprecationWarning",
-    # Starlette's TestClient still opens its portal through the alias anyio 4.15
-    # deprecated. Only the test client takes that path.
-    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning:starlette.testclient",
+    # FastAPI deprecates `FastAPI(root_path=...)` but still honors it, so the
+    # tests keep covering apps built that way.
+    "ignore:The `root_path` parameter is deprecated",
     # Sockets and event loops from TestClient and `asyncio.run` are torn down at
     # garbage-collection time, so the interpreter reports them non-deterministically
     # after the owning test ends. This is test-harness noise: grelmicro creates no

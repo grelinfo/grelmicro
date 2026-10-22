@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, cast
 
@@ -41,7 +42,7 @@ from tests.test_authentication import bearer, token, verifier
 from tests.test_route_gate_litestar import Passing
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import Awaitable, Callable
 
     from litestar import Request
     from litestar.types import Receive, Scope, Send
@@ -64,7 +65,7 @@ def _build_app(
     micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
 
     @asynccontextmanager
-    async def lifespan(app: Litestar) -> AsyncIterator[None]:  # noqa: ARG001
+    async def lifespan(app: Litestar) -> AsyncGenerator[None]:  # noqa: ARG001
         if events is not None:
             events.append("enter")
         yield

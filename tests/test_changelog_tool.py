@@ -9,7 +9,7 @@ The rename was the one manual step in the release procedure, and a release
 tag is immutable, so getting it wrong costs a version.
 """
 
-import datetime
+import datetime as dt
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,7 +18,7 @@ import pytest
 
 from tools import changelog
 
-TODAY = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
+TODAY = dt.datetime.now(tz=dt.UTC).date().isoformat()
 
 SAMPLE = """# Changelog
 

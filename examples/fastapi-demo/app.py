@@ -6,7 +6,7 @@ comment naming it. Run it with `docker compose up --wait` (see README).
 
 import logging
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -63,7 +63,7 @@ micro = Grelmicro(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     configure()  # structured JSON logging
     async with micro:
         logger.info("demo started")

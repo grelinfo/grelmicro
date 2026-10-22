@@ -72,7 +72,7 @@ class _UnnameableMeta(type):
     """A metaclass that raises from `__name__`, blocking the last resort."""
 
     @property
-    def __name__(cls) -> str:
+    def __name__(cls) -> str:  # ty: ignore[invalid-property-type-override]
         """Raise, so `type(predicate).__name__` cannot be read either."""
         msg = "metaclass __name__"
         raise RuntimeError(msg)
@@ -820,7 +820,7 @@ class _ResultMeta(type):
     """A metaclass that raises from `__name__`, so naming the result fails."""
 
     @property
-    def __name__(cls) -> str:
+    def __name__(cls) -> str:  # ty: ignore[invalid-property-type-override]
         """Raise, blocking the last resort used to name a result."""
         msg = "metaclass __name__"
         raise RuntimeError(msg)

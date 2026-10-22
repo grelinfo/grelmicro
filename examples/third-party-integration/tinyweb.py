@@ -6,13 +6,14 @@ and answers `404` to any other request.
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import Awaitable, Callable
 
     from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 
 
 @asynccontextmanager
-async def _no_lifespan(app: TinyWeb) -> AsyncIterator[None]:
+async def _no_lifespan(app: TinyWeb) -> AsyncGenerator[None]:
     yield
 
 

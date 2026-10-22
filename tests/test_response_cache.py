@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import sys
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from inspect import iscoroutinefunction
@@ -2137,7 +2138,7 @@ def test_cached_responses_route_added_during_lifespan_is_decided_by_its_declarat
         return {"calls": calls}
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.add_api_route(
             "/private",
             private,
