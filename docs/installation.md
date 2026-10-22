@@ -8,7 +8,7 @@ grelmicro builds on 3.14 features, such as the standard library
 [`uuid.uuid7`](https://docs.python.org/3/library/uuid.html#uuid.uuid7)
 for outbox ids. One floor keeps the codebase free of version checks.
 
-CI runs the tests on Python 3.14. Older Python versions are not supported.
+CI runs the tests on Python 3.14 and 3.15. Older Python versions are not supported.
 
 ## Quick install
 
@@ -47,7 +47,7 @@ grelmicro is modular. Install only the extras you need.
 | `instrumentation` | OpenTelemetry instrumentation packages (Redis, asyncpg) for `Trace(instrument=...)`. | All platforms. |
 | `structlog` | `structlog` as an alternative logging backend. | All platforms. |
 | `yaml` | `pyyaml` for YAML sources in `ExternalConfig`. | All platforms. |
-| `jwt` | `grelmicro-core`, the compiled Rust core behind JWT verification. | Prebuilt wheels for Linux (glibc and musl), macOS, and Windows on CPython 3.14, free-threaded 3.14t included. Elsewhere it builds from source and needs a Rust toolchain. |
+| `jwt` | `grelmicro-core`, the compiled Rust core behind JWT verification. | Prebuilt wheels for Linux (glibc and musl), macOS, and Windows on CPython 3.14 and 3.15, free-threaded 3.14t and 3.15t included. Elsewhere it builds from source and needs a Rust toolchain. |
 
 === "pip"
     ```bash
