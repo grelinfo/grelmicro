@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+* ✨ grelmicro and `grelmicro-core` support Python 3.15. `grelmicro[jwt]` requires `grelmicro-core` 0.1.5, which ships wheels for 3.15 and the free-threaded 3.15t. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+
 ## 0.42.4 - 2026-10-22
 
 ### Changed
