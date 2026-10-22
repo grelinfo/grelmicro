@@ -145,6 +145,22 @@ class UngatedCronWarning(GrelmicroConfigWarning):
     code: ClassVar[str] = "ungated-cron"
 
 
+class GrelmicroFutureWarning(FutureWarning):
+    """Warned when a default or a name changes in a coming minor release.
+
+    A behavior change warns only while the argument is left at its default.
+    Passing the argument keeps the chosen behavior across the switch and
+    emits nothing. A renamed name warns on every use of the old name, which
+    is removed in the release the message names.
+
+    A category of its own so it can be promoted or filtered precisely:
+
+    ```toml
+    filterwarnings = ["error::grelmicro.GrelmicroFutureWarning"]
+    ```
+    """
+
+
 class MiddlewarePlacementError(GrelmicroError, RuntimeError):
     """Raised when `micro.install(app)` cannot place a middleware that must run.
 
