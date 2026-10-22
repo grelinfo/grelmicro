@@ -7,26 +7,32 @@ Maintainer planning doc (not published to the docs site). Tracks the launch task
 The launch ships on the current `0.x` line. It is not gated on a 1.0 bump.
 
 - [x] Tag and publish the launch release on PyPI. Confirm `pip install grelmicro` resolves it. Verified 2026-08-02: 0.34.1 is published, `pip install grelmicro` resolves it in a clean environment, and `just verify-release 0.34.1` confirms build provenance on both the wheel and the sdist. 0.34.0 was tagged the same day but never reached PyPI, because its release run failed on the Python 3.14 matrix before the publish step.
-- [x] `docs/benchmarks.md` numbers dated, with the hardware, interpreter and machine conditions stated next to them. Done 2026-08-04. The bar was "re-run on a clean machine", which was dropped: nobody reading the page can verify a cleanliness claim, and the runnable scripts are what the page is really offering. The page now states that the figures come from a shared developer machine and says to compare against your own baseline, which is honest in a way the unverifiable claim was not. Rows still date from 2026-06-14, circuit breaker from 2026-07-29.
+- [x] `docs/benchmarks.md` numbers dated, with the hardware, interpreter and machine conditions stated next to them. Re-measured 2026-10-22 on CPython 3.14.7 (grelmicro 0.42.4), best of three on a shared developer machine. The lock row is dropped: a release now finishes in a task of its own, so the cycle measures one event loop turn. The JWT claim links its measurements and `benchmarks/jwt_benchmark.py`.
 - [x] The [FastAPI demo](examples/fastapi-demo) starts from a fresh clone in three commands. Verified 2026-07-28: `cd examples/fastapi-demo`, `docker compose up --wait`, `open http://localhost:8000/docs`.
 - [x] Record the demo asset (see below) and embed it in the README. `docs/img/demo.gif`, 840K, embedded at the top of `README.md`.
 - [x] Enable the badges (see below). Scorecard and SLSA 2 are both live in `README.md`. 0.32.5 is the first release publishing a verified attestation.
-- [x] README "Why grelmicro" leads with one sentence a stranger understands.
+- [x] README first screen leads with the wedge: "Your FastAPI service, correct on more than one replica." It says Python 3.14+ and carries six badges.
+- [x] The comparison page opens with the multi-replica case and shows `micro.install(app)`.
+- [x] `[project.urls]` links the changelog.
 - [x] CHANGELOG `Unreleased` section moved under the release version heading.
 
 ## Launch channels (#172)
 
-Post in this order, spacing them out over a day so you can answer comments:
+Lead with one wedge: the scheduled job that runs once across replicas, then the rate limit, lock and circuit breaker that every replica shares. Breadth is the second message, never the lead. Say Python 3.14+ in the first lines of every post.
 
-| Channel | Format | Notes |
-|---|---|---|
-| Hacker News (Show HN) | "Show HN: grelmicro - async microservice toolkit for FastAPI" | Post in the morning ET. Link the repo, not a blog. Be present for the first 2 hours. |
-| r/Python | Text post | Lead with the problem (distributed primitives for FastAPI), then the demo. Flair: "Show and Tell". |
-| r/FastAPI | Text post | Focus on the FastAPI integration and the demo. |
-| dev.to | Article | "Distributed primitives for FastAPI without the boilerplate". Embed the demo asset. |
-| X / Bluesky | Thread | One Pattern per post with a code snippet; end with the repo link. |
+Post on one day, in this order, and stay on each thread:
 
-Draft copy lives in this file's history; refine per channel. Do not cross-post the same text verbatim.
+| When (ET) | Channel | Format | Notes |
+|---|---|---|---|
+| Tue or Wed, 08:00 to 09:00 | Hacker News (Show HN) | Repo link, first comment within 5 minutes | Be present for the first hours. Never ask for votes. |
+| Same day, 11:00 | r/Python | Text post, "Showcase" flair | Three headings: What My Project Does, Target Audience, Comparison. Check the sidebar rules first. |
+| Same day, 14:00 | r/FastAPI | Story post | The two-terminal demo, one GIF. |
+| Same day, 15:00 | FastAPI and Litestar Discord showcase channels | Short note | Link the repo and the demo. |
+| Day 2 | PyCoder's Weekly, Python Trending Weekly | Submission | Blurbs below. |
+| Day 2 | Bluesky, Mastodon, X | Thread | One pattern per post with a snippet, end with the repo link. |
+| Day 3 | dev.to | Article | Outline below. |
+
+Each channel gets its own angle. Do not cross-post the same text verbatim.
 
 ## Badges (#177)
 
@@ -86,119 +92,152 @@ Upload the cast (asciinema.org or an SVG via `svg-term`) and add it to the top o
 
 ## Launch post drafts (#172)
 
-Ready-to-post copy for each channel. Adjust the version number and demo link before publishing. Do not cross-post the same text verbatim.
+Ready-to-post copy for each channel. Adjust the version number and demo link before publishing.
 
 ---
 
 ### Show HN
 
-**Title (79 chars):** `Show HN: grelmicro - async microservice toolkit for Python`
+**Title (75 chars):** `Show HN: Grelmicro, Python cron jobs, locks and rate limits across replicas`
+
+Alternative: `Show HN: Grelmicro: make a FastAPI app safe to run on more than one replica`
 
 **First comment (from the author, post within 5 minutes):**
 
-> I kept re-implementing the same five patterns across every async Python service at work: a distributed lock, a rate limiter, a circuit breaker, a cache with stampede protection, and health check endpoints. Each one pulled in a separate library with its own config format, its own backend client, its own lifecycle hooks.
+> Hi HN, I am Loïc. I built grelmicro after hitting the same bug in every async Python service I shipped: it works on one replica and breaks quietly on two. The hourly job runs twice. The rate limit lets twice the traffic through. One copy keeps calling a dead downstream that the other copy already gave up on.
 >
-> grelmicro bundles them all behind one unified API. One `Grelmicro(uses=[...])` container manages the lifecycle. One Redis client is shared by the cache, the lock, the rate limiter, and the circuit breaker. One `reconfigure(new_config)` call changes thresholds at runtime without a restart.
+> grelmicro is a library, not a framework. You keep FastAPI (or Starlette, Litestar, FastStream). One line names where shared state lives: Redis, Valkey, PostgreSQL or SQLite. Then:
 >
-> It is not a task queue and not a web framework. It is the layer between "I picked FastAPI" and "I need distributed coordination."
+> - `@tasks.every(interval=60, gate="claim")` runs once per interval across all replicas,
+> - `Lock`, `RateLimiter` and `CircuitBreaker` share their state between replicas,
+> - health probes, logs, traces and metrics come wired for Kubernetes.
 >
-> Backends: Redis, PostgreSQL, SQLite, Kubernetes Lease, and in-memory (for tests). Patterns: Lock, TaskLock, LeaderElection, Cache, RateLimiter, CircuitBreaker, Retry, Bulkhead, Fallback, Timeout, HealthChecks, scheduled tasks (interval and cron).
+> Change the backend line and the rest of the code stays the same. A parity test checks every pattern on every framework. JWT verification runs in a small Rust core.
 >
-> The [FastAPI demo](https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo) starts with `docker compose up --wait` and shows every pattern running against real Redis and Postgres.
+> Honest limits: Python 3.14+ only. Pre-1.0, so the API can still change on a minor release. Not a task queue (use Celery, Dramatiq or taskiq for durable jobs). If you only need retries, use tenacity or stamina.
 >
-> Happy to answer questions about design decisions, especially the backend-agnostic protocol model and the ambient resolution pattern.
+> The demo starts with `docker compose up --wait` and runs against real Redis and Postgres. I would love feedback on the lease and fencing model behind the lock, and on what you would want before trusting it in production.
 
 ---
 
 ### r/Python
 
-**Title:** `grelmicro: one async toolkit for distributed locks, rate limits, circuit breakers, cache, cron, and health checks`
+**Title:** `grelmicro: scheduled jobs, locks, rate limits and circuit breakers that stay correct across replicas (FastAPI, Litestar, asyncio)`
 
 **Body:**
 
-grelmicro is out. It is an async Python toolkit that ships the microservice patterns you keep reimplementing, behind a unified API.
-
-What it covers: distributed locks and leader election, cache with stampede protection and serve-stale-on-error, rate limiting (token bucket and sliding window), circuit breakers with live reconfiguration, idempotency keys, interval and cron scheduled tasks, structured JSON logging, OpenTelemetry tracing, and health check endpoints (`/livez`, `/readyz`, `/healthz`).
-
-Backends for each pattern: Redis, PostgreSQL, SQLite, Kubernetes Lease, and in-memory for tests. Swap the backend without changing application code.
-
-Why not separate libraries? If you only need one pattern, a focused library is often the right pick. The comparison page names the right one per domain. When you need two or more in the same service, grelmicro removes four or five separate config dialects and replaces them with one lifecycle (`async with micro:`) and one shared backend client.
-
-- Repo: https://github.com/grelinfo/grelmicro
-- Docs: https://grelmicro.grel.info/
-- Demo: https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo
-- Comparison: https://grelmicro.grel.info/comparison/
-
-`pip install grelmicro`
+> **What My Project Does**
+>
+> grelmicro is an async Python library for the problems that appear when you run a second copy of your service. A scheduled job runs once per interval across all copies, not once per copy. A lock, a rate limit and a circuit breaker share state between copies. One line picks the backend: Redis, Valkey, PostgreSQL or SQLite.
+>
+> ```python
+> from fastapi import FastAPI
+>
+> from grelmicro import Grelmicro
+> from grelmicro.providers.redis import RedisProvider
+> from grelmicro.task import Tasks
+>
+> app = FastAPI()
+> tasks = Tasks()
+> micro = Grelmicro(uses=[RedisProvider("redis://localhost:6379/0"), tasks])
+> micro.install(app)
+>
+>
+> @tasks.every(interval=60, gate="claim")
+> async def send_report() -> None: ...
+> ```
+>
+> **Target Audience**
+>
+> Teams running FastAPI, Starlette, Litestar or FastStream services on more than one replica, typically on Kubernetes. Python 3.14+. It is pre-1.0 (add a line on your own production use if true). The API can still change on a minor release.
+>
+> **Comparison**
+>
+> APScheduler runs a job in every process. slowapi and fastapi-limiter count per backend but stay FastAPI-only. pybreaker is sync-first. aioredlock is Redis-only and unmaintained since 2023. grelmicro covers these patterns with one provider and one lifecycle, on four backends. If you need only one pattern, the focused library is often the better pick, and the comparison page says which.
+>
+> - Repo: https://github.com/grelinfo/grelmicro
+> - Docs: https://grelmicro.grel.info/
+> - Demo: https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo
+> - Comparison: https://grelmicro.grel.info/comparison/
 
 ---
 
 ### r/FastAPI
 
-**Title:** `grelmicro: locks, rate limits, circuit breakers, cache, and health checks for FastAPI - one toolkit, one lifespan`
+**Title:** `My FastAPI cron job ran on every replica. I wrote a library so it runs once.`
 
-**Body:**
-
-grelmicro is a toolkit built for FastAPI and any asyncio app that needs distributed coordination.
-
-The FastAPI integration is three lines: wire `Grelmicro(uses=[...])` into your lifespan and add `GrelmicroMiddleware`. After that, `Lock("cart")`, `RateLimiter.sliding_window(...)`, and `@cached(ttl_cache)` resolve ambiently in request handlers with no explicit `backend=` argument.
+**Angle:** a story post. Show the two-terminal demo from the README and one GIF. Then "the same provider line also gives you a shared lock and circuit breaker", with the README's second example:
 
 ```python
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with micro:
-        yield
+from fastapi import FastAPI
 
-app = FastAPI(lifespan=lifespan)
-app.add_middleware(GrelmicroMiddleware, micro=micro)
+from grelmicro import Grelmicro
+from grelmicro.coordination import Lock
+from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience import CircuitBreaker
+from grelmicro.task import Tasks
+
+app = FastAPI()
+tasks = Tasks()
+micro = Grelmicro(uses=[RedisProvider("redis://localhost:6379/0"), tasks])
+micro.install(app)
+
+sync_lock = Lock("inventory-sync")
+warehouse = CircuitBreaker("warehouse")
+
+
+@app.post("/inventory/sync")
+async def sync_inventory() -> dict[str, str]:
+    async with sync_lock, warehouse:
+        return {"status": "synced"}  # your warehouse call
 ```
 
-Health checks are a FastAPI router you include with one line. It exposes the orchestrator-grade triple your Kubernetes deployment expects: `/livez` (shallow), `/readyz` (deep, concurrent checks, per-check timeout and TTL cache), and `/healthz` (aggregate).
+End with the Python 3.14+ caveat and the repo link.
 
-The [FastAPI demo](https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo) shows every pattern in one `app.py`: cached endpoint, rate-limited endpoint, circuit-breaker-protected endpoint, distributed lock, leader-gated task, and health probes. Start it with `docker compose up --wait`.
+---
 
-What it is not: not a task queue (reach for Celery, Dramatiq, or taskiq), not a web framework (it plugs into FastAPI, not next to it).
+### Newsletter blurbs
 
-- Repo: https://github.com/grelinfo/grelmicro
-- Docs: https://grelmicro.grel.info/
-- Demo: https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo
+**PyCoder's Weekly** (project submission, 2 sentences):
 
-`pip install grelmicro`
+> grelmicro: async Python patterns that stay correct across replicas. Scheduled jobs that run once, plus shared locks, rate limits and circuit breakers on Redis, PostgreSQL or SQLite, for FastAPI, Litestar and FastStream.
+
+**Python Trending Weekly** (GitHub issue, 1 sentence):
+
+> grelmicro makes FastAPI and Litestar services correct on more than one replica: one scheduled job run, one shared rate limit, one shared circuit breaker, on the database you already run.
+
+**Talk Python / Python Bytes** (short email, after launch, only with a number to share): one paragraph with the wedge, the demo link, and one real lesson learned, for example the lease and fencing model.
 
 ---
 
 ### dev.to
 
-**Title:** `What "distributed" actually means in a FastAPI app`
+**Title:** `Your FastAPI app is wrong on two replicas. Here is how to fix it.`
 
-**Tags:** `python, fastapi, microservices, opensource`
+**Tags:** `python, fastapi, kubernetes, opensource`
 
 **Outline:**
 
-1. The problem: four separate libraries, four config formats, four backend clients
-2. What grelmicro ships (one-paragraph overview of each pattern group)
-3. The FastAPI wiring pattern (lifespan + middleware, code snippet)
-4. Cache with serve-stale-on-error (real problem, real code)
-5. Rate limiting with retry-after headers (real code)
-6. Distributed lock across replicas (real code)
-7. Health check triple for Kubernetes
-8. "When not to use grelmicro" (task queues, single-pattern use cases)
-9. Getting started
-
-**Intro paragraphs:**
-
-Every FastAPI service past a certain size ends up with the same gap. You have a web framework for routing, a database driver for storage, and then a pile of small distributed coordination problems: rate limiting per user, a shared cache that does not stampede under load, a lock so two workers do not process the same job, and a circuit breaker so one slow downstream does not take down the rest.
-
-Most teams reach for a separate library for each one. That works until you have four of them. At that point you are managing four config formats, four backend clients, and four different startup and shutdown sequences.
-
-grelmicro is one async Python toolkit that covers all of these patterns behind a uniform API. One container manages the lifecycle. One Redis connection is shared by the cache, the lock, and the rate limiter. One `reconfigure(new_config)` call changes thresholds at runtime without a restart.
-
-In this article I will show what the wiring looks like in a real FastAPI app and where grelmicro earns its place, including the honest "when not to use it" section.
+1. The double cron run: two replicas, one hourly job, two reports. The fix with `@tasks.every(interval=60, gate="claim")`.
+2. The double rate limit: each replica counts its own budget. The fix with a `RateLimiter` on the shared backend.
+3. The split-brain breaker: one replica keeps calling a dead downstream. The fix with a shared `CircuitBreaker`.
+4. The wiring: one provider line and `micro.install(app)`, about 15 lines per fix.
+5. When not to use grelmicro.
+6. Getting started: the three-command demo.
 
 **Honest "when not to use it" one-liners:**
 
-- Use `tenacity` if retry is the only pattern you need.
-- Use `aiocache` or `fastapi-cache` if cache is the only pattern you need.
-- Use `slowapi` if per-route rate limiting with a wide backend choice is the only thing missing.
-- Reach for `aioredlock` if you want Redlock specifically.
-- Pick grelmicro when you need two or more of these in the same service and want one config and lifecycle story across all of them.
+- Use `tenacity` or `stamina` if retry is the only pattern you need.
+- Use `aiocache` or `fastapi-cache` if a cache in one process is the only pattern you need.
+- Use `slowapi` if per-route rate limiting is the only thing missing.
+- Use a task queue (Celery, Dramatiq, taskiq) for durable jobs that survive a restart.
+- Pick grelmicro when the service runs on more than one replica and a job, a limit or a breaker must hold across all of them.
+
+---
+
+### Launch-week rules
+
+- Answer every HN and Reddit comment. Concede valid criticism in one line.
+- Fix small reported bugs the same day and ship a patch on the current `0.x` line.
+- Thank every first-time PR in public.
+- Freeze breaking changes for two weeks after launch.

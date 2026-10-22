@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+* 📝 The README opens with what grelmicro keeps correct on more than one replica, and says Python 3.14+. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+* 📝 The comparison page opens with the multi-replica case, compares the task scheduler with APScheduler, and shows `micro.install(app)` as the lifecycle. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+* 📝 The benchmark numbers are measured again on CPython 3.14, and the JWT speed claim links its measurements and script. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+* 📝 The PyPI page links the changelog. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+
+### Internal
+* 🐛 `benchmarks/ratelimiter_benchmark.py` runs again with a sliding window the config accepts. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+
 ## 0.42.4 - 2026-10-22
 
 ### Changed

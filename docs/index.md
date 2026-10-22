@@ -5,11 +5,7 @@
 </p>
 
 <p align="center">
-  <em>Async-first toolkit. Microservice patterns inside.</em>
-</p>
-
-<p align="center">
-  A Python toolkit for distributed systems: microservices, modular monoliths, and self-contained systems.
+  <em>Your FastAPI service, correct on more than one replica.</em>
 </p>
 
 <p align="center">
@@ -17,17 +13,21 @@
   <a href="https://pypi.org/project/grelmicro/"><img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/grelmicro"></a>
   <a href="https://github.com/grelinfo/grelmicro/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
   <a href="https://codecov.io/gh/grelinfo/grelmicro"><img alt="codecov" src="https://codecov.io/gh/grelinfo/grelmicro/graph/badge.svg?token=GDFY0AEFWR"></a>
-  <a href="https://github.com/astral-sh/uv"><img alt="uv" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json"></a>
-  <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
-  <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json"></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/grelinfo/grelmicro"><img alt="OpenSSF Scorecard" src="https://api.securityscorecards.dev/projects/github.com/grelinfo/grelmicro/badge"></a>
-  <a href="https://www.bestpractices.dev/projects/13655"><img alt="OpenSSF Best Practices" src="https://www.bestpractices.dev/projects/13655/badge"></a>
   <a href="https://slsa.dev/spec/latest/levels"><img alt="SLSA Build Level 2" src="https://slsa.dev/images/gh-badge-level2.svg"></a>
 </p>
+
+Run a second copy of your app and things break quietly. The cron job runs twice. The rate limit lets through twice the traffic. One replica keeps calling a dead service the other already gave up on.
+
+grelmicro fixes that with one line that says where shared state lives: Redis, Valkey, PostgreSQL or SQLite. Works with FastAPI, Starlette, Litestar and FastStream. Python 3.14+.
 
 <p align="center">
   <img alt="A FastAPI route protected by a grelmicro rate limiter and health check" src="img/demo.gif" width="800">
 </p>
+
+```bash
+pip install "grelmicro[fastapi,redis]"
+```
 
 ______________________________________________________________________
 
@@ -36,23 +36,6 @@ ______________________________________________________________________
 **Source Code**: [https://github.com/grelinfo/grelmicro](https://github.com/grelinfo/grelmicro)
 
 ______________________________________________________________________
-
-## What your service gains
-
-Your FastAPI, Starlette, Litestar or FastStream service keeps its routes, its lifespan and its database code. grelmicro adds what a service needs once it runs on more than one replica:
-
-- a scheduled job that runs once per interval across replicas, not on each of them,
-- a lock, a cache and a rate limit that every replica shares,
-- a retry, a circuit breaker and a timeout around the calls that fail,
-- health probes, logs, traces and metrics that Kubernetes and your dashboards read.
-
-Use one pattern, a few, or all of them. Each one you add works with the ones you have. Pay only for what you import: grelmicro needs three dependencies, each backend is an extra, and a module loads only what it uses.
-
-One line says where the shared state lives: Redis, Valkey, PostgreSQL or SQLite. Change that line and the rest of the code stays the same.
-
-Every pattern behaves the same on each framework, and a [parity test](https://grelmicro.grel.info/frameworks/#how-the-claim-is-held) holds the claim. The hot paths run in a compiled Rust core: a JWT signature check is about four times faster than in a pure-Python library.
-
-Coming from another stack? See the mapping for [Spring Boot](https://grelmicro.grel.info/coming-from/spring-boot/), [Quarkus](https://grelmicro.grel.info/coming-from/quarkus/), [Django](https://grelmicro.grel.info/coming-from/django/), [Laravel](https://grelmicro.grel.info/coming-from/laravel/) or [Symfony](https://grelmicro.grel.info/coming-from/symfony/).
 
 ## Start with one pattern
 
@@ -90,6 +73,23 @@ fastapi run main.py --port 8001
 ```
 
 Each minute the report is sent once, by whichever copy claims it. `micro.install(app)` opens grelmicro when the app starts and closes it when the app stops. Already pass a `lifespan` to `FastAPI(...)`? It keeps running.
+
+## What your service gains
+
+Your FastAPI, Starlette, Litestar or FastStream service keeps its routes, its lifespan and its database code. grelmicro adds what a service needs once it runs on more than one replica:
+
+- a scheduled job that runs once per interval across replicas, not on each of them,
+- a lock, a cache and a rate limit that every replica shares,
+- a retry, a circuit breaker and a timeout around the calls that fail,
+- health probes, logs, traces and metrics that Kubernetes and your dashboards read.
+
+Use one pattern, a few, or all of them. Each one you add works with the ones you have. Pay only for what you import: grelmicro needs three dependencies, each backend is an extra, and a module loads only what it uses.
+
+To move the shared state to another backend, change the provider line. The rest of the code stays the same.
+
+Every pattern behaves the same on each framework, and a [parity test](https://grelmicro.grel.info/frameworks/#how-the-claim-is-held) holds the claim. The hot paths run in a compiled Rust core: a JWT signature check is about four times faster than in a pure-Python library ([measurements](https://grelmicro.grel.info/architecture/jwt/#why-a-compiled-core), [benchmark script](https://github.com/grelinfo/grelmicro/blob/main/benchmarks/jwt_benchmark.py)).
+
+Coming from another stack? See the mapping for [Spring Boot](https://grelmicro.grel.info/coming-from/spring-boot/), [Quarkus](https://grelmicro.grel.info/coming-from/quarkus/), [Django](https://grelmicro.grel.info/coming-from/django/), [Laravel](https://grelmicro.grel.info/coming-from/laravel/) or [Symfony](https://grelmicro.grel.info/coming-from/symfony/).
 
 ## Add the next one
 
