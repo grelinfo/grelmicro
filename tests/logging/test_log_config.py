@@ -60,7 +60,7 @@ def test_configure_reports_ignored_env_in_the_log_stream(
     reset_backend: None,  # noqa: ARG001
 ) -> None:
     """A variable set without the opt-in is named in the application's format."""
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_LOG_LEVEL", "DEBUG")
 
     with pytest.warns(GrelmicroConfigWarning):

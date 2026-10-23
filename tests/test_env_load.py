@@ -12,8 +12,12 @@ from grelmicro._config import (
     flush_ignored_env_reports,
     resolve_config,
 )
+from grelmicro._deprecation import ENV_LOAD_DEFAULT, PENDING, unread_env
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.errors import EnvLoadOffWarning, GrelmicroFutureWarning
+from grelmicro.resilience import Fallback
+from tests._future import assert_future_warning
 from tests._logs import records_of
 
 LEASE_OVERRIDE = 999
@@ -29,7 +33,13 @@ def backend() -> MemoryLockAdapter:
 
 @pytest.fixture
 def _no_env_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Override the autouse fixture and turn the global flag off."""
+    """Override the autouse fixture and turn the global flag off explicitly."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
+
+
+@pytest.fixture
+def _env_load_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Override the autouse fixture and leave the global flag unset."""
     monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
 
 
@@ -251,3 +261,230 @@ def test_resolve_config_respects_global_flag(
     assert cfg2.lease_duration == timedelta(
         seconds=LEASE_FROM_ENV
     )  # flag on, env read
+
+
+UNREAD = "GREL_LOCK_CART_LEASE_DURATION"
+UNREAD_VALUE = "314159"
+
+
+def _future_messages(caught: list[warnings.WarningMessage]) -> list[str]:
+    """Return the text of each `GrelmicroFutureWarning` in `caught`."""
+    return [
+        str(w.message)
+        for w in caught
+        if issubclass(w.category, GrelmicroFutureWarning)
+    ]
+
+
+def test_unread_env_is_pending() -> None:
+    """The 0.44 default is tracked, so the release that switches it drops it."""
+    assert ENV_LOAD_DEFAULT in PENDING
+    assert ENV_LOAD_DEFAULT.switch_in == "0.44.0"
+
+
+def test_unread_env_message_names_the_variable() -> None:
+    """The message names the variable and the flag value for each choice."""
+    assert unread_env(UNREAD).message == (
+        f"`{UNREAD}` is set but not read today, and is read by default "
+        "from 0.44.0. Pass `GREL_ENV_LOAD=0` to keep the current behavior, "
+        "or `GREL_ENV_LOAD=1` to adopt the new one now."
+    )
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+def test_unread_env_warns_while_the_flag_is_unset(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A variable left unread by default warns of the 0.44 default.
+
+    `env_load=False` is a decision, so it warns nothing.
+    """
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    assert_future_warning(
+        unread_env(UNREAD),
+        default=lambda: Lock("cart", backend=backend),
+        explicit=lambda: Lock("other", backend=backend, env_load=False),
+    )
+
+
+@pytest.mark.parametrize("value", ["", "  "])
+def test_blank_flag_counts_as_unset(
+    value: str,
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A blank `GREL_ENV_LOAD` chooses nothing, so the variable still warns."""
+    monkeypatch.setenv("GREL_ENV_LOAD", value)
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    with pytest.warns(GrelmicroFutureWarning, match=UNREAD):
+        Lock("cart", backend=backend)
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+def test_unread_env_replaces_the_diagnostic(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One warning per variable: the future warning, not `EnvLoadOffWarning`."""
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        lock = Lock("cart", backend=backend)
+
+    assert [w.category for w in caught] == [GrelmicroFutureWarning]
+    assert lock.config.lease_duration == DEFAULT_LEASE
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+def test_unread_env_never_carries_the_value(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The variable name is echoed, its value never is."""
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        Lock("cart", backend=backend)
+
+    [message] = _future_messages(caught)
+    assert UNREAD in message
+    assert UNREAD_VALUE not in message
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+def test_unread_env_warns_once(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same variable warns once per process, not on every construction."""
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        Lock("cart", backend=backend)
+        Lock("cart", backend=backend)
+
+    assert len(_future_messages(caught)) == 1
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+def test_unread_env_still_logs(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The log record of the unread variable is unchanged."""
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro"):
+        with pytest.warns(GrelmicroFutureWarning):
+            Lock("cart", backend=backend)
+        flush_ignored_env_reports()
+
+    [record] = records_of(caplog, "grelmicro")
+    assert record.__dict__["variable"] == UNREAD
+    assert record.__dict__["diagnostic"] == "env-load-off"
+
+
+@pytest.mark.parametrize("value", ["1", "true"])
+def test_flag_on_reads_without_the_future_warning(
+    value: str,
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`GREL_ENV_LOAD=1` reads the variable now, so nothing warns."""
+    monkeypatch.setenv("GREL_ENV_LOAD", value)
+    monkeypatch.setenv(UNREAD, str(LEASE_OVERRIDE))
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        lock = Lock("cart", backend=backend)
+
+    assert caught == []
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_OVERRIDE)
+
+
+@pytest.mark.parametrize("value", ["0", "false", "off"])
+def test_flag_off_keeps_the_diagnostic_only(
+    value: str,
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`GREL_ENV_LOAD=0` keeps today's report, since nothing changes in 0.44."""
+    monkeypatch.setenv("GREL_ENV_LOAD", value)
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        lock = Lock("cart", backend=backend)
+
+    assert [w.category for w in caught] == [EnvLoadOffWarning]
+    assert UNREAD in str(caught[0].message)
+    assert lock.config.lease_duration == DEFAULT_LEASE
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+def test_env_load_true_kwarg_reads_without_the_future_warning(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`env_load=True` reads the variable now, so nothing warns."""
+    monkeypatch.setenv(UNREAD, str(LEASE_OVERRIDE))
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        lock = Lock("cart", backend=backend, env_load=True)
+
+    assert caught == []
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_OVERRIDE)
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+def test_env_load_false_kwarg_is_silent(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`env_load=False` keeps ignoring the variable and warns nothing."""
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        lock = Lock("cart", backend=backend, env_load=False)
+
+    assert caught == []
+    assert lock.config.lease_duration == DEFAULT_LEASE
+
+
+def _zero(_: BaseException) -> int:
+    """Return the fallback value of the `Fallback` tests."""
+    return 0
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+def test_unread_fallback_env_warns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`Fallback` resolves its own config and warns of an unread variable too."""
+    monkeypatch.setenv("GREL_FALLBACK_PRICES_DEFAULT", "[]")
+
+    assert_future_warning(
+        unread_env("GREL_FALLBACK_PRICES_DEFAULT"),
+        default=lambda: Fallback("prices", when=ValueError, factory=_zero),
+        explicit=lambda: Fallback(
+            "other", when=ValueError, factory=_zero, env_load=False
+        ),
+    )
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
+def test_unread_fallback_env_reports_the_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the flag off, `Fallback` reports the variable like every component."""
+    monkeypatch.setenv("GREL_FALLBACK_PRICES_DEFAULT", "[]")
+
+    with pytest.warns(EnvLoadOffWarning, match="GREL_FALLBACK_PRICES_DEFAULT"):
+        Fallback("prices", when=ValueError, factory=_zero)

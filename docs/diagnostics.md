@@ -80,6 +80,11 @@ configuration it names. Each entry below says which.
 Environment-driven configuration is opt-in. Set `GREL_ENV_LOAD=1` to turn it
 on, or pass the value directly in code. See [Configuration](config.md).
 
+While `GREL_ENV_LOAD` is unset, the same variable warns with
+`GrelmicroFutureWarning` instead, because from 0.44.0 it is read by default.
+`EnvLoadOffWarning` is emitted when `GREL_ENV_LOAD` is set to a falsy value
+such as `0`. The log record carries `env-load-off` in both cases.
+
 ### `unknown-environment`
 
 Set `GREL_ENVIRONMENT` to `development`, `test`, `staging`, or `production`.

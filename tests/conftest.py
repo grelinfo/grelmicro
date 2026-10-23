@@ -33,8 +33,9 @@ def _opt_in_env_config(monkeypatch: pytest.MonkeyPatch) -> None:
     env-driven config. The test suite was written before that opt-in
     existed and assumes env reads run by default. This fixture
     preserves that assumption. Tests that exercise the OFF behavior
-    delete the var explicitly with
-    ``monkeypatch.delenv("GREL_ENV_LOAD", raising=False)``.
+    set it to ``0``, or delete it with
+    ``monkeypatch.delenv("GREL_ENV_LOAD", raising=False)`` for the unset
+    default, which warns of the 0.44.0 change on a set variable.
     """
     monkeypatch.setenv("GREL_ENV_LOAD", "true")
 

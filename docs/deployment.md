@@ -189,9 +189,10 @@ environment to the next, and one copy will leave it out.
 
 ### When the flag is missing
 
-grelmicro names the ignored variable on two channels. It raises a
-`GrelmicroConfigWarning`, which fails a test suite running `-W error`. It
-also logs a `WARNING` on the `grelmicro` logger, so on the default backend
+grelmicro names the ignored variable on two channels. It warns with
+`GrelmicroFutureWarning`, since from 0.44.0 the variable is read by default,
+or with `EnvLoadOffWarning` when `GREL_ENV_LOAD=0`. Either fails a test suite
+running `-W error`. It also logs a `WARNING` on the `grelmicro` logger, so on the default backend
 the report is a normal record in the log stream:
 
 ```json

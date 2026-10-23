@@ -295,7 +295,7 @@ def test_gate_off_reports_a_shield_variable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Shield reports a variable set while the gate is off, like every pattern."""
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_SHIELD_GATEOFF_MAX_RATE", "5")
 
     with pytest.warns(EnvLoadOffWarning, match="GREL_SHIELD_GATEOFF_MAX_RATE"):

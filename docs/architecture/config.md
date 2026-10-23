@@ -73,7 +73,7 @@ in any of its algorithms, is always accounted for:
 
 | Situation | What happens |
 |---|---|
-| Gate off, variable set | `EnvLoadOffWarning` naming the variable |
+| Gate off, variable set | `EnvLoadOffWarning` naming the variable. While `GREL_ENV_LOAD` is unset, a `GrelmicroFutureWarning` instead, until 0.44.0 reads the variable by default |
 | Instance address, field of another algorithm | Error at construction, naming the algorithm that is running |
 | Kind address, field of another algorithm | Applied where it fits, ignored where it does not, silently, because the kind address is a broadcast |
 | Live reload, field of another algorithm | Skipped for that instance and counted at debug, never a crash. Key names stay out of the logs because a mounted Secret's key can itself be sensitive. A warning naming sibling fields follows with config provenance ([#664](https://github.com/grelinfo/grelmicro/issues/664)). |

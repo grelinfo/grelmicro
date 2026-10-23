@@ -169,8 +169,29 @@ def environment_case(value: str, tier: str) -> FutureChange:
     )
 
 
+ENV_LOAD_DEFAULT = FutureChange(
+    change="A set `GREL_*` variable is read by default",
+    switch_in="0.44.0",
+    keep="GREL_ENV_LOAD=0",
+    adopt="GREL_ENV_LOAD=1",
+)
+"""Every `GREL_*` field is read unless `GREL_ENV_LOAD=0` or `env_load=False`."""
+
+
+def unread_env(name: str) -> FutureChange:
+    """Return `ENV_LOAD_DEFAULT` worded for one unread variable `name`.
+
+    Names the variable, never its value.
+    """
+    return replace(
+        ENV_LOAD_DEFAULT,
+        change=f"`{name}` is set but not read today, and is read by default",
+    )
+
+
 PENDING: tuple[FutureChange | Rename | Removal, ...] = (
     *MODE_ENUMS.values(),
     ENVIRONMENT_CASE,
+    ENV_LOAD_DEFAULT,
 )
 """Every behavior change, rename and removal that currently warns."""
