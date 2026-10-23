@@ -459,7 +459,7 @@ core = "ctrace"
 sort = "-Cover"
 skip_covered = true
 exclude_also = [
-    "if TYPE_CHECKING:",
+    "if (_typing\\.)?TYPE_CHECKING:",
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
     "assert_never\\(.*\\)",

@@ -138,6 +138,24 @@ def test_config_with_env_load_reads_the_environment() -> None:
     assert loaded is True
 
 
+def test_grelmicro_import_loads_only_the_health_endpoint_marker() -> None:
+    """`import grelmicro` loads no metrics or trace module, and of health only `_served`."""
+    # Arrange
+    code = (
+        "import json, sys\n"
+        "import grelmicro\n"
+        "print(json.dumps(sorted(name for name in sys.modules"
+        " if name.split('.')[:2] in (['grelmicro', 'health'],"
+        " ['grelmicro', 'metrics'], ['grelmicro', 'trace']))))"
+    )
+
+    # Act
+    loaded = set(json.loads(_run(code)))
+
+    # Assert
+    assert loaded == {"grelmicro.health", "grelmicro.health._served"}
+
+
 @pytest.mark.parametrize("module", _PUBLIC_MODULES)
 def test_package_import_loads_no_optional_dependency(module: str) -> None:
     """Importing a public module loads no framework, vendor SDK or OpenTelemetry."""

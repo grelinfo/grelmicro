@@ -8,6 +8,7 @@
 
 ### Changed
 * ⚡️ `import grelmicro` loads pydantic-settings only when a config first reads the environment, which saves 36 modules, about 1.7 MB and 10 ms. ([#1122](https://github.com/grelinfo/grelmicro/pull/1122))
+* ⚡️ `import grelmicro` no longer loads `grelmicro.metrics`, `grelmicro.trace` and most of `grelmicro.health`. Their names load on first use, which saves 24 modules, about 1.9 MB and 10 ms. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
 * ✨ `TTLCache()` with no serializer stores JSON values such as a `float`, a `str` or a `dict`, not only `bytes`. Bytes are still stored raw. ([#1125](https://github.com/grelinfo/grelmicro/issues/1125))
 
 ### Fixed
