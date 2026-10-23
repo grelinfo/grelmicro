@@ -13,6 +13,7 @@ from pydantic import (
 from typing_extensions import Doc
 
 from grelmicro._config import any_case
+from grelmicro._mode_enums import member_of
 from grelmicro.types import SecretUrl
 
 if TYPE_CHECKING:
@@ -41,6 +42,8 @@ class MetricsConfig(
     exporter: Annotated[
         MetricsExporter,
         any_case(MetricsExporter),
+        member_of("MetricsExporterType"),
+        Field(validate_default=True),
         Doc(
             "Metric exporter. The default `auto` resolves to `otlp-http` when "
             "an endpoint is configured (the `endpoint` field, "

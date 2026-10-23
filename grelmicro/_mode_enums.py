@@ -2,11 +2,14 @@
 
 Each one stays importable from its old location until 0.44.0, and every
 access warns with a `GrelmicroFutureWarning`. A member is a `str`, so a
-config field still accepts it and stores the plain string.
+config field still accepts it. Until 0.44.0 a field reads back as the
+member, so `.value` and `is` keep working.
 """
 
 from enum import StrEnum
-from typing import Self
+from typing import Any, Self
+
+from pydantic import AfterValidator
 
 from grelmicro._deprecation import MODE_ENUMS
 
@@ -120,3 +123,17 @@ def deprecated_enum(name: str) -> type[StrEnum]:
     """
     MODE_ENUMS[name].warn(stacklevel=3)
     return _ENUMS[name]
+
+
+def member_of(name: str) -> AfterValidator:
+    """Read a validated choice back as its member of the mode enum `name`.
+
+    A value that names no member, such as a custom log format template,
+    passes through unchanged.
+    """
+    members = _ENUMS[name]._value2member_map_
+
+    def read_back(value: Any) -> Any:  # noqa: ANN401
+        return members.get(value, value)
+
+    return AfterValidator(read_back)

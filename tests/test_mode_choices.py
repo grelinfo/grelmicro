@@ -97,13 +97,13 @@ def _enum(module: str, name: str) -> type[StrEnum]:
 def test_the_stored_spelling_is_accepted(
     config: type[BaseModel], field: str, _any: str, stored: str
 ) -> None:
-    """The documented string validates and reads back as a plain `str`."""
+    """The documented string validates and reads back as an equal `str`."""
     # Act
     value = getattr(config(**{field: stored}), field)
 
     # Assert
     assert value == stored
-    assert type(value) is str
+    assert isinstance(value, str)
 
 
 @pytest.mark.parametrize(("config", "field", "spelling", "stored"), CHOICES)
@@ -116,7 +116,7 @@ def test_any_case_reads_as_the_stored_spelling(
 
     # Assert
     assert value == stored
-    assert type(value) is str
+    assert isinstance(value, str)
 
 
 @pytest.mark.parametrize(("config", "field", "spelling", "stored"), CHOICES)
@@ -143,7 +143,7 @@ def test_any_case_reads_from_the_environment(
     # Assert
     value = getattr(resolved, field)
     assert value == stored
-    assert type(value) is str
+    assert isinstance(value, str)
 
 
 @pytest.mark.parametrize(
@@ -153,7 +153,7 @@ def test_an_enum_member_still_validates_as_a_string(
     choice: tuple[type[BaseModel], str, str, str],
     enum: tuple[str, str, str],
 ) -> None:
-    """A member of the old enum is accepted and stored as the plain string."""
+    """A member of the old enum is accepted and read back as that member."""
     # Arrange
     config, field, _, stored = choice
     module, name, member = enum
@@ -164,7 +164,28 @@ def test_an_enum_member_still_validates_as_a_string(
 
     # Assert
     assert result == stored
-    assert type(result) is str
+    assert result is value
+
+
+@pytest.mark.parametrize(
+    ("choice", "enum"), list(zip(CHOICES, ENUMS, strict=True))
+)
+def test_a_string_reads_back_as_the_old_enum_member_until_0_44(
+    choice: tuple[type[BaseModel], str, str, str],
+    enum: tuple[str, str, str],
+) -> None:
+    """A string reads back as its member, so `.value` and `is` still work."""
+    # Arrange
+    config, field, spelling, stored = choice
+    module, name, member = enum
+    expected = _enum(module, name)[member]
+
+    # Act
+    result = getattr(config(**{field: spelling}), field)
+
+    # Assert
+    assert result is expected
+    assert result.value == stored
 
 
 @pytest.mark.parametrize(

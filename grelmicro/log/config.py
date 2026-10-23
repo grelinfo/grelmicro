@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from typing_extensions import Doc
 
 from grelmicro._config import any_case
+from grelmicro._mode_enums import member_of
 from grelmicro._timezone import UTC_NAME
 from grelmicro.types import LogLevel, TimeZoneName
 
@@ -49,18 +50,23 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
     backend: Annotated[
         LogBackend,
         any_case(LogBackend),
+        member_of("LogBackendType"),
+        Field(validate_default=True),
         Doc("Logging backend implementation."),
     ] = "stdlib"
     level: Annotated[
         LogLevel,
         any_case(LogLevel),
+        member_of("LogLevelType"),
+        Field(validate_default=True),
         Doc("Log level threshold."),
     ] = "INFO"
     format: Annotated[
         LogFormat | str,
         Doc("Log format. Built-in option or a custom template string."),
-        Field(union_mode="left_to_right"),
+        Field(union_mode="left_to_right", validate_default=True),
         any_case(LogFormat),
+        member_of("LogFormatType"),
     ] = "AUTO"
     timezone: Annotated[
         TimeZoneName,
@@ -69,6 +75,8 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
     json_serializer: Annotated[
         LogSerializer,
         any_case(LogSerializer),
+        member_of("LogSerializerType"),
+        Field(validate_default=True),
         Doc(
             "JSON serializer used for structured output. `auto` uses "
             "orjson when it is installed and the standard library "
