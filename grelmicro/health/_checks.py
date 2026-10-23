@@ -1,14 +1,17 @@
 """Health Checks."""
 
+from __future__ import annotations
+
 import asyncio
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from logging import getLogger
+from math import ceil
 from time import monotonic, monotonic_ns
 from types import TracebackType
-from typing import Annotated, Any, ClassVar, Self, cast
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
 
 from pydantic import BaseModel, PositiveFloat, field_validator
 from typing_extensions import Doc
@@ -39,6 +42,9 @@ from grelmicro.health.errors import (
 from grelmicro.metrics import _emit
 from grelmicro.providers._base import Provider
 
+if TYPE_CHECKING:
+    from grelmicro.resilience.circuitbreaker import CircuitBreaker
+
 logger = getLogger("grelmicro.health")
 
 # Check names are exposed via the ``?exclude=`` query parameter on
@@ -48,6 +54,11 @@ logger = getLogger("grelmicro.health")
 # surprises). Colon is allowed for namespacing (e.g. "weather:circuitbreaker").
 _NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9:_-]*$")
 _NAME_MAX_LEN = 64
+
+
+def _valid_name(name: str) -> bool:
+    """Return whether `name` is a valid check name."""
+    return len(name) <= _NAME_MAX_LEN and _NAME_PATTERN.match(name) is not None
 
 
 _NOT_SECONDS = "timeout must be a number of seconds"
@@ -475,11 +486,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 ``"weather:circuitbreaker"``.
         """
         config = self._config
-        if (
-            not name
-            or len(name) > _NAME_MAX_LEN
-            or not _NAME_PATTERN.match(name)
-        ):
+        if not _valid_name(name):
             msg = (
                 f"Invalid health check name {name!r}: must match "
                 f"^[a-z0-9][a-z0-9:_-]*$ and be at most "
@@ -608,6 +615,86 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             critical=critical,
             timeout=timeout,
         )
+
+    def add_breaker(
+        self,
+        breaker: Annotated[
+            CircuitBreaker,
+            Doc(
+                "The circuit breaker to report. A per-key circuit from "
+                "``breaker.keyed(key)`` is reported on its own."
+            ),
+        ],
+        *,
+        name: Annotated[
+            str | None,
+            Doc(
+                "Check name suffix. Defaults to the breaker's ``name``, "
+                "so the check is ``circuitbreaker:inverter``. Pass an "
+                "explicit name when the breaker name is not a valid "
+                "check name."
+            ),
+        ] = None,
+        critical: Annotated[
+            bool,
+            Doc(
+                "Whether an open breaker fails ``/readyz``. Non-critical "
+                "by default: an open breaker shows in the ``/healthz`` "
+                "body and leaves readiness alone."
+            ),
+        ] = False,
+        timeout: Annotated[
+            PositiveFloat | None,
+            Doc("Per-check timeout override. Falls back to the default."),
+        ] = None,
+    ) -> None:
+        """Register a check on a circuit breaker as ``circuitbreaker:{name}``.
+
+        Each run reads the breaker's state from its backend, so a
+        replica that made no call through a shared breaker still reports
+        it open. A closed breaker is ``ok``. A half-open or forced-closed
+        breaker is ``ok`` with its state in the details. An open breaker
+        fails with the seconds until its next probe, and a forced-open
+        one fails until it is reset.
+
+        Raises:
+            ValueError: If the resulting name is not a valid check name
+                (pass ``name=``), is already registered, or ``timeout``
+                is not a number of seconds greater than zero.
+        """
+        from grelmicro.resilience.circuitbreaker import (  # noqa: PLC0415
+            CircuitBreakerState,
+        )
+
+        check_name = f"circuitbreaker:{name or breaker.name}"
+        if not _valid_name(check_name):
+            msg = (
+                f"Invalid health check name {check_name!r} for circuit "
+                f"breaker {breaker.name!r}: must match "
+                f"^[a-z0-9][a-z0-9:_-]*$ and be at most {_NAME_MAX_LEN} "
+                f"chars. Pass name=... to set the part after "
+                f"'circuitbreaker:'."
+            )
+            raise ValueError(msg)
+
+        async def _check() -> HealthDetails | None:
+            snapshot = await breaker._read_snapshot()  # noqa: SLF001
+            state = snapshot.state
+            if state == CircuitBreakerState.CLOSED:
+                return None
+            if state == CircuitBreakerState.OPEN:
+                retry_after = ceil(snapshot.retry_after)
+                msg = f"circuit breaker open, next probe in {retry_after}s"
+                raise HealthError(
+                    msg,
+                    details={"state": str(state), "retry_after": retry_after},
+                )
+            if state == CircuitBreakerState.FORCED_OPEN:
+                msg = "circuit breaker forced open until reset"
+                raise HealthError(msg, details={"state": str(state)})
+            return {"state": str(state)}
+
+        self.add(check_name, _check, critical=critical, timeout=timeout)
 
     def _register_active_providers(self) -> None:
         """Register a critical check for every Provider active on the app.
