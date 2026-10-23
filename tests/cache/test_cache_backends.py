@@ -14,7 +14,7 @@ from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.postgres import PostgresCacheAdapter
 from grelmicro.cache.redis import RedisCacheAdapter
-from grelmicro.cache.serializers import _JSON_TAG, JsonSerializer
+from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.providers.postgres import PostgresProvider
@@ -108,47 +108,6 @@ async def test_get_set_roundtrip(backend: CacheBackend) -> None:
     result = await backend.get(key="roundtrip")
 
     assert result == b"hello"
-
-
-@pytest.mark.parametrize(
-    "value", [1.5, 42, "text", None, True, [1, "a"], {"id": 1, "tags": []}]
-)
-async def test_ttl_cache_default_round_trips_json_values(
-    backend: CacheBackend, value: object
-) -> None:
-    """Test that `TTLCache()` stores a JSON value on the backend and reads it back."""
-    cache = TTLCache(ttl=60, backend=backend)
-
-    await cache.set("default-json", value)
-
-    assert await cache.get("default-json", "missing") == value
-    stored = await backend.get(key="cache:default-json")
-    assert stored is not None
-    assert stored.startswith(_JSON_TAG)
-
-
-async def test_ttl_cache_default_stores_bytes_raw(
-    backend: CacheBackend,
-) -> None:
-    """Test that `TTLCache()` hands bytes to the backend unchanged."""
-    cache = TTLCache(ttl=60, backend=backend)
-
-    await cache.set("default-bytes", b'{"a":1}')
-
-    assert await backend.get(key="cache:default-bytes") == b'{"a":1}'
-    assert await cache.get("default-bytes") == b'{"a":1}'
-
-
-async def test_ttl_cache_default_reads_a_raw_entry_as_bytes(
-    backend: CacheBackend,
-) -> None:
-    """Test that a raw entry written by an earlier release reads as bytes."""
-    await backend.set(
-        key="cache:default-old", value=b"42", ttl=timedelta(seconds=60)
-    )
-    cache = TTLCache(ttl=60, backend=backend)
-
-    assert await cache.get("default-old") == b"42"
 
 
 async def test_get_miss_returns_none(backend: CacheBackend) -> None:

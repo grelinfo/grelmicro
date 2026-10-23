@@ -11,9 +11,6 @@ Example::
         PickleSerializer,
     )
 
-    # No serializer: bytes stay raw, other JSON values are stored as JSON
-    cache = TTLCache(ttl=300)
-
     # JSON (orjson when available)
     cache = TTLCache(ttl=300, serializer=JsonSerializer())
 
@@ -29,7 +26,6 @@ from __future__ import annotations
 import pickle
 from typing import (
     Any,
-    Final,
     Generic,
     Protocol,
     TypeVar,
@@ -46,7 +42,6 @@ from grelmicro._json import (
     JSONDecodable,
     JSONEncodable,
     json_dumps_bytes,
-    json_dumps_plain_bytes,
     json_loads,
 )
 
@@ -150,61 +145,6 @@ class PydanticSerializer(Generic[T]):
         return self._adapter.validate_json(data)
 
 
-_JSON_TAG: Final = b"\xc1json\x00"
-"""Prefix of a JSON value stored by a `TTLCache` with no serializer.
-
-`0xC1` never starts UTF-8 text, a JSON document, or a pickle.
-"""
-
-_BYTES_TAG: Final = b"\xc1bytes\x00"
-"""Prefix of raw bytes that would otherwise start with a tag."""
-
-_TAGS: Final = (_JSON_TAG, _BYTES_TAG)
-
-_NO_SERIALIZER = (
-    "Cannot store {name} without a serializer. A TTLCache with no "
-    "serializer stores bytes and JSON values (None, bool, int, float, str, "
-    "list, tuple, and dict with str keys). Pass serializer= for other "
-    "types, such as serializer=User for a Pydantic model."
-)
-
-
-class _BytesOrJsonSerializer:
-    """Store bytes raw and any other JSON value as tagged JSON.
-
-    Bytes reach the backend unchanged, unless they start with a tag: those
-    get `_BYTES_TAG` in front so they never read back as JSON. Other
-    values are stored as `_JSON_TAG` followed by their JSON. An entry with
-    no tag reads back as bytes.
-    """
-
-    def dumps(self, value: object) -> bytes:
-        """Serialize bytes as they are and other values as tagged JSON.
-
-        Raises:
-            TypeError: If the value is neither bytes nor a JSON value.
-        """
-        if isinstance(value, bytes):
-            return _BYTES_TAG + value if value.startswith(_TAGS) else value
-        try:
-            return _JSON_TAG + json_dumps_plain_bytes(value)
-        except (TypeError, ValueError) as error:
-            msg = _NO_SERIALIZER.format(name=type(value).__name__)
-            raise TypeError(msg) from error
-
-    def loads(self, data: bytes) -> Any:  # noqa: ANN401
-        """Deserialize a tagged entry, or return untagged bytes as they are."""
-        if data.startswith(_TAGS):
-            if data.startswith(_JSON_TAG):
-                return json_loads(data[len(_JSON_TAG) :])
-            return data[len(_BYTES_TAG) :]
-        return data
-
-
-_DEFAULT_SERIALIZER: Final = _BytesOrJsonSerializer()
-"""The serializer a `TTLCache` uses with no serializer and no usable type."""
-
-
 def _looks_like_serializer(obj: object) -> bool:
     """Check whether an object carries the `dumps` and `loads` pair."""
     return callable(getattr(obj, "dumps", None)) and callable(
@@ -236,8 +176,8 @@ def _infer_serializer(annotation: object) -> CacheSerializer[Any] | None:
     """Return a `PydanticSerializer` for a type parameter, or None.
 
     Returns None for `bytes`, for `Any`, for an unbound type variable, and
-    for any type Pydantic cannot build a schema for. The caller falls
-    back to its own default in those cases.
+    for any type Pydantic cannot build a schema for. The caller keeps
+    storing raw bytes in those cases.
     """
     if (
         annotation is Any

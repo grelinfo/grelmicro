@@ -4,11 +4,10 @@
 
 ### Added
 * ✨ `GrelmicroFutureWarning` warns one release before a default changes or a name is removed. Passing the argument silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
-* ✨ grelmicro and `grelmicro-core` support Python 3.15. `grelmicro[jwt]` requires `grelmicro-core` 0.1.5, which ships wheels for 3.15 and the free-threaded 3.15t. ([#1112](https://github.com/grelinfo/grelmicro/pull/1112))
+* ✨ grelmicro and `grelmicro-core` support Python 3.15. `grelmicro[jwt]` requires `grelmicro-core` 0.1.5, which ships wheels for 3.15 and the free-threaded 3.15t. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
 
 ### Changed
 * ⚡️ `import grelmicro` loads pydantic-settings only when a config first reads the environment, which saves 36 modules, about 1.7 MB and 10 ms. ([#1122](https://github.com/grelinfo/grelmicro/pull/1122))
-* ✨ `TTLCache()` with no serializer stores JSON values such as a `float`, a `str` or a `dict`, not only `bytes`. Bytes are still stored raw. ([#1125](https://github.com/grelinfo/grelmicro/issues/1125))
 
 ### Fixed
 * 🐛 A claimed task's first fire and an outbox message waiting at startup find their backends open. `Tasks` and `Outbox` open after every other item in `uses=`, whatever order it is listed in, so the first run no longer fails with `no such table` on SQLite and Postgres. ([#1113](https://github.com/grelinfo/grelmicro/pull/1113))

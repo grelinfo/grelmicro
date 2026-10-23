@@ -141,25 +141,7 @@ await cache.clear()
 
 ### Serialization
 
-With no serializer, `TTLCache` stores `bytes` and JSON values:
-
-```python title="fragment"
-from grelmicro.cache import TTLCache
-
-cache = TTLCache(ttl=300)
-
-await cache.set("rate", 1.25)
-await cache.set("user", {"id": 1, "name": "Alice"})
-await cache.set("blob", b"\x00\x01")
-
-rate = await cache.get("rate")  # 1.25
-```
-
-A JSON value is `None`, `bool`, `int`, `float`, `str`, or a `list`, `tuple`, or `dict` with `str` keys holding those. It reads back as JSON gives it: an `int` stays an `int`, a `float` stays a `float`, and a tuple comes back as a list. `bytes` reach the backend unchanged and come back as `bytes`. Any other value, such as a `datetime` or a Pydantic model, raises `TypeError` on `set`.
-
-JSON goes through orjson when it is installed, which is several times faster than the standard library. Install `grelmicro[standard]` to get it.
-
-To cache other types, name the type or pass a serializer:
+Backends store raw bytes. To cache Python objects, name the type:
 
 === "Pydantic Model (recommended)"
 
@@ -192,18 +174,15 @@ To cache other types, name the type or pass a serializer:
 
 === "JSON"
 
-    Stores every value as JSON, using orjson when available. A `datetime`
-    is written as an ISO 8601 string and reads back as a string:
+    For plain dicts and lists, using orjson when available:
 
     ```python title="fragment"
-    from datetime import UTC, datetime
-
     from grelmicro.cache import JsonSerializer, TTLCache
 
     cache = TTLCache(ttl=300, serializer=JsonSerializer())
 
-    await cache.set("user", {"id": 1, "seen": datetime.now(UTC)})
-    user = await cache.get("user")  # returns dict, "seen" is a str
+    await cache.set("user", {"id": 1, "name": "Alice"})
+    user = await cache.get("user")  # returns dict
     ```
 
 === "Pickle (trusted backends only)"
@@ -223,7 +202,7 @@ To cache other types, name the type or pass a serializer:
     data = await cache.get("data")
     ```
 
-`TTLCache[bytes]`, and a type parameter Pydantic cannot adapt, store values the same way as `TTLCache()`.
+With no type parameter and no serializer, only `bytes` values are accepted. `TTLCache[bytes]` also stores raw bytes.
 
 ### Per-Entry TTL
 
