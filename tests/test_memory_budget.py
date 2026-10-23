@@ -61,8 +61,8 @@ _EXPECTED_SUBPACKAGES = {
 
 _MAX_MODULES = {
     "import": 23,
-    "tasks": 167,
-    "redis": 159,
+    "tasks": 169,
+    "redis": 161,
     "postgres": 102,
 }
 """The most grelmicro modules each case may load, by case."""

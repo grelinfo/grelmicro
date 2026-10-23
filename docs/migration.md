@@ -123,14 +123,10 @@ raises](#0-42-raising).
 
 ### Changes that do not raise {#0-43-silent}
 
-- A mode field such as `MetricsConfig.exporter` or `LogConfig.level` reads back as a plain `str`, not an enum member. `==` still matches, `is` against a member no longer does. [Compare with the string](#0-43-mode-strings).
+- A mode field such as `MetricsConfig.exporter` or `LogConfig.level` still reads back as its enum member, which equals the string. From 0.44.0 it reads back as a plain `str`, so `.value`, `.name` and `is` against a member stop working. [Compare with the string](#0-43-mode-strings).
 - `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. [Pass the string](#0-43-mode-strings).
 - `GREL_ENVIRONMENT=Production`, or any tier in another case, still reads as undeclared and now also warns with `GrelmicroFutureWarning`. From 0.44.0 it declares that tier. [Spell the tier in lowercase](#0-43-environment-case).
 - A choice in another case is accepted where it used to be refused, such as `requires="Cluster"`, `lock="Process"`, `gate="Claim"` or `environment="Production"`. [Nothing to change](#0-43-mode-strings).
-
-### Changes that raise {#0-43-raising}
-
-- `.value` or `.name` on a mode field raises `AttributeError`, since the field holds a `str`. [Use the string itself](#0-43-mode-strings).
 
 ### A mode is a string {#0-43-mode-strings}
 
@@ -153,9 +149,10 @@ Metrics(exporter="prometheus")
 configure(backend="loguru", format="JSON")
 ```
 
-A field reads back as the documented spelling, so compare with the string:
-`config.exporter == "prometheus"`. To annotate a value of your own, use the
-type that replaces each enum:
+Until 0.44.0 a field reads back as the old enum member, which equals the
+string. Compare with the string, `config.exporter == "prometheus"`, and the
+code keeps working when the field becomes a plain `str`. To annotate a value
+of your own, use the type that replaces each enum:
 
 | Before | After |
 | --- | --- |

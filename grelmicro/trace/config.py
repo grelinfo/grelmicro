@@ -13,6 +13,7 @@ from pydantic import (
 from typing_extensions import Doc
 
 from grelmicro._config import any_case
+from grelmicro._mode_enums import member_of
 from grelmicro.types import SecretUrl
 
 if TYPE_CHECKING:
@@ -60,6 +61,8 @@ class TraceConfig(
     exporter: Annotated[
         TraceExporter,
         any_case(TraceExporter),
+        member_of("TraceExporterType"),
+        Field(validate_default=True),
         Doc(
             "Span exporter. The default `auto` resolves to `otlp-http` when "
             "an endpoint is configured (the `endpoint` field, "
@@ -105,11 +108,15 @@ class TraceConfig(
     processor: Annotated[
         TraceProcessor,
         any_case(TraceProcessor),
+        member_of("TraceProcessorType"),
+        Field(validate_default=True),
         Doc("Span processor."),
     ] = "batch"
     sampler: Annotated[
         TraceSampler,
         any_case(TraceSampler),
+        member_of("TraceSamplerType"),
+        Field(validate_default=True),
         Doc("Sampler."),
     ] = "parentbased_always_on"
     sample_ratio: Annotated[
