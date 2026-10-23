@@ -164,3 +164,20 @@ def test_package_import_loads_no_optional_dependency(module: str) -> None:
 
     # Assert
     assert loaded & _OPTIONAL <= _EVERYWHERE | _USES.get(module, frozenset())
+
+
+def test_log_import_loads_no_resilience_module() -> None:
+    """`import grelmicro.log` loads no `grelmicro.resilience` module."""
+    # Arrange
+    code = (
+        "import json, sys\n"
+        "import grelmicro.log\n"
+        "print(json.dumps(sorted(name for name in sys.modules"
+        " if name.split('.')[:2] == ['grelmicro', 'resilience'])))"
+    )
+
+    # Act
+    loaded = json.loads(_run(code))
+
+    # Assert
+    assert loaded == []

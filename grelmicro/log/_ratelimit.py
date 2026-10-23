@@ -15,7 +15,6 @@ from typing_extensions import Doc
 
 from grelmicro._config import env_prefixes, resolve_config
 from grelmicro.log._shared import KeyMode
-from grelmicro.resilience import MemoryTokenBucket
 
 
 class RateLimitFilterConfig(BaseModel, frozen=True, extra="forbid"):
@@ -284,6 +283,10 @@ class RateLimitFilter(Filter):
         key: Callable[[LogRecord], str] | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
+        from grelmicro.resilience.ratelimiter.memory import (  # noqa: PLC0415
+            MemoryTokenBucket,
+        )
+
         self._config = config
         self._cost = config.cost
         self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
