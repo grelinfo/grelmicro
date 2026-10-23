@@ -177,6 +177,10 @@ check` shows the same check. See [Run on one worker](task.md#run-on-one-worker).
 `HealthChecks` serves that one, and one built with no argument, like
 `OpsServer`, serves the default. See [Health](health.md#without-a-web-framework).
 
+An `OpsServer` switched off with `enabled=False` or `GREL_OPS_ENABLED=false`
+serves nothing, and the message says it is switched off. Set
+`GREL_OPS_ENABLED=true` to switch it on.
+
 Reported once the app opens, only when it is installed on an app that serves
 HTTP, and quiet in `development` and `test`. `python -m grelmicro check` shows
 the same check. If you serve the checks some other way, filter

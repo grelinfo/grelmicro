@@ -231,6 +231,72 @@ def test_health_not_served_ops_server_serves_the_default() -> None:
     assert _row_status(micro, app) == "ok"
 
 
+def test_health_not_served_switched_off_ops_server_says_so() -> None:
+    """A switched-off `OpsServer` serves nothing, and the row says it is off."""
+    # Arrange
+    app = FastAPI()
+    micro = Grelmicro(uses=[HealthChecks(), OpsServer(enabled=False)])
+    micro.install(app)
+
+    # Act
+    report = micro.describe(app)
+
+    # Assert
+    row = next(c for c in report.checks if c.name == "health-not-served")
+    assert row.status == "warn"
+    assert "OpsServer is switched off" in row.detail
+    assert "GREL_OPS_ENABLED=true" in row.detail
+    assert "register OpsServer" not in row.detail
+
+
+def test_health_not_served_one_running_ops_server_serves() -> None:
+    """A second `OpsServer` still running serves the default checks."""
+    # Arrange
+    app = FastAPI()
+    micro = Grelmicro(
+        uses=[
+            HealthChecks(),
+            OpsServer(enabled=False),
+            OpsServer(name="admin", port=9464),
+        ]
+    )
+    micro.install(app)
+
+    # Act / Assert
+    assert _row_status(micro, app) == "ok"
+
+
+async def test_health_not_served_switched_off_ops_server_warns() -> None:
+    """Opening the app warns that the `OpsServer` is switched off."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[HealthChecks(), OpsServer(enabled=False)],
+        environment="production",
+    )
+    micro.install(FastAPI())
+
+    # Act / Assert
+    with pytest.warns(HealthNotServedWarning, match="switched off"):
+        await _open(micro)
+
+
+def test_health_not_served_switched_off_skips_a_sole_named_instance() -> None:
+    """A switched-off `OpsServer` is not offered for a named instance."""
+    # Arrange
+    app = FastAPI()
+    micro = Grelmicro(
+        uses=[HealthChecks(name="internal"), OpsServer(enabled=False)]
+    )
+    micro.install(app)
+
+    # Act
+    report = micro.describe(app)
+
+    # Assert
+    row = next(c for c in report.checks if c.name == "health-not-served")
+    assert "OpsServer" not in row.detail
+
+
 def test_health_not_served_ops_server_skips_a_sole_named_instance() -> None:
     """`OpsServer` serves only the instance named `"default"`."""
     # Arrange

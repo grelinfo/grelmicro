@@ -1188,10 +1188,12 @@ class Grelmicro:
             default = self.get("health", "default")
         except ComponentNotRegisteredError:
             default = None
-        ops_server = any(
-            getattr(component, "kind", None) == "ops"
+        ops_servers: list[Any] = [
+            component
             for component in self.components
-        )
+            if getattr(component, "kind", None) == "ops"
+        ]
+        ops_server = any(server.config.enabled for server in ops_servers)
         missing = unserved(
             (
                 component
@@ -1204,7 +1206,9 @@ class Grelmicro:
                 self._by_key.get(("health", "default")) if ops_server else None
             ),
         )
-        return _UnservedHealth(missing, default)
+        return _UnservedHealth(
+            missing, default, ops_off=bool(ops_servers) and not ops_server
+        )
 
     def _report_unserved_health(self) -> None:
         """Warn and log about each registered `HealthChecks` nothing serves.
@@ -2645,14 +2649,25 @@ class _UnservedHealth:
     missing: list[object]
     default: object | None
     """The checks an endpoint built with no argument serves."""
+    ops_off: bool = False
+    """Whether every registered `OpsServer` is switched off."""
 
     def message(self) -> str:
         """Say which checks nothing serves, and how to serve each."""
         sentences = []
         for checks in self.missing:
-            if checks is self.default:
+            served_by_ops = getattr(checks, "name", None) == "default"
+            if checks is self.default and served_by_ops and self.ops_off:
+                sentences.append(
+                    f"{label(checks)} is registered, but OpsServer is "
+                    "switched off and nothing else serves its endpoints, so "
+                    "a probe to /livez or /readyz gets 404. Switch it on "
+                    "with GREL_OPS_ENABLED=true, include health_router() in "
+                    "the app, or mount health_asgi()."
+                )
+            elif checks is self.default:
                 ways = "Include health_router() in the app, mount health_asgi()"
-                if getattr(checks, "name", None) == "default":
+                if served_by_ops:
                     ways += ", or register OpsServer"
                 sentences.append(
                     f"{label(checks)} is registered, but nothing serves its "
