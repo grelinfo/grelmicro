@@ -19,7 +19,7 @@
 * 🗑️ A mode field such as `MetricsConfig.exporter` reads back as its old enum member until 0.44.0, then as a plain `str`. Compare it with the string. ([#1139](https://github.com/grelinfo/grelmicro/pull/1139))
 * 🗑️ `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Pass the string instead. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
 * 🗑️ `GREL_ENVIRONMENT=Production`, or any tier in another case, warns with `GrelmicroFutureWarning`. It reads as undeclared until 0.44.0, then as that tier. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
-* 🗑️ A `GREL_*` variable set while `GREL_ENV_LOAD` is unset warns with `GrelmicroFutureWarning`. It is not read until 0.44.0, then read by default. Set `GREL_ENV_LOAD=1` or `GREL_ENV_LOAD=0` to choose now. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+* 🗑️ A `GREL_*` variable set while `GREL_ENV_LOAD` is unset warns with `GrelmicroFutureWarning`. It is not read until 0.44.0, then read by default. Set `GREL_ENV_LOAD=1` or `GREL_ENV_LOAD=0` to choose now. ([#1145](https://github.com/grelinfo/grelmicro/pull/1145))
 
 
 ### Docs
