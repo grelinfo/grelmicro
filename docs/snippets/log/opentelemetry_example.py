@@ -4,13 +4,13 @@ from loguru import logger
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
-from grelmicro.log import LogBackendType, LogFormatType, configure
+from grelmicro.log import configure
 
 # Set up OpenTelemetry
 trace.set_tracer_provider(TracerProvider())
 
 # Configure logging (auto-detects OpenTelemetry)
-configure(backend=LogBackendType.LOGURU, format=LogFormatType.JSON)
+configure(backend="loguru", format="JSON")
 
 # Get a tracer
 tracer = trace.get_tracer(__name__)

@@ -7,9 +7,10 @@ import warnings
 from contextlib import suppress
 from logging import getLogger
 from types import FunctionType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from grelmicro._app import ComponentNotRegisteredError, _current_micro
+from grelmicro._config import match_case
 from grelmicro._diagnostics import LEADER_NOT_RUNNING, UNGATED_CRON, diagnostic
 from grelmicro._environment import _PACKAGE_DIR, QUIET_ENVIRONMENTS
 from grelmicro.clock import monotonic
@@ -35,6 +36,11 @@ __all__ = [
 ]
 
 logger = getLogger("grelmicro.task")
+
+
+def spell_gate[T](gate: T) -> T:
+    """Return `gate` with `"claim"` matched in any case, anything else as is."""
+    return match_case(Literal["claim"], gate)
 
 
 def gate_label(gate: object, *, takes_lock: bool) -> str:

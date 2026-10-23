@@ -10,6 +10,6 @@
         - Metrics
         - MetricsConfig
         - MetricsError
-        - MetricsExporterType
+        - MetricsExporter
         - measure
         - metrics_asgi

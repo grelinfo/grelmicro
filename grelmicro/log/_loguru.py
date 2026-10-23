@@ -20,7 +20,7 @@ from grelmicro.log._shared import (
     render_text_line,
 )
 from grelmicro.log._stdlib import build_formatter, install_root
-from grelmicro.log.config import LogConfig, LogFormatType
+from grelmicro.log.config import LogConfig
 from grelmicro.log.types import ErrorDict
 
 try:
@@ -268,19 +268,19 @@ def configure(config: LogConfig | None = None) -> None:
     needs_logfmt = False
     needs_localtime = False
 
-    if log_format == LogFormatType.JSON or (
+    if log_format == "JSON" or (
         isinstance(log_format, str) and log_format.strip() == JSON_FORMAT
     ):
         log_format = _json_formatter
         needs_json = True
-    elif log_format == LogFormatType.LOGFMT:
+    elif log_format == "LOGFMT":
         log_format = _logfmt_formatter
         needs_logfmt = True
-    elif log_format == LogFormatType.PRETTY:
+    elif log_format == "PRETTY":
         log_format = _make_pretty_formatter(
             timezone, caller_enabled=caller, colors=colors
         )
-    elif log_format == LogFormatType.TEXT:
+    elif log_format == "TEXT":
         log_format = _make_text_formatter(
             timezone, caller_enabled=caller, colors=colors
         )

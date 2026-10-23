@@ -6,13 +6,13 @@ import pytest
 from pydantic import ValidationError
 
 from grelmicro import Grelmicro
-from grelmicro.metrics import Metrics, MetricsConfig, MetricsExporterType
+from grelmicro.metrics import Metrics, MetricsConfig
 
 
 def test_config_defaults() -> None:
     """Defaults match the documented values."""
     config = MetricsConfig()
-    assert config.exporter == MetricsExporterType.AUTO
+    assert config.exporter == "auto"
     assert config.export_interval == 60.0  # noqa: PLR2004
     assert config.export_timeout == 30.0  # noqa: PLR2004
     assert config.shutdown_timeout == 5.0  # noqa: PLR2004
@@ -35,7 +35,7 @@ async def test_config_env_loading(monkeypatch: pytest.MonkeyPatch) -> None:
     micro = Grelmicro(uses=[Metrics(env_load=True)])
     async with micro:
         config = micro.metrics.config
-        assert config.exporter == MetricsExporterType.NONE
+        assert config.exporter == "none"
         assert config.service_name == "from-env"
         assert config.export_interval == 12.5  # noqa: PLR2004
 
@@ -47,7 +47,7 @@ async def test_kwargs_win_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
     micro = Grelmicro(
         uses=[
             Metrics(
-                exporter=MetricsExporterType.NONE,
+                exporter="none",
                 service_name="explicit",
                 env_load=True,
             )

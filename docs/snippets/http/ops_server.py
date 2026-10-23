@@ -4,7 +4,7 @@ from faststream.redis import RedisBroker
 from grelmicro import Grelmicro
 from grelmicro.health import HealthChecks
 from grelmicro.http import OpsServer
-from grelmicro.metrics import Metrics, MetricsExporterType
+from grelmicro.metrics import Metrics
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider(url="redis://localhost:6379/0")
@@ -14,7 +14,7 @@ micro = Grelmicro(
     uses=[
         redis,
         health,
-        Metrics(exporter=MetricsExporterType.PROMETHEUS),
+        Metrics(exporter="prometheus"),
         OpsServer(port=8080),
     ]
 )

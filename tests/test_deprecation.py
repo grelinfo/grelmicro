@@ -5,7 +5,7 @@ import warnings
 import pytest
 
 import grelmicro
-from grelmicro._deprecation import PENDING, FutureChange, Rename
+from grelmicro._deprecation import PENDING, FutureChange, Removal, Rename
 from grelmicro.errors import GrelmicroConfigWarning, GrelmicroFutureWarning
 from tests._future import assert_future_warning, latest_release, stale
 from tools import changelog
@@ -18,6 +18,10 @@ GATE = FutureChange(
 )
 
 OLD_NAME = Rename(old="OldName", new="NewName", removed_in="0.44.0")
+
+OLD_ENUM = Removal(
+    old="OldEnum", use='`"value"` and the `New` type', removed_in="0.44.0"
+)
 
 
 def _example(gate: object = None, *, explicit: bool = False) -> object:
@@ -48,6 +52,27 @@ def test_rename_message() -> None:
     assert OLD_NAME.message == (
         "`OldName` is renamed to `NewName`. `OldName` is removed in 0.44.0."
     )
+
+
+def test_removal_message() -> None:
+    """The message names the release that removes the name and what replaces it."""
+    assert OLD_ENUM.message == (
+        "`OldEnum` is removed in 0.44.0. "
+        'Use `"value"` and the `New` type instead.'
+    )
+
+
+def test_removal_warns_with_its_message() -> None:
+    """A removal warns under the same category, at the caller."""
+
+    def old_enum() -> None:
+        OLD_ENUM.warn()
+
+    with pytest.warns(
+        GrelmicroFutureWarning, match="removed in 0.44.0"
+    ) as caught:
+        old_enum()
+    assert caught[0].filename == __file__
 
 
 def test_warning_points_at_the_caller_of_the_library() -> None:
@@ -113,13 +138,17 @@ def test_no_pending_entry_outlives_its_release() -> None:
 
 @pytest.mark.parametrize(
     ("version", "expected"),
-    [("0.43.9", []), ("0.44.0", [OLD_NAME, GATE]), ("1.0.0", [OLD_NAME, GATE])],
+    [
+        ("0.43.9", []),
+        ("0.44.0", [OLD_NAME, OLD_ENUM, GATE]),
+        ("1.0.0", [OLD_NAME, OLD_ENUM, GATE]),
+    ],
 )
 def test_stale_flags_entries_due_at_or_before_the_version(
-    version: str, expected: list[FutureChange | Rename]
+    version: str, expected: list[FutureChange | Rename | Removal]
 ) -> None:
     """The guard fails from the release named on the entry onward."""
-    assert stale([OLD_NAME, GATE], version) == expected
+    assert stale([OLD_NAME, OLD_ENUM, GATE], version) == expected
 
 
 def test_stale_refuses_a_version_it_cannot_compare() -> None:

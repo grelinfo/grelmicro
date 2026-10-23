@@ -3,13 +3,13 @@ from fastapi import FastAPI
 from grelmicro import Grelmicro
 from grelmicro.health import HealthChecks
 from grelmicro.http import OpsServer
-from grelmicro.metrics import Metrics, MetricsExporterType
+from grelmicro.metrics import Metrics
 
 micro = Grelmicro(
     uses=[
         OpsServer(),
         HealthChecks(auto_health=True),
-        Metrics(exporter=MetricsExporterType.PROMETHEUS),
+        Metrics(exporter="prometheus"),
     ]
 )
 

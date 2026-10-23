@@ -62,11 +62,11 @@ from grelmicro.integrations._request_telemetry import (
     RequestTelemetry,
     known_methods,
 )
-from grelmicro.metrics import Metrics, MetricsExporterType
+from grelmicro.metrics import Metrics
 from grelmicro.metrics._endpoints import render_prometheus
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
-from grelmicro.trace import Trace, TraceExporterType
+from grelmicro.trace import Trace
 
 if TYPE_CHECKING:
     from opentelemetry.sdk.trace import ReadableSpan
@@ -78,7 +78,7 @@ if TYPE_CHECKING:
 
 def _trace(*, instrument: InstrumentDirective = True) -> Trace:
     """Return a `Trace` that exports nowhere."""
-    return Trace(exporter=TraceExporterType.NONE, instrument=instrument)
+    return Trace(exporter="none", instrument=instrument)
 
 
 async def _read_item(request: Request) -> JSONResponse:
@@ -109,7 +109,7 @@ def _server_spans(spans: tuple[ReadableSpan, ...]) -> list[ReadableSpan]:
 
 
 def _metrics() -> Metrics:
-    return Metrics(exporter=MetricsExporterType.PROMETHEUS)
+    return Metrics(exporter="prometheus")
 
 
 def _request_durations(micro: Grelmicro) -> str:

@@ -6,6 +6,11 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, PositiveFloat
 from typing_extensions import Doc
 
+from grelmicro._config import any_case
+
+_Jitter = Literal["none", "full", "equal", "decorrelated"]
+"""The jitter modes, matched in any case."""
+
 
 class ExponentialBackoff(BaseModel, frozen=True, extra="forbid"):
     """Exponential backoff with optional jitter.
@@ -46,7 +51,8 @@ class ExponentialBackoff(BaseModel, frozen=True, extra="forbid"):
     ] = 30.0
 
     jitter: Annotated[
-        Literal["none", "full", "equal", "decorrelated"],
+        _Jitter,
+        any_case(_Jitter),
         Doc(
             "Jitter mode. ``full`` (default) samples from "
             "``[0, raw]`` and is the safest choice against retry "

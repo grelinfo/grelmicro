@@ -361,8 +361,9 @@ class Grelmicro:
             Doc(
                 """
                 The deployment tier this app runs in: `"development"`,
-                `"test"`, `"staging"` or `"production"`. A value outside
-                those four raises `SettingsValidationError`. Falls back to
+                `"test"`, `"staging"` or `"production"`, matched in any
+                case. A value outside those four raises
+                `SettingsValidationError`. Falls back to
                 `GREL_ENVIRONMENT`, which is read whatever `GREL_ENV_LOAD`
                 says and which reports an unknown value instead of raising,
                 and stays `None` when neither declares one.

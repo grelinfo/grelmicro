@@ -20,8 +20,6 @@ from grelmicro.log._shared import (
 from grelmicro.log._stdlib import build_formatter, install_root
 from grelmicro.log.config import (
     LogConfig,
-    LogFormatType,
-    LogSerializerType,
 )
 from grelmicro.log.types import ErrorDict
 
@@ -243,12 +241,9 @@ def configure(config: LogConfig | None = None) -> None:
     if settings.otel_enabled:
         processors.append(_add_otel_context)
 
-    if resolved_format == LogFormatType.JSON:
+    if resolved_format == "JSON":
         processors.append(_build_flat_record)
-        if (
-            resolve_serializer(settings.json_serializer)
-            == LogSerializerType.ORJSON
-        ):
+        if resolve_serializer(settings.json_serializer) == "orjson":
             # Decoded and written as text, not to the byte stream under
             # stdout. Writing bytes there skips the text buffer, so a log
             # line lands out of order against anything else on stdout, and
@@ -265,10 +260,10 @@ def configure(config: LogConfig | None = None) -> None:
         logger_factory: structlog.PrintLoggerFactory = (
             structlog.PrintLoggerFactory(file=get_stream())
         )
-    elif resolved_format == LogFormatType.LOGFMT:
+    elif resolved_format == "LOGFMT":
         processors.append(_render_logfmt)
         logger_factory = structlog.PrintLoggerFactory(file=get_stream())
-    elif resolved_format == LogFormatType.PRETTY:
+    elif resolved_format == "PRETTY":
         processors.append(_make_pretty_renderer(colors=colors))
         logger_factory = structlog.PrintLoggerFactory(file=get_stream())
     else:

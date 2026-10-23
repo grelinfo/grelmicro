@@ -30,7 +30,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, Final, NamedTuple, cast, get_args
 from weakref import WeakKeyDictionary, WeakSet
 
-from grelmicro._config import defer_report
+from grelmicro._config import defer_report, match_case
 from grelmicro._diagnostics import (
     BACKEND_SCOPE,
     UNKNOWN_ENVIRONMENT,
@@ -253,15 +253,19 @@ class Unmet:
 def resolve_environment(explicit: Environment | None) -> Environment | None:
     """Return the declared tier, or `None` when nothing declares one.
 
-    An explicit argument wins over `GREL_ENVIRONMENT`. The two doors treat
-    an unknown tier differently on purpose. The argument is code, so it
-    raises. The variable is the operator's, so it is reported once and read
-    as undeclared.
+    An explicit argument wins over `GREL_ENVIRONMENT`, and matches the
+    tier in any case. The two doors treat an unknown tier differently on
+    purpose. The argument is code, so it raises. The variable is the
+    operator's, so it is reported once and read as undeclared. A variable
+    naming a tier in another case, such as `Production`, is still unknown
+    and also warns with `GrelmicroFutureWarning`, since it reads as that
+    tier from 0.44.0.
 
     Raises:
         SettingsValidationError: If `explicit` names no known tier.
     """
     if explicit is not None:
+        explicit = match_case(Environment, explicit)
         if explicit not in ENVIRONMENTS:
             known = ", ".join(ENVIRONMENTS)
             msg = f"environment= must be one of {known}"
@@ -273,8 +277,22 @@ def resolve_environment(explicit: Environment | None) -> Environment | None:
     for environment in ENVIRONMENTS:
         if value == environment:
             return environment
+    _warn_other_case(value)
     _report_unknown_environment(value)
     return None
+
+
+def _warn_other_case(value: str) -> None:
+    """Warn when `GREL_ENVIRONMENT` names a tier in another case.
+
+    0.44.0 reads it as that tier. The value is echoed only then, since it
+    is one of the four tiers.
+    """
+    tier = match_case(Environment, value)
+    if tier in ENVIRONMENTS:
+        from grelmicro._deprecation import environment_case  # noqa: PLC0415
+
+        environment_case(value, tier).warn(stacklevel=4)
 
 
 def _report_unknown_environment(value: str) -> None:

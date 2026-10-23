@@ -17,18 +17,22 @@ from grelmicro._timezone import SHARED_TIMEZONE_ENV
 from grelmicro.log._apply import apply as _apply
 from grelmicro.log._queue import uninstall as _uninstall_queue
 from grelmicro.log.config import (
-    LogBackendType,
+    LogBackend,
     LogConfig,
-    LogFormatType,
-    LogLevelType,
-    LogSerializerType,
+    LogFormat,
+    LogSerializer,
 )
 from grelmicro.log.uvicorn import rebind_streams as _rebind_uvicorn_streams
 
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from grelmicro.types import TimeZoneName
+    from grelmicro._mode_enums import (
+        LogBackendType,
+        LogLevelType,
+        LogSerializerType,
+    )
+    from grelmicro.types import LogLevel, TimeZoneName
 
 
 class Log:
@@ -82,21 +86,23 @@ class Log:
             ),
         ] = "default",
         backend: Annotated[
-            LogBackendType | None,
+            LogBackend | LogBackendType | None,
             Doc("Logging backend (`stdlib`, `loguru`, `structlog`)."),
         ] = None,
         level: Annotated[
-            LogLevelType | None, Doc("Log level threshold.")
+            LogLevel | LogLevelType | None,
+            Doc("Log level threshold."),
         ] = None,
         format: Annotated[  # noqa: A002
-            LogFormatType | str | None, Doc("Log format.")
+            LogFormat | str | None, Doc("Log format.")
         ] = None,
         timezone: Annotated[
             TimeZoneName | None,
             Doc("IANA timezone for timestamps."),
         ] = None,
         json_serializer: Annotated[
-            LogSerializerType | None, Doc("JSON serializer.")
+            LogSerializer | LogSerializerType | None,
+            Doc("JSON serializer."),
         ] = None,
         caller_enabled: Annotated[
             bool | None,

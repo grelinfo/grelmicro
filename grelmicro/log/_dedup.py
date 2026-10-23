@@ -16,7 +16,7 @@ from typing import Annotated, Any, Self
 from pydantic import BaseModel, PositiveInt, field_validator
 from typing_extensions import Doc
 
-from grelmicro._config import env_prefixes, resolve_config
+from grelmicro._config import any_case, env_prefixes, resolve_config
 from grelmicro._duration import Duration, nanoseconds, no_limit_from_text
 from grelmicro.log._shared import KeyMode
 
@@ -40,6 +40,7 @@ class DuplicateFilterConfig(BaseModel, frozen=True, extra="forbid"):
     ] = 100
     key_mode: Annotated[
         KeyMode,
+        any_case(KeyMode),
         Doc(
             'Default key strategy. `"logger"` keys per logger name. '
             '`"level"` keys per log level. `"global"` shares one '

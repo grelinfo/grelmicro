@@ -14,8 +14,11 @@
         - ErrorDict
         - JSONRecordDict
         - Log
+        - LogBackend
         - LogConfig
         - LogError
+        - LogFormat
+        - LogSerializer
         - RateLimitFilter
         - RateLimitFilterConfig
         - configure

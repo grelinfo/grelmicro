@@ -14,7 +14,6 @@ from grelmicro.health import HealthChecks
 from grelmicro.metrics import (
     Metrics,
     MetricsConfig,
-    MetricsExporterType,
 )
 from grelmicro.metrics import _hub as hub
 from grelmicro.metrics._component import (
@@ -29,7 +28,7 @@ from grelmicro.metrics.errors import (
 def test_metrics_config_accepts_case_insensitive_enums() -> None:
     """Enum fields accept any-case strings via `_missing_`."""
     config = MetricsConfig.model_validate({"exporter": "PROMETHEUS"})
-    assert config.exporter == MetricsExporterType.PROMETHEUS
+    assert config.exporter == "prometheus"
 
 
 def test_metrics_config_rejects_unknown_enum_value() -> None:
@@ -39,7 +38,7 @@ def test_metrics_config_rejects_unknown_enum_value() -> None:
 
 
 def test_metrics_config_rejects_none_for_enum() -> None:
-    """`None` does not silently resolve to `MetricsExporterType.NONE`."""
+    """`None` does not silently resolve to `"none"`."""
     with pytest.raises(ValueError, match="exporter"):
         MetricsConfig.model_validate({"exporter": None})
 
@@ -52,12 +51,12 @@ def test_metrics_config_rejects_extra_field() -> None:
 
 def test_metrics_satisfies_component_protocol() -> None:
     """`Metrics` is a runtime-checkable `Component`."""
-    assert isinstance(Metrics(exporter=MetricsExporterType.NONE), Component)
+    assert isinstance(Metrics(exporter="none"), Component)
 
 
 def test_metrics_default_kind_and_name() -> None:
     """Default kind is `metrics` and default name is `default`."""
-    metrics = Metrics(exporter=MetricsExporterType.NONE)
+    metrics = Metrics(exporter="none")
     assert metrics.kind == "metrics"
     assert metrics.name == "default"
 
@@ -67,36 +66,36 @@ def test_metrics_is_singleton() -> None:
     with pytest.raises(ComponentAlreadyRegisteredError, match="singleton"):
         Grelmicro(
             uses=[
-                Metrics(exporter=MetricsExporterType.NONE),
-                Metrics(exporter=MetricsExporterType.NONE, name="audit"),
+                Metrics(exporter="none"),
+                Metrics(exporter="none", name="audit"),
             ]
         )
 
 
 def test_metrics_name_is_read_only() -> None:
     """`Metrics.name` is a read-only property."""
-    metrics = Metrics(exporter=MetricsExporterType.NONE)
+    metrics = Metrics(exporter="none")
     with pytest.raises(AttributeError):
         metrics.name = "other"  # ty: ignore[invalid-assignment]
 
 
 def test_metrics_config_unavailable_before_enter() -> None:
     """`Metrics.config` raises before the component has been entered."""
-    metrics = Metrics(exporter=MetricsExporterType.NONE)
+    metrics = Metrics(exporter="none")
     with pytest.raises(RuntimeError, match="only available inside"):
         _ = metrics.config
 
 
 def test_metrics_provider_unavailable_before_enter() -> None:
     """`Metrics.provider` raises before the component has been entered."""
-    metrics = Metrics(exporter=MetricsExporterType.NONE)
+    metrics = Metrics(exporter="none")
     with pytest.raises(RuntimeError, match="only available inside"):
         _ = metrics.provider
 
 
 def test_metrics_meter_unavailable_before_enter() -> None:
     """`Metrics.meter` raises before the component has been entered."""
-    metrics = Metrics(exporter=MetricsExporterType.NONE)
+    metrics = Metrics(exporter="none")
     with pytest.raises(RuntimeError, match="only available inside"):
         metrics.meter("x")
 
@@ -107,7 +106,7 @@ async def test_metrics_installs_provider_on_enter() -> None:
     micro = Grelmicro(
         uses=[
             Metrics(
-                exporter=MetricsExporterType.NONE,
+                exporter="none",
                 service_name="test-svc",
             )
         ]
@@ -123,9 +122,7 @@ async def test_metrics_installs_provider_on_enter() -> None:
 
 async def test_metrics_accepts_prebuilt_config() -> None:
     """`Metrics.from_config(...)` uses the pre-built `MetricsConfig` as-is."""
-    config = MetricsConfig(
-        exporter=MetricsExporterType.NONE, service_name="payments"
-    )
+    config = MetricsConfig(exporter="none", service_name="payments")
     micro = Grelmicro(uses=[Metrics.from_config(config)])
     async with micro:
         assert micro.metrics.config is config
@@ -133,9 +130,7 @@ async def test_metrics_accepts_prebuilt_config() -> None:
 
 def test_metrics_from_config_keeps_config_and_default_name() -> None:
     """`Metrics.from_config(cfg)` keeps the config and defaults the name."""
-    config = MetricsConfig(
-        exporter=MetricsExporterType.NONE, service_name="payments"
-    )
+    config = MetricsConfig(exporter="none", service_name="payments")
     metrics = Metrics.from_config(config)
     assert metrics._explicit_config is config
     assert metrics.name == "default"
@@ -143,14 +138,14 @@ def test_metrics_from_config_keeps_config_and_default_name() -> None:
 
 def test_metrics_from_config_keeps_name() -> None:
     """`Metrics.from_config(..., name=...)` keeps the registration name."""
-    config = MetricsConfig(exporter=MetricsExporterType.NONE)
+    config = MetricsConfig(exporter="none")
     metrics = Metrics.from_config(config, name="audit")
     assert metrics.name == "audit"
 
 
 async def test_metrics_console_exporter() -> None:
     """`exporter=console` builds a periodic console reader pipeline."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.CONSOLE)])
+    micro = Grelmicro(uses=[Metrics(exporter="console")])
     async with micro:
         assert isinstance(micro.metrics.provider, MeterProvider)
         assert micro.metrics.prometheus_registry is None
@@ -158,7 +153,7 @@ async def test_metrics_console_exporter() -> None:
 
 async def test_metrics_none_exporter_has_no_reader() -> None:
     """`exporter=none` installs a provider with no readers."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])
+    micro = Grelmicro(uses=[Metrics(exporter="none")])
     async with micro:
         assert isinstance(micro.metrics.provider, MeterProvider)
         assert micro.metrics.prometheus_registry is None
@@ -168,7 +163,7 @@ async def test_metrics_prometheus_registry_present() -> None:
     """`exporter=prometheus` keeps a CollectorRegistry on the component."""
     from prometheus_client import CollectorRegistry  # noqa: PLC0415
 
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
     async with micro:
         registry = micro.metrics.prometheus_registry
         assert isinstance(registry, CollectorRegistry)
@@ -177,7 +172,7 @@ async def test_metrics_prometheus_registry_present() -> None:
 
 async def test_metrics_meter_cached_per_name() -> None:
     """`meter(name)` returns the same instance for the same scope name."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])
+    micro = Grelmicro(uses=[Metrics(exporter="none")])
     async with micro:
         first = micro.metrics.meter("scope")
         second = micro.metrics.meter("scope")
@@ -192,7 +187,7 @@ async def test_metrics_convenience_instruments() -> None:
         UpDownCounter,
     )
 
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])
+    micro = Grelmicro(uses=[Metrics(exporter="none")])
     async with micro:
         counter = micro.metrics.counter("c", unit="1", description="d")
         hist = micro.metrics.histogram("h", unit="s")
@@ -213,7 +208,7 @@ async def test_metrics_shutdown_timeout_logs_warning(
     micro = Grelmicro(
         uses=[
             Metrics(
-                exporter=MetricsExporterType.NONE,
+                exporter="none",
                 shutdown_timeout=0.05,
             )
         ]
@@ -242,7 +237,7 @@ async def test_metrics_shutdown_exception_logged_not_propagated(
         msg = "exporter broken"
         raise RuntimeError(msg)
 
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])
+    micro = Grelmicro(uses=[Metrics(exporter="none")])
     async with micro:
         micro.metrics.provider.shutdown = _raise  # ty: ignore[invalid-assignment]
 
@@ -261,7 +256,7 @@ async def test_metrics_raises_when_private_otel_global_missing(
     import opentelemetry.metrics._internal as otel_internal  # noqa: PLC0415
 
     monkeypatch.delattr(otel_internal, "_METER_PROVIDER", raising=False)
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])
+    micro = Grelmicro(uses=[Metrics(exporter="none")])
     with pytest.raises(MetricsError, match="_METER_PROVIDER"):
         async with micro:
             pass
@@ -272,7 +267,7 @@ def test_metrics_singleton_skips_other_kinds() -> None:
     micro = Grelmicro(
         uses=[
             HealthChecks(),
-            Metrics(exporter=MetricsExporterType.NONE),
+            Metrics(exporter="none"),
         ]
     )
     assert micro is not None
@@ -296,7 +291,7 @@ def test_auto_exporter_resolves_to_none_without_endpoint(
     """`auto` collapses to `none` when no endpoint is configured."""
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
-    assert _resolve_exporter_type(MetricsConfig()) == MetricsExporterType.NONE
+    assert _resolve_exporter_type(MetricsConfig()) == "none"
 
 
 @pytest.mark.parametrize(
@@ -310,15 +305,13 @@ def test_auto_exporter_resolves_to_otlp_http_with_endpoint_env(
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
     monkeypatch.setenv(env_var, "https://obs.example.com")
-    assert (
-        _resolve_exporter_type(MetricsConfig()) == MetricsExporterType.OTLP_HTTP
-    )
+    assert _resolve_exporter_type(MetricsConfig()) == "otlp-http"
 
 
 def test_explicit_exporter_unchanged_without_endpoint() -> None:
     """An explicit exporter is never downgraded by auto-resolution."""
-    config = MetricsConfig(exporter=MetricsExporterType.CONSOLE)
-    assert _resolve_exporter_type(config) == MetricsExporterType.CONSOLE
+    config = MetricsConfig(exporter="console")
+    assert _resolve_exporter_type(config) == "console"
 
 
 async def test_auto_exporter_enters_inert_without_endpoint(
@@ -330,7 +323,7 @@ async def test_auto_exporter_enters_inert_without_endpoint(
     prior = otel_metrics.get_meter_provider()
     micro = Grelmicro(uses=[Metrics(service_name="orders")])
     async with micro:
-        assert micro.metrics.config.exporter == MetricsExporterType.AUTO
+        assert micro.metrics.config.exporter == "auto"
         assert micro.metrics.active is False
         assert otel_metrics.get_meter_provider() is prior
         assert hub.active() is None
@@ -374,17 +367,15 @@ async def test_auto_disabled_metrics_allow_overlapping_apps(
 
 async def test_active_metrics_still_blocks_second_app() -> None:
     """An active `Metrics` (explicit exporter) still blocks an overlapping app."""
-    async with Grelmicro(uses=[Metrics(exporter=MetricsExporterType.CONSOLE)]):
+    async with Grelmicro(uses=[Metrics(exporter="console")]):
         with pytest.raises(MultipleActiveAppsError):
-            async with Grelmicro(
-                uses=[Metrics(exporter=MetricsExporterType.CONSOLE)]
-            ):
+            async with Grelmicro(uses=[Metrics(exporter="console")]):
                 pass
 
 
 async def test_explicit_none_still_installs_provider() -> None:
     """Explicit `exporter=none` keeps installing a provider (stays active)."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])
+    micro = Grelmicro(uses=[Metrics(exporter="none")])
     async with micro:
         assert micro.metrics.active is True
         assert isinstance(micro.metrics.provider, MeterProvider)
@@ -445,9 +436,7 @@ def test_exporter_kwargs_empty_without_endpoint_or_headers() -> None:
 
 def test_metrics_basic_auth_kwarg_splits_into_fields() -> None:
     """`Metrics(basic_auth=(u, p))` maps onto the two config fields."""
-    metrics = Metrics(
-        exporter=MetricsExporterType.NONE, basic_auth=("me", "secret")
-    )
+    metrics = Metrics(exporter="none", basic_auth=("me", "secret"))
     assert metrics._kwargs["basic_auth_username"] == "me"
     assert metrics._kwargs["basic_auth_password"] == "secret"
 
@@ -464,9 +453,7 @@ async def test_metrics_basic_auth_from_env(
     """Credentials resolve from `GREL_METRICS_BASIC_AUTH_*`."""
     monkeypatch.setenv("GREL_METRICS_BASIC_AUTH_USERNAME", "me@example.com")
     monkeypatch.setenv("GREL_METRICS_BASIC_AUTH_PASSWORD", "s3cret")
-    micro = Grelmicro(
-        uses=[Metrics(exporter=MetricsExporterType.NONE, env_load=True)]
-    )
+    micro = Grelmicro(uses=[Metrics(exporter="none", env_load=True)])
     async with micro:
         assert micro.metrics.config.basic_auth_username == "me@example.com"
         password = micro.metrics.config.basic_auth_password

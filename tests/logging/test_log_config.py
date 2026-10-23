@@ -8,7 +8,6 @@ from grelmicro.log import (
     configure,
     configure_with,
 )
-from grelmicro.log.config import LogBackendType, LogFormatType, LogLevelType
 from tests.logging.conftest import parse_json_log
 
 
@@ -18,9 +17,9 @@ def test_configure_returns_resolved_config(
 ) -> None:
     """`configure()` returns the `LogConfig` it applied."""
     monkeypatch.delenv("GREL_LOG_LEVEL", raising=False)
-    cfg = configure(level=LogLevelType.DEBUG)
+    cfg = configure(level="DEBUG")
     assert isinstance(cfg, LogConfig)
-    assert cfg.level == LogLevelType.DEBUG
+    assert cfg.level == "DEBUG"
 
 
 def test_configure_kwargs_override_env(
@@ -29,8 +28,8 @@ def test_configure_kwargs_override_env(
 ) -> None:
     """Caller kwargs win over `GREL_LOG_*` env vars."""
     monkeypatch.setenv("GREL_LOG_LEVEL", "WARNING")
-    cfg = configure(level=LogLevelType.DEBUG)
-    assert cfg.level == LogLevelType.DEBUG
+    cfg = configure(level="DEBUG")
+    assert cfg.level == "DEBUG"
 
 
 def test_configure_reads_env_when_kwargs_unset(
@@ -41,8 +40,8 @@ def test_configure_reads_env_when_kwargs_unset(
     monkeypatch.setenv("GREL_LOG_LEVEL", "ERROR")
     monkeypatch.setenv("GREL_LOG_BACKEND", "stdlib")
     cfg = configure()
-    assert cfg.level == LogLevelType.ERROR
-    assert cfg.backend == LogBackendType.STDLIB
+    assert cfg.level == "ERROR"
+    assert cfg.backend == "stdlib"
 
 
 def test_configure_env_load_false_ignores_env(
@@ -52,7 +51,7 @@ def test_configure_env_load_false_ignores_env(
     """`env_load=False` skips env reading entirely."""
     monkeypatch.setenv("GREL_LOG_LEVEL", "ERROR")
     cfg = configure(env_load=False)
-    assert cfg.level == LogLevelType.INFO  # default
+    assert cfg.level == "INFO"  # default
 
 
 def test_configure_reports_ignored_env_in_the_log_stream(
@@ -65,7 +64,7 @@ def test_configure_reports_ignored_env_in_the_log_stream(
     monkeypatch.setenv("GREL_LOG_LEVEL", "DEBUG")
 
     with pytest.warns(GrelmicroConfigWarning):
-        configure(format=LogFormatType.JSON)
+        configure(format="JSON")
 
     record = parse_json_log(capsys.readouterr().out)
     assert record["level"] == "WARNING"
@@ -88,7 +87,7 @@ def test_configure_with_returns_passed_config(
     reset_backend: None,  # noqa: ARG001
 ) -> None:
     """`configure_with(cfg)` returns the same `LogConfig` for symmetry."""
-    cfg = LogConfig(level=LogLevelType.WARNING)
+    cfg = LogConfig(level="WARNING")
     returned = configure_with(cfg)
     assert returned is cfg
 
@@ -99,6 +98,6 @@ def test_configure_with_bypasses_env(
 ) -> None:
     """`configure_with(cfg)` ignores env vars and uses the passed config as-is."""
     monkeypatch.setenv("GREL_LOG_LEVEL", "ERROR")
-    cfg = LogConfig(level=LogLevelType.WARNING)
+    cfg = LogConfig(level="WARNING")
     returned = configure_with(cfg)
-    assert returned.level == LogLevelType.WARNING
+    assert returned.level == "WARNING"

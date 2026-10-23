@@ -10,7 +10,7 @@ import pytest
 
 from grelmicro.log._apply import apply as apply_backend
 from grelmicro.log._queue import get_stream, swap, uninstall
-from grelmicro.log.config import LogBackendType, LogConfig, LogFormatType
+from grelmicro.log.config import LogBackend, LogConfig
 from grelmicro.log.uvicorn import (
     UvicornAccessFormatter,
     UvicornFormatter,
@@ -19,7 +19,7 @@ from grelmicro.log.uvicorn import (
 from grelmicro.log.uvicorn import apply as apply_uvicorn
 
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
-_LOGFMT = LogConfig(format=LogFormatType.LOGFMT)
+_LOGFMT = LogConfig(format="LOGFMT")
 
 
 @pytest.fixture(autouse=True)
@@ -204,11 +204,11 @@ def test_apply_backend_respects_the_opt_out(
 
 @pytest.mark.parametrize(
     "backend",
-    [LogBackendType.STDLIB, LogBackendType.STRUCTLOG, LogBackendType.LOGURU],
+    ["stdlib", "structlog", "loguru"],
 )
 @pytest.mark.usefixtures("reset_backend")
 def test_uvicorn_matches_the_app_format_on_every_backend(
-    backend: LogBackendType,
+    backend: LogBackend,
 ) -> None:
     """Uvicorn's own records are rendered by grelmicro, whatever runs the app.
 
@@ -216,7 +216,7 @@ def test_uvicorn_matches_the_app_format_on_every_backend(
     own stdlib handlers. Both ends render through the same writers, so one
     process emits one format.
     """
-    apply_backend(LogConfig(backend=backend, format=LogFormatType.LOGFMT))
+    apply_backend(LogConfig(backend=backend, format="LOGFMT"))
     formatter = _formatters("uvicorn.access")[0]
     assert formatter is not None
 
@@ -228,14 +228,14 @@ def test_uvicorn_matches_the_app_format_on_every_backend(
 
 @pytest.mark.parametrize(
     "backend",
-    [LogBackendType.STDLIB, LogBackendType.STRUCTLOG, LogBackendType.LOGURU],
+    ["stdlib", "structlog", "loguru"],
 )
 @pytest.mark.usefixtures("reset_backend")
 def test_the_access_record_survives_every_backend(
-    backend: LogBackendType,
+    backend: LogBackend,
 ) -> None:
     """Formatting leaves the record as it found it, on every backend."""
-    apply_backend(LogConfig(backend=backend, format=LogFormatType.LOGFMT))
+    apply_backend(LogConfig(backend=backend, format="LOGFMT"))
     formatter = _formatters("uvicorn.access")[0]
     assert formatter is not None
     record = _access_record()

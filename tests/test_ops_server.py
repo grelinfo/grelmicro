@@ -22,7 +22,7 @@ from grelmicro.health import HealthChecks
 from grelmicro.http import OpsServer, OpsServerConfig, OpsServerError
 from grelmicro.http import _server as server_module
 from grelmicro.http._server import _Answer, _call_app
-from grelmicro.metrics import Metrics, MetricsConfig, MetricsExporterType
+from grelmicro.metrics import Metrics, MetricsConfig
 from tests._logs import records_of
 from tests.health.conftest import (
     healthy,
@@ -192,7 +192,7 @@ async def test_metrics_is_served_when_registered(
     micro = Grelmicro(
         uses=[
             health,
-            Metrics(exporter=MetricsExporterType.PROMETHEUS),
+            Metrics(exporter="prometheus"),
             OpsServer(host="127.0.0.1", port=port),
         ]
     )
@@ -222,7 +222,7 @@ async def test_metrics_alone_is_enough(port: int) -> None:
     """
     micro = Grelmicro(
         uses=[
-            Metrics(exporter=MetricsExporterType.PROMETHEUS),
+            Metrics(exporter="prometheus"),
             OpsServer(host="127.0.0.1", port=port),
         ]
     )
@@ -417,7 +417,7 @@ async def test_an_exporter_that_renders_nothing_serves_no_metrics(
     """Only the prometheus exporter has an exposition to serve."""
     micro = Grelmicro(
         uses=[
-            Metrics(exporter=MetricsExporterType.NONE),
+            Metrics(exporter="none"),
             OpsServer(host="127.0.0.1", port=port),
         ]
     )
@@ -438,7 +438,7 @@ async def test_a_failing_endpoint_answers_500(
     """An endpoint that raises is logged and answered, not left hanging."""
     micro = Grelmicro(
         uses=[
-            Metrics(exporter=MetricsExporterType.PROMETHEUS),
+            Metrics(exporter="prometheus"),
             OpsServer(host="127.0.0.1", port=port),
         ]
     )
@@ -449,7 +449,7 @@ async def test_a_failing_endpoint_answers_500(
         monkeypatch.setattr(
             micro.metrics,
             "_resolved",
-            MetricsConfig(exporter=MetricsExporterType.NONE),
+            MetricsConfig(exporter="none"),
         )
         answer = await raw(
             port, b"GET /metrics HTTP/1.1\r\nhost: probe\r\n\r\n"

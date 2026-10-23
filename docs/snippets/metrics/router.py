@@ -2,9 +2,9 @@ from fastapi import FastAPI
 
 from grelmicro import Grelmicro
 from grelmicro.integrations.fastapi import metrics_router
-from grelmicro.metrics import Metrics, MetricsExporterType
+from grelmicro.metrics import Metrics
 
-micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
 
 app = FastAPI()
 micro.install(app)

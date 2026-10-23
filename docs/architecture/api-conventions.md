@@ -139,6 +139,34 @@ Two words because they are two operations. Adding a route to the schema and
 annotating someone else's are not the same act, and a component that serves
 no route has nothing to include.
 
+## A choice is a string literal, a result is an enum
+
+An argument that picks a mode takes a `Literal` of strings. The caller
+writes the string, with nothing to import:
+
+```python
+from grelmicro.log import configure
+from grelmicro.metrics import Metrics
+
+Metrics(exporter="prometheus")
+configure(backend="loguru", format="JSON")
+```
+
+grelmicro matches the string in any case and keeps the documented spelling,
+whether it comes from an argument or an environment variable. So
+`GREL_LOG_LEVEL=info` reads as `INFO`. The value reads back as a plain `str`.
+Each set of choices has a type of its own, such as `MetricsExporter` or
+`LogFormat`, for code that annotates a value.
+
+A name a standard spells, such as a JWT algorithm like `RS256`, keeps its
+case. `GREL_ENVIRONMENT` follows the rule from 0.44.0: until then
+`GREL_ENVIRONMENT=Production` reads as undeclared and warns, while
+`environment="Production"` already reads as `production`.
+
+A value grelmicro returns for code to branch on stays an enum, such as
+`HealthStatus` or `CircuitBreakerState`. The caller matches its members, and
+a type checker can tell when a branch is missing.
+
 ## A stored duration is whole seconds or a `timedelta`
 
 A duration that grelmicro stores or enforces takes an `int` of seconds or a

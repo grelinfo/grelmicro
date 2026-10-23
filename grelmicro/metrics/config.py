@@ -1,8 +1,7 @@
 """Metrics Configuration."""
 
 from base64 import b64encode
-from enum import StrEnum
-from typing import Annotated, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -13,30 +12,18 @@ from pydantic import (
 )
 from typing_extensions import Doc
 
+from grelmicro._config import any_case
 from grelmicro.types import SecretUrl
 
+if TYPE_CHECKING:
+    from grelmicro._mode_enums import (
+        MetricsExporterType as MetricsExporterType,  # noqa: PLC0414
+    )
 
-class _CaseInsensitiveEnum(StrEnum):
-    @classmethod
-    def _missing_(cls, value: object) -> Self | None:
-        if not isinstance(value, str):
-            return None
-        value = value.lower()
-        for member in cls:
-            if member.lower() == value:
-                return member
-        return None
-
-
-class MetricsExporterType(_CaseInsensitiveEnum):
-    """Metric exporter selection."""
-
-    AUTO = "auto"
-    OTLP_HTTP = "otlp-http"
-    OTLP_GRPC = "otlp-grpc"
-    PROMETHEUS = "prometheus"
-    CONSOLE = "console"
-    NONE = "none"
+type MetricsExporter = Literal[
+    "auto", "otlp-http", "otlp-grpc", "prometheus", "console", "none"
+]
+"""Metric exporter selection, matched in any case."""
 
 
 class MetricsConfig(
@@ -52,7 +39,8 @@ class MetricsConfig(
         ),
     ] = None
     exporter: Annotated[
-        MetricsExporterType,
+        MetricsExporter,
+        any_case(MetricsExporter),
         Doc(
             "Metric exporter. The default `auto` resolves to `otlp-http` when "
             "an endpoint is configured (the `endpoint` field, "
@@ -61,7 +49,7 @@ class MetricsConfig(
             "unconfigured `Metrics()` exports nothing instead of falling back "
             "to `localhost:4318`."
         ),
-    ] = MetricsExporterType.AUTO
+    ] = "auto"
     endpoint: Annotated[
         SecretUrl[str] | None,
         Doc(
@@ -161,3 +149,13 @@ class MetricsConfig(
         raw = f"{self.basic_auth_username}:{password}"
         token = b64encode(raw.encode()).decode("ascii")
         return f"Basic {token}"
+
+
+def __getattr__(name: str) -> object:
+    """Return a mode enum removed in 0.44.0, with a warning."""
+    if name == "MetricsExporterType":
+        from grelmicro._mode_enums import deprecated_enum  # noqa: PLC0415
+
+        return deprecated_enum(name)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

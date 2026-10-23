@@ -61,6 +61,7 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
+    match_case,
     parse_csv_or_json,
     resolve_config,
 )
@@ -345,6 +346,7 @@ class ClientAuth:
         Raises:
             SettingsValidationError: If `method` is neither `basic` nor `post`.
         """
+        method = match_case(Literal["basic", "post"], method)
         if method not in (None, "basic", "post"):
             msg = "method must be 'basic' or 'post'"
             raise SettingsValidationError(msg)
@@ -406,6 +408,7 @@ class ClientAuth:
                 read, or the key cannot sign under `algorithm`.
             DependencyNotFoundError: If `grelmicro[jwt]` is not installed.
         """
+        audience = match_case(Literal["issuer", "token_endpoint"], audience)
         if audience not in ("issuer", "token_endpoint"):
             msg = "audience must be 'issuer' or 'token_endpoint'"
             raise SettingsValidationError(msg)

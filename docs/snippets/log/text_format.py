@@ -2,8 +2,8 @@
 
 from loguru import logger
 
-from grelmicro.log import LogBackendType, LogFormatType, configure
+from grelmicro.log import configure
 
-configure(backend=LogBackendType.LOGURU, format=LogFormatType.TEXT)
+configure(backend="loguru", format="TEXT")
 
 logger.info("Application started", version="1.0.0")
