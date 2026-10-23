@@ -1,12 +1,14 @@
 # Comparison
 
-How grelmicro compares to the focused libraries that cover one Pattern each.
+How grelmicro compares to the focused libraries that cover one pattern each.
 
-Most Python libraries in this space are **point solutions**: one library for caching, another for rate limiting, another for distributed locks, another for retries, another for circuit breaking, another for health checks. Each ships its own config story, its own lifecycle, its own backend client, its own logging shape.
+Most of these libraries are correct in one process. grelmicro is correct across all of your replicas, on the database you already run: Redis, Valkey, PostgreSQL or SQLite. A job scheduled with `gate="claim"` runs once per interval across replicas, not once per replica. A rate limit counts one budget for every replica. A circuit breaker shares its state, so a downstream that failed on one replica is not called again from the others.
 
-**grelmicro's unique value is the opposite**: one toolkit that ships every microservice resilience and infrastructure Pattern behind a unified API. One config contract. One lifecycle (`async with micro:`). One Redis client shared by Cache, Lock, RateLimiter, CircuitBreaker. One Postgres client shared by Lock, LeaderElection, TaskLock. One way to reconfigure at runtime. One way to declare health checks.
+The breadth comes second. Most Python libraries in this space are **point solutions**: one library for caching, another for rate limiting, another for distributed locks, another for retries, another for circuit breaking, another for health checks. Each ships its own config story, its own lifecycle, its own backend client, its own logging shape.
 
-If you only need a single Pattern, a focused library is often the right pick and this page will say so. If you need two or more, the toolkit story wins by removing four or five config dialects from your codebase.
+grelmicro ships these patterns behind one API. One config contract. One lifecycle (`micro.install(app)`). One Redis client shared by Cache, Lock, RateLimiter, CircuitBreaker. One Postgres client shared by Lock, LeaderElection, TaskLock. One way to reconfigure at runtime. One way to declare health checks.
+
+If you run a single process and need a single pattern, a focused library is often the right pick and this page will say so. If you run more than one replica, or need two or more patterns, grelmicro removes the gaps between them.
 
 Moving from APScheduler, slowapi or aioredlock? [Coming from APScheduler, slowapi or aioredlock](coming-from/python-libraries.md) maps each one, side by side.
 
@@ -14,7 +16,8 @@ Moving from APScheduler, slowapi or aioredlock? [Coming from APScheduler, slowap
 
 A short decision tree before the detailed tables:
 
-- **I need exactly one primitive** (one cache, one rate limiter, one breaker): pick the focused library for that primitive. The [Quick comparison](#quick-comparison) below names the right one for each Pattern.
+- **My service runs on more than one replica and a job, a limit or a breaker must hold across all of them**: pick grelmicro. That is the case it is built for.
+- **I need exactly one primitive in one process** (one cache, one rate limiter, one breaker): pick the focused library for that primitive. The [Quick comparison](#quick-comparison) below names the right one for each Pattern.
 - **I need two or more resilience or infrastructure primitives in the same async service**: pick grelmicro. One toolkit replaces four or five config dialects.
 - **I need to schedule background work that survives process restart, retries on failure, and runs across many workers**: pick a task queue (Celery, Dramatiq, ARQ). grelmicro's `Tasks` runs in-process periodic work, not durable jobs.
 - **I need long-running workflows with checkpoints, branches, or human-in-the-loop steps**: pick a workflow engine (Temporal, Prefect, Dagster). grelmicro does not orchestrate workflows.
@@ -24,6 +27,7 @@ A short decision tree before the detailed tables:
 
 | If you only need this | Use this | Pick grelmicro when you also need |
 |---|---|---|
+| In-process job scheduler | [`APScheduler`](https://github.com/agronholm/apscheduler) | A job that runs once per interval or cron fire across replicas (`gate="claim"`), not once per process |
 | Async cache decorator over Redis | [`aiocache`](https://github.com/aio-libs/aiocache) or [`fastapi-cache`](https://github.com/long2ice/fastapi-cache) | Stampede protection (`lock="cluster"` folds misses across replicas, `early=` XFetch refresh), type-safe `TTLCache[T]`, Postgres backend |
 | FastAPI rate limiter | [`slowapi`](https://github.com/laurentS/slowapi) or [`fastapi-limiter`](https://github.com/long2ice/fastapi-limiter) | Sliding-window algorithm, structured `RateLimitResult` for retry-after headers, swap Memory and Redis with the same API |
 | Async circuit breaker | [`pybreaker`](https://github.com/danielfm/pybreaker) or [`aiobreaker`](https://github.com/arlyon/aiobreaker) | Reconfigurable thresholds, frozen Pydantic config, structured logging context, fleet-wide state on Redis or Postgres |
@@ -33,7 +37,7 @@ A short decision tree before the detailed tables:
 
 The pattern across every row: pick the focused library when you only need that one Pattern. Pick grelmicro when you need two or more, with a single config and lifecycle story across all of them.
 
-## The unique value: one toolkit, every pattern
+## One toolkit, every pattern
 
 What you get from a single import:
 
@@ -58,14 +62,14 @@ What you get from a single import:
 All of them share:
 
 - **One config contract.** Every Pattern reads `GREL_{PATTERN}_{NAME}_*` env vars, or accepts a kwargs constructor, or accepts a Pydantic `Config`. Three paths, identical shape across Patterns.
-- **One lifecycle.** `async with Grelmicro(uses=[...]):` opens every backend, every component, every Pattern. No per-library `startup()`/`shutdown()` ceremony.
+- **One lifecycle.** `micro.install(app)` opens every backend, every component, every Pattern when the app starts and closes them when it stops. No per-library `startup()`/`shutdown()` ceremony.
 - **One Redis / Postgres / SQLite client.** Cache, Lock, RateLimiter on the same Redis don't open three connections. The shared client is a Provider. Patterns receive Adapters.
 - **One reconfigure protocol.** Every Pattern that owns runtime thresholds (`CircuitBreaker`, `RateLimiter`, `Retry`, `Lock`) supports `reconfigure(new_config)` without restart.
 - **One logging context.** Every Pattern logs through the same structured format, with the same field names.
 
 No focused library in the Python ecosystem covers more than two of these Patterns. The closest thing in other ecosystems is the resilience-pipeline class of libraries (Java, .NET), and none of those bundle distributed locks, caches, leader election, scheduled tasks, and health checks into the same toolkit.
 
-If you build microservices on FastAPI today, grelmicro is the missing batteries.
+If your FastAPI service runs on more than one replica, grelmicro keeps these patterns correct across all of them.
 
 ## Cache
 

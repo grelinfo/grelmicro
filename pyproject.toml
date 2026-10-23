@@ -57,6 +57,7 @@ dependencies = [
 Documentation = "https://grelmicro.grel.info"
 Repository = "https://github.com/grelinfo/grelmicro.git"
 Issues = "https://github.com/grelinfo/grelmicro/issues"
+Changelog = "https://grelmicro.grel.info/changelog/"
 
 [project.entry-points."grelmicro.integrations"]
 fastapi = "grelmicro.integrations.fastapi"

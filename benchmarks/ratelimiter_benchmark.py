@@ -64,7 +64,7 @@ async def _bench_acquire(iterations: int) -> None:
             TokenBucketConfig(capacity=1_000_000_000, refill_rate=1e9),
         )
         sliding_window: RateLimiterStrategy = adapter.bind(
-            SlidingWindowConfig(limit=1_000_000_000, window=60),
+            SlidingWindowConfig(limit=10_000_000, window=60),
         )
 
         await _measure_async(
