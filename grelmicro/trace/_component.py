@@ -15,9 +15,9 @@ from grelmicro._environment import resolve_environment
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.trace.config import (
     TraceConfig,
-    TraceExporterType,
-    TraceProcessorType,
-    TraceSamplerType,
+    TraceExporter,
+    TraceProcessor,
+    TraceSampler,
 )
 from grelmicro.trace.errors import (
     TraceError,
@@ -28,6 +28,11 @@ if TYPE_CHECKING:
 
     from opentelemetry.sdk.trace import TracerProvider
 
+    from grelmicro._mode_enums import (
+        TraceExporterType,
+        TraceProcessorType,
+        TraceSamplerType,
+    )
     from grelmicro.trace._autoinstrument import InstrumentDirective
     from grelmicro.types import Environment
 
@@ -86,7 +91,8 @@ class Trace:
             str | None, Doc("Service name resource attribute.")
         ] = None,
         exporter: Annotated[
-            TraceExporterType | None, Doc("Span exporter.")
+            TraceExporter | TraceExporterType | None,
+            Doc("Span exporter."),
         ] = None,
         endpoint: Annotated[str | None, Doc("Exporter endpoint.")] = None,
         headers: Annotated[
@@ -106,9 +112,13 @@ class Trace:
             ),
         ] = None,
         processor: Annotated[
-            TraceProcessorType | None, Doc("Span processor.")
+            TraceProcessor | TraceProcessorType | None,
+            Doc("Span processor."),
         ] = None,
-        sampler: Annotated[TraceSamplerType | None, Doc("Sampler.")] = None,
+        sampler: Annotated[
+            TraceSampler | TraceSamplerType | None,
+            Doc("Sampler."),
+        ] = None,
         sample_ratio: Annotated[
             float | None, Doc("Sample ratio for `traceidratio` sampler.")
         ] = None,
@@ -301,8 +311,8 @@ class Trace:
         """Return True when the exporter was left `auto` and resolves to `none`."""
         config = self._resolve()
         return (
-            config.exporter is TraceExporterType.AUTO
-            and _resolve_exporter_type(config) is TraceExporterType.NONE
+            config.exporter == "auto"
+            and _resolve_exporter_type(config) == "none"
         )
 
     def _resolve(self) -> TraceConfig:
@@ -478,11 +488,11 @@ def _build_provider(
     resource = Resource.create(resource_attrs) if resource_attrs else None
 
     sampler: Sampler
-    if config.sampler == TraceSamplerType.ALWAYS_ON:
+    if config.sampler == "always_on":
         sampler = ALWAYS_ON
-    elif config.sampler == TraceSamplerType.ALWAYS_OFF:
+    elif config.sampler == "always_off":
         sampler = ALWAYS_OFF
-    elif config.sampler == TraceSamplerType.TRACEIDRATIO:
+    elif config.sampler == "traceidratio":
         sampler = TraceIdRatioBased(config.sample_ratio)
     else:
         sampler = ParentBased(ALWAYS_ON)
@@ -490,11 +500,11 @@ def _build_provider(
     provider = TracerProvider(resource=resource, sampler=sampler)
 
     exporter_type = _resolve_exporter_type(config)
-    if exporter_type != TraceExporterType.NONE:
+    if exporter_type != "none":
         exporter = _build_exporter(config, exporter_type)
         processor_cls = (
             BatchSpanProcessor
-            if config.processor == TraceProcessorType.BATCH
+            if config.processor == "batch"
             else SimpleSpanProcessor
         )
         provider.add_span_processor(processor_cls(exporter))
@@ -502,7 +512,7 @@ def _build_provider(
     return provider
 
 
-def _resolve_exporter_type(config: TraceConfig) -> TraceExporterType:
+def _resolve_exporter_type(config: TraceConfig) -> TraceExporter:
     """Resolve the `auto` exporter against the configured endpoint.
 
     `auto` becomes `otlp-http` when an endpoint is resolvable (the
@@ -510,7 +520,7 @@ def _resolve_exporter_type(config: TraceConfig) -> TraceExporterType:
     `OTEL_EXPORTER_OTLP_ENDPOINT`) and `none` otherwise. Any explicit
     exporter is returned unchanged.
     """
-    if config.exporter != TraceExporterType.AUTO:
+    if config.exporter != "auto":
         return config.exporter
     endpoint_configured = (
         config.endpoint is not None
@@ -518,23 +528,23 @@ def _resolve_exporter_type(config: TraceConfig) -> TraceExporterType:
         or bool(os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"))
     )
     if endpoint_configured:
-        return TraceExporterType.OTLP_HTTP
-    return TraceExporterType.NONE
+        return "otlp-http"
+    return "none"
 
 
 def _build_exporter(
     config: TraceConfig,
-    exporter_type: TraceExporterType,
+    exporter_type: TraceExporter,
 ) -> Any:  # noqa: ANN401
     """Build a span exporter for the resolved exporter type."""
-    if exporter_type == TraceExporterType.CONSOLE:
+    if exporter_type == "console":
         from opentelemetry.sdk.trace.export import (  # noqa: PLC0415
             ConsoleSpanExporter,
         )
 
         return ConsoleSpanExporter()
 
-    if exporter_type == TraceExporterType.OTLP_HTTP:  # pragma: no cover
+    if exporter_type == "otlp-http":  # pragma: no cover
         try:
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
                 OTLPSpanExporter,

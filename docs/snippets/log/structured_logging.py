@@ -2,8 +2,8 @@
 
 from loguru import logger
 
-from grelmicro.log import LogBackendType, LogFormatType, configure
+from grelmicro.log import configure
 
-configure(backend=LogBackendType.LOGURU, format=LogFormatType.JSON)
+configure(backend="loguru", format="JSON")
 
 logger.info("User logged in", user_id=123, ip_address="192.168.1.1")

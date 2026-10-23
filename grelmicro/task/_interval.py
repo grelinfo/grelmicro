@@ -18,7 +18,12 @@ from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.metrics import _emit
 from grelmicro.task._fire import FireInfo, FireRecorder
-from grelmicro.task._gate import LeaderWatch, check_sync, gate_label
+from grelmicro.task._gate import (
+    LeaderWatch,
+    check_sync,
+    gate_label,
+    spell_gate,
+)
 from grelmicro.task._utils import (
     gate_lock_name,
     validate_and_generate_reference,
@@ -78,6 +83,7 @@ class IntervalTask(Task):
             self._name, function, clock=partial(datetime.now, UTC)
         )
 
+        gate = spell_gate(gate)
         primitives = self._gate_primitives(gate, interval)
         self._gate_label = gate_label(gate, takes_lock=True)
         self._watch = (

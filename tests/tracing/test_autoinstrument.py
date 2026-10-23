@@ -20,7 +20,7 @@ from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.valkey import ValkeyProvider
-from grelmicro.trace import Trace, TraceExporterType
+from grelmicro.trace import Trace
 from grelmicro.trace import _autoinstrument as ai
 from grelmicro.trace._autoinstrument import (
     InstrumentDirective,
@@ -44,7 +44,7 @@ PG_URL = "postgresql://localhost:5432/db"
 
 def _none_trace(*, instrument: InstrumentDirective = True) -> Trace:
     """Return a `Trace` with no exporter (no real OTLP connection)."""
-    return Trace(exporter=TraceExporterType.NONE, instrument=instrument)
+    return Trace(exporter="none", instrument=instrument)
 
 
 # --- selection logic ---------------------------------------------------------

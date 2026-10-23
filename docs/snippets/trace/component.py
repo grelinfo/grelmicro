@@ -2,7 +2,7 @@ import asyncio
 
 from grelmicro import Grelmicro
 from grelmicro.log import Log
-from grelmicro.trace import Trace, TraceExporterType, instrument
+from grelmicro.trace import Trace, instrument
 
 
 @instrument
@@ -15,7 +15,7 @@ micro = Grelmicro(
         Log(),
         Trace(
             service_name="orders",
-            exporter=TraceExporterType.CONSOLE,
+            exporter="console",
         ),
     ]
 )

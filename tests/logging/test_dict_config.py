@@ -21,7 +21,7 @@ from grelmicro.log import (
     handler,
 )
 from grelmicro.log._queue import get_writer, uninstall
-from grelmicro.log.config import LogConfig, LogFormatType, LogLevelType
+from grelmicro.log.config import LogConfig
 from grelmicro.log.uvicorn import UvicornAccessFormatter
 
 _UVICORN_ACCESS = "uvicorn.access"
@@ -88,7 +88,7 @@ def test_every_server_logger_reaches_the_root_handler(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A line from any application server renders like an application line."""
-    _apply(dict_config_with(LogConfig(format=LogFormatType.LOGFMT)))
+    _apply(dict_config_with(LogConfig(format="LOGFMT")))
 
     for name in _SERVERS:
         logging.getLogger(name).info("server line")
@@ -106,7 +106,7 @@ def test_the_uvicorn_access_record_keeps_its_fields(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Uvicorn carries the request in arguments, so it gets its own formatter."""
-    _apply(dict_config_with(LogConfig(format=LogFormatType.JSON)))
+    _apply(dict_config_with(LogConfig(format="JSON")))
 
     logging.getLogger(_UVICORN_ACCESS).info(_ACCESS_MESSAGE, *_ACCESS_ARGS)
 
@@ -123,7 +123,7 @@ def test_the_ansi_copy_uvicorn_attaches_is_dropped(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Uvicorn logs `color_message`, which renders as escapes in a field."""
-    _apply(dict_config_with(LogConfig(format=LogFormatType.JSON)))
+    _apply(dict_config_with(LogConfig(format="JSON")))
 
     logging.getLogger("uvicorn.error").info(
         "Started server process [%d]",
@@ -147,7 +147,7 @@ def test_the_document_is_json_and_a_fresh_copy() -> None:
 
 def test_the_pre_built_document_survives_a_worker_spawn() -> None:
     """`--workers` pickles the document to every child."""
-    document = dict_config_with(LogConfig(level=LogLevelType.DEBUG))
+    document = dict_config_with(LogConfig(level="DEBUG"))
 
     assert pickle.loads(pickle.dumps(document)) == document  # noqa: S301
     assert document["root"] == {"handlers": ["default"], "level": "DEBUG"}
@@ -168,7 +168,7 @@ def test_a_server_may_turn_colors_on_or_off(
     use_colors: bool,
 ) -> None:
     """Uvicorn writes `use_colors` into both formatters before applying."""
-    document = dict_config_with(LogConfig(format=LogFormatType.TEXT))
+    document = dict_config_with(LogConfig(format="TEXT"))
     for options in document["formatters"].values():  # type: ignore[union-attr]
         options["use_colors"] = use_colors
     _apply(document)
@@ -183,7 +183,7 @@ def test_colors_never_reach_a_machine_read_format(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A JSON field holding an escape sequence would not parse."""
-    document = dict_config_with(LogConfig(format=LogFormatType.JSON))
+    document = dict_config_with(LogConfig(format="JSON"))
     for options in document["formatters"].values():  # type: ignore[union-attr]
         options["use_colors"] = True
     _apply(document)
@@ -280,11 +280,7 @@ def test_caller_reads_the_same_on_a_server_record(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """`caller_enabled` is one rule, and uvicorn is not an exception to it."""
-    _apply(
-        dict_config_with(
-            LogConfig(format=LogFormatType.JSON, caller_enabled=True)
-        )
-    )
+    _apply(dict_config_with(LogConfig(format="JSON", caller_enabled=True)))
 
     logging.getLogger("uvicorn.error").info("startup")
     logging.getLogger("myapp").info("app")
@@ -345,8 +341,8 @@ def test_a_document_built_from_what_configure_returned_agrees_with_it(
 ) -> None:
     """`configure()` keyword arguments never reach the environment."""
     config = configure(
-        format=LogFormatType.LOGFMT,
-        level=LogLevelType.DEBUG,
+        format="LOGFMT",
+        level="DEBUG",
         otel_enabled=False,
     )
     capsys.readouterr()
@@ -400,7 +396,7 @@ def test_one_threshold_governs_the_server_too(
     for name in _SERVERS:
         logging.getLogger(name).setLevel(logging.INFO)
 
-    _apply(dict_config_with(LogConfig(level=LogLevelType.WARNING)))
+    _apply(dict_config_with(LogConfig(level="WARNING")))
 
     for name in _SERVERS:
         logging.getLogger(name).info("below the threshold")
@@ -443,7 +439,7 @@ def test_the_uvicorn_formatter_reads_the_environment_when_asked(
 
 def test_auto_is_carried_as_auto() -> None:
     """The format `AUTO` names is the one the rendering process decides."""
-    document = dict_config_with(LogConfig(format=LogFormatType.AUTO))
+    document = dict_config_with(LogConfig(format="AUTO"))
 
     assert document["formatters"]["default"]["config"]["format"] == "AUTO"
 
@@ -469,10 +465,10 @@ def test_a_document_applied_last_wins_over_configure(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """`uvicorn.run(app, ...)` builds its `Config` after the module ran."""
-    configure(format=LogFormatType.LOGFMT, otel_enabled=False)
+    configure(format="LOGFMT", otel_enabled=False)
     capsys.readouterr()
 
-    _apply(dict_config_with(LogConfig(format=LogFormatType.JSON)))
+    _apply(dict_config_with(LogConfig(format="JSON")))
     logging.getLogger("myapp").info("the document decided")
 
     assert json.loads(capsys.readouterr().out)["msg"] == "the document decided"

@@ -2,9 +2,9 @@ from litestar import Litestar
 from litestar.handlers import asgi
 
 from grelmicro import Grelmicro
-from grelmicro.metrics import Metrics, MetricsExporterType, metrics_asgi
+from grelmicro.metrics import Metrics, metrics_asgi
 
-micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
 
 app = Litestar(
     route_handlers=[asgi("/", is_mount=True, copy_scope=True)(metrics_asgi())]

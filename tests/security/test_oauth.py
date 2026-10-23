@@ -386,6 +386,20 @@ class TestClientAuth:
                 P256_PEM, algorithm="ES256", certificate=document
             )
 
+    def test_audience_and_method_match_any_case(self) -> None:
+        """`Issuer` reads as `issuer` and `Basic` as `basic`."""
+        # Act
+        signed = ClientAuth.private_key(
+            P256_PEM,
+            algorithm="ES256",
+            audience="Token_Endpoint",  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        )
+        secret = ClientAuth.secret(SECRET, method="Basic")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+        # Assert
+        assert "audience='token_endpoint'" in repr(signed)
+        assert repr(secret) == "ClientAuth.secret(method='basic')"
+
     def test_unknown_audience_is_refused(self) -> None:
         """An assertion names the issuer or the token endpoint, nothing else."""
         with pytest.raises(SettingsValidationError, match="audience"):

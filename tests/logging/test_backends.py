@@ -35,7 +35,6 @@ from grelmicro.log._shared import (
     should_colorize,
 )
 from grelmicro.log._structlog import _add_caller_info
-from grelmicro.log.config import LogSerializerType
 from tests.logging.conftest import BACKENDS, log_message, parse_json_log
 
 _USER_ID = 123
@@ -497,10 +496,7 @@ class TestConfigureLoggingJSONSerializer:
 
     def test_auto_picks_orjson_when_installed(self) -> None:
         """`auto` resolves to orjson when it is importable."""
-        assert (
-            resolve_serializer(LogSerializerType.AUTO)
-            is LogSerializerType.ORJSON
-        )
+        assert resolve_serializer("auto") == "orjson"
 
     def test_auto_falls_back_to_stdlib(
         self, mocker: pytest_mock.MockerFixture
@@ -508,21 +504,12 @@ class TestConfigureLoggingJSONSerializer:
         """`auto` resolves to the stdlib when orjson is missing, never raises."""
         mocker.patch("grelmicro.log._shared.has_orjson", return_value=False)
 
-        assert (
-            resolve_serializer(LogSerializerType.AUTO)
-            is LogSerializerType.STDLIB
-        )
+        assert resolve_serializer("auto") == "stdlib"
 
     def test_explicit_choice_is_left_alone(self) -> None:
         """An explicit choice resolves to itself."""
-        assert (
-            resolve_serializer(LogSerializerType.STDLIB)
-            is LogSerializerType.STDLIB
-        )
-        assert (
-            resolve_serializer(LogSerializerType.ORJSON)
-            is LogSerializerType.ORJSON
-        )
+        assert resolve_serializer("stdlib") == "stdlib"
+        assert resolve_serializer("orjson") == "orjson"
 
     @pytest.mark.parametrize(
         "record",

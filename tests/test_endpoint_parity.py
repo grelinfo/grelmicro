@@ -21,7 +21,6 @@ from grelmicro.health import HealthChecks, health_asgi
 from grelmicro.integrations.fastapi import health_router, metrics_router
 from grelmicro.metrics import (
     Metrics,
-    MetricsExporterType,
     metrics_asgi,
 )
 from tests.health.conftest import (
@@ -139,7 +138,7 @@ async def test_health_doors_strip_details_the_same_way(
 
 async def test_metrics_doors_answer_the_same() -> None:
     """The exposition, its content type, and its length all match."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
     async with micro:
         micro.metrics.counter("orders.placed", unit="1").add(1)
         # FastAPI would record the first read into the registry the second

@@ -21,6 +21,7 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
+    match_case,
     resolve_config,
 )
 from grelmicro._environment import Binding, falls_short, label, record
@@ -39,13 +40,13 @@ from grelmicro.idempotency.errors import (
     IdempotencyWaitTimeoutError,
 )
 from grelmicro.metrics import _emit
+from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from types import TracebackType
 
     from grelmicro.cache.serializers import CacheSerializer
-    from grelmicro.types import BackendScope
 
 T = TypeVar("T", default=Any)
 
@@ -557,7 +558,9 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             _resolve_serializer(serializer) if serializer is not None else None
         )
         self._cache: TTLCache[T] | None = cache
-        self._requires: BackendScope = requires or self.default_requires
+        self._requires: BackendScope = match_case(
+            BackendScope, requires or self.default_requires
+        )
         binding, lock = self._scope_bindings()
         if binding.backend is None or falls_short(
             binding.backend, self._requires

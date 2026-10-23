@@ -7,6 +7,7 @@ from typing import Annotated, ClassVar, Literal
 from pydantic import BaseModel, PositiveInt
 from typing_extensions import Doc
 
+from grelmicro._config import any_case
 from grelmicro._duration import Duration
 from grelmicro.resilience._match import Match
 from grelmicro.resilience._when import OutcomeFilter
@@ -110,5 +111,6 @@ class ConsecutiveCountConfig(BaseModel, frozen=True, extra="forbid"):
 
     log_level: Annotated[
         LogLevel,
+        any_case(LogLevel),
         Doc("Logging level for state-change messages."),
     ] = "WARNING"

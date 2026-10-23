@@ -10,6 +10,7 @@ Exposes:
   dropping the name segment for the default instance.
 - `parse_csv_or_json`: coerce an env var string into a list, accepting
   comma-separated or JSON-array form.
+- `match_case`, `any_case`: match a string literal choice in any case.
 - `Reconfigurable`: mixin providing atomic live reconfiguration for
   stateful components.
 
@@ -42,12 +43,13 @@ from typing import (
     Final,
     TypeVar,
     Union,
+    cast,
     get_args,
     get_origin,
 )
 from weakref import WeakSet
 
-from pydantic import AliasChoices, BaseModel, ValidationError
+from pydantic import AliasChoices, BaseModel, BeforeValidator, ValidationError
 
 from grelmicro._diagnostics import ENV_LOAD_OFF, diagnostic
 from grelmicro._json import json_loads
@@ -82,6 +84,41 @@ def parse_csv_or_json(value: Any) -> Any:  # noqa: ANN401
             return json_loads(text)
         return [item.strip() for item in text.split(",") if item.strip()]
     return value
+
+
+@lru_cache
+def _spellings(choices: object) -> Mapping[str, str]:
+    """Return each choice of a `Literal` or a `Literal` alias, by lowercase."""
+    literal = getattr(choices, "__value__", choices)
+    return {choice.lower(): choice for choice in get_args(literal)}
+
+
+def match_case[T](choices: object, value: T) -> T:
+    """Return `value` in the spelling `choices` gives it, matched in any case.
+
+    `choices` is a `Literal` or a `Literal` alias. A string that equals a
+    choice once both are lowercased becomes that choice, so `info` reads as
+    `INFO`. Any other value is returned unchanged.
+    """
+    if isinstance(value, str):
+        return cast("T", _spellings(choices).get(value.lower(), value))
+    return value
+
+
+def any_case(choices: object) -> BeforeValidator:
+    """Match a string in any case against `choices`, a `Literal` or its alias.
+
+    Runs `match_case` before the field validates, so a string that matches
+    no choice is left for the field to reject.
+    """
+    spellings = _spellings(choices)
+
+    def match(value: Any) -> Any:  # noqa: ANN401
+        if isinstance(value, str):
+            return spellings.get(value.lower(), value)
+        return value
+
+    return BeforeValidator(match)
 
 
 def env_segment(name: str) -> str:

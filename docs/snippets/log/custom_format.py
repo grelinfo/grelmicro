@@ -2,8 +2,8 @@
 
 from loguru import logger
 
-from grelmicro.log import LogBackendType, configure
+from grelmicro.log import configure
 
-configure(backend=LogBackendType.LOGURU, format="{level} | {message}")
+configure(backend="loguru", format="{level} | {message}")
 
 logger.info("Custom format example")

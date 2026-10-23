@@ -1,7 +1,7 @@
 import asyncio
 
 from grelmicro import Grelmicro
-from grelmicro.metrics import Metrics, MetricsExporterType, measure
+from grelmicro.metrics import Metrics, measure
 
 
 @measure(name="orders.process")
@@ -13,7 +13,7 @@ micro = Grelmicro(
     uses=[
         Metrics(
             service_name="orders",
-            exporter=MetricsExporterType.CONSOLE,
+            exporter="console",
             export_interval=5,
         ),
     ]

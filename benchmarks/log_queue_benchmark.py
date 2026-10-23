@@ -19,8 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from grelmicro.log import configure
 from grelmicro.log._queue import get_writer, uninstall
 from grelmicro.log.config import (
-    LogBackendType,
-    LogFormatType,
+    LogBackend,
 )
 
 ITERATIONS = 20_000
@@ -63,7 +62,7 @@ class _SlowSink(_NullSink):
 
 def _measure(
     sink: _NullSink,
-    backend: LogBackendType,
+    backend: LogBackend,
     records: int,
     *,
     queued: bool,
@@ -74,7 +73,7 @@ def _measure(
     try:
         configure(
             backend=backend,
-            format=LogFormatType.JSON,
+            format="JSON",
             queue_enabled=queued,
             otel_enabled=False,
             env_load=False,
@@ -116,13 +115,13 @@ def main() -> None:
     for label, delay, records in rows:
         direct, _ = _measure(
             _SlowSink(delay) if delay else _NullSink(),
-            LogBackendType.STDLIB,
+            "stdlib",
             records,
             queued=False,
         )
         queued, dropped = _measure(
             _SlowSink(delay) if delay else _NullSink(),
-            LogBackendType.STDLIB,
+            "stdlib",
             records,
             queued=True,
         )

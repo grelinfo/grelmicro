@@ -10,9 +10,9 @@
         - Trace
         - TraceConfig
         - TraceError
-        - TraceExporterType
-        - TraceProcessorType
-        - TraceSamplerType
+        - TraceExporter
+        - TraceProcessor
+        - TraceSampler
         - add_context
         - get_context
         - instrument

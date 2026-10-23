@@ -10,7 +10,7 @@ from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
 from grelmicro._backend_kinds import resolve_source
-from grelmicro._config import env_prefixes, resolve_config
+from grelmicro._config import env_prefixes, match_case, resolve_config
 from grelmicro._duration import NO_LIMIT, check_retention
 from grelmicro._markers import Registered, mark_registered
 from grelmicro._unset import UNSET, Unset
@@ -23,13 +23,13 @@ from grelmicro.outbox._protocol import OutboxBackend
 from grelmicro.outbox._registry import OutboxRegistry, derive_topic
 from grelmicro.outbox._relay import Relay
 from grelmicro.providers._base import Provider
+from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
     from types import TracebackType
 
     from grelmicro.outbox._message import Message
-    from grelmicro.types import BackendScope
 
 
 _NOT_AVAILABLE: Final = (
@@ -226,7 +226,9 @@ class Outbox:
     ) -> None:
         """Wire the resolved config, backend, and registry onto the instance."""
         self._name = name
-        self._requires: BackendScope = requires or self.default_requires
+        self._requires: BackendScope = match_case(
+            BackendScope, requires or self.default_requires
+        )
         self._config = config
         resolved = cast(
             "Provider | OutboxBackend",

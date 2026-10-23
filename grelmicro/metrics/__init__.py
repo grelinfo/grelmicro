@@ -15,7 +15,10 @@ if _typing.TYPE_CHECKING:
     from grelmicro.metrics._measure import measure
     from grelmicro.metrics.config import (
         MetricsConfig,
-        MetricsExporterType,
+        MetricsExporter,
+    )
+    from grelmicro.metrics.config import (
+        MetricsExporterType as MetricsExporterType,
     )
     from grelmicro.metrics.errors import (
         MetricsError,
@@ -25,7 +28,7 @@ __all__ = [
     "Metrics",
     "MetricsConfig",
     "MetricsError",
-    "MetricsExporterType",
+    "MetricsExporter",
     "measure",
     "metrics_asgi",
 ]
@@ -34,7 +37,7 @@ _LAZY: dict[str, str] = {
     "Metrics": "grelmicro.metrics._component",
     "MetricsConfig": "grelmicro.metrics.config",
     "MetricsError": "grelmicro.metrics.errors",
-    "MetricsExporterType": "grelmicro.metrics.config",
+    "MetricsExporter": "grelmicro.metrics.config",
     "measure": "grelmicro.metrics._measure",
     "metrics_asgi": "grelmicro.metrics._endpoints",
 }
@@ -42,8 +45,15 @@ _LAZY: dict[str, str] = {
 
 
 def __getattr__(name: str) -> object:
-    """Load `name` from its submodule and cache it on the package."""
+    """Load `name` from its submodule and cache it on the package.
+
+    A mode enum removed in 0.44.0 warns on every access and is not cached.
+    """
     module = _LAZY.get(name)
+    if module is None and name == "MetricsExporterType":
+        from grelmicro._mode_enums import deprecated_enum  # noqa: PLC0415
+
+        return deprecated_enum(name)
     if module is None:
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg)

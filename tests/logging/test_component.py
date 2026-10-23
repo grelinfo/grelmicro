@@ -10,7 +10,6 @@ from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro._config import resolve_config
 from grelmicro.errors import GrelmicroConfigWarning
 from grelmicro.log import Log, LogConfig, configure
-from grelmicro.log.config import LogFormatType, LogLevelType
 from tests.logging.conftest import parse_json_log
 
 
@@ -50,15 +49,15 @@ async def test_log_resolves_config_on_enter(
     reset_stdlib: None,  # noqa: ARG001
 ) -> None:
     """Entering the app resolves the config and configures logging."""
-    micro = Grelmicro(uses=[Log(level=LogLevelType.DEBUG)])
+    micro = Grelmicro(uses=[Log(level="DEBUG")])
     async with micro:
-        assert micro.log.config.level == LogLevelType.DEBUG
+        assert micro.log.config.level == "DEBUG"
         assert logging.getLogger().level == logging.DEBUG
 
 
 async def test_log_accepts_prebuilt_config(reset_stdlib: None) -> None:  # noqa: ARG001
     """`Log.from_config(...)` uses the pre-built `LogConfig` as-is."""
-    config = LogConfig(level=LogLevelType.WARNING)
+    config = LogConfig(level="WARNING")
     micro = Grelmicro(uses=[Log.from_config(config)])
     async with micro:
         assert micro.log.config is config
@@ -66,7 +65,7 @@ async def test_log_accepts_prebuilt_config(reset_stdlib: None) -> None:  # noqa:
 
 def test_log_from_config_keeps_config_and_default_name() -> None:
     """`Log.from_config(cfg)` keeps the config and defaults the name."""
-    config = LogConfig(level=LogLevelType.WARNING)
+    config = LogConfig(level="WARNING")
     log = Log.from_config(config)
     assert log._explicit_config is config
     assert log.name == "default"
@@ -88,7 +87,7 @@ async def test_log_restores_root_handlers_on_exit(
     root.addHandler(sentinel)
     before = list(root.handlers)
     root.setLevel(logging.WARNING)
-    micro = Grelmicro(uses=[Log(level=LogLevelType.DEBUG)])
+    micro = Grelmicro(uses=[Log(level="DEBUG")])
     async with micro:
         assert sentinel not in root.handlers
     assert root.handlers == before
@@ -110,13 +109,13 @@ async def test_log_reports_ignored_env_in_a_second_lifecycle(
     monkeypatch.setenv("GREL_LOG_LEVEL", "DEBUG")
 
     with pytest.warns(GrelmicroConfigWarning):
-        async with Log(format=LogFormatType.JSON):
+        async with Log(format="JSON"):
             pass
     capsys.readouterr()
 
     monkeypatch.setenv("GREL_LOG_TIMEZONE", "Europe/Zurich")
     with pytest.warns(GrelmicroConfigWarning):
-        async with Log(format=LogFormatType.JSON):
+        async with Log(format="JSON"):
             pass
 
     record = parse_json_log(capsys.readouterr().out)
@@ -135,9 +134,9 @@ async def test_log_keeps_reporting_when_exit_restores_handlers(
     go and must not wait for a lifecycle that may never come.
     """
     monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
-    configure(format=LogFormatType.JSON)
+    configure(format="JSON")
 
-    async with Log(format=LogFormatType.JSON):
+    async with Log(format="JSON"):
         pass
     capsys.readouterr()
 

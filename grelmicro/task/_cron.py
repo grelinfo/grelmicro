@@ -368,6 +368,7 @@ class CronTask(Task):
             gate = None
         else:
             self._gate_omitted = False
+        gate = _gate.spell_gate(gate)
         gate_label = _gate.gate_label(gate, takes_lock=False)
         _gate.check_sync(sync)
         if backend is not None and gate is None:

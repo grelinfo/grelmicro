@@ -1,6 +1,8 @@
 """Logging."""
 
-from typing import Annotated
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Annotated
 
 from typing_extensions import Doc
 
@@ -22,31 +24,49 @@ from grelmicro.log._ratelimit import (
 )
 from grelmicro.log._stdlib import formatter, handler
 from grelmicro.log.config import (
-    LogBackendType,
+    LogBackend,
     LogConfig,
-    LogFormatType,
-    LogLevelType,
-    LogSerializerType,
+    LogFormat,
+    LogSerializer,
 )
 from grelmicro.log.errors import LogError
 from grelmicro.log.types import ErrorDict, JSONRecordDict
-from grelmicro.types import TimeZoneName
+from grelmicro.types import LogLevel, TimeZoneName
+
+if TYPE_CHECKING:
+    from grelmicro.log.config import (
+        LogBackendType as LogBackendType,
+    )
+    from grelmicro.log.config import (
+        LogFormatType as LogFormatType,
+    )
+    from grelmicro.log.config import (
+        LogLevelType as LogLevelType,
+    )
+    from grelmicro.log.config import (
+        LogSerializerType as LogSerializerType,
+    )
+
+_MODE_ENUMS = frozenset(
+    {"LogBackendType", "LogFormatType", "LogLevelType", "LogSerializerType"}
+)
+"""The mode enums removed in 0.44.0."""
 
 
 def configure(  # noqa: PLR0913
     *,
     backend: Annotated[
-        LogBackendType | None,
+        LogBackend | LogBackendType | None,
         Doc(
             "Logging backend (`stdlib`, `loguru`, `structlog`). Default: `stdlib`."
         ),
     ] = None,
     level: Annotated[
-        LogLevelType | None,
+        LogLevel | LogLevelType | None,
         Doc("Log level threshold. Default: `INFO`."),
     ] = None,
     format: Annotated[  # noqa: A002
-        LogFormatType | str | None,
+        LogFormat | str | None,
         Doc("Log format. Default: `AUTO`."),
     ] = None,
     timezone: Annotated[
@@ -54,7 +74,7 @@ def configure(  # noqa: PLR0913
         Doc("IANA timezone for timestamps. Default: `UTC`."),
     ] = None,
     json_serializer: Annotated[
-        LogSerializerType | None,
+        LogSerializer | LogSerializerType | None,
         Doc(
             "JSON serializer. Default: `auto`, which uses orjson when it "
             "is installed and the standard library otherwise."
@@ -191,12 +211,11 @@ __all__ = [
     "ErrorDict",
     "JSONRecordDict",
     "Log",
-    "LogBackendType",
+    "LogBackend",
     "LogConfig",
     "LogError",
-    "LogFormatType",
-    "LogLevelType",
-    "LogSerializerType",
+    "LogFormat",
+    "LogSerializer",
     "ProbeFilter",
     "RateLimitFilter",
     "RateLimitFilterConfig",
@@ -207,3 +226,13 @@ __all__ = [
     "formatter",
     "handler",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Return a mode enum removed in 0.44.0, with a warning."""
+    if name in _MODE_ENUMS:
+        from grelmicro._mode_enums import deprecated_enum  # noqa: PLC0415
+
+        return deprecated_enum(name)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

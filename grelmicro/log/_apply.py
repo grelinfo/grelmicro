@@ -3,7 +3,7 @@
 from grelmicro._config import flush_ignored_env_reports
 from grelmicro.log._queue import restore as _restore
 from grelmicro.log._queue import swap as _swap
-from grelmicro.log.config import LogBackendType, LogConfig
+from grelmicro.log.config import LogConfig
 
 
 def apply(config: LogConfig) -> None:
@@ -52,11 +52,11 @@ def _configure_backend(config: LogConfig) -> None:
     or not uvicorn's loggers are taken over, so no handler is left writing
     to a queue that has stopped.
     """
-    if config.backend == LogBackendType.STRUCTLOG:
+    if config.backend == "structlog":
         from grelmicro.log._structlog import (  # noqa: PLC0415
             configure as _configure,
         )
-    elif config.backend == LogBackendType.STDLIB:
+    elif config.backend == "stdlib":
         from grelmicro.log._stdlib import (  # noqa: PLC0415
             configure as _configure,
         )
