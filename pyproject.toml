@@ -411,9 +411,6 @@ filterwarnings = [
     # testcontainers' own deprecation banners, not driven by our code.
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning:testcontainers",
     "ignore:The wait_for_logs function with string or callable predicates is deprecated:DeprecationWarning",
-    # FastAPI deprecates `FastAPI(root_path=...)` but still honors it, so the
-    # tests keep covering apps built that way.
-    "ignore:The `root_path` parameter is deprecated",
     # Sockets and event loops from TestClient and `asyncio.run` are torn down at
     # garbage-collection time, so the interpreter reports them non-deterministically
     # after the owning test ends. This is test-harness noise: grelmicro creates no
