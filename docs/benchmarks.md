@@ -30,7 +30,7 @@ The primitive rows are the best of three runs. The logging table is a single run
 | Measured | 2026-10-22 |
 | Conditions | Developer machine, shared with other work |
 
-The conditions line is the part most published benchmarks leave out. These were not measured on an idle machine, so treat them as the right order of magnitude rather than a precise figure. A quiet machine would move them somewhat, and not evenly across rows.
+The conditions line is the part most published benchmarks leave out. These were not measured on an idle machine, so treat them as the right order of magnitude rather than a precise figure. A quiet machine would move them somewhat, and not evenly across rows. A second run on another day, under a heavier load, agreed within 10% on every row.
 
 That is also why the numbers below are not the point. The scripts are. Run them on the hardware you will deploy on, and compare against your own baseline rather than against this table.
 
