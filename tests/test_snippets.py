@@ -36,6 +36,7 @@ import os
 import pkgutil
 import re
 import runpy
+import socket
 import subprocess
 import sys
 import textwrap
@@ -153,6 +154,19 @@ _OAUTH_CLIENT_ENV = {
 }
 _ENV["security/tokens.py"] = _OAUTH_CLIENT_ENV
 _ENV["security/tokens_exchange.py"] = _OAUTH_CLIENT_ENV
+
+
+def _free_port() -> int:
+    """Return a free local port for the ops server snippet to bind."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+_ENV["health/ops_server.py"] = {
+    "GREL_ENV_LOAD": "1",
+    "GREL_OPS_PORT": str(_free_port()),
+}
 
 _ALL = sorted(
     p.relative_to(_SNIPPETS_DIR).as_posix() for p in _SNIPPETS_DIR.rglob("*.py")

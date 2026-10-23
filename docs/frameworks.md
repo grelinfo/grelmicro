@@ -61,8 +61,9 @@ Starlette builds no schema, so there is nothing to describe. A route marks
 FastAPI `APIRouter`, so they are FastAPI's door onto the endpoints rather than
 the only one. Every framework has the same endpoints through
 [`health_asgi()`](health.md#without-a-web-framework) and `metrics_asgi()`,
-which are pure ASGI, and a process with no framework at all serves them on its
-own port with [`OpsServer`](http/server.md). All three doors render through
+which are pure ASGI. [`OpsServer`](http/server.md) serves them on a port of
+their own, next to any framework or with none at all, and it is the
+recommended way. All three doors render through
 one set of functions, and `tests/test_endpoint_parity.py` holds them to one
 status, one set of headers, and one body.
 
@@ -172,7 +173,7 @@ your framework:
 - [`health_asgi()`](health.md#without-a-web-framework) and `metrics_asgi()`
   serve the probes and the scrape target, mounted in any ASGI app.
 - [`OpsServer`](http/server.md) serves those same endpoints on a port of its
-  own, for a process that runs no web framework at all.
+  own, next to any framework or with none at all.
 
 Everything else, the locks, the cache, the outbox, the scheduler, and the
 resilience patterns, is plain async Python and needs no framework at all.

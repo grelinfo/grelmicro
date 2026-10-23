@@ -1,9 +1,10 @@
 # Health Checks
 
-A health checks manager with concurrent execution and FastAPI integration. Use it to expose liveness, readiness, and aggregate health endpoints.
+A health checks manager with concurrent execution. Use it to expose liveness, readiness, and aggregate health endpoints.
 
 - **[HealthChecks](#quick-start)**: Register check functions with a FastAPI-style decorator, run them concurrently with per-check timeouts and caching.
-- **[health_router](#fastapi-integration)**: FastAPI router with `/livez`, `/readyz`, and `/healthz` endpoints.
+- **[OpsServer](#serve-the-endpoints)**: Serve `/livez`, `/readyz`, `/healthz` and `/metrics` on a port of their own. The recommended way.
+- **[health_router](#fastapi-integration)**: FastAPI router that serves the same endpoints on the app port.
 
 ## Quick start
 
@@ -13,7 +14,7 @@ Create a `HealthChecks` and register checks with the `@health.check(name)` decor
 --8<-- "health/basic.py"
 ```
 
-Register the instance with a `Grelmicro` app (see below) so the router can resolve it, or pass it explicitly via `health_router(health)`.
+Register the instance with a `Grelmicro` app (see below) so [`OpsServer`](#serve-the-endpoints) or the router can resolve it, or pass it explicitly via `health_router(health)`.
 
 ## Health Check
 
@@ -151,13 +152,26 @@ To register a check for every provider on the app at once, build the `HealthChec
 
 On startup this discovers every active provider, including ones a Component borrows without listing, and registers a critical `provider:{short_name}` check for each. A provider with no built-in probe is skipped. It is off by default, so checks appear only when you ask for them. When two providers share a `short_name`, the second is skipped with a warning: register it explicitly with `add_provider(provider, name=...)` to give it a distinct name.
 
+## Serve the Endpoints
+
+Register an `OpsServer` next to your app. It serves the probes and `/metrics` on a port of their own, so they never share the port your users reach:
+
+```python
+--8<-- "health/ops_server.py"
+```
+
+It listens on port 8080 by default. Pass `port=` or set `GREL_OPS_PORT` to move it. Point the probes and the Prometheus scrape at that port, and keep it off the internet: read [Secure the ops endpoints](deployment.md#secure-the-ops-endpoints). It works the same next to FastAPI, another ASGI framework, or [no web framework at all](#without-a-web-framework). [Ops Server](http/server.md) covers the configuration.
+
 ## FastAPI Integration
 
-Add health endpoints to your FastAPI app:
+Some platforms probe only the port they route traffic to. There, serve the endpoints from the app itself:
 
 ```python
 --8<-- "health/fastapi_app.py"
 ```
+
+!!! warning "The app port is the public port"
+    Whatever the router serves, every caller who reaches the app reaches it too. Behind a reverse proxy, that is the internet. `/healthz` names every check and reports each failing check's error string. Gate it with `healthz_dependencies` and keep `show_details` off, as shown in [Verbose Details](#verbose-details).
 
 This creates three endpoints:
 
@@ -173,7 +187,7 @@ All three also accept `HEAD`. All responses set `Cache-Control: no-store`. Probe
 
 Paths follow the z-pages convention (`/livez`, `/readyz`, `/healthz`). The trailing `z` avoids collisions with application routes like `/health`.
 
-`micro.install(app)` does not mount these routes for you, so include the router yourself. A registered `HealthChecks` that nothing serves is reported at startup with the [`health-not-served`](diagnostics.md#health-not-served) warning.
+`micro.install(app)` mounts no route. Register an `OpsServer`, or include the router yourself. A registered `HealthChecks` that nothing serves is reported at startup with the [`health-not-served`](diagnostics.md#health-not-served) warning.
 
 ### OpenAPI Schema
 
@@ -217,14 +231,14 @@ Different orchestrators consume different probes. grelmicro exposes all three en
 | Reverse proxies (Traefik, nginx, HAProxy, Envoy), load balancers (AWS ALB, GCP LB) | `/readyz` for upstream health |
 | Dashboards, uptime monitors (Prometheus, Pingdom) | `/healthz` for full report |
 
-Docker Compose example:
+Docker Compose example, with the probes on the `OpsServer` port:
 
 ```yaml
 services:
   app:
     image: myapp
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/livez"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/livez"]
       interval: 10s
       timeout: 2s
       retries: 3
@@ -246,6 +260,8 @@ Excluded checks are not run and do not appear in the response.
 ### Verbose Details
 
 Each check can return verbose metadata (versions, internal hostnames, pool stats, latencies). Exposing it publicly on `/healthz` leaks infrastructure fingerprints to anyone who can reach the endpoint, so by default grelmicro strips every `details` field from the response.
+
+The gates below apply to `health_router()` on the app port. `OpsServer` takes `show_details=True` or `False` and nothing else, because the network in front of it is what keeps it private.
 
 The `show_details` parameter controls visibility with three forms:
 
@@ -349,11 +365,11 @@ anything else that speaks ASGI, and it takes the same `prefix` and
 goes after the routes of your own. It has no `Depends`, so gate it with your own
 middleware where the router would take `healthz_dependencies`.
 
-| You run | Use | You also get |
+| You run | Recommended | On the app port instead |
 |---|---|---|
-| FastAPI | `health_router()` | The OpenAPI schema, `Depends` gates, `show_details=Depends(...)` |
-| Another ASGI framework | `health_asgi()` | Nothing to wire beyond the mount |
-| No web framework | `OpsServer()` | A port of its own, and `/metrics` alongside |
+| FastAPI | `OpsServer()` | `health_router()`, with the OpenAPI schema and `Depends` gates |
+| Another ASGI framework | `OpsServer()` | `health_asgi()`, gated by your own middleware |
+| No web framework | `OpsServer()` | None, there is no app port |
 
 ## Design
 
