@@ -227,8 +227,8 @@ The rules below are the ones the tooling can't check:
 - Mark deprecated parameters with
   [`typing_extensions.deprecated`](https://peps.python.org/pep-0702/)
   as a second `Annotated` entry so type-checkers and IDEs surface
-  the deprecation inline. Keep the runtime warning from
-  [Deprecations](#deprecations) alongside it.
+  the deprecation inline. Keep a runtime `warnings.warn` alongside
+  it.
 - Keep `__init__` bodies thin. Attribute assignment only. Delegate
   validation to a frozen Pydantic config model.
 
@@ -650,30 +650,23 @@ stable. It is a maturity milestone, not a calendar or launch event. We
 cross it when the API has held steady and we are ready to commit to it,
 not before.
 
+Before `1.0`, a rename is a **clean cut**: the old name goes in the
+same release the new one arrives, with no `DeprecationWarning` and no
+alias. Put the entry under `### Breaking` and add a note to
+[`docs/migration.md`](docs/migration.md) saying what to change.
+
+That is deliberate. A deprecation cycle means carrying a shim, a test
+that proves the warning fires, and the discipline to remove both on
+schedule. Across a fast-moving `0.x` those shims accumulate, and the
+ones that are never removed are worse than the break they softened.
+`0.x.0` is already declared the breaking position, so the signal is
+there. What an adopter actually needs is to find the change quickly,
+which is what the migration page is for.
+
 After `1.0`, standard semver applies: breaking changes wait for the
-next `MAJOR`, and still warn one release ahead first. There is no fixed
-schedule for major versions, and a major version is never bumped just
-because time has passed.
-
-### Deprecations
-
-A change in behavior or a rename warns one release before it lands. Declare
-it in `grelmicro/_deprecation.py` and add it to `PENDING`.
-
-- **A changed default** is a `FutureChange`. Call its `warn()` only while the
-  argument is left at its default, so passing the argument silences it. There
-  is no global flag to opt into future behavior.
-- **A rename** is a `Rename`. Ship the new name beside the old one, and call
-  `warn()` where the old name is used. Remove the old name in the next minor.
-- Test each entry with `tests._future.assert_future_warning`: the default
-  call warns and the explicit call emits nothing.
-- Put the entry under `### Deprecated` in the release that adds the warning,
-  and under `### Breaking` with a note in
-  [`docs/migration.md`](docs/migration.md) in the release that switches.
-
-A test fails once the changelog reaches the release named on an entry, so a
-stale warning or alias cannot ship. Switch the default or remove the old name,
-then delete the entry.
+next `MAJOR`, and a removal goes through a `DeprecationWarning` cycle
+first. There is no fixed schedule for major versions, and a major
+version is never bumped just because time has passed.
 
 ## Issues and releases
 

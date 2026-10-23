@@ -35,7 +35,6 @@
     },
     "GrelmicroConfigWarning": null,
     "GrelmicroError": null,
-    "GrelmicroFutureWarning": null,
     "GrelmicroMiddleware": {
       "()": "(app, *, micro) -> 'None'"
     },
