@@ -85,9 +85,9 @@ Each interpreter imports `fastapi` first, and the numbers are what the app adds 
 
 | App | grelmicro modules | New modules | Max RSS |
 |---|---|---|---|
-| tasks | 197 | 288 | +17.3 MB |
-| redis | 181 | 342 | +25.2 MB |
-| postgres | 128 | 202 | +12.0 MB |
+| tasks | 193 | 284 | +17.2 MB |
+| redis | 177 | 338 | +25.2 MB |
+| postgres | 115 | 189 | +11.5 MB |
 
 Most of this is the modules an app imports, not the data it holds. `tests/test_memory_budget.py` pins which grelmicro packages each app loads, so a change that loads more fails the test.
 
