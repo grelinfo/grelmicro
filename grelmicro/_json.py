@@ -46,6 +46,18 @@ try:
         """Serialize object to JSON bytes using orjson."""
         return orjson.dumps(obj)
 
+    _PLAIN_OPTIONS = (
+        orjson.OPT_PASSTHROUGH_DATETIME | orjson.OPT_PASSTHROUGH_DATACLASS
+    )
+
+    def json_dumps_plain_bytes(obj: object) -> bytes:
+        """Serialize JSON types to bytes using orjson.
+
+        A `datetime` or a dataclass raises `TypeError` instead of turning
+        into a string or a dict.
+        """
+        return orjson.dumps(obj, option=_PLAIN_OPTIONS)
+
     def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using orjson."""
         return orjson.dumps(obj).decode("utf-8")
@@ -63,6 +75,14 @@ except ImportError:
         return json.dumps(
             obj, separators=(",", ":"), default=json_default
         ).encode("utf-8")
+
+    def json_dumps_plain_bytes(obj: object) -> bytes:
+        """Serialize JSON types to bytes using stdlib json.
+
+        A `datetime` or a dataclass raises `TypeError` instead of turning
+        into a string or a dict.
+        """
+        return json.dumps(obj, separators=(",", ":")).encode("utf-8")
 
     def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using stdlib json."""

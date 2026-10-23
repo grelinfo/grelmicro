@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -14,6 +15,7 @@ from grelmicro._json import (
     has_orjson,
     json_default,
     json_dumps_bytes,
+    json_dumps_plain_bytes,
     json_dumps_str,
     json_loads,
 )
@@ -107,6 +109,48 @@ class TestOrjsonPath:
         result = json_loads(json_dumps_bytes(obj))
 
         assert result == obj
+
+
+@dataclass
+class _Point:
+    x: int
+
+
+class TestPlainDumps:
+    """Tests for `json_dumps_plain_bytes`, which refuses non-JSON types."""
+
+    def test_plain_values(self) -> None:
+        """JSON types serialize to compact JSON, a tuple as an array."""
+        obj = {"a": [1, 2.5, "x", None, True], "b": (1, 2)}
+
+        assert (
+            json_dumps_plain_bytes(obj)
+            == b'{"a":[1,2.5,"x",null,true],"b":[1,2]}'
+        )
+
+    @pytest.mark.parametrize(
+        "obj",
+        [datetime(2025, 1, 1), _Point(1), {"at": datetime(2025, 1, 1)}],  # noqa: DTZ001
+    )
+    def test_refuses_non_json_types(self, obj: object) -> None:
+        """A datetime or a dataclass raises instead of changing type."""
+        with pytest.raises(TypeError):
+            json_dumps_plain_bytes(obj)
+
+    def test_stdlib_plain_values(self, stdlib_json_module: ModuleType) -> None:
+        """Without orjson, JSON types serialize the compact way."""
+        assert (
+            stdlib_json_module.json_dumps_plain_bytes({"a": [1, 2.5, None]})
+            == b'{"a":[1,2.5,null]}'
+        )
+
+    @pytest.mark.parametrize("obj", [datetime(2025, 1, 1), _Point(1)])  # noqa: DTZ001
+    def test_stdlib_refuses_non_json_types(
+        self, stdlib_json_module: ModuleType, obj: object
+    ) -> None:
+        """Without orjson, a datetime or a dataclass raises too."""
+        with pytest.raises(TypeError):
+            stdlib_json_module.json_dumps_plain_bytes(obj)
 
 
 class TestStdlibFallback:

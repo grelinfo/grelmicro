@@ -34,6 +34,7 @@ from grelmicro.cache._stampede import (
     compute_with_stampede,
 )
 from grelmicro.cache.serializers import (
+    _DEFAULT_SERIALIZER,
     _infer_serializer_from_class,
     _infer_serializer_from_instance,
     _resolve_serializer,
@@ -151,9 +152,12 @@ class TTLCache(Generic[T]):
     Defaults to ``Any`` when unspecified (``TTLCache()``).
 
     ``TTLCache[User]()`` serializes with ``PydanticSerializer(User)``
-    unless a ``serializer`` is given. ``TTLCache()`` and
-    ``TTLCache[bytes]()`` store raw bytes, and so does any type
-    parameter Pydantic cannot build a schema for.
+    unless a ``serializer`` is given. ``TTLCache()``, ``TTLCache[bytes]()``,
+    and any type parameter Pydantic cannot build a schema for store
+    ``bytes`` raw and other values as JSON: ``None``, ``bool``, ``int``,
+    ``float``, ``str``, and ``list``, ``tuple``, or ``dict`` with ``str``
+    keys holding those. They read back as JSON gives them, so a tuple
+    comes back as a list. Any other value raises ``TypeError``.
 
     Raises:
         SettingsValidationError: If `maxsize` is negative, or `ttl` is a
@@ -220,7 +224,8 @@ class TTLCache(Generic[T]):
                 - ``PickleSerializer()``: Any picklable object. Trusted
                   backends only: deserialization can execute arbitrary code.
                 - ``None``: The type parameter of ``TTLCache[T]`` when it
-                  is one Pydantic can adapt, raw bytes otherwise.
+                  is one Pydantic can adapt. Otherwise ``bytes`` are
+                  stored raw and other values as JSON.
                 """,
             ),
         ] = None,
@@ -247,17 +252,15 @@ class TTLCache(Generic[T]):
             for outcome in ("hit", "miss")
         }
         self._backend = backend
-        if serializer is not None:
-            self._serializer: CacheSerializer[T] | None = _resolve_serializer(
-                serializer
-            )
-            self._serializer_bound = True
-        else:
-            self._serializer = cast(
+        # None until the type parameter of `TTLCache[T](...)` is readable.
+        self._serializer: CacheSerializer[T] | None = (
+            _resolve_serializer(serializer)
+            if serializer is not None
+            else cast(
                 "CacheSerializer[T] | None",
                 _infer_serializer_from_class(type(self), TTLCache),
             )
-            self._serializer_bound = self._serializer is not None
+        )
         self._hits = 0
         self._misses = 0
         self._evictions = 0
@@ -331,45 +334,33 @@ class TTLCache(Generic[T]):
             return self._backend
         return resolve_ambient(_CACHE_KEY, _NO_BACKEND).backend
 
-    def _bind_serializer(self) -> CacheSerializer[T] | None:
+    def _bind_serializer(self) -> CacheSerializer[T]:
         """Resolve the serializer from the type parameter, once.
 
         Python sets ``__orig_class__`` after ``__init__`` returns, so the
-        parameter of ``TTLCache[User](...)`` is first readable here.
+        parameter of ``TTLCache[User](...)`` is first readable here. With
+        no usable parameter, bytes are stored raw and other values as JSON.
         """
-        self._serializer_bound = True
-        self._serializer = cast(
-            "CacheSerializer[T] | None", _infer_serializer_from_instance(self)
+        serializer = cast(
+            "CacheSerializer[T]",
+            _infer_serializer_from_instance(self) or _DEFAULT_SERIALIZER,
         )
-        return self._serializer
+        self._serializer = serializer
+        return serializer
 
     def _serialize(self, value: T) -> bytes:
         """Serialize a value to bytes for storage."""
         serializer = self._serializer
-        if serializer is not None:
-            return serializer.dumps(value)
-        if not self._serializer_bound:
+        if serializer is None:
             serializer = self._bind_serializer()
-            if serializer is not None:
-                return serializer.dumps(value)
-        if isinstance(value, bytes):
-            return value
-        msg = (
-            f"Cannot store {type(value).__name__} without a serializer. "
-            f"Pass a serializer to TTLCache or use bytes."
-        )
-        raise TypeError(msg)
+        return serializer.dumps(value)
 
     def _deserialize(self, raw: bytes) -> T:
         """Deserialize bytes from storage."""
         serializer = self._serializer
-        if serializer is not None:
-            return serializer.loads(raw)
-        if not self._serializer_bound:
+        if serializer is None:
             serializer = self._bind_serializer()
-            if serializer is not None:
-                return serializer.loads(raw)
-        return cast("T", raw)
+        return serializer.loads(raw)
 
     async def get(
         self,
@@ -442,7 +433,9 @@ class TTLCache(Generic[T]):
         key: Annotated[str, Doc("The cache key.")],
         value: Annotated[
             T,
-            Doc("The value to store. Must be bytes or serializable."),
+            Doc(
+                "The value to store. With no serializer, bytes or a JSON value."
+            ),
         ],
         ttl: Annotated[
             int | timedelta | None,
@@ -478,7 +471,8 @@ class TTLCache(Generic[T]):
         Raises:
             ValueError: If ttl or stale_ttl is a float, not positive, or
                 over 100 years.
-            TypeError: If value is not bytes and no serializer is set.
+            TypeError: If the value is neither bytes nor JSON and no
+                serializer is set.
         """
         await self._store(
             key,
@@ -717,7 +711,8 @@ class TTLCache(Generic[T]):
 
         Raises:
             ValueError: If ttl is a float, not positive, or over 100 years.
-            TypeError: If a value is not bytes and no serializer is set.
+            TypeError: If a value is neither bytes nor JSON and no
+                serializer is set.
         """
         entry_ttl = check_duration(ttl, "ttl") if ttl is not None else self._ttl
         if not mapping:
