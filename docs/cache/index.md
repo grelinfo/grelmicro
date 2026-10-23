@@ -157,6 +157,8 @@ rate = await cache.get("rate")  # 1.25
 
 A JSON value is `None`, `bool`, `int`, `float`, `str`, or a `list`, `tuple`, or `dict` with `str` keys holding those. It reads back as JSON gives it: an `int` stays an `int`, a `float` stays a `float`, and a tuple comes back as a list. `bytes` reach the backend unchanged and come back as `bytes`. Any other value, such as a `datetime` or a Pydantic model, raises `TypeError` on `set`.
 
+JSON goes through orjson when it is installed, which is several times faster than the standard library. Install `grelmicro[standard]` to get it.
+
 To cache other types, name the type or pass a serializer:
 
 === "Pydantic Model (recommended)"
