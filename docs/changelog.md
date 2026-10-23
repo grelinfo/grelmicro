@@ -3,20 +3,29 @@
 ## Unreleased
 
 ### Added
-* ✨ `GrelmicroFutureWarning` warns one release before a default changes or a name is removed. Passing the argument silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
-* ✨ grelmicro and `grelmicro-core` support Python 3.15. `grelmicro[jwt]` requires `grelmicro-core` 0.1.5, which ships wheels for 3.15 and the free-threaded 3.15t. ([#1112](https://github.com/grelinfo/grelmicro/pull/1112))
+* ✨ `GrelmicroFutureWarning` warns one minor release before a default changes or a name is removed. Passing the argument silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
 
 ### Changed
-* ⚡️ `import grelmicro` loads pydantic-settings only when a config first reads the environment, which saves 36 modules, about 1.7 MB and 10 ms. ([#1122](https://github.com/grelinfo/grelmicro/pull/1122))
-* ⚡️ grelmicro packages load most public names on first access, not at import. A FastAPI app with `Tasks` loads 26 fewer modules and about 1.1 MB less, and a Redis app with a rate limiter and a circuit breaker 17 fewer and about 1.2 MB less. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
+* ⚡️ grelmicro packages load most public names on first access, not at import. A FastAPI app with `Tasks` loads 26 fewer modules and about 1.1 MB less, and a Redis app with a rate limiter and a circuit breaker 17 fewer and about 1.2 MB less. ([#1133](https://github.com/grelinfo/grelmicro/pull/1133))
 * ✨ `TTLCache()` with no serializer stores JSON values such as a `float`, a `str` or a `dict`, not only `bytes`. Bytes are still stored raw. ([#1125](https://github.com/grelinfo/grelmicro/issues/1125))
 * ⚡️ `import grelmicro` no longer loads `grelmicro.metrics`, `grelmicro.trace` and most of `grelmicro.health`. Their names load on first use, which saves 24 modules, about 1.9 MB and 10 ms. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
+
+### Docs
+* 📝 Contributing and the migration page state what a patch and a minor may ship. A deprecation warns in one minor and switches in the next, never in a patch. ([#1128](https://github.com/grelinfo/grelmicro/pull/1128))
+
+### Internal
+* ✅ `benchmarks/memory_benchmark.py` measures the modules and memory three reference apps load, and a test pins which grelmicro packages each one loads. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
+
+## 0.42.5 - 2026-10-23
+
+### Changed
+* ⬆️ grelmicro and `grelmicro-core` support Python 3.15. `grelmicro[jwt]` requires `grelmicro-core` 0.1.5, which ships wheels for 3.15 and the free-threaded 3.15t. ([#1112](https://github.com/grelinfo/grelmicro/pull/1112))
+* ⚡️ `import grelmicro` loads pydantic-settings only when a config first reads the environment, which saves 36 modules, about 1.7 MB and 10 ms. ([#1122](https://github.com/grelinfo/grelmicro/pull/1122))
 
 ### Fixed
 * 🐛 A claimed task's first fire and an outbox message waiting at startup find their backends open. `Tasks` and `Outbox` open after every other item in `uses=`, whatever order it is listed in, so the first run no longer fails with `no such table` on SQLite and Postgres. ([#1113](https://github.com/grelinfo/grelmicro/pull/1113))
 
 ### Docs
-* 📝 Contributing and the migration page state what a patch and a minor may ship. A deprecation warns in one minor and switches in the next, never in a patch. ([#1128](https://github.com/grelinfo/grelmicro/pull/1128))
 * 📝 The installation guide warns that Python 3.13 or older installs 0.41.x and states the supported Python window. ([#1110](https://github.com/grelinfo/grelmicro/pull/1110))
 * 📝 A new page, Coming from APScheduler, slowapi or aioredlock, maps each library to grelmicro and says what changes on more than one replica. ([#1116](https://github.com/grelinfo/grelmicro/pull/1116))
 * 📝 The README opens with what grelmicro keeps correct on more than one replica, and says Python 3.14+. ([#1111](https://github.com/grelinfo/grelmicro/pull/1111))
@@ -26,7 +35,6 @@
 
 ### Internal
 * 🐛 `benchmarks/ratelimiter_benchmark.py` runs again with a sliding window the config accepts. ([#1111](https://github.com/grelinfo/grelmicro/pull/1111))
-* ✅ `benchmarks/memory_benchmark.py` measures the modules and memory three reference apps load, and a test pins which grelmicro packages each one loads. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
 
 ## 0.42.4 - 2026-10-22
 
