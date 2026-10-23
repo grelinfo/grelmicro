@@ -639,7 +639,20 @@ grelmicro follows [Semantic Versioning](https://semver.org) and is in
 its `0.x` phase.
 
 In `0.x`, the minor is the breaking position: a `0.x.0` release may
-change the public API, and a `0.x.y` release is a safe patch. The
+change the public API, and a `0.x.y` release is a safe patch.
+
+| Release | What it may ship |
+|---|---|
+| Patch (`0.x.y`) | Bug fixes, docs, performance work that changes no behavior, and support for a new Python version. No new public API and no new warning. |
+| Minor (`0.x.0`) | New features and new public API, the `GrelmicroFutureWarning` for an upcoming change, the switches warned in the minor before, and dropping a Python version. |
+
+A change that is not a fix waits for the next minor, even when it is
+additive. A patch upgrade then never changes what an app does or what
+its test suite sees.
+
+When `main` already holds features for the next minor, a patch is tagged
+on a `release/0.x` branch that holds the fixes without those features.
+`main` keeps the features for the minor. The
 public API is feature-complete and guarded by a snapshot test
 (`tests/test_public_api.py`), so an accidental change to the public
 surface fails CI. Every intentional break appears under **Breaking** in
@@ -657,7 +670,10 @@ because time has passed.
 
 ### Deprecations
 
-A change in behavior or a rename warns one release before it lands. Declare
+A change in behavior or a rename warns for one minor release before it
+lands: the warning ships in one minor (`0.43.0`) and the switch in the next
+(`0.44.0`). A patch never adds a warning, because a test suite that turns
+warnings into errors would fail on a patch upgrade. Declare
 it in `grelmicro/_deprecation.py` and add it to `PENDING`.
 
 - **A changed default** is a `FutureChange`. Call its `warn()` only while the
@@ -667,9 +683,9 @@ it in `grelmicro/_deprecation.py` and add it to `PENDING`.
   `warn()` where the old name is used. Remove the old name in the next minor.
 - Test each entry with `tests._future.assert_future_warning`: the default
   call warns and the explicit call emits nothing.
-- Put the entry under `### Deprecated` in the release that adds the warning,
+- Put the entry under `### Deprecated` in the minor that adds the warning,
   and under `### Breaking` with a note in
-  [`docs/migration.md`](docs/migration.md) in the release that switches.
+  [`docs/migration.md`](docs/migration.md) in the next minor, which switches.
 
 A test fails once the changelog reaches the release named on an entry, so a
 stale warning or alias cannot ship. Switch the default or remove the old name,
