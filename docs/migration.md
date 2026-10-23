@@ -1495,10 +1495,25 @@ Full list: [0.30.0 in the changelog](changelog.md#0300-2026-07-18)
 
 ## About deprecation
 
-Before 1.0 a rename is a clean cut: the old name is removed in the same
-release the new one appears, with no deprecation cycle and no alias. That
-keeps a fast-moving `0.x` from accumulating shims, and it is why this page
-exists instead.
+A change in behavior or a rename warns one release before it lands.
 
-After 1.0, `1.x` follows standard semver and breaking changes go through a
-deprecation cycle.
+**A changed default** warns with `GrelmicroFutureWarning` while you leave the
+argument at its default. The message names the release that switches it, the
+argument that keeps today's behavior, and the argument that adopts the new one.
+Pass either argument and the warning stops. Your code then behaves the same
+before and after the switch.
+
+**A renamed name** ships beside the old one. The old name warns with
+`GrelmicroFutureWarning` for one minor release and is removed in the next.
+
+The changelog lists the warning under **Deprecated** in the release that adds
+it, and the switch under **Breaking** in the release that makes it. Each
+breaking release has a note on this page.
+
+To catch every announced change in your test suite, promote the warning to an
+error:
+
+```toml
+[tool.pytest.ini_options]
+filterwarnings = ["error::grelmicro.GrelmicroFutureWarning"]
+```

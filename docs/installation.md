@@ -2,13 +2,19 @@
 
 grelmicro supports Python 3.14+ and depends on Pydantic v2+ and FastDepends. The async runtime is `asyncio`. Trio is not supported.
 
-## Why Python 3.14
+!!! warning "Python 3.13 or older installs an old release"
+    On Python 3.13 or older, `pip install grelmicro` installs 0.41.x, which these docs do not cover.
+    Install `"grelmicro>=0.42"` to get an error instead of the old release.
+
+## Supported Python versions
+
+grelmicro supports up to three Python releases, starting with 3.14. Today that is 3.14 and 3.15. Python 3.16 joins once CI tests it. When a fourth release joins, the oldest one drops.
 
 grelmicro builds on 3.14 features, such as the standard library
 [`uuid.uuid7`](https://docs.python.org/3/library/uuid.html#uuid.uuid7)
 for outbox ids. One floor keeps the codebase free of version checks.
 
-CI runs the tests on Python 3.14. Older Python versions are not supported.
+CI runs the tests on Python 3.14 and 3.15. Older Python versions are not supported.
 
 ## Quick install
 
@@ -47,7 +53,7 @@ grelmicro is modular. Install only the extras you need.
 | `instrumentation` | OpenTelemetry instrumentation packages (Redis, asyncpg) for `Trace(instrument=...)`. | All platforms. |
 | `structlog` | `structlog` as an alternative logging backend. | All platforms. |
 | `yaml` | `pyyaml` for YAML sources in `ExternalConfig`. | All platforms. |
-| `jwt` | `grelmicro-core`, the compiled Rust core behind JWT verification. | Prebuilt wheels for Linux (glibc and musl), macOS, and Windows on CPython 3.14, free-threaded 3.14t included. Elsewhere it builds from source and needs a Rust toolchain. |
+| `jwt` | `grelmicro-core`, the compiled Rust core behind JWT verification. | Prebuilt wheels for Linux (glibc and musl), macOS, and Windows on CPython 3.14 and 3.15, free-threaded 3.14t and 3.15t included. Elsewhere it builds from source and needs a Rust toolchain. |
 
 === "pip"
     ```bash

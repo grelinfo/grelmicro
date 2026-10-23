@@ -39,7 +39,7 @@ body:
     attributes:
       label: Python version and operating system
       description: '`python --version` and the platform you run on.'
-      placeholder: Python 3.13.1 on Ubuntu 24.04
+      placeholder: Python 3.15.0 on Ubuntu 24.04
     validations:
       required: true
 

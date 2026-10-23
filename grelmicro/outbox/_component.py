@@ -93,6 +93,10 @@ class Outbox:
     default_requires: ClassVar[BackendScope] = "cluster"
     """Default `requires=`: a staged message reaches a relay on any replica."""
 
+    _open_rank: ClassVar[int] = 1
+    """A `Grelmicro` app opens the outbox after every other item but the
+    tasks, so the relay finds every backend open and a task can publish."""
+
     def __init__(  # noqa: PLR0913
         self,
         source: Annotated[

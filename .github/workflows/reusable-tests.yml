@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python: ["3.14"]
+        python: ${{ fromJSON(inputs.full && '["3.14","3.15"]' || '["3.14"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -109,8 +109,9 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Enforce Combined Coverage
         # The 100% claim is about unit + slow + integration together, so only
-        # the full path can check it.
-        if: ${{ inputs.full || inputs.coverage }}
+        # the full path can check it. It is pinned to 3.14, the version the
+        # local hook measures.
+        if: ${{ (inputs.full || inputs.coverage) && matrix.python == '3.14' }}
         run: coverage report --fail-under=100
 
   lowest:

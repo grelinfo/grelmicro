@@ -10,6 +10,8 @@ grelmicro ships these patterns behind one API. One config contract. One lifecycl
 
 If you run a single process and need a single pattern, a focused library is often the right pick and this page will say so. If you run more than one replica, or need two or more patterns, grelmicro removes the gaps between them.
 
+Moving from APScheduler, slowapi or aioredlock? [Coming from APScheduler, slowapi or aioredlock](coming-from/python-libraries.md) maps each one, side by side.
+
 ## What should I pick?
 
 A short decision tree before the detailed tables:
