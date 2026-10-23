@@ -173,7 +173,11 @@ a partially-correct PR is faster than guessing.
     that describes what the change does. The emoji replaces the type
     keyword, so there is no `feat:`, `fix:`, or `docs:` and no scope
     in parentheses. Pick the emoji whose meaning fits best.
-  - `message`: a concise imperative summary, kept to one line.
+  - `message`: an imperative sentence in lowercase, kept to one line
+    of about 72 characters, with no trailing period. Say what the
+    change does for a reader of the log, such as
+    `🐛 open tasks after their backends so the first run succeeds`,
+    not `🐛 fix bug` or `🐛 update app.py`.
 
   The [full gitmoji list](https://gitmoji.dev/) is the source of
   truth. The ones that cover most grelmicro commits, with the
@@ -197,17 +201,25 @@ a partially-correct PR is faster than guessing.
   Sample titles in the current style (emoji, then an imperative
   sentence, no type keyword or scope):
 
-  - `✨ Add DuplicateFilter for noisy repeated log records`
-  - `🔒 Grant security-events write to the workflow lint job`
-  - `👷 Add attestations and wheel verification to the release`
-  - `📝 Update the changelog for the next release`
-  - `♻️ Bind the algorithm to the strategy once at construction`
-  - `⬆️ Bump pydantic-settings from 2.14.1 to 2.14.2`
+  - `✨ add DuplicateFilter for noisy repeated log records`
+  - `🔒 grant security-events write to the workflow lint job`
+  - `👷 add attestations and wheel verification to the release`
+  - `📝 update the changelog for the next release`
+  - `♻️ bind the algorithm to the strategy once at construction`
+  - `⬆️ bump pydantic-settings from 2.14.1 to 2.14.2`
 
 - The PR number is appended automatically on squash merge
   (`... (#123)`), so you do not write it in the title yourself.
-- Keep each commit focused. When chaining related commits, pause
-  for review between them.
+- Keep each commit atomic: one logical change that builds and passes
+  the tests on its own.
+  - A fix and the test that proves it go in the same commit.
+  - A refactor, a formatting pass and a behavior change go in separate
+    commits, so a reviewer can read each one alone.
+  - A commit that only makes sense with the next one is two halves of
+    one change: make them one commit.
+- A PR lands on `main` as one squash commit with the PR title as its
+  line, so one PR carries one change. Split unrelated work into
+  separate PRs.
 
 ## Code style
 
