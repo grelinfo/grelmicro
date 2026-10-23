@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from time import monotonic_ns
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -12,8 +13,14 @@ from pydantic import BaseModel
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, TTLCacheConfig
+from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
+from grelmicro.cache.serializers import (
+    _BYTES_TAG,
+    _JSON_TAG,
+    JsonSerializer,
+    PickleSerializer,
+)
 from grelmicro.cache.ttl import (
     _CACHE_PREFIX,
     _STALE_SUFFIX,
@@ -218,18 +225,18 @@ class TestGetSet:
         assert result == b"new"
         assert cache.cache_info().currsize == 1
 
-    async def test_set_non_bytes_without_serializer_raises(
+    async def test_set_non_json_value_without_serializer_raises(
         self, backend: MemoryCacheAdapter
     ) -> None:
-        """Test that setting a non-bytes value without a serializer raises TypeError."""
+        """Test that a value neither bytes nor JSON raises TypeError."""
         # Arrange
         cache = TTLCache(maxsize=10, ttl=60, backend=backend)
 
         # Act / Assert
         with pytest.raises(
-            TypeError, match="Cannot store str without a serializer"
+            TypeError, match="Cannot store set without a serializer"
         ):
-            await cache.set("key", "not-bytes")
+            await cache.set("key", {1, 2})
 
     async def test_set_invalid_per_entry_ttl_zero_raises(
         self, backend: MemoryCacheAdapter
@@ -654,10 +661,10 @@ class TestSerializer:
         # Assert
         assert result == payload
 
-    async def test_type_error_for_non_bytes_without_serializer(
+    async def test_type_error_for_nested_non_json_value(
         self, backend: MemoryCacheAdapter
     ) -> None:
-        """Test that storing a list without a serializer raises TypeError."""
+        """Test that a list holding a datetime raises TypeError."""
         # Arrange
         cache = TTLCache(maxsize=10, ttl=60, backend=backend)
 
@@ -665,7 +672,7 @@ class TestSerializer:
         with pytest.raises(
             TypeError, match="Cannot store list without a serializer"
         ):
-            await cache.set("key", [1, 2, 3])
+            await cache.set("key", [datetime(2025, 1, 1, tzinfo=UTC)])
 
 
 class TestGetOrSet:
@@ -1124,10 +1131,10 @@ class TestSerializerInference:
         # Assert
         assert await cache.get("raw") == b"value"
 
-    async def test_unparameterized_cache_stays_raw(
+    async def test_unparameterized_cache_refuses_a_model(
         self, backend: MemoryCacheAdapter
     ) -> None:
-        """Test that `TTLCache()` still refuses a non-bytes value."""
+        """Test that `TTLCache()` refuses a value neither bytes nor JSON."""
         # Arrange
         cache = TTLCache(ttl=60, backend=backend)
 
@@ -1135,10 +1142,10 @@ class TestSerializerInference:
         with pytest.raises(TypeError, match="without a serializer"):
             await cache.set("user", _User(id=1, name="Alice"))
 
-    async def test_unsupported_parameter_stays_raw(
+    async def test_unsupported_parameter_refuses_its_value(
         self, backend: MemoryCacheAdapter
     ) -> None:
-        """Test that a type Pydantic cannot adapt keeps raw bytes."""
+        """Test that a type Pydantic cannot adapt uses the default and raises."""
 
         # Arrange
         class _Opaque:
@@ -1173,3 +1180,247 @@ class TestSerializerInference:
         # Act / Assert
         with pytest.raises(TypeError, match=r"pass an instance"):
             TTLCache(ttl=60, backend=backend, serializer=PickleSerializer)
+
+
+class TestDefaultSerializer:
+    """Test `TTLCache()` with no type parameter and no serializer.
+
+    Bytes pass through raw, as they always did. Any other value is stored
+    as JSON behind a tag, so a raw entry is never read back as JSON.
+    """
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            1.5,
+            1.0,
+            42,
+            "text",
+            "",
+            True,
+            False,
+            None,
+            [1, "a", None, [2.5]],
+            {"id": 1, "tags": ["a"], "nested": {"ok": True}},
+            {},
+            [],
+        ],
+    )
+    async def test_json_value_round_trips(
+        self, backend: MemoryCacheAdapter, value: object
+    ) -> None:
+        """Test that a JSON value comes back equal and of the same type."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+
+        # Act
+        await cache.set("key", value)
+        result = await cache.get("key", "missing")
+
+        # Assert
+        assert result == value
+        assert type(result) is type(value)
+
+    async def test_tuple_comes_back_as_list(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a tuple is stored as a JSON array and reads as a list."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+
+        # Act
+        await cache.set("key", (1, (2, 3)))
+
+        # Assert
+        assert await cache.get("key") == [1, [2, 3]]
+
+    async def test_json_value_is_stored_behind_the_tag(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test the stored form of a JSON value: the tag, then the JSON."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+
+        # Act
+        await cache.set("key", {"x": 1.5})
+
+        # Assert
+        stored = await backend.get(key=f"{_CACHE_PREFIX}:key")
+        assert stored == _JSON_TAG + b'{"x":1.5}'
+
+    async def test_bytes_are_stored_raw(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that bytes reach the backend unchanged and read back as bytes."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+        payload = b'{"looks": "like json"}'
+
+        # Act
+        await cache.set("key", payload)
+
+        # Assert
+        assert await backend.get(key=f"{_CACHE_PREFIX}:key") == payload
+        assert await cache.get("key") == payload
+
+    @pytest.mark.parametrize(
+        "raw", [b"42", b"null", b'{"a":1}', b"\x00\xff binary", b"\xc1", b""]
+    )
+    async def test_entry_written_raw_before_reads_as_bytes(
+        self, backend: MemoryCacheAdapter, raw: bytes
+    ) -> None:
+        """Test that a raw entry from an earlier release reads back as bytes."""
+        # Arrange
+        await backend.set(
+            key=f"{_CACHE_PREFIX}:old", value=raw, ttl=timedelta(seconds=60)
+        )
+        cache = TTLCache(ttl=60, backend=backend)
+
+        # Act / Assert
+        assert await cache.get("old") == raw
+
+    @pytest.mark.parametrize(
+        "payload",
+        [_JSON_TAG + b"1", _BYTES_TAG + b"x", _JSON_TAG, _BYTES_TAG],
+    )
+    async def test_bytes_starting_with_a_tag_round_trip(
+        self, backend: MemoryCacheAdapter, payload: bytes
+    ) -> None:
+        """Test that bytes that start with a tag are escaped, not decoded."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+
+        # Act
+        await cache.set("key", payload)
+
+        # Assert
+        stored = await backend.get(key=f"{_CACHE_PREFIX}:key")
+        assert stored == _BYTES_TAG + payload
+        assert await cache.get("key") == payload
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            datetime(2025, 1, 1, tzinfo=UTC),
+            _User(id=1, name="Alice"),
+            {1, 2},
+            object(),
+            bytearray(b"x"),
+        ],
+    )
+    async def test_non_json_value_raises_with_the_hint(
+        self, backend: MemoryCacheAdapter, value: object
+    ) -> None:
+        """Test that a value neither bytes nor JSON names `serializer=`."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+
+        # Act / Assert
+        with pytest.raises(TypeError, match="serializer=") as error:
+            await cache.set("key", value)
+        assert type(value).__name__ in str(error.value)
+
+    async def test_error_message_leaves_the_value_out(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that the refusal does not echo the rejected value."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+
+        # Act / Assert
+        with pytest.raises(TypeError) as error:
+            await cache.set("key", {"token": "s3cret", "at": object()})
+        assert "s3cret" not in str(error.value)
+
+    async def test_explicit_json_serializer_stores_untagged_json(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `serializer=JsonSerializer()` keeps its stored form."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+
+        # Act
+        await cache.set("key", {"x": 1})
+
+        # Assert
+        assert await backend.get(key=f"{_CACHE_PREFIX}:key") == b'{"x":1}'
+        assert await cache.get("key") == {"x": 1}
+
+    async def test_many_round_trips_mixed_values(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `set_many` and `get_many` use the same default."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+
+        # Act
+        await cache.set_many({"a": 1.5, "b": b"raw", "c": ["x"]})
+
+        # Assert
+        assert await cache.get_many(["a", "b", "c"]) == {
+            "a": 1.5,
+            "b": b"raw",
+            "c": ["x"],
+        }
+
+    async def test_stale_copy_serves_a_json_value(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that the stale reserve of a JSON value reads back decoded."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+        await cache.set("key", 2.5, stale_ttl=60)
+
+        # Act / Assert
+        assert await cache._read_stale("key") == 2.5  # noqa: PLR2004
+
+    async def test_cached_function_returning_a_float(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `@cached(TTLCache(ttl=5))` caches a float result."""
+        # Arrange
+        cache = TTLCache(ttl=5, backend=backend)
+        calls = 0
+
+        @cached(cache)
+        async def rate() -> float:
+            nonlocal calls
+            calls += 1
+            return 1.25
+
+        # Act
+        first = await rate()
+        second = await rate()
+
+        # Assert
+        assert first == second == 1.25  # noqa: PLR2004
+        assert isinstance(second, float)
+        assert calls == 1
+
+    async def test_unsupported_parameter_stores_json(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a type Pydantic cannot adapt falls back to the default."""
+
+        # Arrange
+        class _Opaque:
+            pass
+
+        cache = TTLCache[_Opaque](ttl=60, backend=backend)
+
+        # Act
+        await cache.set("key", cast("_Opaque", {"x": 1}))
+
+        # Assert
+        assert await cache.get("key") == {"x": 1}
+
+    async def test_read_before_write_uses_the_default(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a `get` on a fresh `TTLCache()` decodes a JSON entry."""
+        # Arrange
+        await TTLCache(ttl=60, backend=backend).set("key", [1])
+        reader = TTLCache(ttl=60, backend=backend)
+
+        # Act / Assert
+        assert await reader.get("key") == [1]

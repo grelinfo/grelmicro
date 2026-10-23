@@ -151,7 +151,8 @@ class Cache:
                 cache when an app builds more than one, so a hit rate can
                 be read per cache.
             serializer: Serialization strategy, or a type to serialize with
-                `PydanticSerializer`. Defaults to raw bytes.
+                `PydanticSerializer`. By default bytes are stored raw and
+                other values as JSON.
         """
         return TTLCache(
             maxsize=maxsize,

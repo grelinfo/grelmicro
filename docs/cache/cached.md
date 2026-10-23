@@ -24,6 +24,8 @@ async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 ```
 
+A `TTLCache` with no type parameter, such as `TTLCache(ttl=300)`, caches a function that returns `bytes` or a JSON value like a `float` or a `dict`. See [Serialization](index.md#serialization) for the types each form stores.
+
 Passing both `cache` and `ttl`, or neither, raises `TypeError`.
 
 ## Custom Keys
