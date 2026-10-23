@@ -180,7 +180,7 @@ def test_shared_variable_is_reported_when_the_gate_is_off(
 ) -> None:
     """A shared variable set without the gate reports like any other."""
     # Arrange
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_TIMEZONE", "Europe/Zurich")
     monkeypatch.setattr(
         "grelmicro._config._warned_ignored_env", set(), raising=True

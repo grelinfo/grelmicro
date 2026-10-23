@@ -257,6 +257,15 @@ def env_load_default() -> bool:
     return os.environ.get(_ENV_LOAD_VAR, "").strip().lower() in _ENV_LOAD_TRUTHY
 
 
+def env_load_chosen() -> bool:
+    """Return True when ``GREL_ENV_LOAD`` is set to a non-blank value.
+
+    Either value is a choice, so a variable left unread then reports
+    `EnvLoadOffWarning` instead of the 0.44.0 default change.
+    """
+    return bool(os.environ.get(_ENV_LOAD_VAR, "").strip())
+
+
 def _union_arms(union: object) -> tuple[type[BaseModel], ...]:
     """Return the config classes a discriminated union is made of.
 
@@ -543,11 +552,14 @@ def warn_ignored_env(
     caller has already done what the message would ask of them.
 
     Each name is reported on both channels. `warnings` carries it under
-    `GrelmicroConfigWarning`, which a test suite can filter or turn into an
-    error. `logging` carries it on the `grelmicro` logger with the name in a
-    `variable` field, so a pipeline can match the field instead of the
-    message text. The log record waits until logging is configured.
+    `EnvLoadOffWarning`, which a test suite can filter or turn into an
+    error. While `GREL_ENV_LOAD` is unset, the `warnings` channel carries a
+    `GrelmicroFutureWarning` instead, since the variable is read by default
+    from 0.44.0. `logging` carries it on the `grelmicro` logger with the
+    name in a `variable` field, so a pipeline can match the field instead of
+    the message text. The log record waits until logging is configured.
     """
+    chosen = env_load_chosen()
     for field in (*config_cls.model_fields, *sorted(sibling)):
         if field in provided:
             continue
@@ -575,16 +587,21 @@ def warn_ignored_env(
                 and kind_env_prefix is not None
                 and name == instance_name
             )
-            message = (
-                _FOREIGN_ENV_MESSAGE % (name, _running_kind(config_cls))
-                if foreign
-                else _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR)
-            )
-            warnings.warn(
-                diagnostic(ENV_LOAD_OFF, message),
-                EnvLoadOffWarning,
-                stacklevel=4,
-            )
+            if foreign or chosen:
+                message = (
+                    _FOREIGN_ENV_MESSAGE % (name, _running_kind(config_cls))
+                    if foreign
+                    else _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR)
+                )
+                warnings.warn(
+                    diagnostic(ENV_LOAD_OFF, message),
+                    EnvLoadOffWarning,
+                    stacklevel=4,
+                )
+            else:
+                from grelmicro._deprecation import unread_env  # noqa: PLC0415
+
+                unread_env(name).warn(stacklevel=4)
             if _logging_configured:
                 _log_ignored_env(name)
             else:

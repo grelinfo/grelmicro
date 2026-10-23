@@ -151,7 +151,7 @@ def test_gate_off_reports_a_kind_wide_variable(
     this was fixed only the instance address was checked, so `R7` was false
     for every named instance in the library.
     """
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", "45")
 
     with pytest.warns(EnvLoadOffWarning, match="GREL_LOCK_LEASE_DURATION"):
@@ -183,7 +183,7 @@ def test_gate_off_does_not_call_a_broadcast_variable_a_mistake(
     sliding-window instance merely ignores it. Telling the operator to remove
     it would have them delete working configuration for the other algorithm.
     """
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_RATELIMITER_CAPACITY", "50")
 
     with pytest.warns(EnvLoadOffWarning) as caught:

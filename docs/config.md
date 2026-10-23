@@ -35,10 +35,15 @@ applies. That situation reports at startup instead of passing silently, naming
 the variable:
 
 ```
-UserWarning: GREL_LOG_FORMAT is set but was not applied: environment-driven
-configuration is opt-in. Set GREL_ENV_LOAD=1 to enable it, or pass the value
-directly.
+GrelmicroFutureWarning: `GREL_LOG_FORMAT` is set but not read today, and is
+read by default from 0.44.0. Pass `GREL_ENV_LOAD=0` to keep the current
+behavior, or `GREL_ENV_LOAD=1` to adopt the new one now.
 ```
+
+Today a `GREL_*` field is read only with `GREL_ENV_LOAD=1`. From 0.44.0 it is
+read by default, and `GREL_ENV_LOAD=0` turns that off. Set `GREL_ENV_LOAD` to
+choose now. With `GREL_ENV_LOAD=0` the variable is still reported, as an
+`EnvLoadOffWarning`. See [the migration guide](migration.md#0-43-env-load-default).
 
 The same report is logged on the `grelmicro` logger once logging is configured,
 so on the default backend it also lands in the JSON log stream, where a warning

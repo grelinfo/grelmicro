@@ -31,6 +31,7 @@ from grelmicro._config import (
     default_env_prefix,
     env_load_default,
     env_prefixes,
+    warn_ignored_env,
 )
 from grelmicro._json import json_loads
 from grelmicro._wrapping import refuse_registered
@@ -163,12 +164,17 @@ def _resolve_config(
     if default is not _UNSET:
         kwargs["default"] = default
 
-    if env_load is None:
+    implicit = env_load is None
+    if implicit:
         env_load = env_load_default()
+    env_prefix, kind_prefix = env_prefixes("FALLBACK", name)
     if not env_load:
+        if implicit:
+            warn_ignored_env(
+                FallbackConfig, env_prefix, kwargs, kind_env_prefix=kind_prefix
+            )
         return _validate(lambda: FallbackConfig.model_validate(kwargs))
 
-    env_prefix, kind_prefix = env_prefixes("FALLBACK", name)
     _load_default_from_env(kwargs, env_prefix)
     settings_cls = _build_settings_cls(
         FallbackConfig, env_prefix, kind_env_prefix=kind_prefix

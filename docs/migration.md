@@ -126,6 +126,7 @@ raises](#0-42-raising).
 - A mode field such as `MetricsConfig.exporter` or `LogConfig.level` still reads back as its enum member, which equals the string. From 0.44.0 it reads back as a plain `str`, so `.value`, `.name` and `is` against a member stop working. [Compare with the string](#0-43-mode-strings).
 - `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. [Pass the string](#0-43-mode-strings).
 - `GREL_ENVIRONMENT=Production`, or any tier in another case, still reads as undeclared and now also warns with `GrelmicroFutureWarning`. From 0.44.0 it declares that tier. [Spell the tier in lowercase](#0-43-environment-case).
+- A `GREL_*` variable such as `GREL_OPS_PORT`, set while `GREL_ENV_LOAD` is unset, is still not read and now warns with `GrelmicroFutureWarning` instead of `EnvLoadOffWarning`. From 0.44.0 it is read. [Set `GREL_ENV_LOAD`](#0-43-env-load-default).
 - A choice in another case is accepted where it used to be refused, such as `requires="Cluster"`, `lock="Process"`, `gate="Claim"` or `environment="Production"`. [Nothing to change](#0-43-mode-strings).
 
 ### A mode is a string {#0-43-mode-strings}
@@ -187,6 +188,28 @@ GREL_ENVIRONMENT=production
 ```
 
 To keep the app undeclared, leave the variable empty: `GREL_ENVIRONMENT=`.
+
+### `GREL_*` variables are read by default from 0.44.0 {#0-43-env-load-default}
+
+A `GREL_*` variable set while `GREL_ENV_LOAD` is unset is not read, as
+before, and now warns with `GrelmicroFutureWarning` once per variable. From
+0.44.0 every `GREL_*` field is read by default, so that variable then applies.
+Set `GREL_ENV_LOAD` to choose now, and the warning stops:
+
+```sh
+# Before: warns, GREL_OPS_PORT is not read
+GREL_OPS_PORT=9100
+
+# Read it now, the same as 0.44.0
+GREL_ENV_LOAD=1
+GREL_OPS_PORT=9100
+
+# Or keep ignoring every GREL_* field, in 0.43 and 0.44.0
+GREL_ENV_LOAD=0
+```
+
+`env_load=True` or `env_load=False` on one component chooses for that
+component only. Provider variables such as `POSTGRES_URL` are read as before.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 

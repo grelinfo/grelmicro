@@ -105,7 +105,7 @@ async def test_log_reports_ignored_env_in_a_second_lifecycle(
     all. A report made in between would otherwise reach the root logger with
     nothing installed and come out as unformatted text.
     """
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_LOG_LEVEL", "DEBUG")
 
     with pytest.warns(GrelmicroConfigWarning):
@@ -133,7 +133,7 @@ async def test_log_keeps_reporting_when_exit_restores_handlers(
     exiting puts a working logger back. A report after that has somewhere to
     go and must not wait for a lifecycle that may never come.
     """
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     configure(format="JSON")
 
     async with Log(format="JSON"):
