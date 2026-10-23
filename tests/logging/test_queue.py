@@ -45,6 +45,14 @@ _BACKLOG = 10
 _BURST = 201
 _QUEUED_BEFORE_DRAIN = 2
 
+_FORK_WITH_THREADS = pytest.mark.filterwarnings(
+    "ignore:This process .* is multi-threaded:DeprecationWarning"
+)
+"""Ignore the warning `os.fork` raises in a process that already has threads.
+
+Python 3.15 raises it in a pytest-xdist worker, which runs a thread of its own.
+"""
+
 
 class _Stream:
     """Stream that records what the worker wrote."""
@@ -562,6 +570,7 @@ def test_fork_gives_the_child_a_fresh_worker(clean_queue: None) -> None:
 
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="requires fork")
+@_FORK_WITH_THREADS
 def test_a_forked_child_still_logs(
     reset_backend: None, clean_queue: None
 ) -> None:
@@ -1188,6 +1197,7 @@ def test_discarding_a_stale_stop_keeps_the_records_behind_it() -> None:
 
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="requires fork")
+@_FORK_WITH_THREADS
 def test_a_multiprocessing_child_writes_its_records(
     reset_backend: None, clean_queue: None
 ) -> None:

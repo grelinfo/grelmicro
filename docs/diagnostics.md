@@ -51,6 +51,11 @@ filterwarnings = ["ignore::grelmicro.GrelmicroConfigWarning"]
 The same names work with `-W` and `PYTHONWARNINGS`, and `-W error` promotes any
 of them to an exception.
 
+A coming change of default or name warns with `GrelmicroFutureWarning`
+instead. It is a `FutureWarning`, not a configuration diagnostic, so it carries
+no code and the filters above leave it alone. See
+[About deprecation](migration.md#about-deprecation).
+
 **An error** is raised and cannot be filtered. It is averted by fixing the
 configuration it names. Each entry below says which.
 
