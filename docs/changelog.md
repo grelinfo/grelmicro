@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+* 🐛 Two `SQLiteProvider`s on one file no longer block each other with `database is locked`, in one process or across services. A file already in WAL opens without switching it again, and a file SQLite keeps out of WAL logs a warning. ([#1138](https://github.com/grelinfo/grelmicro/pull/1138))
+
 ## 0.42.5 - 2026-10-23
 
 ### Changed

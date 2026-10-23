@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from logging import getLogger
 from time import monotonic
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     )
     from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
 
+logger = getLogger("grelmicro.providers")
 
 _BUSY_TIMEOUT_MS = 5000
 """Milliseconds a write waits for another connection holding the file."""
@@ -44,28 +46,50 @@ _BUSY_CODES = frozenset({sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED})
 """Primary result codes that mean another connection holds the file."""
 
 
-async def _enable_wal(connection: aiosqlite.Connection) -> None:
+async def _enable_wal(connection: aiosqlite.Connection, path: str) -> None:
     """Switch the file to WAL, retrying while another connection holds it.
 
+    The journal mode is read first, and a file already in WAL is left as
+    it is, so opening it never takes the exclusive lock the switch needs.
     SQLite refuses the journal mode switch at once when the file is busy,
     whatever the busy timeout says. The switch is retried every
     `_WAL_RETRY_INTERVAL` until `_WAL_SWITCH_TIMEOUT`. Any other error is
-    raised at once.
+    raised at once. Every PRAGMA cursor is read and closed, so no
+    unfinished statement keeps a lock on the file.
+
+    SQLite refuses the switch without an error on some files, such as a
+    filesystem without shared memory, and keeps the old mode. A warning
+    naming `path` and the mode kept is logged then. An in-memory database
+    stays in `memory` mode without a warning.
 
     Raises:
         sqlite3.OperationalError: When the file stays busy past
             `_WAL_SWITCH_TIMEOUT`, or the switch fails for another reason.
     """
+    async with connection.execute("PRAGMA journal_mode;") as cursor:
+        row = await cursor.fetchone()
+    if row is not None and row[0] == "wal":
+        return
     deadline = monotonic() + _WAL_SWITCH_TIMEOUT
     while True:
         try:
-            await connection.execute("PRAGMA journal_mode=WAL;")
+            async with connection.execute("PRAGMA journal_mode=WAL;") as cursor:
+                row = await cursor.fetchone()
         except sqlite3.OperationalError as error:
             code = getattr(error, "sqlite_errorcode", 0) & 0xFF
             if code not in _BUSY_CODES or monotonic() >= deadline:
                 raise
             await asyncio.sleep(_WAL_RETRY_INTERVAL)
         else:
+            mode = row[0] if row is not None else None
+            if mode not in {"wal", "memory"}:
+                logger.warning(
+                    "SQLite kept journal mode %r on %r instead of WAL. Locks "
+                    "and other state shared through this file need WAL, and "
+                    "work only on one host with a local filesystem.",
+                    mode,
+                    path,
+                )
             return
 
 
@@ -315,8 +339,11 @@ class SQLiteProvider(Provider):
             try:
                 # The busy timeout comes first, so every later write waits for
                 # another process instead of failing at once.
-                await conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS};")
-                await _enable_wal(conn)
+                async with conn.execute(
+                    f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS};"
+                ) as cursor:
+                    await cursor.fetchall()
+                await _enable_wal(conn, self._path)
             except BaseException:
                 await conn.close()
                 raise
