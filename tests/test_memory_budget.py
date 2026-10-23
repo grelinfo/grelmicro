@@ -18,13 +18,14 @@ import pytest
 
 from benchmarks.memory_benchmark import APPS, probe
 
-_COMMON = frozenset(
-    {"config", "errors", "health", "metrics", "providers", "types"}
-)
+_IMPORT = frozenset({"config", "errors", "health", "providers", "types"})
 """The public subpackages `import grelmicro` loads."""
 
+_COMMON = _IMPORT | {"metrics"}
+"""The public subpackages every reference app loads."""
+
 _EXPECTED_SUBPACKAGES = {
-    "import": _COMMON,
+    "import": _IMPORT,
     "tasks": _COMMON
     | {
         "cache",
@@ -59,10 +60,10 @@ _EXPECTED_SUBPACKAGES = {
 """The public grelmicro subpackages each case loads, by case."""
 
 _MAX_MODULES = {
-    "import": 45,
-    "tasks": 197,
-    "redis": 181,
-    "postgres": 128,
+    "import": 24,
+    "tasks": 193,
+    "redis": 177,
+    "postgres": 115,
 }
 """The most grelmicro modules each case may load, by case."""
 
