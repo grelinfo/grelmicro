@@ -60,10 +60,10 @@ _EXPECTED_SUBPACKAGES = {
 """The public grelmicro subpackages each case loads, by case."""
 
 _MAX_MODULES = {
-    "import": 24,
-    "tasks": 193,
-    "redis": 177,
-    "postgres": 115,
+    "import": 23,
+    "tasks": 167,
+    "redis": 160,
+    "postgres": 102,
 }
 """The most grelmicro modules each case may load, by case."""
 

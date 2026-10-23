@@ -14,12 +14,12 @@ from typing_extensions import Doc
 
 from grelmicro._wrapping import refuse_registered
 from grelmicro.metrics._naming import callable_name
-from grelmicro.resilience.shield._shield import Shield
 
 if TYPE_CHECKING:
     from pydantic import PositiveFloat
 
     from grelmicro.resilience._when import WhenInput
+    from grelmicro.resilience.shield._shield import Shield
 
 __all__ = ["shield"]
 
@@ -68,6 +68,10 @@ def _build_profile_decorator(
             raise TypeError(msg)
 
         def wrap(fn: _AsyncFn) -> _AsyncFn:
+            from grelmicro.resilience.shield._shield import (  # noqa: PLC0415
+                Shield,
+            )
+
             refuse_registered(fn, f"@shield.{profile}")
             shield_name = name or callable_name(fn)
             factory_method = getattr(Shield, profile)
