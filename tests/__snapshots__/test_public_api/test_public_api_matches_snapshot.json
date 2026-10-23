@@ -254,8 +254,8 @@
     "CheckResult": null,
     "HealthCheckFunc": null,
     "HealthChecks": {
-      "()": "(*, name='default', timeout=None, cache_ttl=None, liveness=None, env_prefix=None, env_load=None, auto_health=False) -> None",
-      ".from_config": "(config, *, name='default', auto_health=False, liveness=None) -> Self"
+      "()": "(*, name='default', timeout=None, cache_ttl=None, liveness=None, env_prefix=None, env_load=None, auto_health=False) -> 'None'",
+      ".from_config": "(config, *, name='default', auto_health=False, liveness=None) -> 'Self'"
     },
     "HealthChecksConfig": {
       "()": "(*, timeout=5.0, cache_ttl=datetime.timedelta(seconds=1)) -> None"

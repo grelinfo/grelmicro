@@ -152,6 +152,25 @@ To register a check for every provider on the app at once, build the `HealthChec
 
 On startup this discovers every active provider, including ones a Component borrows without listing, and registers a critical `provider:{short_name}` check for each. A provider with no built-in probe is skipped. It is off by default, so checks appear only when you ask for them. When two providers share a `short_name`, the second is skipped with a warning: register it explicitly with `add_provider(provider, name=...)` to give it a distinct name.
 
+## Circuit Breakers
+
+Register a check on a [circuit breaker](resilience/circuit-breaker.md) with `add_breaker`. It registers under `circuitbreaker:{breaker.name}`, for example `circuitbreaker:inverter`:
+
+```python
+--8<-- "health/breaker_check.py"
+```
+
+The check is **non-critical** by default. An open breaker usually means a shared dependency is down for every replica, so failing readiness would take every replica out of rotation at once. Pass `critical=True` when the service is useless without that dependency. Pass `name=` when the breaker name is not a valid check name.
+
+Each run reads the state from the breaker's backend, so a replica that made no call still sees a breaker another replica opened.
+
+| State | Check status | Reported |
+| --- | --- | --- |
+| `CLOSED` | `ok` | nothing |
+| `HALF_OPEN`, `FORCED_CLOSED` | `ok` | `{"state": "HALF_OPEN"}` in the details |
+| `OPEN` | `error` | `circuit breaker open, next probe in 12s`, details `{"state": "OPEN", "retry_after": 12}` |
+| `FORCED_OPEN` | `error` | `circuit breaker forced open until reset`, details `{"state": "FORCED_OPEN"}` |
+
 ## Serve the Endpoints
 
 Register an `OpsServer` next to your app. It serves the probes and `/metrics` on a port of their own, so they never share the port your users reach:

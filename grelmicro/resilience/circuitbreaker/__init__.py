@@ -934,6 +934,15 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         self._consecutive_success_count = 0
         self._log_transition(desired, cause)
 
+    async def _read_snapshot(self) -> CircuitBreakerSnapshot:
+        """Read the current snapshot from the backend.
+
+        Leaves the local cache behind `state` and `metrics()` untouched.
+        """
+        state = self._state
+        strategy = state.strategy or self._resolve_strategy(state)
+        return await strategy.get_snapshot()
+
     def _release_call(self) -> None:
         """Release a call in the circuit breaker."""
         if self._active_call_count > 0:  # pragma: no branch

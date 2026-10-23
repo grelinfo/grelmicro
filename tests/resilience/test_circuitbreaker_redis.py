@@ -8,6 +8,7 @@ import pytest
 from testcontainers.community.redis import RedisContainer
 
 from grelmicro._duration import microseconds, seconds_to_microseconds
+from grelmicro.health import HealthChecks
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
@@ -331,6 +332,40 @@ async def test_two_breakers_share_state(
             pass
 
     assert cb_b.state is CircuitBreakerState.OPEN
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_health_check_reports_open_on_an_idle_replica(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """A breaker health check reports open on a replica that made no call."""
+
+    class BoomError(Exception):
+        pass
+
+    def make_breaker() -> CircuitBreaker:
+        return CircuitBreaker.consecutive_count(
+            "shared",
+            error_threshold=1,
+            success_threshold=1,
+            reset_timeout=RESET_TIMEOUT,
+            backend=backend,
+        )
+
+    with pytest.raises(BoomError):
+        async with make_breaker():
+            raise BoomError
+    idle = make_breaker()
+    health = HealthChecks(cache_ttl=0)
+    health.add_breaker(idle)
+
+    report = await health.run()
+
+    assert idle.state is CircuitBreakerState.CLOSED
+    result = report["checks"]["circuitbreaker:shared"]
+    assert result["status"] == "error"
+    assert result["details"] == {"state": "OPEN", "retry_after": 5}
 
 
 @pytest.mark.integration
