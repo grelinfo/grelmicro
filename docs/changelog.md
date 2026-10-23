@@ -11,6 +11,8 @@
 * ⚡️ `import grelmicro` no longer loads `grelmicro.metrics`, `grelmicro.trace` and most of `grelmicro.health`. Their names load on first use, which saves 24 modules, about 1.9 MB and 10 ms. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
 
 ### Docs
+* 📝 Health, Metrics, Deployment and the FastAPI reference recommend `OpsServer` for the probes and `/metrics`, next to a web app too. `health_router()` and `metrics_router()` stay as the app-port alternative, with what they expose. ([#1132](https://github.com/grelinfo/grelmicro/pull/1132))
+* 📝 Deployment explains how to secure the ops endpoints: what `/healthz` and `/metrics` reveal, why `127.0.0.1` breaks probes and scrapes, and how to keep the port private on Kubernetes, Docker and behind a reverse proxy. ([#1132](https://github.com/grelinfo/grelmicro/pull/1132))
 * 📝 Contributing and the migration page state what a patch and a minor may ship. A deprecation warns in one minor and switches in the next, never in a patch. ([#1128](https://github.com/grelinfo/grelmicro/pull/1128))
 
 ### Internal

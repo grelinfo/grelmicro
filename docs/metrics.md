@@ -1,6 +1,6 @@
 # Metrics
 
-The `metrics` module records OpenTelemetry metrics for your app. Add one `Metrics()` component and grelmicro emits metrics from every built-in component. Add `@measure` to time your own functions. Add `metrics_router()` to expose a Prometheus endpoint.
+The `metrics` module records OpenTelemetry metrics for your app. Add one `Metrics()` component and grelmicro emits metrics from every built-in component. Add `@measure` to time your own functions. Register an `OpsServer` to serve a Prometheus endpoint on a port of its own.
 
 ## Quick Start
 
@@ -97,13 +97,26 @@ Use `counter` for values that only increase, `up_down_counter` for values that r
 
 ## Prometheus endpoint
 
-With the `prometheus` exporter, `metrics_router()` from `grelmicro.integrations.fastapi` adds a `GET /metrics` route that returns the Prometheus exposition format.
+With the `prometheus` exporter, register an [`OpsServer`](http/server.md). It serves `GET /metrics` in the Prometheus exposition format on port 8080, next to the health probes, and away from the port your users reach:
+
+```python
+--8<-- "health/ops_server.py"
+```
+
+Point the Prometheus scrape at port 8080.
+
+!!! warning "Keep `/metrics` private"
+    The exposition names your routes (`http.route`), counts their errors by exception type, and reports every circuit breaker's state, every task and lock name, and every outbox topic. It is a map of your service and of what is failing in it right now. Never serve it on the internet. Read [Secure the ops endpoints](deployment.md#secure-the-ops-endpoints).
+
+### On the app port
+
+When the scraper can reach only the app port, `metrics_router()` from `grelmicro.integrations.fastapi` adds the same `GET /metrics` route to your FastAPI app:
 
 ```python
 --8<-- "metrics/router.py"
 ```
 
-Pass `prefix`, `path`, and `dependencies` to mount the route elsewhere or gate it behind authentication. The router resolves the default `Metrics` component from the running app, or you can pass one explicitly with `metrics_router(component)`.
+Every caller who reaches the app reaches this route too. Gate it with `dependencies`. Pass `prefix` and `path` to mount it elsewhere. The router resolves the default `Metrics` component from the running app, or you can pass one explicitly with `metrics_router(component)`.
 
 The route stays out of the OpenAPI schema. A scrape target is not part of your client contract, so `/metrics` is served but never published. Pass `include_in_schema=True` to document it, as the text exposition it returns rather than as JSON.
 
@@ -116,12 +129,11 @@ any ASGI framework:
 --8<-- "metrics/asgi.py"
 ```
 
-A process that serves no HTTP at all gets the endpoint from
-[`OpsServer`](http/server.md), on a port of its own, next to the health
-probes:
+A process that serves no HTTP at all registers an
+[`OpsServer`](http/server.md) the same way:
 
 ```python
-micro = Grelmicro(uses=[Metrics(exporter="prometheus"), OpsServer(port=8080)])
+micro = Grelmicro(uses=[OpsServer(port=8080), Metrics(exporter="prometheus")])
 ```
 
 ## How every metric is named

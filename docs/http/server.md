@@ -11,6 +11,15 @@ still needs a `/metrics` to scrape.
 ```
 
 That is the whole setup. No web framework, no ASGI server, no new dependency.
+
+It is also the recommended way next to a web app. The probes and `/metrics`
+then answer on a port the internet never reaches, while your routes keep the
+app port:
+
+```python
+--8<-- "health/ops_server.py"
+```
+
 It always serves `/livez`, because liveness is about the process rather than
 about a component, and it serves the rest of what the app registers: readiness
 and the report when a `HealthChecks` is registered, and `/metrics` when a
@@ -71,8 +80,18 @@ readinessProbe:
 
 The default binds every interface, IPv4 and IPv6, because the kubelet reaches
 a pod on its pod IP and a dual-stack cluster may use either. Set
-`host="127.0.0.1"` to keep the port on loopback, for a sidecar that scrapes
-from inside the pod.
+`host="127.0.0.1"` only for a sidecar that scrapes from inside the pod.
+Loopback hides the port from the kubelet and from Prometheus too, so it is no
+way to secure it.
+
+## Secure it
+
+`OpsServer` has no authentication and no IP allowlist. `/healthz` names every
+check, and `/metrics` names your routes, their errors and your circuit
+breakers' states. Keep the port off every public Service, published port and
+proxy route, and admit Prometheus alone with a NetworkPolicy.
+[Secure the ops endpoints](../deployment.md#secure-the-ops-endpoints) shows
+each step.
 
 ## Configuration
 
@@ -136,8 +155,8 @@ ingress. A request it cannot read gets the status that says why:
 
 ## Mounting the endpoints instead
 
-A process that already runs an ASGI framework does not need a second port.
-Mount the endpoints in the app it already serves:
+Some platforms probe only the port they route traffic to. There, mount the
+endpoints in the app instead, and know that they answer on the public port:
 
 ```python
 --8<-- "health/asgi.py"
@@ -147,8 +166,9 @@ Mount the endpoints in the app it already serves:
 Starlette, Litestar, or anything else that speaks ASGI, and they answer exactly
 what `OpsServer` answers. Mounted at `""` the app matches every path, so it
 goes last, after the routes of your own. Mount it under a prefix instead and
-it matches that prefix alone, wherever you put it. On FastAPI, prefer
+it matches that prefix alone, wherever you put it. On FastAPI, use
 [`health_router()`](../health.md#fastapi-integration): it serves the same
-endpoints and adds the OpenAPI schema and the `Depends` gates.
+endpoints and adds the OpenAPI schema and the `Depends` gates that a public
+`/healthz` needs.
 
 Read [Frameworks](../frameworks.md) for what runs where.

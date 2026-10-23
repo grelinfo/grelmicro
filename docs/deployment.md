@@ -228,15 +228,27 @@ pod, and the access log reports each one. Attach `ProbeFilter` to drop them:
 
 ## Health probes
 
-`health_router()` serves `/livez`, `/readyz` and `/healthz`. Point the
-liveness probe at `/livez`, which stays `200` while the process is alive and
-its liveness checks pass, and
-the readiness probe at `/readyz`, which turns `503` as soon as a critical
-check fails and takes the pod out of the Service.
+Register an [`OpsServer`](http/server.md) and point the probes at its port. It
+serves `/livez`, `/readyz`, `/healthz` and `/metrics` on port 8080, next to
+the app on 8000. A pod that serves no HTTP, a consumer or a scheduler, uses it
+the same way:
 
-A pod that serves no HTTP, a consumer or a scheduler, gets the same three
-endpoints on a port of its own from [`OpsServer`](http/server.md), and points
-its probes at that port.
+```python
+--8<-- "health/ops_server.py"
+```
+
+Point the liveness probe at `/livez`, which stays `200` while the process is
+alive and its liveness checks pass. Point the readiness probe at `/readyz`,
+which turns `503` as soon as a critical check fails and takes the pod out of
+the Service.
+
+`OpsServer` binds its port once per process. Run one worker per container, as
+below, because a second worker in the same container cannot bind the same
+port.
+
+When the platform probes only the app port, include `health_router()` in the
+app instead. The probes then answer on the public port, so read
+[Secure the ops endpoints](#secure-the-ops-endpoints) for what to gate.
 
 Keep the readiness period short and the liveness period long. Readiness reacts
 to a lost backend, liveness only to a process that is gone or stuck. Use a
@@ -262,6 +274,130 @@ exits, and whatever runs it starts another.
 | Loop blocked, Gunicorn with `uvicorn-worker` | Gunicorn, after `--timeout` | Gunicorn, or the watchdog |
 | Loop blocked, `uvicorn --workers N` | Nothing | The watchdog |
 | Coroutines or threads deadlocked, loop free | Nothing | A liveness check |
+
+## Secure the ops endpoints
+
+The ops endpoints describe your service to whoever reaches them:
+
+| Endpoint | Reveals |
+|---|---|
+| `/livez`, `/readyz` | Whether the process is alive and ready. Nothing more. |
+| `/healthz` | The name of every check, and the error string of each failing one. |
+| `/metrics` | Your route names and their errors by exception type, every circuit breaker's state, and the name of every task, lock, cache and outbox topic. |
+
+`OpsServer` has no authentication, no IP allowlist and no TLS. The network in
+front of it is its only protection. Keep its port reachable by the kubelet,
+the load balancer and Prometheus, and by nothing else.
+
+### Keep the default host
+
+`host="127.0.0.1"` looks safe and breaks every caller that matters. The
+kubelet probes the pod IP. A load balancer probes from outside the container.
+Prometheus scrapes from another pod or container. None of them reaches the
+container's loopback, so the pod never turns Ready and the liveness probe
+restarts it. Loopback fits only a sidecar that scrapes from inside the same
+pod. Keep the default, which binds every interface, and close the port at the
+network instead.
+
+### Kubernetes
+
+Name the ops port in the container, as the
+[complete manifest](#a-complete-manifest) does, and leave it out of the
+Service your Ingress routes:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart
+spec:
+  selector:
+    app.kubernetes.io/name: cart
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+```
+
+The kubelet probes the pod directly and needs no Service. Prometheus scrapes
+the pod directly too, through a `PodMonitor` that names the `ops` port. If
+your setup scrapes through a Service, give the ops port a separate Service of
+type `ClusterIP`, never `LoadBalancer` or `NodePort`.
+
+Then admit the ops port from the Prometheus namespace alone:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cart
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cart
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: http
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: ops
+```
+
+The first rule keeps the app port open to the Ingress controller. Replace
+`monitoring` with the namespace Prometheus runs in. The kubelet probes from
+the pod's own node, and a NetworkPolicy always allows connections from the
+pod's node, so the probes need no rule. A cloud load balancer that
+health-checks the pod directly probes from its own addresses, so add an
+`ipBlock` rule for them on the `ops` port. A NetworkPolicy takes effect only
+on a network plugin that enforces it.
+
+### Docker, Podman and Compose
+
+Publish the app port only: `-p 8000:8000`, never `-p 8080:8080`. Containers on
+the same network still reach the ops port, so Prometheus scrapes `app:8080`
+without it being published:
+
+```yaml
+services:
+  app:
+    image: registry.example.com/cart:1.4.0
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/livez"]
+  prometheus:
+    image: prom/prometheus
+```
+
+The healthcheck runs inside the container, so it reaches the ops port with no
+port published.
+
+### Caddy and other reverse proxies
+
+Proxy the app port only:
+
+```text
+api.example.com {
+	reverse_proxy app:8000
+}
+```
+
+Nothing routes to `app:8080`, so `/metrics` never reaches the internet.
+
+### On the app port
+
+`health_router()` and `metrics_router()` serve the same endpoints on the app
+port, where every caller reaches them. Gate what reveals something:
+
+- Gate `/metrics` with `metrics_router(dependencies=[...])`.
+- Gate `/healthz` with `healthz_dependencies`, and keep `show_details` off or
+  behind `Depends(...)`. Read [Verbose Details](health.md#verbose-details).
+- Leave `/livez` and `/readyz` open. They reveal up or down, and most probes
+  carry no credentials.
 
 ## Shutdown
 
@@ -345,7 +481,10 @@ spec:
             limits:
               memory: 512Mi
           ports:
-            - containerPort: 8000
+            - name: http
+              containerPort: 8000
+            - name: ops
+              containerPort: 8080
           env:
             - name: GREL_ENVIRONMENT
               value: production
@@ -363,18 +502,18 @@ spec:
           startupProbe:
             httpGet:
               path: /livez
-              port: 8000
+              port: ops
             periodSeconds: 2
             failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /livez
-              port: 8000
+              port: ops
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8000
+              port: ops
             periodSeconds: 5
           lifecycle:
             preStop:
@@ -394,6 +533,7 @@ change the image, and then put it in every copy of the manifest.
 - [ ] The startup logs carry no `variable` field.
 - [ ] `GREL_LOG_LEVEL` is set per environment, and the format is left to `AUTO`.
 - [ ] `ProbeFilter` is attached to `uvicorn.access`.
-- [ ] `/livez` and `/readyz` are wired, with readiness the faster of the two.
+- [ ] `/livez` and `/readyz` are served by `OpsServer`, with readiness the faster of the two.
+- [ ] The ops port is in no public Service, no published port and no proxy route.
 - [ ] `terminationGracePeriodSeconds` is at or above `Tasks(shutdown_timeout=...)`.
 - [ ] Every replica points at the same backend, through a provider.
