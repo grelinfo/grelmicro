@@ -26,7 +26,6 @@ from grelmicro.coordination.errors import (
     LockNotOwnedError,
     LockReleaseError,
 )
-from grelmicro.coordination.lock import Lock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.types import BackendScope
 
@@ -34,6 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
     from grelmicro.cache.ttl import TTLCache
+    from grelmicro.coordination.lock import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,14 @@ class Fold:
     which has to reach that far.
     """
 
-    __slots__ = ("__weakref__", "_checked", "_failing", "name", "scope")
+    __slots__ = (
+        "__weakref__",
+        "_checked",
+        "_failing",
+        "_lock",
+        "name",
+        "scope",
+    )
 
     def __init__(
         self, name: str, scope: BackendScope, *, check: bool = True
@@ -92,6 +99,11 @@ class Fold:
         self.scope = scope
         self._checked = not check
         self._failing = False
+        self._lock: type[Lock] | None = None
+        if scope != "process":
+            from grelmicro.coordination.lock import Lock  # noqa: PLC0415
+
+            self._lock = Lock
 
     @property
     def crosses(self) -> bool:
@@ -115,10 +127,10 @@ class Fold:
                 `production` and its lock backend reaches less far than
                 the scope.
         """
-        if self.scope == "process":
+        if self._lock is None:
             yield False
             return
-        lock = Lock(_stampede_lock_name(key))
+        lock = self._lock(_stampede_lock_name(key))
         self._check(lock.backend)
         try:
             await lock.acquire()

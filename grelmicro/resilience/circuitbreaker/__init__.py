@@ -142,23 +142,27 @@ def __getattr__(name: str) -> object:
     Algorithm configs are imported on first access so that
     `from grelmicro.resilience.circuitbreaker import CircuitBreaker`
     does not pull in `consecutive_count.py` (or any future algorithm).
+    The first access caches the value on the module.
     """
     if name == "ConsecutiveCountConfig":
         from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
             ConsecutiveCountConfig,
         )
 
-        return ConsecutiveCountConfig
-    if name == "CircuitBreakerConfig":
+        value: object = ConsecutiveCountConfig
+    elif name == "CircuitBreakerConfig":
         from pydantic import Discriminator  # noqa: PLC0415
 
         from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
             ConsecutiveCountConfig,
         )
 
-        return Annotated[ConsecutiveCountConfig, Discriminator("kind")]
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
+        value = Annotated[ConsecutiveCountConfig, Discriminator("kind")]
+    else:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    globals()[name] = value
+    return value
 
 
 _NO_BACKEND: Final = (
