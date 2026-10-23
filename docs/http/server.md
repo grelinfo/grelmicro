@@ -97,6 +97,7 @@ each step.
 
 | Parameter | Default | What it decides |
 |---|---|---|
+| `enabled` | `True` | Whether it starts. `False` binds no port and the app opens without it. |
 | `port` | `8080` | The port it listens on. |
 | `host` | every interface | The address it binds. |
 | `show_details` | `False` | Whether `/healthz` carries each check's `details`. |
@@ -109,6 +110,13 @@ the port without touching the code:
 
 ```bash
 GREL_OPS_PORT=9100
+```
+
+The same image can run with the server switched off, for a local session or a
+platform that scrapes another way:
+
+```bash
+GREL_OPS_ENABLED=false
 ```
 
 --8<-- "env_gate.md"

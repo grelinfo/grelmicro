@@ -326,11 +326,11 @@
       "()": "(*, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), require_key=False, fingerprint_body=False, max_body_size=1048576, max_wait=10.0, include=(), exclude=(), reused_status=422) -> None"
     },
     "OpsServer": {
-      "()": "(*, port=None, host=None, show_details=None, request_timeout=None, shutdown_timeout=None, max_connections=None, name='default', env_prefix=None, env_load=None) -> 'None'",
+      "()": "(*, enabled=None, port=None, host=None, show_details=None, request_timeout=None, shutdown_timeout=None, max_connections=None, name='default', env_prefix=None, env_load=None) -> 'None'",
       ".from_config": "(config, *, name='default') -> 'Self'"
     },
     "OpsServerConfig": {
-      "()": "(*, host='', port=8080, show_details=False, request_timeout=10.0, shutdown_timeout=5.0, max_connections=32) -> None"
+      "()": "(*, enabled=True, host='', port=8080, show_details=False, request_timeout=10.0, shutdown_timeout=5.0, max_connections=32) -> None"
     },
     "OpsServerError": null,
     "PROBLEM_MEDIA_TYPE": null,

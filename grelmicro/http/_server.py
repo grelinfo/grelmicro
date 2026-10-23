@@ -143,6 +143,13 @@ class _RefuseRequest(Exception):  # noqa: N818
 class OpsServerConfig(BaseModel, frozen=True, extra="forbid"):
     """Ops Server Config."""
 
+    enabled: Annotated[
+        bool,
+        Doc(
+            "Whether the server starts. ``False`` binds no port and serves "
+            "nothing, and the app opens as it would without one."
+        ),
+    ] = True
     host: Annotated[
         str,
         Doc(
@@ -229,6 +236,18 @@ class OpsServer:
     def __init__(
         self,
         *,
+        enabled: Annotated[
+            bool | None,
+            Doc(
+                """
+                Whether the server starts. ``False`` binds no port and
+                serves nothing.
+
+                Default: True. Resolves from ``GREL_OPS_ENABLED`` the way
+                ``port`` does.
+                """
+            ),
+        ] = None,
         port: Annotated[
             int | None,
             Doc(
@@ -339,6 +358,7 @@ class OpsServer:
             OpsServerConfig,
             explicit=None,
             kwargs={
+                "enabled": enabled,
                 "host": host,
                 "port": port,
                 "show_details": show_details,
@@ -406,7 +426,8 @@ class OpsServer:
 
         Empty until the app it belongs to has finished opening, because
         until then it answers `/livez` alone and what it will serve is not
-        settled: a `Metrics` still opening has no exporter to read.
+        settled: a `Metrics` still opening has no exporter to read. Always
+        empty when the server is switched off.
         """
         self._build()
         return self._paths
@@ -414,12 +435,22 @@ class OpsServer:
     async def __aenter__(self) -> Self:
         """Bind the port and start serving.
 
+        A server switched off with ``enabled=False`` binds nothing and
+        returns at once.
+
         Raises:
             OpsServerError: If no `Grelmicro` app is active, the app
                 registers nothing to serve, or the port cannot be bound.
         """
         from grelmicro._app import Grelmicro  # noqa: PLC0415
 
+        if not self._config.enabled:
+            logger.info(
+                "ops server switched off, nothing listens on %s:%s",
+                self._config.host or "*",
+                self._config.port,
+            )
+            return self
         try:
             micro = Grelmicro.current()
         except LookupError as exc:
@@ -467,10 +498,6 @@ class OpsServer:
             await self._drain()
             await self._server.wait_closed()
             self._server = None
-        else:  # pragma: no cover
-            # Unreachable through the app, which never closes what it did
-            # not open. Kept so a direct `__aexit__` still drains.
-            await self._drain()
         self._micro = None
         self._app = None
         self._paths = ()

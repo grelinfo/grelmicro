@@ -924,6 +924,8 @@ def _render_components(report: AppReport) -> list[str]:
     for text, component in zip(labels, report.components, strict=True):
         backends = ", ".join(component.backends) or component.component
         suffix = f" <- {component.provider}" if component.provider else ""
+        if component.config.get("enabled") is False:
+            suffix += " (switched off)"
         lines.append(f"  {text.ljust(width)}  {backends}{suffix}")
     lines.append("")
     return lines

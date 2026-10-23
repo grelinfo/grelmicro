@@ -574,6 +574,185 @@ def test_from_config_takes_the_config_as_it_is(
     assert server.name == "admin"
 
 
+def test_it_is_switched_on_by_default() -> None:
+    """The bare constructor serves."""
+    # Arrange / Act
+    server = OpsServer()
+
+    # Assert
+    assert server.config.enabled is True
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("false", False, id="false"),
+        pytest.param("FALSE", False, id="false-upper"),
+        pytest.param("0", False, id="zero"),
+        pytest.param("true", True, id="true"),
+        pytest.param("True", True, id="true-title"),
+        pytest.param("1", True, id="one"),
+    ],
+)
+def test_the_environment_switches_it(
+    monkeypatch: pytest.MonkeyPatch, value: str, *, expected: bool
+) -> None:
+    """`GREL_OPS_ENABLED` reads a boolean the way every other flag does."""
+    # Arrange
+    monkeypatch.setenv("GREL_OPS_ENABLED", value)
+
+    # Act
+    server = OpsServer()
+
+    # Assert
+    assert server.config.enabled is expected
+
+
+def test_a_named_server_reads_its_own_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A named server reads `GREL_OPS_{NAME}_ENABLED`."""
+    # Arrange
+    monkeypatch.setenv("GREL_OPS_ADMIN_ENABLED", "false")
+
+    # Act
+    server = OpsServer(name="admin")
+
+    # Assert
+    assert server.config.enabled is False
+
+
+def test_the_keyword_wins_over_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`enabled=` set in code wins over `GREL_OPS_ENABLED`."""
+    # Arrange
+    monkeypatch.setenv("GREL_OPS_ENABLED", "false")
+
+    # Act
+    server = OpsServer(enabled=True)
+
+    # Assert
+    assert server.config.enabled is True
+
+
+def _port_is_free(port: int) -> bool:
+    """Return whether the loopback port binds."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+async def test_switched_off_it_binds_nothing(
+    monkeypatch: pytest.MonkeyPatch, health: HealthChecks, port: int
+) -> None:
+    """`GREL_OPS_ENABLED=false` leaves the port free and the app runs."""
+    # Arrange
+    monkeypatch.setenv("GREL_OPS_ENABLED", "false")
+    micro = Grelmicro(uses=[health, OpsServer(host="127.0.0.1", port=port)])
+
+    # Act
+    async with micro:
+        server = micro.get("ops", "default")
+        free = _port_is_free(port)
+        paths = server.paths
+
+    # Assert
+    assert free
+    assert paths == ()
+
+
+async def test_switched_off_by_keyword_it_binds_nothing(
+    health: HealthChecks, port: int
+) -> None:
+    """`enabled=False` leaves the port free."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[health, OpsServer(host="127.0.0.1", port=port, enabled=False)]
+    )
+
+    # Act
+    async with micro:
+        free = _port_is_free(port)
+
+    # Assert
+    assert free
+
+
+async def test_switched_off_it_needs_nothing_to_serve(port: int) -> None:
+    """A switched-off server opens on an app that registers nothing."""
+    # Arrange
+    micro = Grelmicro(uses=[OpsServer(port=port, enabled=False)])
+
+    # Act / Assert
+    async with micro:
+        assert micro.get("ops", "default").paths == ()
+
+
+async def test_switched_off_it_logs_that_it_is_off(
+    caplog: pytest.LogCaptureFixture, health: HealthChecks, port: int
+) -> None:
+    """Opening a switched-off server says so in the log."""
+    # Arrange
+    caplog.set_level(logging.INFO, logger="grelmicro.http")
+    micro = Grelmicro(uses=[health, OpsServer(port=port, enabled=False)])
+
+    # Act
+    async with micro:
+        pass
+
+    # Assert
+    messages = [r.getMessage() for r in records_of(caplog, "grelmicro.http")]
+    assert any("switched off" in message for message in messages)
+    assert not any("listening" in message for message in messages)
+
+
+def test_from_config_takes_the_switch_as_it_is(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The declarative door reads `enabled` from the config."""
+    # Arrange
+    monkeypatch.setenv("GREL_OPS_ENABLED", "true")
+
+    # Act
+    server = OpsServer.from_config(OpsServerConfig(enabled=False))
+
+    # Assert
+    assert server.config.enabled is False
+
+
+def test_describe_shows_a_switched_off_server() -> None:
+    """The report keeps the server and says it is switched off."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[HealthChecks(), OpsServer(enabled=False)],
+        environment="development",
+    )
+
+    # Act
+    report = micro.describe()
+
+    # Assert
+    ops = next(c for c in report.components if c.kind == "ops")
+    assert ops.config["enabled"] is False
+    assert "OpsServer (switched off)" in report.render()
+
+
+def test_describe_shows_a_running_server_plainly() -> None:
+    """A switched-on server renders with no suffix."""
+    # Arrange
+    micro = Grelmicro(uses=[OpsServer()], environment="development")
+
+    # Act
+    text = micro.describe().render()
+
+    # Assert
+    assert "switched off" not in text
+
+
 def test_a_port_outside_the_range_is_refused() -> None:
     """A port is a port, and the error says so at construction."""
     with pytest.raises(ValueError, match="less than or equal to 65535"):

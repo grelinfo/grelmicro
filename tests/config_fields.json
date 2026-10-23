@@ -79,6 +79,7 @@
     "vary_by_query"
   ],
   "grelmicro.http._server.OpsServerConfig": [
+    "enabled",
     "host",
     "max_connections",
     "port",
