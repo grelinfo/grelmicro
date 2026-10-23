@@ -42,6 +42,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
 ]
 
 requires-python = ">=3.14"
@@ -166,7 +167,7 @@ instrumentation = [
 # one through pydantic-core, so this adds no platform that was not already
 # required, and a single implementation keeps one behaviour to verify.
 jwt = [
-    "grelmicro-core>=0.1.4",
+    "grelmicro-core>=0.1.5",
 ]
 structlog = [
     "structlog>=24.1.0",

@@ -4,6 +4,7 @@
 
 ### Added
 * ✨ `GrelmicroFutureWarning` warns one release before a default changes or a name is removed. Passing the argument silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
+* ✨ grelmicro and `grelmicro-core` support Python 3.15. `grelmicro[jwt]` requires `grelmicro-core` 0.1.5, which ships wheels for 3.15 and the free-threaded 3.15t. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
 
 ### Changed
 * ⚡️ `import grelmicro` loads pydantic-settings only when a config first reads the environment, which saves 36 modules, about 1.7 MB and 10 ms. ([#1122](https://github.com/grelinfo/grelmicro/pull/1122))

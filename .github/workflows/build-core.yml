@@ -11,7 +11,8 @@ name: Build Core
 # back to building from the sdist and needs a Rust toolchain, so a gap here is
 # a gap in what the extra can be installed on.
 #
-# Every wheel targets the 3.14 floor, the free-threaded 3.14t included.
+# Wheels target every supported Python, 3.14 and 3.15, the free-threaded
+# 3.14t and 3.15t included.
 #
 # A pull request that touches the crate builds every wheel too, so a platform
 # that stopped building fails there rather than in a release.
@@ -67,7 +68,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --interpreter '3.14 3.14t'
+          args: --release --out dist --interpreter '3.14 3.14t 3.15 3.15t'
           manylinux: auto
           working-directory: ${{ env.CRATE_DIR }}
       - name: Build musllinux wheels
@@ -77,7 +78,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --interpreter '3.14 3.14t'
+          args: --release --out dist --interpreter '3.14 3.14t 3.15 3.15t'
           manylinux: musllinux_1_2
           working-directory: ${{ env.CRATE_DIR }}
       - name: Upload wheels
@@ -113,7 +114,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --interpreter '3.14 3.14t'
+          args: --release --out dist --interpreter '3.14 3.14t 3.15 3.15t'
           working-directory: ${{ env.CRATE_DIR }}
       - name: Upload wheels
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -148,7 +149,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --interpreter '3.14 3.14t'
+          args: --release --out dist --interpreter '3.14 3.14t 3.15 3.15t'
           working-directory: ${{ env.CRATE_DIR }}
       - name: Upload wheels
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
