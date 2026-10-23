@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Added
-* ✨ `OpsServer(enabled=False)` and `GREL_OPS_ENABLED=false` switch the ops server off. It binds no port, and `health-not-served` says it is switched off. ([#1117](https://github.com/grelinfo/grelmicro/issues/1117))
+* ✨ `OpsServer(enabled=False)` and `GREL_OPS_ENABLED=false` switch the ops server off. It binds no port, and `health-not-served` says it is switched off. ([#1142](https://github.com/grelinfo/grelmicro/pull/1142))
 * ✨ `HealthChecks.add_breaker` reports a circuit breaker as a `circuitbreaker:{name}` check. An open breaker fails it with the seconds until the next probe, and it is non-critical by default. ([#1137](https://github.com/grelinfo/grelmicro/pull/1137))
 * ✨ `GrelmicroFutureWarning` warns one minor release before a default changes or a name is removed. Passing the argument silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
 
