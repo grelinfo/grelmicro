@@ -19,8 +19,6 @@
 * 🗑️ `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Pass the string instead. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
 * 🗑️ `GREL_ENVIRONMENT=Production`, or any tier in another case, warns with `GrelmicroFutureWarning`. It reads as undeclared until 0.44.0, then as that tier. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
 
-### Fixed
-* 🐛 Two `SQLiteProvider`s on one file no longer block each other with `database is locked`, in one process or across services. A file already in WAL opens without switching it again, and a file SQLite keeps out of WAL logs a warning. ([#1138](https://github.com/grelinfo/grelmicro/pull/1138))
 
 ### Docs
 * 📝 Health, Metrics, Deployment and the FastAPI reference recommend `OpsServer` for the probes and `/metrics`, next to a web app too. `health_router()` and `metrics_router()` stay as the app-port alternative, with what they expose. ([#1132](https://github.com/grelinfo/grelmicro/pull/1132))
@@ -30,6 +28,11 @@
 ### Internal
 * ✅ `benchmarks/memory_benchmark.py` measures the modules and memory three reference apps load, and a test pins which grelmicro packages each one loads. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
 * ✅ The tests set the root path on the test client, not with the deprecated `FastAPI(root_path=...)`, and no longer silence its warning. ([#1140](https://github.com/grelinfo/grelmicro/pull/1140))
+
+## 0.42.6 - 2026-10-23
+
+### Fixed
+* 🐛 Two `SQLiteProvider`s on one file no longer block each other with `database is locked`, in one process or across services. A file already in WAL opens without switching it again, and a file SQLite keeps out of WAL logs a warning. ([#1138](https://github.com/grelinfo/grelmicro/pull/1138))
 
 ## 0.42.5 - 2026-10-23
 
