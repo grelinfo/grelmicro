@@ -25,7 +25,7 @@
 
 ### Internal
 * ✅ `benchmarks/memory_benchmark.py` measures the modules and memory three reference apps load, and a test pins which grelmicro packages each one loads. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
-* ✅ The tests set the root path on the test client, not with the deprecated `FastAPI(root_path=...)`, and no longer silence its warning. ([#1107](https://github.com/grelinfo/grelmicro/issues/1107))
+* ✅ The tests set the root path on the test client, not with the deprecated `FastAPI(root_path=...)`, and no longer silence its warning. ([#1140](https://github.com/grelinfo/grelmicro/pull/1140))
 
 ## 0.42.5 - 2026-10-23
 
