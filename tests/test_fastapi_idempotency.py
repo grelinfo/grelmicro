@@ -2506,7 +2506,7 @@ def test_a_root_path_shortens_only_a_whole_segment() -> None:
     """`/api` is a prefix of `/api/keys`, and not of `/apikeys`."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app = FastAPI(root_path="/")
+    app = FastAPI()
     app.add_middleware(
         IdempotencyMiddleware,
         idempotency=Idempotency("http"),
@@ -2520,7 +2520,7 @@ def test_a_root_path_shortens_only_a_whole_segment() -> None:
     micro.install(app)
 
     # Act
-    with TestClient(app) as client:
+    with TestClient(app, root_path="/") as client:
         client.post("/charge", headers=KEY)
         second = client.post("/charge", headers=KEY)
 

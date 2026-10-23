@@ -3844,7 +3844,7 @@ class TestRouting:
         self,
     ) -> None:
         """The route a credential is checked for is the route that answers."""
-        app = FastAPI(root_path="/api/")
+        app = FastAPI()
 
         @app.get("/x", dependencies=[Anonymous()])
         async def public() -> dict[str, str]:
@@ -3864,7 +3864,7 @@ class TestRouting:
                 AuthenticatedRequests(verifier(), exclude=("/livez",)),
             ]
         ).install(app)
-        client = TestClient(app)
+        client = TestClient(app, root_path="/api/")
 
         assert client.get("/api/x").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/api/livez").status_code == HTTP_401_UNAUTHORIZED
@@ -3882,7 +3882,7 @@ class TestRouting:
         async def listed() -> dict[str, bool]:
             return {"listed": True}
 
-        app = FastAPI(root_path="/api")
+        app = FastAPI()
         app.mount(
             "/{tenant}",
             Router(
@@ -3906,7 +3906,7 @@ class TestRouting:
         Grelmicro(
             uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
         ).install(app)
-        client = TestClient(app)
+        client = TestClient(app, root_path="/api")
 
         assert client.get("/x/x/x/x/a/a").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/api/x/x/x/x/a/a").json() == {"listed": True}
@@ -3917,7 +3917,7 @@ class TestRouting:
         async def listed() -> dict[str, bool]:
             return {"listed": True}
 
-        app = FastAPI(root_path="/api")
+        app = FastAPI()
         app.mount(
             "/{tenant}",
             Mount(
@@ -3930,7 +3930,7 @@ class TestRouting:
         Grelmicro(
             uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
         ).install(app)
-        client = TestClient(app)
+        client = TestClient(app, root_path="/api")
 
         assert client.get("/api/x/x/x/a").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/api/x/x/x/a", headers=bearer(token())).json() == {
@@ -3943,14 +3943,14 @@ class TestRouting:
         async def listed() -> dict[str, bool]:
             return {"listed": True}
 
-        app = FastAPI(root_path="/api")
+        app = FastAPI()
         app.mount(
             "/{tenant}", APIRoute("/{item}", listed, dependencies=[Anonymous()])
         )
         Grelmicro(
             uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
         ).install(app)
-        client = TestClient(app)
+        client = TestClient(app, root_path="/api")
 
         assert client.get("/api/x/y").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/api/x/y", headers=bearer(token())).json() == {

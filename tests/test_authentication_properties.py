@@ -310,9 +310,7 @@ def mounted(
 def build(spec: AppSpec) -> tuple[FastAPI, Built]:
     """Build and install an app from its spec."""
     built = Built()
-    app = FastAPI(
-        redirect_slashes=spec.redirect_slashes, root_path=spec.root_path
-    )
+    app = FastAPI(redirect_slashes=spec.redirect_slashes)
     apply(app, spec.nodes, built, prefix="", public_above=False)
     if spec.default:
         app.router.default = opaque(built.endpoint(public=False))
@@ -371,7 +369,9 @@ def test_a_request_without_a_credential_reaches_only_a_public_endpoint(
 ) -> None:
     """Whatever the app routes with, the middleware opens only what was declared."""
     app, built = build(spec)
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(
+        app, raise_server_exceptions=False, root_path=spec.root_path
+    )
     for _ in range(REQUESTS_PER_APP):
         path, host, websocket = request_of(data, built)
         if websocket:
