@@ -173,7 +173,11 @@ a partially-correct PR is faster than guessing.
     that describes what the change does. The emoji replaces the type
     keyword, so there is no `feat:`, `fix:`, or `docs:` and no scope
     in parentheses. Pick the emoji whose meaning fits best.
-  - `message`: a concise imperative summary, kept to one line.
+  - `message`: an imperative sentence in lowercase, kept to one line
+    of about 72 characters, with no trailing period. Say what the
+    change does for a reader of the log, such as
+    `🐛 open tasks after their backends so the first run succeeds`,
+    not `🐛 fix bug` or `🐛 update app.py`.
 
   The [full gitmoji list](https://gitmoji.dev/) is the source of
   truth. The ones that cover most grelmicro commits, with the
@@ -197,17 +201,25 @@ a partially-correct PR is faster than guessing.
   Sample titles in the current style (emoji, then an imperative
   sentence, no type keyword or scope):
 
-  - `✨ Add DuplicateFilter for noisy repeated log records`
-  - `🔒 Grant security-events write to the workflow lint job`
-  - `👷 Add attestations and wheel verification to the release`
-  - `📝 Update the changelog for the next release`
-  - `♻️ Bind the algorithm to the strategy once at construction`
-  - `⬆️ Bump pydantic-settings from 2.14.1 to 2.14.2`
+  - `✨ add DuplicateFilter for noisy repeated log records`
+  - `🔒 grant security-events write to the workflow lint job`
+  - `👷 add attestations and wheel verification to the release`
+  - `📝 update the changelog for the next release`
+  - `♻️ bind the algorithm to the strategy once at construction`
+  - `⬆️ bump pydantic-settings from 2.14.1 to 2.14.2`
 
 - The PR number is appended automatically on squash merge
   (`... (#123)`), so you do not write it in the title yourself.
-- Keep each commit focused. When chaining related commits, pause
-  for review between them.
+- Keep each commit atomic: one logical change that builds and passes
+  the tests on its own.
+  - A fix and the test that proves it go in the same commit.
+  - A refactor, a formatting pass and a behavior change go in separate
+    commits, so a reviewer can read each one alone.
+  - A commit that only makes sense with the next one is two halves of
+    one change: make them one commit.
+- A PR lands on `main` as one squash commit with the PR title as its
+  line, so one PR carries one change. Split unrelated work into
+  separate PRs.
 
 ## Code style
 
@@ -639,7 +651,20 @@ grelmicro follows [Semantic Versioning](https://semver.org) and is in
 its `0.x` phase.
 
 In `0.x`, the minor is the breaking position: a `0.x.0` release may
-change the public API, and a `0.x.y` release is a safe patch. The
+change the public API, and a `0.x.y` release is a safe patch.
+
+| Release | What it may ship |
+|---|---|
+| Patch (`0.x.y`) | Bug fixes, docs, performance work that changes no behavior, and support for a new Python version. No new public API and no new warning. |
+| Minor (`0.x.0`) | New features and new public API, the `GrelmicroFutureWarning` for an upcoming change, the switches warned in the minor before, and dropping a Python version. |
+
+A change that is not a fix waits for the next minor, even when it is
+additive. A patch upgrade then never changes what an app does or what
+its test suite sees.
+
+When `main` already holds features for the next minor, a patch is tagged
+on a `release/0.x` branch that holds the fixes without those features.
+`main` keeps the features for the minor. The
 public API is feature-complete and guarded by a snapshot test
 (`tests/test_public_api.py`), so an accidental change to the public
 surface fails CI. Every intentional break appears under **Breaking** in
@@ -657,7 +682,10 @@ because time has passed.
 
 ### Deprecations
 
-A change in behavior or a rename warns one release before it lands. Declare
+A change in behavior or a rename warns for one minor release before it
+lands: the warning ships in one minor (`0.43.0`) and the switch in the next
+(`0.44.0`). A patch never adds a warning, because a test suite that turns
+warnings into errors would fail on a patch upgrade. Declare
 it in `grelmicro/_deprecation.py` and add it to `PENDING`.
 
 - **A changed default** is a `FutureChange`. Call its `warn()` only while the
@@ -667,9 +695,9 @@ it in `grelmicro/_deprecation.py` and add it to `PENDING`.
   `warn()` where the old name is used. Remove the old name in the next minor.
 - Test each entry with `tests._future.assert_future_warning`: the default
   call warns and the explicit call emits nothing.
-- Put the entry under `### Deprecated` in the release that adds the warning,
+- Put the entry under `### Deprecated` in the minor that adds the warning,
   and under `### Breaking` with a note in
-  [`docs/migration.md`](docs/migration.md) in the release that switches.
+  [`docs/migration.md`](docs/migration.md) in the next minor, which switches.
 
 A test fails once the changelog reaches the release named on an entry, so a
 stale warning or alias cannot ship. Switch the default or remove the old name,

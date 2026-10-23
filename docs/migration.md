@@ -1495,7 +1495,7 @@ Full list: [0.30.0 in the changelog](changelog.md#0300-2026-07-18)
 
 ## About deprecation
 
-A change in behavior or a rename warns one release before it lands.
+A change in behavior or a rename warns for one minor release before it lands. The warning ships in one minor, such as `0.43.0`, and the change in the next, such as `0.44.0`. A patch release never adds a warning.
 
 **A changed default** warns with `GrelmicroFutureWarning` while you leave the
 argument at its default. The message names the release that switches it, the
