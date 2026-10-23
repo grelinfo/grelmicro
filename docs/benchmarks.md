@@ -14,6 +14,7 @@ uv run python benchmarks/lock_benchmark.py
 uv run python benchmarks/logging_benchmark.py
 uv run python benchmarks/access_log_benchmark.py
 uv run python benchmarks/jwt_benchmark.py
+uv run python benchmarks/memory_benchmark.py
 ```
 
 Each script measures the in-memory backend so the numbers reflect grelmicro's own overhead, not a network round-trip. Distributed backends (Redis, Postgres, SQLite) add their transport and storage cost on top.
@@ -69,6 +70,26 @@ serializers write differently.
 ## JWT verification
 
 A JWT signature check in the compiled core is about four times faster than in a pure-Python library. [JWT verification](architecture/jwt.md#why-a-compiled-core) lists the libraries measured and the conditions, on CPython 3.12. [`benchmarks/jwt_benchmark.py`](https://github.com/grelinfo/grelmicro/blob/main/benchmarks/jwt_benchmark.py) measures the verifier's own cost per algorithm and its cache hit.
+
+## Memory
+
+`benchmarks/memory_benchmark.py` runs three reference apps, each in a fresh interpreter:
+
+- **tasks**: FastAPI with `Grelmicro(uses=[MemoryProvider(), Log(), HealthChecks(auto_health=True), tasks])`, one task on `@tasks.every(interval=60, gate="claim")` and `health_router()`. The app opens and closes.
+- **redis**: FastAPI with `RedisProvider`, a `RateLimiter` and a `CircuitBreaker`.
+- **postgres**: `PostgresProvider` and `Outbox`, without FastAPI.
+
+The redis and postgres apps need no server. They stop after construction and `micro.install(app)`, before the first connection, so the numbers leave out the client a connection loads.
+
+Each interpreter imports `fastapi` first, and the numbers are what the app adds on top. Max RSS is the median of five runs. Same machine and interpreter as above, on `main` after 0.42.4, measured on 2026-10-23.
+
+| App | grelmicro modules | New modules | Max RSS |
+|---|---|---|---|
+| tasks | 197 | 288 | +17.3 MB |
+| redis | 181 | 342 | +25.2 MB |
+| postgres | 128 | 202 | +12.0 MB |
+
+Most of this is the modules an app imports, not the data it holds. `tests/test_memory_budget.py` pins which grelmicro packages each app loads, so a change that loads more fails the test.
 
 ## Reading the numbers
 

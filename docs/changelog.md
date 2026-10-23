@@ -23,6 +23,7 @@
 
 ### Internal
 * 🐛 `benchmarks/ratelimiter_benchmark.py` runs again with a sliding window the config accepts. ([#1111](https://github.com/grelinfo/grelmicro/pull/1111))
+* ✅ `benchmarks/memory_benchmark.py` measures the modules and memory three reference apps load, and a test pins which grelmicro packages each one loads. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
 
 ## 0.42.4 - 2026-10-22
 
