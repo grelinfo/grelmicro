@@ -2,9 +2,9 @@
 
 from loguru import logger
 
-from grelmicro.log import LogBackendType, LogFormatType, configure
+from grelmicro.log import configure
 
-configure(backend=LogBackendType.LOGURU, format=LogFormatType.JSON)
+configure(backend="loguru", format="JSON")
 
 try:
     1 / 0  # noqa: B018

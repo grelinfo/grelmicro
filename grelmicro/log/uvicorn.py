@@ -17,7 +17,7 @@ from grelmicro.log._shared import (
     resolve_use_colors,
 )
 from grelmicro.log._stdlib import _BaseFormatter
-from grelmicro.log.config import LogConfig, LogFormatType
+from grelmicro.log.config import LogConfig
 
 if TYPE_CHECKING:
     import logging
@@ -164,13 +164,13 @@ class UvicornFormatter(_BaseFormatter):
         # records do not land in JSON while the rest of the process reads
         # in something else.
         match resolve_template_format(resolved_format):
-            case LogFormatType.LOGFMT:
+            case "LOGFMT":
                 self._format_record = logfmt_dumps
-            case LogFormatType.PRETTY:
+            case "PRETTY":
                 self._format_record = lambda r: render_pretty_lines(
                     r, colors=colors
                 )
-            case LogFormatType.TEXT:
+            case "TEXT":
                 self._format_record = lambda r: render_text_line(
                     r, colors=colors
                 )

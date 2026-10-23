@@ -2,9 +2,9 @@
 
 from loguru import logger
 
-from grelmicro.log import LogBackendType, configure
+from grelmicro.log import configure
 
 # AUTO is the default: TEXT in a terminal, JSON when the output is piped.
-configure(backend=LogBackendType.LOGURU)
+configure(backend="loguru")
 
 logger.info("Application started", version="1.0.0")

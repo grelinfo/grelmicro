@@ -11,6 +11,12 @@
 * ⚡️ grelmicro packages load most public names on first access, not at import. A FastAPI app with `Tasks` loads 26 fewer modules and about 1.1 MB less, and a Redis app with a rate limiter and a circuit breaker 17 fewer and about 1.2 MB less. ([#1133](https://github.com/grelinfo/grelmicro/pull/1133))
 * ✨ `TTLCache()` with no serializer stores JSON values such as a `float`, a `str` or a `dict`, not only `bytes`. Bytes are still stored raw. ([#1125](https://github.com/grelinfo/grelmicro/issues/1125))
 * ⚡️ `import grelmicro` no longer loads `grelmicro.metrics`, `grelmicro.trace` and most of `grelmicro.health`. Their names load on first use, which saves 24 modules, about 1.9 MB and 10 ms. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
+* ✨ A config field that picks a mode takes a string, such as `Metrics(exporter="prometheus")`, matched in any case. The field reads back as a plain `str`. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
+* ✨ `environment=`, `requires=`, `lock=`, the backoff `jitter`, the log filter `key_mode`, the circuit breaker `log_level`, `gate=`, and the OAuth `method=` and `audience=` match their choices in any case. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
+
+### Deprecated
+* 🗑️ `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Pass the string instead. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
+* 🗑️ `GREL_ENVIRONMENT=Production`, or any tier in another case, warns with `GrelmicroFutureWarning`. It reads as undeclared until 0.44.0, then as that tier. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
 
 ### Docs
 * 📝 Health, Metrics, Deployment and the FastAPI reference recommend `OpsServer` for the probes and `/metrics`, next to a web app too. `health_router()` and `metrics_router()` stay as the app-port alternative, with what they expose. ([#1132](https://github.com/grelinfo/grelmicro/pull/1132))

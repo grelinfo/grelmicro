@@ -30,9 +30,9 @@ from opentelemetry.trace import SpanKind, StatusCode
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 
 from grelmicro import Grelmicro
-from grelmicro.metrics import Metrics, MetricsExporterType
+from grelmicro.metrics import Metrics
 from grelmicro.metrics._endpoints import render_prometheus
-from grelmicro.trace import Trace, TraceExporterType
+from grelmicro.trace import Trace
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 def _trace(*, instrument: InstrumentDirective = True) -> Trace:
     """Return a `Trace` that exports nowhere."""
-    return Trace(exporter=TraceExporterType.NONE, instrument=instrument)
+    return Trace(exporter="none", instrument=instrument)
 
 
 def _items_app(telemetry: TelemetryConfig | None = None) -> FastAPI:
@@ -152,9 +152,7 @@ def test_fastapi_builds_no_pipeline_beside_grelmicro(
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
-    micro = Grelmicro(
-        uses=[_trace(), Metrics(exporter=MetricsExporterType.PROMETHEUS)]
-    )
+    micro = Grelmicro(uses=[_trace(), Metrics(exporter="prometheus")])
     app = _items_app()
     micro.install(app)
 
@@ -185,7 +183,7 @@ def test_fastapi_sets_up_its_own_export_without_grelmicro(
 
 
 def _metrics() -> Metrics:
-    return Metrics(exporter=MetricsExporterType.PROMETHEUS)
+    return Metrics(exporter="prometheus")
 
 
 def _request_durations(micro: Grelmicro) -> str:

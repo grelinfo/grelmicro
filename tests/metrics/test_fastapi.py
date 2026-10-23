@@ -13,7 +13,7 @@ from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED
 from grelmicro import Grelmicro
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.integrations.fastapi import metrics_router
-from grelmicro.metrics import Metrics, MetricsExporterType
+from grelmicro.metrics import Metrics
 from grelmicro.metrics.errors import MetricsError
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 async def prometheus_app() -> AsyncIterator[FastAPI]:
     """Enter a Grelmicro app with a Prometheus Metrics component."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
     async with micro:
         # A counter so the exposition is non-empty.
         micro.metrics.counter("orders.placed", unit="1").add(1)
@@ -49,7 +49,7 @@ async def test_metrics_endpoint_renders_prometheus(
 
 async def test_metrics_endpoint_explicit_component() -> None:
     """Passing `component=` bypasses app resolution."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
     async with micro:
         application = FastAPI()
         application.include_router(metrics_router(micro.metrics))
@@ -59,7 +59,7 @@ async def test_metrics_endpoint_explicit_component() -> None:
 
 async def test_metrics_endpoint_custom_path_and_prefix() -> None:
     """`prefix` and `path` mount the endpoint at a custom location."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
     async with micro:
         application = FastAPI()
         application.include_router(
@@ -71,7 +71,7 @@ async def test_metrics_endpoint_custom_path_and_prefix() -> None:
 
 async def test_metrics_endpoint_hidden_from_schema_by_default() -> None:
     """The endpoint is served, and absent from the OpenAPI schema."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
     async with micro:
         application = FastAPI()
         application.include_router(metrics_router(micro.metrics))
@@ -83,7 +83,7 @@ async def test_metrics_endpoint_hidden_from_schema_by_default() -> None:
 
 async def test_metrics_endpoint_in_schema_when_asked() -> None:
     """include_in_schema=True documents the endpoint."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
     async with micro:
         application = FastAPI()
         application.include_router(
@@ -103,7 +103,7 @@ async def test_metrics_endpoint_in_schema_when_asked() -> None:
 
 async def test_metrics_endpoint_requires_prometheus_exporter() -> None:
     """A non-Prometheus exporter raises `MetricsError` on request."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])
+    micro = Grelmicro(uses=[Metrics(exporter="none")])
     async with micro:
         application = FastAPI()
         application.include_router(metrics_router(micro.metrics))
@@ -118,7 +118,7 @@ async def test_metrics_endpoint_dependency_gate() -> None:
     def deny() -> None:
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
 
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    micro = Grelmicro(uses=[Metrics(exporter="prometheus")])
     async with micro:
         application = FastAPI()
         application.include_router(

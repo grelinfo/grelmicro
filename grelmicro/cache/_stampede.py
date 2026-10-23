@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, cast, get_args
 
 from grelmicro._app import resolve_ambient
+from grelmicro._config import match_case
 from grelmicro._environment import Binding, falls_short, label, record
 from grelmicro.coordination.errors import (
     LockAcquireError,
@@ -56,11 +57,17 @@ def _has_lock_backend() -> bool:
 def check_fold(lock: object) -> BackendScope | None:
     """Return `lock` when it names how far misses fold, `None` included.
 
+    A scope in another case, such as `"Cluster"`, reads as its spelling.
+
     Raises:
         SettingsValidationError: If `lock` is not a backend scope or `None`.
     """
-    if lock is None or (isinstance(lock, str) and lock in _SCOPES):
-        return cast("BackendScope | None", lock)
+    if lock is None:
+        return None
+    if isinstance(lock, str):
+        spelled = lock if lock in _SCOPES else match_case(BackendScope, lock)
+        if spelled in _SCOPES:
+            return cast("BackendScope", spelled)
     msg = (
         "lock= takes 'process', 'host', 'cluster' or None. "
         "'process' folds concurrent misses in the process, 'host' and "

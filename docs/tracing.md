@@ -118,9 +118,9 @@ configure()
 ```
 
 !!! tip "Off until an endpoint is configured"
-    `Trace()` defaults to `TraceExporterType.AUTO`. It exports over OTLP HTTP when an endpoint is configured (the `endpoint` argument, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or `OTEL_EXPORTER_OTLP_ENDPOINT`) and otherwise auto-disables into a true no-op: it installs no tracer provider, leaves the global provider untouched, and runs no auto-instrumentation. So you register `Trace()` unconditionally and it stays silent in dev, test, and CI instead of falling back to `localhost:4318`, and it never conflicts with a second app. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
+    `Trace()` defaults to `exporter="auto"`. It exports over OTLP HTTP when an endpoint is configured (the `endpoint` argument, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or `OTEL_EXPORTER_OTLP_ENDPOINT`) and otherwise auto-disables into a true no-op: it installs no tracer provider, leaves the global provider untouched, and runs no auto-instrumentation. So you register `Trace()` unconditionally and it stays silent in dev, test, and CI instead of falling back to `localhost:4318`, and it never conflicts with a second app. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
 
-    For local development, set `exporter=TraceExporterType.CONSOLE` to print spans to the console. An explicit `TraceExporterType.NONE` is different from the auto-disable above: it still installs the provider so spans are created (and auto-instrumentation runs), they are just not exported. Leave the exporter on `AUTO` for the unconditional no-op.
+    For local development, set `exporter="console"` to print spans to the console. An explicit `exporter="none"` is different from the auto-disable above: it still installs the provider so spans are created (and auto-instrumentation runs), they are just not exported. Leave the exporter on `auto` for the unconditional no-op.
 
 !!! note "Basic auth in one line"
     Backends like OpenObserve want an `Authorization: Basic` header. Pass `basic_auth=(username, password)` and `Trace` builds and attaches it to the exporter:
@@ -145,7 +145,7 @@ configure()
 
     `Trace()` reads `GREL_TRACE_*` environment variables (see `TraceConfig` for the full field set) or accepts the same fields as keyword arguments. The OTLP HTTP and gRPC exporters require their own packages (`opentelemetry-exporter-otlp-proto-http` or `opentelemetry-exporter-otlp-proto-grpc`) and are imported only when selected.
 
-    `AUTO` resolves to OTLP HTTP or to the no-op, never to gRPC. It does not read the endpoint URL scheme and does not check which exporter packages are installed, so the rule stays the same however you deploy. Set `exporter=TraceExporterType.OTLP_GRPC` to send over gRPC. Because `AUTO` already means HTTP whenever an endpoint is present, pinning `OTLP_HTTP` yourself for that case changes nothing.
+    `auto` resolves to OTLP HTTP or to the no-op, never to gRPC. It does not read the endpoint URL scheme and does not check which exporter packages are installed, so the rule stays the same however you deploy. Set `exporter="otlp-grpc"` to send over gRPC. Because `auto` already means HTTP whenever an endpoint is present, pinning `"otlp-http"` yourself for that case changes nothing.
 
 ??? note "Works with all logging backends"
     The tracing context is injected into all three logging backends (stdlib, loguru, structlog). Use whichever logger you prefer:

@@ -16,7 +16,7 @@ import pytest
 from uvicorn.config import LOGGING_CONFIG
 
 from grelmicro.log import configure_with
-from grelmicro.log.config import LogConfig, LogFormatType
+from grelmicro.log.config import LogBackend, LogConfig
 from tests.logging.conftest import BACKENDS, parse_json_log
 
 if TYPE_CHECKING:
@@ -68,15 +68,13 @@ def uvicorn_loggers() -> Iterator[io.StringIO]:
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.usefixtures("reset_backend")
 def test_a_stdlib_record_renders_in_the_configured_format(
-    backend: str,
+    backend: LogBackend,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """It is a full record, not the bare message `lastResort` writes."""
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
-    configure_with(
-        LogConfig(backend=backend, format=LogFormatType.JSON, level="INFO")
-    )
+    configure_with(LogConfig(backend=backend, format="JSON", level="INFO"))
 
     logging.getLogger(COMPONENT_LOGGER).info(
         "a component record", extra={"check": "db"}
@@ -92,7 +90,7 @@ def test_a_stdlib_record_renders_in_the_configured_format(
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.usefixtures("reset_backend")
 def test_the_root_level_follows_the_configured_level(
-    backend: str,
+    backend: LogBackend,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -102,9 +100,7 @@ def test_the_root_level_follows_the_configured_level(
     handler drops every info and debug record without a word.
     """
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
-    configure_with(
-        LogConfig(backend=backend, format=LogFormatType.JSON, level="DEBUG")
-    )
+    configure_with(LogConfig(backend=backend, format="JSON", level="DEBUG"))
 
     logging.getLogger(COMPONENT_LOGGER).debug("a quiet record")
 
@@ -114,15 +110,13 @@ def test_the_root_level_follows_the_configured_level(
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.usefixtures("reset_backend")
 def test_an_exception_is_rendered_as_the_error_field(
-    backend: str,
+    backend: LogBackend,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`exc_info` reads the same as it does on the stdlib backend."""
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
-    configure_with(
-        LogConfig(backend=backend, format=LogFormatType.JSON, level="INFO")
-    )
+    configure_with(LogConfig(backend=backend, format="JSON", level="INFO"))
 
     try:
         msg = "the backend refused"
@@ -138,7 +132,7 @@ def test_an_exception_is_rendered_as_the_error_field(
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.usefixtures("reset_backend")
 def test_a_uvicorn_record_is_written_once(
-    backend: str,
+    backend: LogBackend,
     uvicorn_loggers: io.StringIO,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -157,9 +151,7 @@ def test_a_uvicorn_record_is_written_once(
     """
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
     access = logging.getLogger("uvicorn.access")
-    configure_with(
-        LogConfig(backend=backend, format=LogFormatType.JSON, level="INFO")
-    )
+    configure_with(LogConfig(backend=backend, format="JSON", level="INFO"))
 
     access.info(
         '%s - "%s %s HTTP/%s" %d', "127.0.0.1:1", "GET", "/x", "1.1", 200
@@ -222,7 +214,7 @@ def test_a_loguru_template_renders_both_sides_the_same(
     ],
 )
 def test_a_template_reads_the_same_on_every_backend(
-    backend: str,
+    backend: LogBackend,
     template: str,
     starts_with: str,
     uvicorn_loggers: io.StringIO,

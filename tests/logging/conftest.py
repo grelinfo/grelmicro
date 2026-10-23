@@ -9,7 +9,9 @@ import pytest
 import structlog
 from loguru import logger as loguru_logger
 
-BACKENDS = ["loguru", "structlog", "stdlib"]
+from grelmicro.log.config import LogBackend
+
+BACKENDS: list[LogBackend] = ["loguru", "structlog", "stdlib"]
 
 
 _FOREIGN_LOGGERS = ("opentelemetry", "asyncio")

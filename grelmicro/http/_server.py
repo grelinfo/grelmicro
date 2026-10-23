@@ -49,7 +49,6 @@ from grelmicro.health._endpoints import health_routes, livez
 from grelmicro.http._kinds import phrase_of
 from grelmicro.http.errors import OpsServerError
 from grelmicro.metrics._endpoints import metrics_routes
-from grelmicro.metrics.config import MetricsExporterType
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
@@ -561,7 +560,7 @@ class OpsServer:
         scrape with a `500`.
         """
         metrics = micro.get("metrics", "default")
-        if metrics.config.exporter == MetricsExporterType.PROMETHEUS:
+        if metrics.config.exporter == "prometheus":
             return metrics_routes()
         logger.warning(
             "ops server serves no /metrics: the Metrics component uses "

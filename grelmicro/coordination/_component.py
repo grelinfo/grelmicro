@@ -21,6 +21,7 @@ from grelmicro._backend_kinds import (
     resolve_source,
 )
 from grelmicro._component import instantiate_if_class
+from grelmicro._config import match_case
 from grelmicro._environment import SUSPENDED, record_coordination
 from grelmicro.coordination._protocol import (
     LeaderElectionBackend,
@@ -34,12 +35,11 @@ from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.readwritelock import ReadWriteLock
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.providers._base import Provider
+from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from types import TracebackType
-
-    from grelmicro.types import BackendScope
 
 
 class CoordinationBackend(NamedTuple):
@@ -242,7 +242,9 @@ class Coordination:
     ) -> None:
         """Initialize the component with the wrapped backends."""
         self._name = name
-        self._requires: BackendScope = requires or self.default_requires
+        self._requires: BackendScope = match_case(
+            BackendScope, requires or self.default_requires
+        )
         self._lock_backend: LockBackend | None = None
         self._readwritelock_backend: ReadWriteLockBackend | None = None
         self._leaderelection_backend: LeaderElectionBackend | None = None

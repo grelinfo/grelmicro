@@ -55,7 +55,7 @@ from grelmicro.log import AccessLog, AccessLogMiddleware
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
-from grelmicro.trace import Trace, TraceExporterType
+from grelmicro.trace import Trace
 from tests.test_authentication import FORGER, bearer, token, verifier
 
 if TYPE_CHECKING:
@@ -125,7 +125,7 @@ def _read(
     micro = Grelmicro(
         uses=[
             ErrorResponses(),
-            Trace(exporter=TraceExporterType.NONE),
+            Trace(exporter="none"),
             AccessLog(),
             AuthenticatedRequests(verifier()),
         ]
@@ -1641,9 +1641,7 @@ def test_fastapi_under_an_app_nothing_installed_names_its_request_spans_route(
     """
     # Arrange
     inner = _fastapi_router()
-    micro = Grelmicro(
-        uses=[Trace(exporter=TraceExporterType.NONE), AccessLog()]
-    )
+    micro = Grelmicro(uses=[Trace(exporter="none"), AccessLog()])
     micro.install(inner)
     app = outer(inner)
     exporter = InMemorySpanExporter()
@@ -1786,9 +1784,7 @@ def test_a_websocket_is_served_and_writes_no_access_record(
 ) -> None:
     """The reader is left on a WebSocket too, and the access log leaves it alone."""
     app = build()
-    micro = Grelmicro(
-        uses=[Trace(exporter=TraceExporterType.NONE), AccessLog()]
-    )
+    micro = Grelmicro(uses=[Trace(exporter="none"), AccessLog()])
     micro.install(app)
 
     with TestClient(app) as client, client.websocket_connect("/ws") as socket:
@@ -1853,9 +1849,7 @@ def test_access_log_flood_refusal_names_the_route_it_would_reach(
     """A request the flood limit refuses before routing names its route, its span none."""
     # Arrange
     app = build()
-    micro = Grelmicro(
-        uses=[Trace(exporter=TraceExporterType.NONE), AccessLog(), _flood(path)]
-    )
+    micro = Grelmicro(uses=[Trace(exporter="none"), AccessLog(), _flood(path)])
     micro.install(app)
     exporter = InMemorySpanExporter()
 
@@ -1977,9 +1971,7 @@ def test_an_answer_before_routing_names_the_route_it_would_reach(
     """A CORS preflight names its route in the access record, its span none."""
     # Arrange
     app = build()
-    micro = Grelmicro(
-        uses=[Trace(exporter=TraceExporterType.NONE), AccessLog()]
-    )
+    micro = Grelmicro(uses=[Trace(exporter="none"), AccessLog()])
     micro.install(app)
     exporter = InMemorySpanExporter()
 
@@ -2029,7 +2021,7 @@ def test_a_cached_response_names_the_route_it_is_answered_at(
         uses=[
             Cache(MemoryCacheAdapter()),
             CachedResponses(include=(f"{path.rsplit('/', 1)[0]}/*",)),
-            Trace(exporter=TraceExporterType.NONE),
+            Trace(exporter="none"),
             AccessLog(),
         ]
     )
@@ -2112,7 +2104,7 @@ def test_an_idempotent_replay_names_the_route_it_is_answered_at(
         uses=[
             MemoryProvider(),
             IdempotentRequests(),
-            Trace(exporter=TraceExporterType.NONE),
+            Trace(exporter="none"),
             AccessLog(),
         ]
     )

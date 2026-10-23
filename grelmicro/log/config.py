@@ -1,95 +1,81 @@
 """Logging Configuration."""
 
-from enum import StrEnum
-from typing import Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 from typing_extensions import Doc
 
+from grelmicro._config import any_case
 from grelmicro._timezone import UTC_NAME
-from grelmicro.types import TimeZoneName
+from grelmicro.types import LogLevel, TimeZoneName
 
 try:
     import opentelemetry
 except ImportError:  # pragma: no cover
     opentelemetry: Any = None  # type: ignore[no-redef]
 
+if TYPE_CHECKING:
+    from grelmicro._mode_enums import (
+        LogBackendType as LogBackendType,  # noqa: PLC0414
+    )
+    from grelmicro._mode_enums import (
+        LogFormatType as LogFormatType,  # noqa: PLC0414
+    )
+    from grelmicro._mode_enums import (
+        LogLevelType as LogLevelType,  # noqa: PLC0414
+    )
+    from grelmicro._mode_enums import (
+        LogSerializerType as LogSerializerType,  # noqa: PLC0414
+    )
 
-class _CaseInsensitiveEnum(StrEnum):
-    @classmethod
-    def _missing_(cls, value: object) -> Self | None:
-        value = str(value).lower()
-        for member in cls:
-            if member.lower() == value:
-                return member
-        return None
+type LogFormat = Literal["AUTO", "JSON", "LOGFMT", "TEXT", "PRETTY"]
+"""Built-in log format, matched in any case."""
 
+type LogBackend = Literal["loguru", "structlog", "stdlib"]
+"""Logging backend selection, matched in any case."""
 
-class LogLevelType(_CaseInsensitiveEnum):
-    """Log Level Enum."""
+type LogSerializer = Literal["auto", "stdlib", "orjson"]
+"""JSON serializer selection, matched in any case."""
 
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
-    CRITICAL = "CRITICAL"
-
-
-class LogFormatType(_CaseInsensitiveEnum):
-    """Log Format Enum."""
-
-    AUTO = "AUTO"
-    JSON = "JSON"
-    LOGFMT = "LOGFMT"
-    TEXT = "TEXT"
-    PRETTY = "PRETTY"
-
-
-class LogBackendType(_CaseInsensitiveEnum):
-    """Log Backend Enum."""
-
-    LOGURU = "loguru"
-    STRUCTLOG = "structlog"
-    STDLIB = "stdlib"
-
-
-class LogSerializerType(_CaseInsensitiveEnum):
-    """JSON Serializer Enum."""
-
-    AUTO = "auto"
-    STDLIB = "stdlib"
-    ORJSON = "orjson"
+_MODE_ENUMS = frozenset(
+    {"LogBackendType", "LogFormatType", "LogLevelType", "LogSerializerType"}
+)
+"""The mode enums removed in 0.44.0."""
 
 
 class LogConfig(BaseModel, frozen=True, extra="forbid"):
     """Log Config."""
 
     backend: Annotated[
-        LogBackendType,
+        LogBackend,
+        any_case(LogBackend),
         Doc("Logging backend implementation."),
-    ] = LogBackendType.STDLIB
+    ] = "stdlib"
     level: Annotated[
-        LogLevelType,
+        LogLevel,
+        any_case(LogLevel),
         Doc("Log level threshold."),
-    ] = LogLevelType.INFO
+    ] = "INFO"
     format: Annotated[
-        LogFormatType | str,
+        LogFormat | str,
         Doc("Log format. Built-in option or a custom template string."),
         Field(union_mode="left_to_right"),
-    ] = LogFormatType.AUTO
+        any_case(LogFormat),
+    ] = "AUTO"
     timezone: Annotated[
         TimeZoneName,
         Doc("IANA timezone for timestamps."),
     ] = TimeZoneName(UTC_NAME)
     json_serializer: Annotated[
-        LogSerializerType,
+        LogSerializer,
+        any_case(LogSerializer),
         Doc(
             "JSON serializer used for structured output. `auto` uses "
             "orjson when it is installed and the standard library "
             "otherwise. `orjson` requires it and raises when it is "
             "missing."
         ),
-    ] = LogSerializerType.AUTO
+    ] = "auto"
     caller_enabled: Annotated[
         bool,
         Doc("Include caller (function and line) in log records."),
@@ -122,3 +108,13 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("How many rendered records the queue holds before dropping."),
         Field(gt=0),
     ] = 10_000
+
+
+def __getattr__(name: str) -> object:
+    """Return a mode enum removed in 0.44.0, with a warning."""
+    if name in _MODE_ENUMS:
+        from grelmicro._mode_enums import deprecated_enum  # noqa: PLC0415
+
+        return deprecated_enum(name)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

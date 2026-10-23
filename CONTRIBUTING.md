@@ -693,6 +693,9 @@ it in `grelmicro/_deprecation.py` and add it to `PENDING`.
   is no global flag to opt into future behavior.
 - **A rename** is a `Rename`. Ship the new name beside the old one, and call
   `warn()` where the old name is used. Remove the old name in the next minor.
+- **A removal** is a `Removal`, for a name that goes with no one-to-one
+  replacement, such as an enum replaced by string literals. Keep the old name
+  importable, call `warn()` where it is read, and remove it in the next minor.
 - Test each entry with `tests._future.assert_future_warning`: the default
   call warns and the explicit call emits nothing.
 - Put the entry under `### Deprecated` in the minor that adds the warning,

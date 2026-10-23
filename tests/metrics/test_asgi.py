@@ -11,7 +11,7 @@ from starlette.routing import Mount
 from starlette.status import HTTP_200_OK
 
 from grelmicro import Grelmicro
-from grelmicro.metrics import Metrics, MetricsExporterType, metrics_asgi
+from grelmicro.metrics import Metrics, metrics_asgi
 from grelmicro.metrics.errors import MetricsError
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ def client_for(app: Any) -> httpx.AsyncClient:  # noqa: ANN401
 @pytest.fixture
 async def micro() -> AsyncIterator[Grelmicro]:
     """Enter an app with a Prometheus Metrics component."""
-    app = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    app = Grelmicro(uses=[Metrics(exporter="prometheus")])
     async with app:
         app.metrics.counter("orders.placed", unit="1").add(1)
         yield app
@@ -106,7 +106,7 @@ async def test_write_method_is_refused(micro: Grelmicro) -> None:
 
 async def test_another_exporter_is_refused() -> None:
     """Only the prometheus exporter builds a registry to render."""
-    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])
+    micro = Grelmicro(uses=[Metrics(exporter="none")])
     async with micro, client_for(metrics_asgi(micro.metrics)) as client:
         with pytest.raises(MetricsError, match="prometheus exporter"):
             await client.get("/metrics")

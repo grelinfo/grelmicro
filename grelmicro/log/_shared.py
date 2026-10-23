@@ -6,7 +6,7 @@ import re
 import sys
 from collections.abc import Callable, Mapping
 from datetime import datetime, tzinfo
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, TypeIs, get_args
 
 from pydantic import ValidationError
 
@@ -18,8 +18,8 @@ from grelmicro.errors import (
 )
 from grelmicro.log.config import (
     LogConfig,
-    LogFormatType,
-    LogSerializerType,
+    LogFormat,
+    LogSerializer,
 )
 
 try:
@@ -168,9 +168,18 @@ LOGURU_LOGFMT_FORMAT = "{extra[logfmt_serialized]}"
 """Loguru template that renders the logfmt record, and nothing else."""
 
 
+_FORMATS: frozenset[str] = frozenset(get_args(LogFormat.__value__))
+"""The built-in format names, which no loguru template spells."""
+
+
+def _is_format(value: str) -> TypeIs[LogFormat]:
+    """Return whether `value` names a built-in format."""
+    return value in _FORMATS
+
+
 def resolve_template_format(
-    resolved_format: LogFormatType | str,
-) -> LogFormatType:
+    resolved_format: LogFormat | str,
+) -> LogFormat:
     """Return the format a loguru template renders, as one of ours.
 
     A loguru template is loguru's, and nothing else in the process can
@@ -184,14 +193,14 @@ def resolve_template_format(
     nothing else here produces that. It reads as text, which is a format
     of ours rather than half of the app's.
     """
-    if isinstance(resolved_format, LogFormatType):
+    if _is_format(resolved_format):
         return resolved_format
     template = resolved_format.strip()
     if template == LOGURU_JSON_FORMAT:
-        return LogFormatType.JSON
+        return "JSON"
     if template == LOGURU_LOGFMT_FORMAT:
-        return LogFormatType.LOGFMT
-    return LogFormatType.TEXT
+        return "LOGFMT"
+    return "TEXT"
 
 
 def should_colorize() -> bool:
@@ -231,7 +240,7 @@ def as_log_config(
 
 
 def resolve_use_colors(
-    resolved_format: LogFormatType | str,
+    resolved_format: LogFormat | str,
     *,
     colors: bool,
     use_colors: bool | None,
@@ -250,8 +259,8 @@ def resolve_use_colors(
     if use_colors is None:
         return colors
     return use_colors and resolve_template_format(resolved_format) in (
-        LogFormatType.TEXT,
-        LogFormatType.PRETTY,
+        "TEXT",
+        "PRETTY",
     )
 
 
@@ -499,17 +508,17 @@ def render_pretty_lines(
 
 
 def _resolve_format(
-    log_format: LogFormatType | str,
-) -> LogFormatType | str:
+    log_format: LogFormat | str,
+) -> LogFormat | str:
     """Resolve AUTO format based on TTY and color environment detection."""
-    if log_format == LogFormatType.AUTO:
-        return LogFormatType.TEXT if should_colorize() else LogFormatType.JSON
+    if log_format == "AUTO":
+        return "TEXT" if should_colorize() else "JSON"
     return log_format
 
 
 def resolve_serializer(
-    json_serializer: LogSerializerType,
-) -> LogSerializerType:
+    json_serializer: LogSerializer,
+) -> LogSerializer:
     """Resolve AUTO to orjson when it is installed, else to the stdlib.
 
     AUTO never writes less than the standard library would, which is what
@@ -523,14 +532,10 @@ def resolve_serializer(
     Raises:
         DependencyNotFoundError: `orjson` was asked for and is not installed.
     """
-    if json_serializer == LogSerializerType.ORJSON and not has_orjson():
+    if json_serializer == "orjson" and not has_orjson():
         raise DependencyNotFoundError(module="orjson")
-    if json_serializer == LogSerializerType.AUTO:
-        return (
-            LogSerializerType.ORJSON
-            if has_orjson()
-            else LogSerializerType.STDLIB
-        )
+    if json_serializer == "auto":
+        return "orjson" if has_orjson() else "stdlib"
     return json_serializer
 
 
@@ -539,7 +544,7 @@ class LoadedSettings(NamedTuple):
 
     settings: LogConfig
     timezone: tzinfo
-    resolved_format: LogFormatType | str
+    resolved_format: LogFormat | str
     json_dumps: Callable[[Mapping[str, Any]], str]
     colors: bool
 
@@ -569,7 +574,7 @@ def load_settings(
         )
 
     json_dumps: Callable[[Mapping[str, Any]], str]
-    if resolve_serializer(settings.json_serializer) == LogSerializerType.ORJSON:
+    if resolve_serializer(settings.json_serializer) == "orjson":
         json_dumps = _orjson_log_dumps
     else:
         json_dumps = _stdlib_json_dumps
@@ -585,8 +590,8 @@ def load_settings(
     colors = (
         resolve_template_format(resolved_format)
         in (
-            LogFormatType.TEXT,
-            LogFormatType.PRETTY,
+            "TEXT",
+            "PRETTY",
         )
         and should_colorize()
     )

@@ -569,22 +569,13 @@
       "()": "(*, name='default', backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, uvicorn_enabled=None, queue_enabled=None, queue_size=None, env_load=None) -> 'None'",
       ".from_config": "(config, *, name='default') -> 'Self'"
     },
-    "LogBackendType": {
-      "()": "(*values)"
-    },
+    "LogBackend": null,
     "LogConfig": {
-      "()": "(*, backend=<LogBackendType.STDLIB: 'stdlib'>, level=<LogLevelType.INFO: 'INFO'>, format=<LogFormatType.AUTO: 'AUTO'>, timezone='UTC', json_serializer=<LogSerializerType.AUTO: 'auto'>, caller_enabled=False, otel_enabled=True, uvicorn_enabled=True, queue_enabled=False, queue_size=10000) -> None"
+      "()": "(*, backend='stdlib', level='INFO', format='AUTO', timezone='UTC', json_serializer='auto', caller_enabled=False, otel_enabled=True, uvicorn_enabled=True, queue_enabled=False, queue_size=10000) -> None"
     },
     "LogError": null,
-    "LogFormatType": {
-      "()": "(*values)"
-    },
-    "LogLevelType": {
-      "()": "(*values)"
-    },
-    "LogSerializerType": {
-      "()": "(*values)"
-    },
+    "LogFormat": null,
+    "LogSerializer": null,
     "ProbeFilter": {
       "()": "(paths=None) -> None"
     },
@@ -596,10 +587,10 @@
       "()": "(*, capacity=5, refill_rate=1, key_mode='logger', cost=1.0) -> None"
     },
     "configure": {
-      "()": "(*, backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, uvicorn_enabled=None, queue_enabled=None, queue_size=None, env_load=None) -> LogConfig"
+      "()": "(*, backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, uvicorn_enabled=None, queue_enabled=None, queue_size=None, env_load=None) -> 'LogConfig'"
     },
     "configure_with": {
-      "()": "(config) -> LogConfig"
+      "()": "(config) -> 'LogConfig'"
     },
     "dict_config": {
       "()": "(*, env_load=None) -> dict[str, Any]"
@@ -620,12 +611,10 @@
       ".from_config": "(config, *, name='default') -> 'Self'"
     },
     "MetricsConfig": {
-      "()": "(*, service_name=None, exporter=<MetricsExporterType.AUTO: 'auto'>, endpoint=None, headers={}, basic_auth_username=None, basic_auth_password=None, export_interval=60.0, export_timeout=30.0, resource_attributes={}, shutdown_timeout=5.0) -> None"
+      "()": "(*, service_name=None, exporter='auto', endpoint=None, headers={}, basic_auth_username=None, basic_auth_password=None, export_interval=60.0, export_timeout=30.0, resource_attributes={}, shutdown_timeout=5.0) -> None"
     },
     "MetricsError": null,
-    "MetricsExporterType": {
-      "()": "(*values)"
-    },
+    "MetricsExporter": null,
     "measure": {
       "()": "(func=None, *, name=None, record_in_flight=False) -> 'Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]'"
     },
@@ -1156,18 +1145,12 @@
       ".from_config": "(config, *, name='default', instrument=True) -> 'Self'"
     },
     "TraceConfig": {
-      "()": "(*, service_name=None, exporter=<TraceExporterType.AUTO: 'auto'>, endpoint=None, headers={}, basic_auth_username=None, basic_auth_password=None, processor=<TraceProcessorType.BATCH: 'batch'>, sampler=<TraceSamplerType.PARENTBASED_ALWAYS_ON: 'parentbased_always_on'>, sample_ratio=1.0, resource_attributes={}, shutdown_timeout=5.0) -> None"
+      "()": "(*, service_name=None, exporter='auto', endpoint=None, headers={}, basic_auth_username=None, basic_auth_password=None, processor='batch', sampler='parentbased_always_on', sample_ratio=1.0, resource_attributes={}, shutdown_timeout=5.0) -> None"
     },
     "TraceError": null,
-    "TraceExporterType": {
-      "()": "(*values)"
-    },
-    "TraceProcessorType": {
-      "()": "(*values)"
-    },
-    "TraceSamplerType": {
-      "()": "(*values)"
-    },
+    "TraceExporter": null,
+    "TraceProcessor": null,
+    "TraceSampler": null,
     "add_context": {
       "()": "(**fields) -> 'None'"
     },

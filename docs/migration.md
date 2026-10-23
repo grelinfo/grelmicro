@@ -119,6 +119,80 @@ raises](#0-42-raising).
 | `SettingsValidationError: ... WAIT_TIMEOUT: is no longer read` | 0.42.2 | [Rename the variable to `_MAX_WAIT`](#0-42-max-wait) |
 | A dashboard on `http.server.duration` stopped receiving data on FastAPI | 0.42 | [Read `http.server.request.duration`, in seconds](changelog.md#0420-2026-10-19) |
 
+## 0.43
+
+### Changes that do not raise {#0-43-silent}
+
+- A mode field such as `MetricsConfig.exporter` or `LogConfig.level` reads back as a plain `str`, not an enum member. `==` still matches, `is` against a member no longer does. [Compare with the string](#0-43-mode-strings).
+- `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. [Pass the string](#0-43-mode-strings).
+- `GREL_ENVIRONMENT=Production`, or any tier in another case, still reads as undeclared and now also warns with `GrelmicroFutureWarning`. From 0.44.0 it declares that tier. [Spell the tier in lowercase](#0-43-environment-case).
+- A choice in another case is accepted where it used to be refused, such as `requires="Cluster"`, `lock="Process"`, `gate="Claim"` or `environment="Production"`. [Nothing to change](#0-43-mode-strings).
+
+### Changes that raise {#0-43-raising}
+
+- `.value` or `.name` on a mode field raises `AttributeError`, since the field holds a `str`. [Use the string itself](#0-43-mode-strings).
+
+### A mode is a string {#0-43-mode-strings}
+
+An argument that picks a mode takes a string, matched in any case. The
+enum each one took before still works in 0.43 and warns.
+
+```python
+from grelmicro.log import configure
+from grelmicro.metrics import Metrics
+
+# Before
+from grelmicro.log import LogBackendType, LogFormatType
+from grelmicro.metrics import MetricsExporterType
+
+Metrics(exporter=MetricsExporterType.PROMETHEUS)
+configure(backend=LogBackendType.LOGURU, format=LogFormatType.JSON)
+
+# After
+Metrics(exporter="prometheus")
+configure(backend="loguru", format="JSON")
+```
+
+A field reads back as the documented spelling, so compare with the string:
+`config.exporter == "prometheus"`. To annotate a value of your own, use the
+type that replaces each enum:
+
+| Before | After |
+| --- | --- |
+| `grelmicro.metrics.MetricsExporterType` | `grelmicro.metrics.MetricsExporter` |
+| `grelmicro.trace.TraceExporterType` | `grelmicro.trace.TraceExporter` |
+| `grelmicro.trace.TraceProcessorType` | `grelmicro.trace.TraceProcessor` |
+| `grelmicro.trace.TraceSamplerType` | `grelmicro.trace.TraceSampler` |
+| `grelmicro.log.LogLevelType` | `grelmicro.types.LogLevel` |
+| `grelmicro.log.LogFormatType` | `grelmicro.log.LogFormat` |
+| `grelmicro.log.LogBackendType` | `grelmicro.log.LogBackend` |
+| `grelmicro.log.LogSerializerType` | `grelmicro.log.LogSerializer` |
+
+`GREL_LOG_LEVEL=info` still reads as `INFO`. Every other choice now matches in
+any case too, such as `requires=`, `lock=`, `gate=` and `environment=`.
+`GREL_ENVIRONMENT` is the exception until 0.44.0, see below.
+
+### A tier in another case warns {#0-43-environment-case}
+
+`GREL_ENVIRONMENT=Production` reads as undeclared, as before, and now also
+warns with `GrelmicroFutureWarning`. From 0.44.0 it declares `production`.
+In `staging` and `production` an unmet backend scope then raises
+`BackendScopeError` at startup, so check the warning before upgrading.
+The `environment=` argument already matches in any case: it used to raise
+on `"Production"`, so accepting it changes no app that started.
+
+```sh
+# Before: warns, reads as undeclared
+GREL_ENVIRONMENT=Production
+
+# After: declares the tier now, and the same in 0.44.0
+GREL_ENVIRONMENT=production
+```
+
+To keep the app undeclared, leave the variable empty: `GREL_ENVIRONMENT=`.
+
+Full list: [Unreleased in the changelog](changelog.md#unreleased)
+
 ## 0.42
 
 ### Changes that do not raise {#0-42-silent}

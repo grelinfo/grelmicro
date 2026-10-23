@@ -13,7 +13,7 @@ from typing import Annotated, Self
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro._config import env_prefixes, resolve_config
+from grelmicro._config import any_case, env_prefixes, resolve_config
 from grelmicro.log._shared import KeyMode
 
 
@@ -37,6 +37,7 @@ class RateLimitFilterConfig(BaseModel, frozen=True, extra="forbid"):
     ] = 1
     key_mode: Annotated[
         KeyMode,
+        any_case(KeyMode),
         Doc(
             'Default key strategy. `"logger"` (default) buckets per '
             "logger name (each logger gets its own burst budget). "

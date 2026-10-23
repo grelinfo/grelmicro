@@ -16,7 +16,6 @@ from grelmicro._endpoints import (
     build_asgi,
     check_prefix,
 )
-from grelmicro.metrics.config import MetricsExporterType
 from grelmicro.metrics.errors import MetricsError
 
 if TYPE_CHECKING:
@@ -42,7 +41,7 @@ def render_prometheus(component: Metrics) -> bytes:
     """
     from prometheus_client import generate_latest  # noqa: PLC0415
 
-    if component.config.exporter != MetricsExporterType.PROMETHEUS:
+    if component.config.exporter != "prometheus":
         msg = (
             "the /metrics endpoint requires the prometheus exporter, but "
             f"the active Metrics component uses {component.config.exporter!r}."

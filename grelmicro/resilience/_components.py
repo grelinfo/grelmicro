@@ -7,16 +7,16 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self, cast
 from typing_extensions import Doc
 
 from grelmicro._backend_kinds import resolve_source
+from grelmicro._config import match_case
 from grelmicro.providers._base import Provider
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
     RateLimiterBackend,
 )
+from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
     from types import TracebackType
-
-    from grelmicro.types import BackendScope
 
 
 class RateLimiterComponent:
@@ -96,7 +96,9 @@ class RateLimiterComponent:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self._name = name
-        self._requires: BackendScope = requires or self.default_requires
+        self._requires: BackendScope = match_case(
+            BackendScope, requires or self.default_requires
+        )
         resolved = cast(
             "Provider | RateLimiterBackend",
             resolve_source(
@@ -227,7 +229,9 @@ class CircuitBreakerComponent:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self._name = name
-        self._requires: BackendScope = requires or self.default_requires
+        self._requires: BackendScope = match_case(
+            BackendScope, requires or self.default_requires
+        )
         resolved = cast(
             "Provider | CircuitBreakerBackend",
             resolve_source(

@@ -23,7 +23,7 @@ from grelmicro.resilience import RateLimiter, RateLimiterComponent  # noqa: E402
 from grelmicro.resilience.ratelimiter.memory import (  # noqa: E402
     MemoryRateLimiterAdapter,
 )
-from grelmicro.trace import Trace, TraceExporterType  # noqa: E402
+from grelmicro.trace import Trace  # noqa: E402
 from tests._logs import records_of  # noqa: E402
 
 if TYPE_CHECKING:
@@ -108,7 +108,7 @@ def _has_telemetry_middleware(broker: RedisBroker) -> bool:
 def test_install_wires_faststream_telemetry_with_trace() -> None:
     """A registered `Trace` wires the broker's telemetry middleware by default."""
     broker = RedisBroker()
-    micro = Grelmicro(uses=[Trace(exporter=TraceExporterType.NONE)])
+    micro = Grelmicro(uses=[Trace(exporter="none")])
     micro.install(FastStream(broker))
     assert _has_telemetry_middleware(broker)
 
@@ -126,9 +126,7 @@ def test_install_faststream_telemetry_respects_directive(
 ) -> None:
     """`instrument=False` or a deny map skips the telemetry middleware."""
     broker = RedisBroker()
-    micro = Grelmicro(
-        uses=[Trace(exporter=TraceExporterType.NONE, instrument=directive)]
-    )
+    micro = Grelmicro(uses=[Trace(exporter="none", instrument=directive)])
     micro.install(FastStream(broker))
     assert not _has_telemetry_middleware(broker)
 
@@ -144,9 +142,7 @@ def test_install_faststream_telemetry_missing_extra_warns(
 
     monkeypatch.setattr(integration.importlib, "import_module", _missing)
     broker = RedisBroker()
-    micro = Grelmicro(
-        uses=[Trace(exporter=TraceExporterType.NONE, instrument=["faststream"])]
-    )
+    micro = Grelmicro(uses=[Trace(exporter="none", instrument=["faststream"])])
     caplog.set_level("WARNING")
     micro.install(FastStream(broker))
     assert not _has_telemetry_middleware(broker)
@@ -164,7 +160,7 @@ def test_install_faststream_telemetry_missing_extra_silent_by_default(
 
     monkeypatch.setattr(integration.importlib, "import_module", _missing)
     broker = RedisBroker()
-    micro = Grelmicro(uses=[Trace(exporter=TraceExporterType.NONE)])
+    micro = Grelmicro(uses=[Trace(exporter="none")])
     caplog.set_level("WARNING")
     micro.install(FastStream(broker))
     assert not _has_telemetry_middleware(broker)

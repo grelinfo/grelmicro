@@ -18,7 +18,7 @@ from grelmicro.log._shared import (
     resolve_template_format,
     resolve_use_colors,
 )
-from grelmicro.log.config import LogConfig, LogFormatType
+from grelmicro.log.config import LogConfig, LogFormat
 from grelmicro.log.types import ErrorDict
 
 _STANDARD_LOG_RECORD_ATTRS = frozenset(
@@ -246,7 +246,7 @@ def configure(config: LogConfig | None = None) -> None:
 
 
 def build_formatter(
-    resolved_format: LogFormatType | str,
+    resolved_format: LogFormat | str,
     *,
     timezone: tzinfo,
     json_dumps: Callable[[Mapping[str, Any]], str],
@@ -265,20 +265,20 @@ def build_formatter(
     resolved_format = resolve_template_format(resolved_format)
 
     formatter: logging.Formatter
-    if resolved_format == LogFormatType.JSON:
+    if resolved_format == "JSON":
         formatter = _JSONFormatter(
             timezone=timezone,
             json_dumps=json_dumps,
             caller_enabled=caller_enabled,
             otel_enabled=otel_enabled,
         )
-    elif resolved_format == LogFormatType.LOGFMT:
+    elif resolved_format == "LOGFMT":
         formatter = _LogfmtFormatter(
             timezone=timezone,
             caller_enabled=caller_enabled,
             otel_enabled=otel_enabled,
         )
-    elif resolved_format == LogFormatType.PRETTY:
+    elif resolved_format == "PRETTY":
         formatter = _PrettyFormatter(
             timezone=timezone,
             caller_enabled=caller_enabled,

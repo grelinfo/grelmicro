@@ -1,4 +1,4 @@
-"""Shared helpers for tests of a pending behavior change or rename.
+"""Shared helpers for tests of a pending behavior change, rename or removal.
 
 Each `FutureChange` gets one test that calls it both ways:
 
@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable
 
 import pytest
 
-from grelmicro._deprecation import FutureChange, Rename
+from grelmicro._deprecation import FutureChange, Removal, Rename
 from grelmicro.errors import GrelmicroFutureWarning
 from tools import changelog
 
@@ -28,7 +28,7 @@ _RELEASE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 
 def assert_future_warning(
-    entry: FutureChange | Rename,
+    entry: FutureChange | Rename | Removal,
     *,
     default: Callable[[], object],
     explicit: Callable[[], object],
@@ -73,8 +73,8 @@ def latest_release(text: str) -> str:
 
 
 def stale(
-    entries: Iterable[FutureChange | Rename], version: str
-) -> list[FutureChange | Rename]:
+    entries: Iterable[FutureChange | Rename | Removal], version: str
+) -> list[FutureChange | Rename | Removal]:
     """Return the entries that `version` should already have switched or removed."""
     current = _release(version)
     return [

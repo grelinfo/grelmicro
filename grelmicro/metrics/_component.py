@@ -15,7 +15,7 @@ from grelmicro.errors import DependencyNotFoundError
 from grelmicro.metrics import _hub
 from grelmicro.metrics.config import (
     MetricsConfig,
-    MetricsExporterType,
+    MetricsExporter,
 )
 from grelmicro.metrics.errors import (
     MetricsError,
@@ -35,6 +35,8 @@ if TYPE_CHECKING:
     )
     from opentelemetry.sdk.metrics import MeterProvider
     from prometheus_client import CollectorRegistry
+
+    from grelmicro._mode_enums import MetricsExporterType
 
 
 _logger = logging.getLogger(__name__)
@@ -93,7 +95,8 @@ class Metrics:
             str | None, Doc("Service name resource attribute.")
         ] = None,
         exporter: Annotated[
-            MetricsExporterType | None, Doc("Metric exporter.")
+            MetricsExporter | MetricsExporterType | None,
+            Doc("Metric exporter."),
         ] = None,
         endpoint: Annotated[str | None, Doc("Exporter endpoint.")] = None,
         headers: Annotated[
@@ -266,8 +269,8 @@ class Metrics:
         """Return True when the exporter was left `auto` and resolves to `none`."""
         config = self._resolve()
         return (
-            config.exporter is MetricsExporterType.AUTO
-            and _resolve_exporter_type(config) is MetricsExporterType.NONE
+            config.exporter == "auto"
+            and _resolve_exporter_type(config) == "none"
         )
 
     def _resolve(self) -> MetricsConfig:
@@ -525,10 +528,10 @@ def _build_provider(config: MetricsConfig) -> tuple[Any, Any]:
 
     exporter_type = _resolve_exporter_type(config)
 
-    if exporter_type == MetricsExporterType.NONE:
+    if exporter_type == "none":
         return _make_provider(MeterProvider, resource, readers=[]), None
 
-    if exporter_type == MetricsExporterType.PROMETHEUS:
+    if exporter_type == "prometheus":
         reader, registry = _build_prometheus_reader()
         return _make_provider(MeterProvider, resource, readers=[reader]), (
             registry
@@ -543,7 +546,7 @@ def _build_provider(config: MetricsConfig) -> tuple[Any, Any]:
     return _make_provider(MeterProvider, resource, readers=[reader]), None
 
 
-def _resolve_exporter_type(config: MetricsConfig) -> MetricsExporterType:
+def _resolve_exporter_type(config: MetricsConfig) -> MetricsExporter:
     """Resolve the `auto` exporter against the configured endpoint.
 
     `auto` becomes `otlp-http` when an endpoint is resolvable (the
@@ -551,7 +554,7 @@ def _resolve_exporter_type(config: MetricsConfig) -> MetricsExporterType:
     `OTEL_EXPORTER_OTLP_ENDPOINT`) and `none` otherwise. Any explicit
     exporter is returned unchanged.
     """
-    if config.exporter != MetricsExporterType.AUTO:
+    if config.exporter != "auto":
         return config.exporter
     endpoint_configured = (
         config.endpoint is not None
@@ -559,8 +562,8 @@ def _resolve_exporter_type(config: MetricsConfig) -> MetricsExporterType:
         or bool(os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"))
     )
     if endpoint_configured:
-        return MetricsExporterType.OTLP_HTTP
-    return MetricsExporterType.NONE
+        return "otlp-http"
+    return "none"
 
 
 def _make_provider(
@@ -599,17 +602,17 @@ def _build_prometheus_reader() -> tuple[Any, Any]:
 
 def _build_exporter(
     config: MetricsConfig,
-    exporter_type: MetricsExporterType,
+    exporter_type: MetricsExporter,
 ) -> Any:  # noqa: ANN401
     """Build a metric exporter for the resolved exporter type."""
-    if exporter_type == MetricsExporterType.CONSOLE:
+    if exporter_type == "console":
         from opentelemetry.sdk.metrics.export import (  # noqa: PLC0415
             ConsoleMetricExporter,
         )
 
         return ConsoleMetricExporter()
 
-    if exporter_type == MetricsExporterType.OTLP_HTTP:  # pragma: no cover
+    if exporter_type == "otlp-http":  # pragma: no cover
         try:
             from opentelemetry.exporter.otlp.proto.http.metric_exporter import (  # noqa: PLC0415
                 OTLPMetricExporter,

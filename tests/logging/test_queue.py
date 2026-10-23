@@ -33,9 +33,8 @@ from grelmicro.log._queue import (
     uninstall,
 )
 from grelmicro.log.config import (
-    LogBackendType,
+    LogBackend,
     LogConfig,
-    LogFormatType,
 )
 from tests.logging.conftest import BACKENDS, log_message, parse_json_logs
 
@@ -228,8 +227,8 @@ def test_drops_are_reported_once_the_queue_drains(
     original, sys.stdout = sys.stdout, stream
     try:
         configure(
-            backend=LogBackendType.STDLIB,
-            format=LogFormatType.JSON,
+            backend="stdlib",
+            format="JSON",
             queue_enabled=True,
             queue_size=1,
             env_load=False,
@@ -375,7 +374,7 @@ def test_swap_without_a_size_writes_direct(clean_queue: None) -> None:
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_every_backend_writes_through_the_queue(
-    backend: str, reset_backend: None, clean_queue: None
+    backend: LogBackend, reset_backend: None, clean_queue: None
 ) -> None:
     """One writer serves loguru, structlog and stdlib alike."""
     _ = reset_backend, clean_queue
@@ -383,8 +382,8 @@ def test_every_backend_writes_through_the_queue(
     original, sys.stdout = sys.stdout, stream
     try:
         configure(
-            backend=LogBackendType(backend),
-            format=LogFormatType.JSON,
+            backend=backend,
+            format="JSON",
             queue_enabled=True,
             env_load=False,
         )
@@ -400,7 +399,7 @@ def test_every_backend_writes_through_the_queue(
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_context_survives_the_queue(
-    backend: str, reset_backend: None, clean_queue: None
+    backend: LogBackend, reset_backend: None, clean_queue: None
 ) -> None:
     """Rendering stays on the calling thread, so bound fields are kept.
 
@@ -414,8 +413,8 @@ def test_context_survives_the_queue(
     token = push_context({"request_id": "abc-123"})
     try:
         configure(
-            backend=LogBackendType(backend),
-            format=LogFormatType.JSON,
+            backend=backend,
+            format="JSON",
             queue_enabled=True,
             env_load=False,
         )
@@ -438,15 +437,15 @@ def test_reconfigure_writes_out_the_replaced_queue(
     original, sys.stdout = sys.stdout, stream
     try:
         configure(
-            backend=LogBackendType.STDLIB,
-            format=LogFormatType.JSON,
+            backend="stdlib",
+            format="JSON",
             queue_enabled=True,
             env_load=False,
         )
         logging.getLogger("app").info("before")
         configure(
-            backend=LogBackendType.STDLIB,
-            format=LogFormatType.JSON,
+            backend="stdlib",
+            format="JSON",
             queue_enabled=True,
             env_load=False,
         )
@@ -468,15 +467,15 @@ def test_turning_the_queue_off_keeps_the_records(
     original, sys.stdout = sys.stdout, stream
     try:
         configure(
-            backend=LogBackendType.STDLIB,
-            format=LogFormatType.JSON,
+            backend="stdlib",
+            format="JSON",
             queue_enabled=True,
             env_load=False,
         )
         logging.getLogger("app").info("queued")
         configure(
-            backend=LogBackendType.STDLIB,
-            format=LogFormatType.JSON,
+            backend="stdlib",
+            format="JSON",
             env_load=False,
         )
         assert get_writer() is None
@@ -497,8 +496,8 @@ async def test_component_stops_the_worker_on_exit(
     original, sys.stdout = sys.stdout, stream
     try:
         async with Log(
-            backend=LogBackendType.STDLIB,
-            format=LogFormatType.JSON,
+            backend="stdlib",
+            format="JSON",
             queue_enabled=True,
             env_load=False,
         ) as component:
@@ -578,8 +577,8 @@ def test_a_forked_child_still_logs(
     _ = reset_backend, clean_queue
     read_fd, write_fd = os.pipe()
     configure(
-        backend=LogBackendType.STDLIB,
-        format=LogFormatType.JSON,
+        backend="stdlib",
+        format="JSON",
         queue_enabled=True,
         env_load=False,
     )
@@ -677,8 +676,8 @@ def test_structlog_records_stay_parseable_under_backpressure(
     original, sys.stdout = sys.stdout, stream
     try:
         configure(
-            backend=LogBackendType.STRUCTLOG,
-            format=LogFormatType.JSON,
+            backend="structlog",
+            format="JSON",
             queue_enabled=True,
             queue_size=1,
             env_load=False,
@@ -708,8 +707,8 @@ def test_loguru_remove_does_not_kill_the_shared_writer(
     original, sys.stdout = sys.stdout, stream
     try:
         configure(
-            backend=LogBackendType.LOGURU,
-            format=LogFormatType.JSON,
+            backend="loguru",
+            format="JSON",
             queue_enabled=True,
             env_load=False,
         )
@@ -752,8 +751,8 @@ async def test_a_backend_keeps_writing_after_the_component_exits(
     original, sys.stdout = sys.stdout, stream
     try:
         async with Log(
-            backend=LogBackendType.STRUCTLOG,
-            format=LogFormatType.JSON,
+            backend="structlog",
+            format="JSON",
             queue_enabled=True,
             env_load=False,
         ):
@@ -781,8 +780,8 @@ def test_a_refused_config_keeps_the_working_queue(
     original, sys.stdout = sys.stdout, stream
     try:
         configure(
-            backend=LogBackendType.STDLIB,
-            format=LogFormatType.JSON,
+            backend="stdlib",
+            format="JSON",
             queue_enabled=True,
             env_load=False,
         )
@@ -795,8 +794,8 @@ def test_a_refused_config_keeps_the_working_queue(
         monkeypatch.setattr(_stdlib, "configure", refuse)
         with pytest.raises(DependencyNotFoundError):
             configure(
-                backend=LogBackendType.STDLIB,
-                format=LogFormatType.JSON,
+                backend="stdlib",
+                format="JSON",
                 queue_enabled=True,
                 env_load=False,
             )
@@ -873,8 +872,8 @@ async def test_the_component_tears_down_under_cancellation(
 
                 task_group.start_soon(fail_soon)
                 async with Log(
-                    backend=LogBackendType.STDLIB,
-                    format=LogFormatType.JSON,
+                    backend="stdlib",
+                    format="JSON",
                     queue_enabled=True,
                     env_load=False,
                 ):
@@ -1220,8 +1219,8 @@ def test_a_multiprocessing_child_writes_its_records(
         os.write(write_fd, out.getvalue().encode())
 
     configure(
-        backend=LogBackendType.STDLIB,
-        format=LogFormatType.JSON,
+        backend="stdlib",
+        format="JSON",
         queue_enabled=True,
         env_load=False,
     )
