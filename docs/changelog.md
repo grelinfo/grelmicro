@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.42.7 - 2026-10-24
 
 ### Fixed
 * 🐛 A Kubernetes service link such as `REDIS_PORT=tcp://...`, set for a Service named `redis`, is ignored instead of crashing startup with a port parse error. The same holds for `GREL_OPS_PORT` and every other port variable. A value of that shape that Kubernetes did not set fails with an error naming the variable. ([#1147](https://github.com/grelinfo/grelmicro/pull/1147))
