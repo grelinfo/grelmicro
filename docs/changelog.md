@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+* ✨ `lock.hold(timeout=..., auto_extend=True)` extends the lease while the body runs. When the lease is lost, the body is cancelled and the `async with` raises `LockNotOwnedError`. ([#1149](https://github.com/grelinfo/grelmicro/pull/1149))
 * ✨ `HealthChecks(provider_checks=)` picks the check registered for each Provider: `"report"` shows it in `/healthz` only, `"require"` fails `/readyz` while the backend is down, and `"off"` registers none. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 * ✨ `OpsServer(enabled=False)` and `GREL_OPS_ENABLED=false` switch the ops server off. It binds no port, and `health-not-served` says it is switched off. ([#1142](https://github.com/grelinfo/grelmicro/pull/1142))
 * ✨ `HealthChecks.add_circuitbreaker` reports a circuit breaker as a `circuitbreaker:{name}` check. An open breaker fails it with the seconds until the next probe, and it is non-critical by default. ([#1137](https://github.com/grelinfo/grelmicro/pull/1137))
