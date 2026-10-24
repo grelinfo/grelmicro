@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
@@ -10,6 +10,7 @@ from typing_extensions import Doc
 
 from grelmicro._duration import check_duration
 from grelmicro._markers import Registered, mark_registered
+from grelmicro._timezone import UTC_NAME
 from grelmicro._unset import UNSET, Unset
 from grelmicro.task._cron import CronTask
 from grelmicro.task._interval import IntervalTask
@@ -135,6 +136,23 @@ class TaskRouter:
                 task._set_default_timezone(effective)  # noqa: SLF001
         for router in self._routers:
             router._resolve_timezones(effective)  # noqa: SLF001
+
+    def _zoned(self, inherited: str) -> Iterator[tuple[Task, str | None]]:
+        """Yield every task below this router with the timezone it fires in.
+
+        Walks the tree the way `_resolve_timezones` does, in the order
+        `tasks` lists them. A cron task gets its own timezone, else the
+        nearest one a router declares, else `inherited`. Any other task
+        gets `None`.
+        """
+        effective = self._timezone or inherited
+        for task in self._tasks:
+            if isinstance(task, CronTask):
+                yield task, task._declared_timezone or effective  # noqa: SLF001
+            else:
+                yield task, None
+        for router in self._routers:
+            yield from router._zoned(effective)  # noqa: SLF001
 
     def every(
         self,
@@ -445,6 +463,23 @@ class TaskRouter:
         self._started = True
         for router in self._routers:
             router.do_mark_as_started()
+
+
+def scheduled_tasks(
+    items: Iterable[object],
+) -> list[tuple[Task, str | None]]:
+    """Return every task the routers in `items` hold, with its timezone.
+
+    In registration order, the tasks of included routers after their
+    router's own. The timezone is the one a cron task fires in once its
+    `Tasks` starts, and `None` for any other task.
+    """
+    return [
+        entry
+        for item in items
+        if isinstance(item, TaskRouter)
+        for entry in item._zoned(UTC_NAME)  # noqa: SLF001
+    ]
 
 
 def ungated_cron_names(items: Iterable[object]) -> list[str] | None:

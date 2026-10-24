@@ -26,6 +26,8 @@ from grelmicro._describe import (
     ComponentReport,
     EndpointReport,
     ProviderReport,
+    TaskGate,
+    TaskReport,
 )
 
 __all__ = [
@@ -35,4 +37,6 @@ __all__ = [
     "ComponentReport",
     "EndpointReport",
     "ProviderReport",
+    "TaskGate",
+    "TaskReport",
 ]

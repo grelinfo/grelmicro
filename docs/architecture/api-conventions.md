@@ -163,9 +163,14 @@ case. `GREL_ENVIRONMENT` follows the rule from 0.44.0: until then
 `GREL_ENVIRONMENT=Production` reads as undeclared and warns, while
 `environment="Production"` already reads as `production`.
 
-A value grelmicro returns for code to branch on stays an enum, such as
-`HealthStatus` or `CircuitBreakerState`. The caller matches its members, and
-a type checker can tell when a branch is missing.
+A runtime state or outcome grelmicro returns for code to branch on stays an
+enum, such as `HealthStatus`, `CircuitBreakerState` or `FireOutcome`. The
+caller matches its members, and a type checker can tell when a branch is
+missing.
+
+A field of a `describe()` report is a `Literal`, such as `CheckStatus` or
+`TaskGate`. The report is data to compare and print, so a test writes
+`report.gate == "claim"` with nothing to import.
 
 ## A stored duration is whole seconds or a `timedelta`
 

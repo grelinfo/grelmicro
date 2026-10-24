@@ -363,15 +363,11 @@ class CronTask(Task):
                 `timedelta`, is not greater than zero, or is over 100
                 years.
         """
-        if isinstance(gate, Unset):
-            self._gate_omitted = True
-            gate = None
-        else:
-            self._gate_omitted = False
-        gate = _gate.spell_gate(gate)
-        gate_label = _gate.gate_label(gate, takes_lock=False)
+        self._gate_omitted = isinstance(gate, Unset)
+        chosen = _gate.spell_gate(None if isinstance(gate, Unset) else gate)
+        gate_label = _gate.gate_label(chosen, takes_lock=False)
         _gate.check_sync(sync)
-        if backend is not None and gate is None:
+        if backend is not None and chosen is None:
             msg = "backend is only read by a gated task, pass gate='claim'"
             raise ValueError(msg)
         self._expr = CronExpression(expr)
@@ -399,11 +395,11 @@ class CronTask(Task):
         self._backend = backend
         if backend is not None:
             record_coordination(self, backend, "schedule")
-        self._gate = gate
-        self._leader = gate if isinstance(gate, LeaderElection) else None
+        self._gate = chosen
+        self._leader = chosen if isinstance(chosen, LeaderElection) else None
         self._watch = (
-            _gate.LeaderWatch(gate, self._name)
-            if isinstance(gate, LeaderElection)
+            _gate.LeaderWatch(chosen, self._name)
+            if isinstance(chosen, LeaderElection)
             else None
         )
         # Set when a leader-gated tick skipped a fire as a follower.
@@ -551,6 +547,16 @@ class CronTask(Task):
         finally:
             self._running = False
             logger.info("Task stopped: %s", self.name)
+
+    @property
+    def gate(self) -> Literal["claim"] | LeaderElection | None:
+        """The gate the task was built with.
+
+        `"claim"` reads back as the string, a `LeaderElection` as the
+        object passed, and `None` when every worker runs it, `gate=`
+        left out included. `gate_omitted` tells the two apart.
+        """
+        return self._gate
 
     @property
     def gate_omitted(self) -> bool:

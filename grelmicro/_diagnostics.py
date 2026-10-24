@@ -75,6 +75,9 @@ LEADER_NOT_RUNNING: Final = "leader-not-running"
 UNGATED_CRON: Final = "ungated-cron"
 """A cron task with no `gate=` runs on every worker beside a schedule backend."""
 
+GATE_BACKEND: Final = "gate-backend"
+"""A gated task resolves no backend to claim through, so it runs nothing."""
+
 SENTINEL_PASSWORD: Final = "sentinel-password"  # noqa: S105
 """A Sentinel password is set but the URL scheme cannot apply it.
 

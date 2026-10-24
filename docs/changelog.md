@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+* ✨ `micro.describe()` lists the scheduled tasks in `AppReport.tasks`, each a `TaskReport` with its schedule, gate, claim name and backend. `grelmicro check` text output gains a `Tasks` block when a task is registered. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
+* ✨ A cron or interval task in `tasks.tasks` has a read-only `gate` that returns the gate it was built with, the same `LeaderElection` or `TaskLock` object included. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
+* ✨ `grelmicro check` warns with `gate-backend` on a gated task that resolves no backend to claim through, and with `leader-not-running` on a task gated on an election no `Tasks` holds. `gate-backend` fails in `staging` and `production` from 0.44.0. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
 * ✨ `HealthChecks(provider_checks=)` picks the check registered for each Provider: `"report"` shows it in `/healthz` only, `"require"` fails `/readyz` while the backend is down, and `"off"` registers none. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 * ✨ `OpsServer(enabled=False)` and `GREL_OPS_ENABLED=false` switch the ops server off. It binds no port, and `health-not-served` says it is switched off. ([#1142](https://github.com/grelinfo/grelmicro/pull/1142))
 * ✨ `HealthChecks.add_circuitbreaker` reports a circuit breaker as a `circuitbreaker:{name}` check. An open breaker fails it with the seconds until the next probe, and it is non-critical by default. ([#1137](https://github.com/grelinfo/grelmicro/pull/1137))
