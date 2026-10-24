@@ -35,8 +35,8 @@ applies. That situation reports at startup instead of passing silently, naming
 the variable:
 
 ```
-GrelmicroFutureWarning: `GREL_LOG_FORMAT` is set but not read today, and is
-read by default from 0.44.0. Pass `GREL_ENV_LOAD=0` to keep the current
+EnvLoadDefaultWarning: `GREL_LOG_FORMAT` is set but not read today, and is
+read by default from 0.44.0. Set `GREL_ENV_LOAD=0` to keep the current
 behavior, or `GREL_ENV_LOAD=1` to adopt the new one now.
 ```
 

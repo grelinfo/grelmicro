@@ -646,13 +646,13 @@ async def test_liveness_task_error_still_removes_auto_registered_checks(
     exits: _Exits,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Closing after the liveness task failed still drops auto_health checks."""
+    """Closing after the liveness task failed still drops the provider checks."""
     # Arrange
     monkeypatch.setattr(
         "grelmicro.health._checks._app_open", _raise_runtime_error
     )
     health = HealthChecks(
-        cache_ttl=0, auto_health=True, liveness=Liveness(interval=0.01)
+        cache_ttl=0, provider_checks="require", liveness=Liveness(interval=0.01)
     )
     micro = Grelmicro(uses=[_ReadyProvider(), health])
 

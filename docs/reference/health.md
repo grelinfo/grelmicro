@@ -17,4 +17,5 @@
         - HealthReport
         - HealthStatus
         - Liveness
+        - ProviderChecks
         - health_asgi

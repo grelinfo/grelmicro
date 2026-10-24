@@ -10,6 +10,7 @@ import asyncio
 import logging
 import socket
 import struct
+import warnings
 from typing import TYPE_CHECKING, Any, Self, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -18,6 +19,7 @@ import pytest
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
 from grelmicro import Grelmicro
+from grelmicro.errors import SettingsValidationError
 from grelmicro.health import HealthChecks
 from grelmicro.http import OpsServer, OpsServerConfig, OpsServerError
 from grelmicro.http import _server as server_module
@@ -560,6 +562,111 @@ def test_a_named_server_reads_its_own_prefix(
     monkeypatch.setenv("GREL_OPS_ADMIN_PORT", "9200")
 
     assert OpsServer(name="admin").config.port == 9200  # noqa: PLR2004
+
+
+_SERVICE_LINK = "tcp://10.0.0.5:9100"
+"""What Kubernetes injects in `GREL_OPS_PORT` for a Service named `grel-ops`."""
+
+
+@pytest.mark.parametrize(
+    ("name", "variable"),
+    [
+        pytest.param("default", "GREL_OPS_PORT", id="default"),
+        pytest.param("admin", "GREL_OPS_ADMIN_PORT", id="named"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("value", "companion"),
+    [
+        pytest.param("tcp://10.0.0.5:9100", "9100_TCP", id="tcp"),
+        pytest.param("udp://10.0.0.5:9100", "9100_UDP", id="udp"),
+        pytest.param("sctp://10.0.0.5:9100", "9100_SCTP", id="sctp"),
+        pytest.param("quic://10.0.0.5:9100", "9100_QUIC", id="any-protocol"),
+        pytest.param("tcp://[fd00::1]:9100", "9100_TCP", id="ipv6"),
+    ],
+)
+def test_a_kubernetes_service_link_in_the_port_is_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    variable: str,
+    value: str,
+    companion: str,
+) -> None:
+    """A Service named after the variable leaves the default port in place."""
+    monkeypatch.setenv(variable, value)
+    monkeypatch.setenv(f"{variable}_{companion}", value)
+
+    assert OpsServer(name=name).config.port == 8080  # noqa: PLR2004
+
+
+@pytest.mark.parametrize(
+    ("name", "variable"),
+    [
+        pytest.param("default", "GREL_OPS_PORT", id="default"),
+        pytest.param("admin", "GREL_OPS_ADMIN_PORT", id="named"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("companion", "companion_value"),
+    [
+        pytest.param(None, None, id="no-companion"),
+        pytest.param("9100_TCP", "tcp://10.0.0.6:9100", id="other-value"),
+        pytest.param("9200_TCP", _SERVICE_LINK, id="other-port"),
+    ],
+)
+def test_a_link_kubernetes_did_not_set_names_the_fix(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    variable: str,
+    companion: str | None,
+    companion_value: str | None,
+) -> None:
+    """A link-shaped port without its companion is refused, never echoed."""
+    monkeypatch.setenv(variable, _SERVICE_LINK)
+    if companion and companion_value:
+        monkeypatch.setenv(f"{variable}_{companion}", companion_value)
+
+    with pytest.raises(SettingsValidationError) as caught:
+        OpsServer(name=name)
+
+    message = str(caught.value)
+    assert f"- {variable}: looks like a Kubernetes service link" in message
+    assert "Set a plain port number" in message
+    assert "enableServiceLinks: false" in message
+    assert "10.0.0.5" not in message
+
+
+def test_a_keyword_port_still_wins_over_a_service_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A keyword port wins, as it does over any variable."""
+    monkeypatch.setenv("GREL_OPS_PORT", _SERVICE_LINK)
+
+    assert OpsServer(port=9100).config.port == 9100  # noqa: PLR2004
+
+
+def test_the_service_link_companions_are_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other variables Kubernetes injects for the Service change nothing."""
+    companions = {
+        "GREL_OPS_SERVICE_HOST": "10.0.0.5",
+        "GREL_OPS_SERVICE_PORT": "8080",
+        "GREL_OPS_SERVICE_PORT_HTTP": "8080",
+        "GREL_OPS_PORT_8080_TCP": _SERVICE_LINK,
+        "GREL_OPS_PORT_8080_TCP_PROTO": "tcp",
+        "GREL_OPS_PORT_8080_TCP_PORT": "8080",
+        "GREL_OPS_PORT_8080_TCP_ADDR": "10.0.0.5",
+    }
+    for key, value in companions.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("GREL_OPS_PORT", "9100")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        server = OpsServer()
+
+    assert server.config.port == 9100  # noqa: PLR2004
 
 
 def test_from_config_takes_the_config_as_it_is(

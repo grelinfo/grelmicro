@@ -100,7 +100,10 @@ async def test_a_fake_entered_before_open_never_connects() -> None:
 def test_a_fake_entered_before_the_client_starts_serves_requests() -> None:
     """The one fixture the guide shows: arm, then let the lifespan open."""
     micro = Grelmicro(
-        uses=[PostgresProvider(_CLOSED_PORT), HealthChecks(auto_health=True)]
+        uses=[
+            PostgresProvider(_CLOSED_PORT),
+            HealthChecks(provider_checks="require"),
+        ]
     )
     app = FastAPI()
     micro.install(app)
@@ -275,7 +278,7 @@ async def test_readiness_left_from_a_real_open_skips_a_faked_provider(
     """A check registered on an earlier real open does not probe under fake."""
     redis = RedisProvider("redis://127.0.0.1:1/0")
     sqlite = SQLiteProvider(path=str(tmp_path / "app.db"))
-    health = HealthChecks(auto_health=True)
+    health = HealthChecks(provider_checks="require")
     health.add_provider(sqlite)
     micro = Grelmicro(uses=[redis, Cache(sqlite), health])
 
@@ -401,7 +404,7 @@ async def test_a_faked_run_leaves_no_readiness_check_behind(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Each run checks the Providers it opens, faked or real."""
-    health = HealthChecks(auto_health=True)
+    health = HealthChecks(provider_checks="require")
     micro = Grelmicro(uses=[Cache(PostgresProvider(_CLOSED_PORT)), health])
 
     with caplog.at_level(logging.WARNING, logger="grelmicro"):
@@ -449,8 +452,8 @@ async def test_a_faked_open_that_fails_in_setup_puts_the_real_app_back(
 async def test_shared_health_checks_keep_their_checks_while_one_app_runs() -> (
     None
 ):
-    """Only the last scope to close drops what `auto_health` added."""
-    health = HealthChecks(auto_health=True)
+    """Only the last scope to close drops what `provider_checks=` added."""
+    health = HealthChecks(provider_checks="require")
     first = Grelmicro(uses=[RedisProvider("redis://127.0.0.1:1/0"), health])
     second = Grelmicro(uses=[health])
 

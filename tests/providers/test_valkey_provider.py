@@ -99,6 +99,53 @@ class TestConstruction:
 
         assert provider.url == expected_url
 
+    def test_a_kubernetes_service_link_in_the_port_is_ignored(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Service named `valkey` injects `VALKEY_PORT`, and the URL still wins."""
+        monkeypatch.delenv("VALKEY_HOST", raising=False)
+        monkeypatch.setenv("VALKEY_URL", URL)
+        monkeypatch.setenv("VALKEY_PORT", "tcp://10.0.0.5:6379")
+        monkeypatch.setenv("VALKEY_PORT_6379_TCP", "tcp://10.0.0.5:6379")
+
+        assert ValkeyProvider().url == URL
+
+    def test_a_service_link_beside_a_host_leaves_the_default_port(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The link is read as unset, so the default port applies."""
+        for name in ("URL", "USER", "PASSWORD", "DB", "DATABASE"):
+            monkeypatch.delenv(f"VALKEY_{name}", raising=False)
+        monkeypatch.setenv("VALKEY_HOST", "test_host")
+        monkeypatch.setenv("VALKEY_PORT", "tcp://10.0.0.5:9999")
+        monkeypatch.setenv("VALKEY_PORT_9999_TCP", "tcp://10.0.0.5:9999")
+
+        assert ValkeyProvider().url.endswith("test_host:6379/0")
+
+    def test_a_link_kubernetes_did_not_set_names_the_fix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without its companion, a link-shaped port is refused clearly."""
+        monkeypatch.setenv("VALKEY_HOST", "test_host")
+        monkeypatch.setenv("VALKEY_PORT", "tcp://10.0.0.5:1")
+
+        with pytest.raises(SettingsValidationError) as caught:
+            ValkeyProvider()
+
+        message = str(caught.value)
+        assert "VALKEY_PORT: looks like a Kubernetes service link" in message
+        assert "10.0.0.5" not in message
+
+    def test_a_plain_port_is_still_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A port number in `VALKEY_PORT` is not mistaken for a service link."""
+        monkeypatch.delenv("VALKEY_URL", raising=False)
+        monkeypatch.setenv("VALKEY_HOST", "test_host")
+        monkeypatch.setenv("VALKEY_PORT", "1234")
+
+        assert ":1234" in ValkeyProvider().url
+
     @pytest.mark.parametrize(
         "environs",
         [

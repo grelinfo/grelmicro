@@ -24,6 +24,7 @@
     "DependencyVersionError": {
       "()": "(*, module, version, floor, extra) -> None"
     },
+    "EnvLoadDefaultWarning": null,
     "EnvLoadOffWarning": null,
     "EventLoopDeadlockError": null,
     "ExternalConfig": {
@@ -254,8 +255,8 @@
     "CheckResult": null,
     "HealthCheckFunc": null,
     "HealthChecks": {
-      "()": "(*, name='default', timeout=None, cache_ttl=None, liveness=None, env_prefix=None, env_load=None, auto_health=False) -> 'None'",
-      ".from_config": "(config, *, name='default', auto_health=False, liveness=None) -> 'Self'"
+      "()": "(*, name='default', timeout=None, cache_ttl=None, liveness=None, provider_checks=None, env_prefix=None, env_load=None, auto_health=None) -> 'None'",
+      ".from_config": "(config, *, name='default', provider_checks=None, liveness=None, auto_health=None) -> 'Self'"
     },
     "HealthChecksConfig": {
       "()": "(*, timeout=5.0, cache_ttl=datetime.timedelta(seconds=1)) -> None"
@@ -271,6 +272,7 @@
     "Liveness": {
       "()": "(*, stall_timeout=None, interval=10.0, failure_threshold=3, shutdown_timeout=30.0) -> None"
     },
+    "ProviderChecks": null,
     "health_asgi": {
       "()": "(component=None, *, prefix='', show_details=False) -> 'ASGIApp'"
     }
@@ -570,12 +572,24 @@
       ".from_config": "(config, *, name='default') -> 'Self'"
     },
     "LogBackend": null,
+    "LogBackendType": {
+      "()": "(*values)"
+    },
     "LogConfig": {
       "()": "(*, backend='stdlib', level='INFO', format='AUTO', timezone='UTC', json_serializer='auto', caller_enabled=False, otel_enabled=True, uvicorn_enabled=True, queue_enabled=False, queue_size=10000) -> None"
     },
     "LogError": null,
     "LogFormat": null,
+    "LogFormatType": {
+      "()": "(*values)"
+    },
+    "LogLevelType": {
+      "()": "(*values)"
+    },
     "LogSerializer": null,
+    "LogSerializerType": {
+      "()": "(*values)"
+    },
     "ProbeFilter": {
       "()": "(paths=None) -> None"
     },
@@ -615,6 +629,9 @@
     },
     "MetricsError": null,
     "MetricsExporter": null,
+    "MetricsExporterType": {
+      "()": "(*values)"
+    },
     "measure": {
       "()": "(func=None, *, name=None, record_in_flight=False) -> 'Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]'"
     },
@@ -1149,8 +1166,17 @@
     },
     "TraceError": null,
     "TraceExporter": null,
+    "TraceExporterType": {
+      "()": "(*values)"
+    },
     "TraceProcessor": null,
+    "TraceProcessorType": {
+      "()": "(*values)"
+    },
     "TraceSampler": null,
+    "TraceSamplerType": {
+      "()": "(*values)"
+    },
     "add_context": {
       "()": "(**fields) -> 'None'"
     },

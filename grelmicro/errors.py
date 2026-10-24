@@ -148,10 +148,10 @@ class UngatedCronWarning(GrelmicroConfigWarning):
 class GrelmicroFutureWarning(FutureWarning):
     """Warned when a default or a name changes in a coming minor release.
 
-    A behavior change warns only while the argument is left at its default.
-    Passing the argument keeps the chosen behavior across the switch and
-    emits nothing. A renamed name warns on every use of the old name, which
-    is removed in the release the message names.
+    A behavior change warns only while the setting is left at its default.
+    Choosing the value explicitly keeps the chosen behavior across the switch
+    and emits nothing. A renamed or removed name warns on every use of the
+    old name, which is removed in the release the message names.
 
     A category of its own so it can be promoted or filtered precisely:
 
@@ -159,6 +159,18 @@ class GrelmicroFutureWarning(FutureWarning):
     filterwarnings = ["error::grelmicro.GrelmicroFutureWarning"]
     ```
     """
+
+
+class EnvLoadDefaultWarning(GrelmicroFutureWarning, EnvLoadOffWarning):
+    """A `GREL_*` variable is set while `GREL_ENV_LOAD` is unset.
+
+    The variable is not read today, and is read by default from 0.44.0.
+    A filter on `GrelmicroFutureWarning`, `FutureWarning`,
+    `EnvLoadOffWarning` or `GrelmicroConfigWarning` silences it. Set
+    `GREL_ENV_LOAD` to choose, and it stops.
+    """
+
+    code: ClassVar[str] = "env-load-off"
 
 
 class MiddlewarePlacementError(GrelmicroError, RuntimeError):
