@@ -652,7 +652,7 @@ async def test_liveness_task_error_still_removes_auto_registered_checks(
         "grelmicro.health._checks._app_open", _raise_runtime_error
     )
     health = HealthChecks(
-        cache_ttl=0, providers="require", liveness=Liveness(interval=0.01)
+        cache_ttl=0, provider_checks="require", liveness=Liveness(interval=0.01)
     )
     micro = Grelmicro(uses=[_ReadyProvider(), health])
 

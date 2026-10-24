@@ -8,8 +8,9 @@ default or remove the old name.
 
 import warnings
 from dataclasses import dataclass, replace
+from typing import Literal
 
-from grelmicro.errors import GrelmicroFutureWarning
+from grelmicro.errors import EnvLoadDefaultWarning, GrelmicroFutureWarning
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -28,30 +29,45 @@ class FutureChange:
     switch_in: str
     """The release that switches the default, as `MAJOR.MINOR.PATCH`."""
 
-    keep: str
-    """The argument that keeps the current behavior, such as `gate=None`."""
+    keep: str | None
+    """The setting that keeps the current behavior, such as `gate=None`.
+
+    None when no setting keeps it, so the message offers only `adopt`.
+    """
 
     adopt: str
-    """The argument that adopts the new behavior now."""
+    """The setting that adopts the new behavior now."""
+
+    verb: Literal["Pass", "Set"] = "Pass"
+    """How the message asks for `keep` and `adopt`.
+
+    "Pass" for an argument and "Set" for an environment variable.
+    """
+
+    category: type[GrelmicroFutureWarning] = GrelmicroFutureWarning
+    """The warning category `warn` emits."""
 
     @property
     def message(self) -> str:
         """The warning message."""
+        if self.keep is None:
+            return (
+                f"{self.change} from {self.switch_in}. "
+                f"{self.verb} `{self.adopt}` now."
+            )
         return (
             f"{self.change} from {self.switch_in}. "
-            f"Pass `{self.keep}` to keep the current behavior, "
+            f"{self.verb} `{self.keep}` to keep the current behavior, "
             f"or `{self.adopt}` to adopt the new one now."
         )
 
     def warn(self, stacklevel: int = 2) -> None:
-        """Emit a `GrelmicroFutureWarning` with `message`.
+        """Emit a `category` warning with `message`.
 
         `stacklevel` counts from the function that calls `warn`, so the
         default reports the line that called that function.
         """
-        warnings.warn(
-            self.message, GrelmicroFutureWarning, stacklevel=stacklevel + 1
-        )
+        warnings.warn(self.message, self.category, stacklevel=stacklevel + 1)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -146,12 +162,28 @@ MODE_ENUMS: dict[str, Removal] = {
 """The mode enums replaced by string literals, by name."""
 
 
+MEMBER_ATTRIBUTES: dict[tuple[str, str], Removal] = {
+    (name, attribute): Removal(
+        old=f"{name}.{attribute}",
+        use="the member as a plain `str`",
+        removed_in="0.44.0",
+    )
+    for name in MODE_ENUMS
+    for attribute in ("value", "name")
+}
+"""`.value` and `.name` of a mode enum member, by enum name and attribute.
+
+A mode field reads back as a plain `str` from 0.44.0, which has neither.
+"""
+
+
 ENVIRONMENT_CASE = FutureChange(
     change="A tier in another case, such as `GREL_ENVIRONMENT=Production`, "
-    "reads as that tier",
+    "reads as undeclared today and as that tier",
     switch_in="0.44.0",
-    keep="GREL_ENVIRONMENT=",
+    keep=None,
     adopt="GREL_ENVIRONMENT=production",
+    verb="Set",
 )
 """`GREL_ENVIRONMENT` matches the tier in any case."""
 
@@ -164,7 +196,8 @@ def environment_case(value: str, tier: str) -> FutureChange:
     """
     return replace(
         ENVIRONMENT_CASE,
-        change=f"`GREL_ENVIRONMENT={value}` reads as `{tier}`",
+        change=f"`GREL_ENVIRONMENT={value}` reads as undeclared today "
+        f"and as `{tier}`",
         adopt=f"GREL_ENVIRONMENT={tier}",
     )
 
@@ -174,6 +207,8 @@ ENV_LOAD_DEFAULT = FutureChange(
     switch_in="0.44.0",
     keep="GREL_ENV_LOAD=0",
     adopt="GREL_ENV_LOAD=1",
+    verb="Set",
+    category=EnvLoadDefaultWarning,
 )
 """Every `GREL_*` field is read unless `GREL_ENV_LOAD=0` or `env_load=False`."""
 
@@ -192,29 +227,30 @@ def unread_env(name: str) -> FutureChange:
 AUTO_HEALTH: dict[bool, Rename] = {
     True: Rename(
         old="auto_health=True",
-        new='providers="require"',
+        new='provider_checks="require"',
         removed_in="0.44.0",
     ),
     False: Rename(
         old="auto_health=False",
-        new='providers="off"',
+        new='provider_checks="off"',
         removed_in="0.44.0",
     ),
 }
-"""`HealthChecks(auto_health=)` replaced by `providers=`, by the value passed."""
+"""`HealthChecks(auto_health=)` replaced by `provider_checks=`, by the value passed."""
 
 
 PROVIDERS_DEFAULT = FutureChange(
     change="`HealthChecks()` reports each Provider in `/healthz` by default",
     switch_in="0.44.0",
-    keep='providers="off"',
-    adopt='providers="report"',
+    keep='provider_checks="off"',
+    adopt='provider_checks="report"',
 )
 """`HealthChecks` registers a non-critical check per Provider by default."""
 
 
 PENDING: tuple[FutureChange | Rename | Removal, ...] = (
     *MODE_ENUMS.values(),
+    *MEMBER_ATTRIBUTES.values(),
     ENVIRONMENT_CASE,
     ENV_LOAD_DEFAULT,
     *AUTO_HEALTH.values(),

@@ -29,6 +29,7 @@ __all__ = [
     "MetricsConfig",
     "MetricsError",
     "MetricsExporter",
+    "MetricsExporterType",
     "measure",
     "metrics_asgi",
 ]
@@ -43,6 +44,9 @@ _LAZY: dict[str, str] = {
 }
 """The submodule each public name loads from."""
 
+_MODE_ENUMS = frozenset({"MetricsExporterType"})
+"""The mode enums removed in 0.44.0."""
+
 
 def __getattr__(name: str) -> object:
     """Load `name` from its submodule and cache it on the package.
@@ -50,7 +54,7 @@ def __getattr__(name: str) -> object:
     A mode enum removed in 0.44.0 warns on every access and is not cached.
     """
     module = _LAZY.get(name)
-    if module is None and name == "MetricsExporterType":
+    if module is None and name in _MODE_ENUMS:
         from grelmicro._mode_enums import deprecated_enum  # noqa: PLC0415
 
         return deprecated_enum(name)

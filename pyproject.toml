@@ -279,6 +279,12 @@ replacement = '\1="https://raw.githubusercontent.com/grelinfo/grelmicro/main/doc
 [tool.uv.sources]
 grelmicro-core = { path = "rust/grelmicro-core" }
 
+[tool.uv]
+# multidict 7.2.0 breaks Litestar's `Headers` (aio-libs/multidict#1824). This
+# keeps it out of development resolutions and never reaches the built
+# distribution.
+constraint-dependencies = ["multidict!=7.2.0"]
+
 [tool.ruff]
 target-version = "py314"
 line-length = 80
@@ -390,6 +396,34 @@ exclude = [
     "tools/run_mutmut.py",
 ]
 
+# The mode enums removed in 0.44.0 carry `@deprecated`, so a user's import
+# is reported. The modules that define, serve and accept them until then
+# use them on purpose. Delete this override with the enums.
+[[tool.ty.overrides]]
+include = [
+    "grelmicro/_mode_enums.py",
+    "grelmicro/log/__init__.py",
+    "grelmicro/log/_component.py",
+    "grelmicro/log/config.py",
+    "grelmicro/metrics/__init__.py",
+    "grelmicro/metrics/_component.py",
+    "grelmicro/metrics/config.py",
+    "grelmicro/trace/__init__.py",
+    "grelmicro/trace/_component.py",
+    "grelmicro/trace/config.py",
+]
+
+[tool.ty.overrides.rules]
+deprecated = "ignore"
+
+# A type-checking test asserts a diagnostic with an ignore comment, so an
+# ignore that no longer matches anything fails the check.
+[[tool.ty.overrides]]
+include = ["tests/typechecking/**"]
+
+[tool.ty.overrides.rules]
+unused-ignore-comment = "error"
+
 [tool.pytest.ini_options]
 
 addopts = """
@@ -428,6 +462,7 @@ python_version = "3.14"
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
+enable_error_code = ["deprecated"]
 
 # grelmicro type-checks with `ty`. mypy runs as a second opinion because the
 # package ships `py.typed`, so downstream mypy users see these annotations.
@@ -444,6 +479,24 @@ module = [
     "grelmicro.resilience.fallback",
 ]
 ignore_errors = true
+
+# The mode enums removed in 0.44.0 carry `@deprecated`, so a user's import
+# is reported. The modules that define, serve and accept them until then
+# use them on purpose. Delete this override with the enums.
+[[tool.mypy.overrides]]
+module = [
+    "grelmicro._mode_enums",
+    "grelmicro.log",
+    "grelmicro.log._component",
+    "grelmicro.log.config",
+    "grelmicro.metrics",
+    "grelmicro.metrics._component",
+    "grelmicro.metrics.config",
+    "grelmicro.trace",
+    "grelmicro.trace._component",
+    "grelmicro.trace.config",
+]
+disable_error_code = ["deprecated"]
 
 [tool.coverage.run]
 source = ["grelmicro"]

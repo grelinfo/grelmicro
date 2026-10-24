@@ -208,7 +208,7 @@ class OpsServer:
 
     micro = Grelmicro(
         uses=[
-            HealthChecks(providers="require"),
+            HealthChecks(provider_checks="require"),
             Metrics(exporter="prometheus"),
             OpsServer(port=8080),
         ]

@@ -433,7 +433,7 @@ class Grelmicro:
         self._bare_providers: list[Provider] = []
         """Every Provider passed bare, each one once."""
         self._warned_providers_default = False
-        """Whether this app already warned that `providers=` gets a default."""
+        """Whether this app already warned that `provider_checks=` gets a default."""
         self._pending_providers: list[tuple[Provider, list[Component]]] = []
         """Bare Providers and their default Components, not registered yet."""
         self._pending_kinds: set[str] = set()
@@ -1235,9 +1235,9 @@ class Grelmicro:
         )
 
     def _warn_providers_default(self) -> None:
-        """Warn once that `HealthChecks(providers=)` defaults to "report".
+        """Warn once that `HealthChecks(provider_checks=)` defaults to "report".
 
-        Warns when a registered `HealthChecks` left `providers` unset and
+        Warns when a registered `HealthChecks` left `provider_checks` unset and
         `"report"` would register a check for a Provider on the app. Under
         `fake()` it counts the Providers the app has without the fake, so
         the memory store a fake swaps in warns nothing. The warning points
@@ -1333,7 +1333,7 @@ class Grelmicro:
         Includes Providers listed in `uses=` and those adopted from
         Components that borrow them (see `_discover_shared_providers`). One
         Provider feeding several Components appears once. Useful for
-        introspection and for `HealthChecks(providers=...)`, which
+        introspection and for `HealthChecks(provider_checks=...)`, which
         registers a `provider:{short_name}` check per entry.
         """
         if self._pending_providers:

@@ -1,4 +1,4 @@
-"""Tests for circuit breaker health checks (`add_breaker`)."""
+"""Tests for circuit breaker health checks (`add_circuitbreaker`)."""
 
 from datetime import timedelta
 from pathlib import Path
@@ -61,7 +61,7 @@ def client_for(health: HealthChecks) -> httpx.AsyncClient:
 
 
 class TestRegistration:
-    """Tests for the name, critical flag and timeout of `add_breaker`."""
+    """Tests for the name, critical flag and timeout of `add_circuitbreaker`."""
 
     def test_name_defaults_to_breaker_name(self) -> None:
         """The check is registered as `circuitbreaker:{breaker.name}`."""
@@ -69,7 +69,7 @@ class TestRegistration:
         health = HealthChecks(cache_ttl=0)
 
         # Act
-        health.add_breaker(make_breaker("inverter"))
+        health.add_circuitbreaker(make_breaker("inverter"))
 
         # Assert
         assert list(health._entries) == ["circuitbreaker:inverter"]
@@ -80,7 +80,7 @@ class TestRegistration:
         health = HealthChecks(cache_ttl=0)
 
         # Act
-        health.add_breaker(make_breaker("inverter"), name="solar")
+        health.add_circuitbreaker(make_breaker("inverter"), name="solar")
 
         # Assert
         assert list(health._entries) == ["circuitbreaker:solar"]
@@ -92,7 +92,7 @@ class TestRegistration:
 
         # Act / Assert
         with pytest.raises(ValueError, match="name="):
-            health.add_breaker(make_breaker("Inverter API"))
+            health.add_circuitbreaker(make_breaker("Inverter API"))
         assert health._entries == {}
 
     def test_too_long_name_points_at_name_argument(self) -> None:
@@ -102,17 +102,17 @@ class TestRegistration:
 
         # Act / Assert
         with pytest.raises(ValueError, match="name="):
-            health.add_breaker(make_breaker("a" * 60))
+            health.add_circuitbreaker(make_breaker("a" * 60))
 
     def test_duplicate_is_refused(self) -> None:
         """A second breaker under the same check name is refused."""
         # Arrange
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(make_breaker("inverter"))
+        health.add_circuitbreaker(make_breaker("inverter"))
 
         # Act / Assert
         with pytest.raises(ValueError, match="already registered"):
-            health.add_breaker(make_breaker("inverter"))
+            health.add_circuitbreaker(make_breaker("inverter"))
 
     def test_non_critical_by_default(self) -> None:
         """The check is non-critical unless `critical=True` is passed."""
@@ -120,8 +120,8 @@ class TestRegistration:
         health = HealthChecks(cache_ttl=0)
 
         # Act
-        health.add_breaker(make_breaker("inverter"))
-        health.add_breaker(make_breaker("heater"), critical=True)
+        health.add_circuitbreaker(make_breaker("inverter"))
+        health.add_circuitbreaker(make_breaker("heater"), critical=True)
 
         # Assert
         assert health._entries["circuitbreaker:inverter"].critical is False
@@ -134,7 +134,7 @@ class TestRegistration:
         timeout = 2.0
 
         # Act
-        health.add_breaker(make_breaker(), timeout=timeout)
+        health.add_circuitbreaker(make_breaker(), timeout=timeout)
 
         # Assert
         assert health._entries["circuitbreaker:inverter"].timeout == timeout
@@ -145,7 +145,7 @@ class TestRegistration:
         health = HealthChecks(cache_ttl=0)
 
         # Act
-        health.add_breaker(make_breaker("inverter").keyed("roof"))
+        health.add_circuitbreaker(make_breaker("inverter").keyed("roof"))
 
         # Assert
         assert list(health._entries) == ["circuitbreaker:inverter:roof"]
@@ -158,7 +158,7 @@ class TestStatus:
         """A closed breaker reports ok with no details."""
         # Arrange
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(make_breaker())
+        health.add_circuitbreaker(make_breaker())
 
         # Act
         report = await health.run()
@@ -175,7 +175,7 @@ class TestStatus:
         breaker = make_breaker()
         await trip(breaker)
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(breaker)
+        health.add_circuitbreaker(breaker)
 
         # Act
         report = await health.run()
@@ -192,7 +192,7 @@ class TestStatus:
         breaker = make_breaker()
         await breaker.isolate()
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(breaker)
+        health.add_circuitbreaker(breaker)
 
         # Act
         report = await health.run()
@@ -211,7 +211,7 @@ class TestStatus:
             CircuitBreakerState.HALF_OPEN, _TransitionCause.MANUAL
         )
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(breaker)
+        health.add_circuitbreaker(breaker)
 
         # Act
         report = await health.run()
@@ -229,7 +229,7 @@ class TestStatus:
             CircuitBreakerState.FORCED_CLOSED, _TransitionCause.MANUAL
         )
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(breaker)
+        health.add_circuitbreaker(breaker)
 
         # Act
         report = await health.run()
@@ -246,7 +246,7 @@ class TestStatus:
         idle = make_breaker(backend=backend)
         await trip(make_breaker(backend=backend))
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(idle)
+        health.add_circuitbreaker(idle)
 
         # Act
         report = await health.run()
@@ -263,7 +263,7 @@ class TestStatus:
         idle = make_breaker(backend=backend)
         await trip(make_breaker(backend=backend))
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(idle)
+        health.add_circuitbreaker(idle)
 
         # Act
         await health.run()
@@ -281,7 +281,7 @@ class TestEndpoints:
         breaker = make_breaker()
         await trip(breaker)
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(breaker)
+        health.add_circuitbreaker(breaker)
 
         # Act
         async with client_for(health) as client:
@@ -303,7 +303,7 @@ class TestEndpoints:
         breaker = make_breaker("heater")
         await trip(breaker)
         health = HealthChecks(cache_ttl=0)
-        health.add_breaker(breaker, critical=True)
+        health.add_circuitbreaker(breaker, critical=True)
 
         # Act
         async with client_for(health) as client:
@@ -327,7 +327,7 @@ class TestSharedBackend:
             await trip(make_breaker(backend=backend))
             idle = make_breaker(backend=backend)
             health = HealthChecks(cache_ttl=0)
-            health.add_breaker(idle)
+            health.add_circuitbreaker(idle)
 
             # Act
             report = await health.run()

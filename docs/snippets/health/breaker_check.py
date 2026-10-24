@@ -7,7 +7,7 @@ heater = CircuitBreaker.consecutive_count("heater", error_threshold=5)
 health = HealthChecks()
 
 # Registered as "circuitbreaker:inverter", visible in /healthz only.
-health.add_breaker(inverter)
+health.add_circuitbreaker(inverter)
 
 # An open heater breaker fails /readyz.
-health.add_breaker(heater, critical=True)
+health.add_circuitbreaker(heater, critical=True)
