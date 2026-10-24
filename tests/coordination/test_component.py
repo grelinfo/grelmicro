@@ -284,23 +284,19 @@ def test_provider_without_any_adapter_constructs() -> None:
         _ = coordination.schedule_backend
 
 
-def test_lock_only_provider_constructs() -> None:
-    """A lock-only provider constructs without raising on the unserved kind.
-
-    `SQLiteProvider` ships `lock` and `schedule` but no `leaderelection`.
-    Construction must not crash for a locks-only user. The lock path works
-    and the election path raises a clear `CoordinationBackendError` only on
-    actual use.
-    """
+def test_sqlite_provider_serves_every_coordination_backend() -> None:
+    """`SQLiteProvider` builds a backend for every coordination kind."""
     # Arrange / Act
     coordination = Coordination(SQLiteProvider("file:app?mode=memory"))
 
     # Assert
     assert coordination.lock_backend.__class__.__name__ == "SQLiteLockAdapter"
-    with pytest.raises(
-        CoordinationBackendError, match="no leader election backend"
-    ):
-        _ = coordination.leaderelection_backend
+    assert coordination.leaderelection_backend.__class__.__name__ == (
+        "SQLiteLeaderElectionAdapter"
+    )
+    assert coordination.schedule_backend.__class__.__name__ == (
+        "SQLiteScheduleAdapter"
+    )
 
 
 async def test_lock_only_lifecycle() -> None:

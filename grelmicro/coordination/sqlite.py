@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
 from grelmicro._duration import MILLISECOND, round_up
 from grelmicro.coordination._protocol import (
+    LeaderRecord,
     LockBackend,
     ReadWriteLockBackend,
     ReadWriteLockState,
@@ -53,6 +55,26 @@ _TIME_SQL = {
     "writer_expiry": _expiry("writer_expire_at"),
 }
 """The time fragments a lease statement is formatted with."""
+
+
+@asynccontextmanager
+async def _immediate(provider: SQLiteProvider) -> AsyncGenerator[Connection]:
+    """Run a body inside `BEGIN IMMEDIATE` on the provider's connection.
+
+    The provider's lock serializes the single connection within the process,
+    and the transaction's write lock serializes across processes sharing the
+    file. The transaction commits when the body returns and rolls back when
+    it raises.
+    """
+    conn = provider.client
+    async with provider.connection_lock:
+        await conn.execute("BEGIN IMMEDIATE;")
+        try:
+            yield conn
+        except BaseException:
+            await conn.execute("ROLLBACK;")
+            raise
+        await conn.execute("COMMIT;")
 
 
 def _seconds_text(duration: timedelta) -> str:
@@ -486,19 +508,6 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
-    @asynccontextmanager
-    async def _transaction(self) -> AsyncGenerator[Connection]:
-        """Run a body inside `BEGIN IMMEDIATE` on the shared connection."""
-        conn = self._provider.client
-        async with self._provider.connection_lock:
-            await conn.execute("BEGIN IMMEDIATE;")
-            try:
-                yield conn
-            except BaseException:
-                await conn.execute("ROLLBACK;")
-                raise
-            await conn.execute("COMMIT;")
-
     async def _fetch(
         self, conn: Connection, key: str, params: tuple[object, ...]
     ) -> Any:  # noqa: ANN401
@@ -511,7 +520,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
     ) -> int | None:
         """Acquire a read lease, returning the generation or `None`."""
         seconds = _seconds_text(duration)
-        async with self._transaction() as conn:
+        async with _immediate(self._provider) as conn:
             await conn.execute(self._sql["reap"], (name,))
             await conn.execute(self._sql["ensure_row"], (name,))
             row = await self._fetch(conn, "select_lock", (name,))
@@ -535,7 +544,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
     ) -> WriteGrant | None:
         """Acquire the write lease, returning the grant or `None`."""
         seconds = _seconds_text(duration)
-        async with self._transaction() as conn:
+        async with _immediate(self._provider) as conn:
             await conn.execute(self._sql["reap"], (name,))
             await conn.execute(self._sql["ensure_row"], (name,))
             row = await self._fetch(conn, "select_lock", (name,))
@@ -568,19 +577,19 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
 
     async def release_read(self, *, name: str, token: str) -> bool:
         """Drop a read lease."""
-        async with self._transaction() as conn:
+        async with _immediate(self._provider) as conn:
             row = await self._fetch(conn, "delete_holder", (name, token, "r"))
             return row is not None
 
     async def release_write(self, *, name: str, token: str) -> bool:
         """Drop the write lease, leaving the lock clean."""
-        async with self._transaction() as conn:
+        async with _immediate(self._provider) as conn:
             row = await self._fetch(conn, "clear_writer", (name, token))
             return row is not None
 
     async def cancel_intent(self, *, name: str, token: str) -> bool:
         """Withdraw a writer intent."""
-        async with self._transaction() as conn:
+        async with _immediate(self._provider) as conn:
             row = await self._fetch(conn, "delete_holder", (name, token, "i"))
             return row is not None
 
@@ -589,7 +598,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
     ) -> int | None:
         """Turn a held write lease into a read lease."""
         seconds = _seconds_text(duration)
-        async with self._transaction() as conn:
+        async with _immediate(self._provider) as conn:
             row = await self._fetch(conn, "clear_writer", (name, token))
             if row is None:
                 return None
@@ -600,7 +609,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
 
     async def state(self, *, name: str) -> ReadWriteLockState:
         """Return a point-in-time view of the lock."""
-        async with self._transaction() as conn:
+        async with _immediate(self._provider) as conn:
             await conn.execute(self._sql["reap"], (name,))
             row = await self._fetch(conn, "select_lock", (name,))
             if row is None:
@@ -800,3 +809,254 @@ class SQLiteScheduleAdapter(ScheduleBackend):
         ):
             result = await cursor.fetchone()
         return float(result[0]) if result is not None else None
+
+
+class SQLiteLeaderElectionAdapter:
+    """SQLite Leader Election Adapter.
+
+    Borrows the connection and a shared lock from a `SQLiteProvider` and
+    implements the `LeaderElectionBackend` protocol on a single host. One row
+    per election holds the `LeaderRecord`: the holder, the lease in whole
+    milliseconds, when it was acquired and last renewed, when it expires,
+    the number of holder changes, and the metadata as JSON.
+
+    `acquire_or_renew` runs one gated UPSERT inside a `BEGIN IMMEDIATE`
+    transaction. It inserts a fresh lease, renews a live lease held by the
+    same token, or takes over an expired one. A live lease held by another
+    token is left alone and read back. Every time comes from the SQLite
+    clock and is stored to the millisecond, and lease durations are rounded
+    up to the millisecond.
+
+    The expired row is kept in place so a takeover can read the previous
+    holder and bump `transitions`. Release deletes the row, so the next
+    holder starts at zero. Only `acquire_or_renew`, `release`, and `get`
+    treat an expired lease as vacant.
+
+    The provider's lock serializes the single connection within the process,
+    and the transaction's write lock serializes across processes sharing the
+    same file.
+
+    Example:
+    ```python
+    from grelmicro import Grelmicro
+    from grelmicro.coordination import Coordination
+    from grelmicro.providers.sqlite import SQLiteProvider
+
+    sqlite = SQLiteProvider("app.db")
+    micro = Grelmicro(uses=[sqlite, Coordination(leaderelection=sqlite)])
+    ```
+    """
+
+    scope: ClassVar[BackendScope] = "host"
+    """State is shared by the processes that open the same file."""
+
+    _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            name TEXT PRIMARY KEY,
+            holder TEXT NOT NULL,
+            lease_ms INTEGER NOT NULL,
+            acquired_at TEXT NOT NULL,
+            renewed_at TEXT NOT NULL,
+            expire_at TEXT NOT NULL,
+            transitions INTEGER NOT NULL DEFAULT 0,
+            metadata TEXT NOT NULL DEFAULT '{{}}'
+        );
+        """
+
+    _RECORD = "holder, lease_ms, acquired_at, renewed_at, transitions, metadata"
+    """The columns a `LeaderRecord` is read from, in order."""
+
+    _SQL_ACQUIRE_OR_RENEW = """
+        INSERT INTO {table_name} (
+            name, holder, lease_ms, acquired_at,
+            renewed_at, expire_at, transitions, metadata
+        )
+        VALUES (?, ?, ?, {now}, {now}, {expire_after}, 0, ?)
+        ON CONFLICT (name) DO UPDATE
+        SET holder = excluded.holder,
+            lease_ms = excluded.lease_ms,
+            acquired_at = CASE
+                WHEN {table_name}.expire_at > {now}
+                THEN {table_name}.acquired_at
+                ELSE excluded.acquired_at
+            END,
+            renewed_at = excluded.renewed_at,
+            expire_at = excluded.expire_at,
+            transitions = CASE
+                WHEN {table_name}.holder = excluded.holder
+                THEN {table_name}.transitions
+                ELSE {table_name}.transitions + 1
+            END,
+            metadata = excluded.metadata
+        WHERE {table_name}.holder = excluded.holder
+           OR {table_name}.expire_at <= {now}
+        RETURNING {record};
+        """
+
+    _SQL_CURRENT = """
+        SELECT {record} FROM {table_name} WHERE name = ?;
+        """
+
+    _SQL_GET = """
+        SELECT {record} FROM {table_name}
+        WHERE name = ? AND expire_at > {now};
+        """
+
+    _SQL_RELEASE = """
+        DELETE FROM {table_name}
+        WHERE name = ? AND holder = ? AND expire_at > {now}
+        RETURNING 1;
+        """
+
+    def __init__(
+        self,
+        *,
+        provider: Annotated[
+            SQLiteProvider | None,
+            Doc(
+                """
+                A pre-built `SQLiteProvider`. When set, the adapter
+                borrows the provider's connection and does not manage
+                its lifecycle.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `SQLiteProvider` when `provider` is not set. Resolves
+                the path from `SQLITE_PATH` by default.
+                """,
+            ),
+        ] = "SQLITE_",
+        table_name: Annotated[
+            str, Doc("The table name to store the leader election leases.")
+        ] = "grelmicro_leader_election",
+    ) -> None:
+        """Initialize the leader election backend."""
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
+            msg = f"Table name '{table_name}' is not a valid SQL identifier"
+            raise SettingsValidationError(msg)
+
+        if provider is None:
+            self._provider = SQLiteProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
+        self._table_name = table_name
+        self._sql = {
+            key: template.format(
+                table_name=table_name, record=self._RECORD, **_TIME_SQL
+            )
+            for key, template in {
+                "acquire_or_renew": self._SQL_ACQUIRE_OR_RENEW,
+                "current": self._SQL_CURRENT,
+                "get": self._SQL_GET,
+                "release": self._SQL_RELEASE,
+            }.items()
+        }
+
+    @property
+    def provider(self) -> SQLiteProvider:
+        """The bound `SQLiteProvider`."""
+        return self._provider
+
+    def _rebind_provider(self, provider: SQLiteProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
+
+    async def __aenter__(self) -> Self:
+        """Open the provider when owned, then create the table."""
+        if self._owns_provider:
+            await self._provider.__aenter__()
+        async with self._provider.connection_lock:
+            await self._provider.client.execute(
+                self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
+                    table_name=self._table_name
+                ),
+            )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the provider when owned. External providers are left alone."""
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
+
+    async def acquire_or_renew(
+        self,
+        *,
+        name: str,
+        token: str,
+        duration: timedelta,
+        metadata: Mapping[str, str] | None = None,
+    ) -> LeaderRecord:
+        """Acquire or renew the lease, returning the resulting record.
+
+        A live lease held by another token is left alone and its record is
+        returned.
+        """
+        params = (
+            name,
+            token,
+            round_up(duration, MILLISECOND),
+            _seconds_text(duration),
+            json.dumps(dict(metadata or {})),
+        )
+        async with _immediate(self._provider) as conn:
+            async with conn.execute(
+                self._sql["acquire_or_renew"], params
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                async with conn.execute(
+                    self._sql["current"], (name,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+        return self._to_record(row)
+
+    async def release(self, *, name: str, token: str) -> bool:
+        """Release the lease when `token` holds it and it is still live."""
+        async with (
+            _immediate(self._provider) as conn,
+            conn.execute(self._sql["release"], (name, token)) as cursor,
+        ):
+            row = await cursor.fetchone()
+        return row is not None
+
+    async def get(self, *, name: str) -> LeaderRecord | None:
+        """Return the current live record, or `None`."""
+        conn = self._provider.client
+        async with (
+            self._provider.connection_lock,
+            conn.execute(self._sql["get"], (name,)) as cursor,
+        ):
+            row = await cursor.fetchone()
+        return self._to_record(row) if row is not None else None
+
+    @staticmethod
+    def _to_record(row: Any) -> LeaderRecord:  # noqa: ANN401
+        """Build a `LeaderRecord` from a row of `_RECORD` columns."""
+        holder, lease_ms, acquired_at, renewed_at, transitions, metadata = row
+        return LeaderRecord(
+            holder=holder,
+            lease_duration=timedelta(milliseconds=lease_ms),
+            acquired_at=_utc(acquired_at),
+            renewed_at=_utc(renewed_at),
+            transitions=int(transitions),
+            metadata=json.loads(metadata),
+        )
+
+
+def _utc(text: str) -> datetime:
+    """Read a SQLite UTC time text, such as `2026-01-31 12:00:00.250`."""
+    return datetime.fromisoformat(text).replace(tzinfo=UTC)

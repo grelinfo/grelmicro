@@ -106,7 +106,7 @@ Grelmicro(uses=[redis])
 # registers Coordination, Cache, RateLimiterComponent, CircuitBreakerComponent, all on redis
 ```
 
-A Provider serves a kind when its factory for that kind is implemented. `RedisProvider` and `PostgresProvider` serve all four kinds. `SQLiteProvider` skips leader election. An unserved kind (the factory raises `NotImplementedError`) is skipped. Any other factory error propagates, a misconfigured Provider fails loudly instead of registering a partial app.
+A Provider serves a kind when its factory for that kind is implemented. `RedisProvider`, `PostgresProvider`, and `SQLiteProvider` serve all four kinds. An unserved kind (the factory raises `NotImplementedError`) is skipped. Any other factory error propagates, a misconfigured Provider fails loudly instead of registering a partial app.
 
 Back-off is per kind: **explicit wins, the Provider fills the rest.** A Component you list keeps its own kind, and every other kind the Provider serves still gets a default.
 

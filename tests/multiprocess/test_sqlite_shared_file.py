@@ -58,3 +58,58 @@ def test_workers_sharing_one_sqlite_file_all_open_and_write(
 
     # Assert
     assert written == [b"v"] * WORKERS
+
+
+ELECTION_LEASE = timedelta(seconds=5)
+"""A lease that outlives the run, so the first leader keeps it."""
+
+SETTLE_SECONDS = 1.0
+"""Seconds every worker stands before reading whether it leads."""
+
+
+def stand_for_election(barrier: Barrier, results: Results, path: str) -> None:
+    """Run for leader on the shared file and report whether this worker won."""
+    asyncio.run(_stand_for_election(barrier, results, path))
+
+
+async def _stand_for_election(
+    barrier: Barrier, results: Results, path: str
+) -> None:
+    from grelmicro.coordination import LeaderElection  # noqa: PLC0415
+    from grelmicro.providers.sqlite import SQLiteProvider  # noqa: PLC0415
+
+    async with (
+        SQLiteProvider(path) as provider,
+        provider.leaderelection_backend() as backend,
+    ):
+        election = LeaderElection(
+            "multiprocess-election",
+            backend=backend,
+            lease_duration=ELECTION_LEASE,
+            renew_deadline=ELECTION_LEASE * 0.66,
+            retry_interval=0.1,
+            backend_timeout=2.0,
+        )
+        barrier.wait(BARRIER_TIMEOUT)
+        async with asyncio.TaskGroup() as group:
+            task = group.create_task(election())
+            await asyncio.sleep(SETTLE_SECONDS)
+            results.append(election.is_leader())
+            # Every worker has read before the leader stands down and
+            # releases, so no standby can take over before reading.
+            barrier.wait(BARRIER_TIMEOUT)
+            task.cancel()
+
+
+def test_workers_sharing_one_sqlite_file_elect_one_leader(
+    tmp_path: Path,
+) -> None:
+    """Worker processes on one SQLite file elect exactly one leader."""
+    # Act
+    leading = run_workers(
+        stand_for_election, WORKERS, str(tmp_path / "election.db")
+    )
+
+    # Assert
+    assert len(leading) == WORKERS
+    assert sum(leading) == 1

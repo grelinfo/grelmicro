@@ -264,7 +264,7 @@ Each Provider exposes factory methods that return its matching adapter:
 | `.lock_backend(**kwargs)`           | `LockBackend` implementation  |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 | `.readwritelock_backend(**kwargs)`  | `ReadWriteLockBackend` impl   |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 | `.schedule_backend(**kwargs)`       | `ScheduleBackend` impl        |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
-| `.leaderelection_backend(**kwargs)` | `LeaderElectionBackend` impl  |       ✓       |       ✓        |        ✓         |      N/A       |       ✓        |
+| `.leaderelection_backend(**kwargs)` | `LeaderElectionBackend` impl  |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 | `.cache_backend(**kwargs)`          | `CacheBackend` implementation |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 | `.outbox_backend(**kwargs)`         | `OutboxBackend` impl          |      N/A      |      N/A       |        ✓         |      N/A       |       ✓        |
 | `.ratelimiter_backend(**kwargs)`    | `RateLimiterBackend` impl     |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
@@ -306,8 +306,8 @@ reader. If you want the list you wrote to be exactly the list that runs,
 ## SQLite
 
 `SQLiteProvider` ships the `.lock_backend()`, `.readwritelock_backend()`,
-`.schedule_backend()`, `.cache_backend()`, `.ratelimiter_backend()`, and
-`.circuitbreaker_backend()` factories. The provider owns one `aiosqlite`
+`.leaderelection_backend()`, `.schedule_backend()`, `.cache_backend()`,
+`.ratelimiter_backend()`, and `.circuitbreaker_backend()` factories. The provider owns one `aiosqlite`
 connection (autocommit, WAL) and a shared lock that adapters borrow.
 
 ```python
