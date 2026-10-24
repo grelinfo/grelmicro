@@ -33,7 +33,7 @@ APPS = {
         "from grelmicro.task import Tasks\n"
         "tasks = Tasks()\n"
         "micro = Grelmicro(\n"
-        "    uses=[MemoryProvider(), Log(), HealthChecks(providers='require'), tasks]\n"
+        "    uses=[MemoryProvider(), Log(), HealthChecks(provider_checks='require'), tasks]\n"
         ")\n"
         "@tasks.every(interval=60, gate='claim')\n"
         "async def job() -> None: ...\n"

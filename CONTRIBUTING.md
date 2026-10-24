@@ -689,13 +689,18 @@ warnings into errors would fail on a patch upgrade. Declare
 it in `grelmicro/_deprecation.py` and add it to `PENDING`.
 
 - **A changed default** is a `FutureChange`. Call its `warn()` only while the
-  argument is left at its default, so passing the argument silences it. There
-  is no global flag to opt into future behavior.
+  setting is left at its default, so choosing a value silences it. Give it
+  `verb="Set"` when the setting is an environment variable, and `keep=None`
+  when no value keeps the current behavior. There is no global flag to opt
+  into future behavior.
 - **A rename** is a `Rename`. Ship the new name beside the old one, and call
   `warn()` where the old name is used. Remove the old name in the next minor.
 - **A removal** is a `Removal`, for a name that goes with no one-to-one
   replacement, such as an enum replaced by string literals. Keep the old name
   importable, call `warn()` where it is read, and remove it in the next minor.
+- Mark a removed class, or the overload that takes an old argument, with
+  `@deprecated(..., category=None)` so type checkers report it too. The
+  `warn()` call stays the runtime warning.
 - Test each entry with `tests._future.assert_future_warning`: the default
   call warns and the explicit call emits nothing.
 - Put the entry under `### Deprecated` in the minor that adds the warning,

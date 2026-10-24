@@ -86,7 +86,7 @@ stateDiagram-v2
     | **FORCED_OPEN**   | Manual override that blocks every call.                            |
     | **FORCED_CLOSED** | Manual override that allows every call.                            |
 
-To report a breaker in `/healthz`, register it with [`health.add_breaker`](../health.md#circuit-breakers).
+To report a breaker in `/healthz`, register it with [`health.add_circuitbreaker`](../health.md#circuit-breakers).
 
 ## Manual control
 

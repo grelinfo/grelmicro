@@ -4,7 +4,7 @@ from grelmicro import Grelmicro
 from grelmicro.health import HealthChecks
 from grelmicro.providers.redis import RedisProvider
 
-health = HealthChecks(providers="require")
+health = HealthChecks(provider_checks="require")
 redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(
