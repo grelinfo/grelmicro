@@ -7,4 +7,4 @@ redis = RedisProvider("redis://localhost:6379")
 postgres = PostgresProvider("postgresql://localhost:5432/app")
 
 # Registers "provider:redis" and "provider:postgres" critical checks on startup.
-micro = Grelmicro(uses=[redis, postgres, HealthChecks(auto_health=True)])
+micro = Grelmicro(uses=[redis, postgres, HealthChecks(providers="require")])

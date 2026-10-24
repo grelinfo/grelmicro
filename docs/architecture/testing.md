@@ -25,7 +25,7 @@ a fake is the real app.
 
 A Provider is opened only when something left as is still borrows it. One
 that only the faked components used stays closed: the test connects to
-nothing, and a readiness check on it, from `auto_health` or `add_provider`, is
+nothing, and a readiness check on it, from `providers=` or `add_provider`, is
 left out of the health report. A Provider the test opens itself, or that a
 real app sharing it keeps open, works as usual. The components a `Bulkhead`
 lists in its own `uses=` are not the app's, so a Provider only they borrow is

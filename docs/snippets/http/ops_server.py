@@ -8,7 +8,7 @@ from grelmicro.metrics import Metrics
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider(url="redis://localhost:6379/0")
-health = HealthChecks(auto_health=True)
+health = HealthChecks(providers="require")
 
 micro = Grelmicro(
     uses=[

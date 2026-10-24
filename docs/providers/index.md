@@ -281,7 +281,7 @@ Valkey run `PING`, Postgres and SQLite run `SELECT 1`, and Memory returns
 ready right away. A `HealthChecks` registers it as a
 `provider:{short_name}` check, one provider at a time with
 `health.add_provider(provider)` or for the whole app with
-`HealthChecks(auto_health=True)`. See [Health Checks](../health.md#provider-readiness-checks).
+`HealthChecks(providers="require")`. See [Health Checks](../health.md#provider-readiness-checks).
 
 ## Lifecycle
 
