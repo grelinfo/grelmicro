@@ -14,10 +14,12 @@ from testcontainers.core.container import DockerContainer
 
 from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.kubernetes import KubernetesLockAdapter
+from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.coordination.postgres import PostgresLockAdapter
 from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.coordination.sqlite import SQLiteLockAdapter
+from grelmicro.errors import WouldBlockError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
@@ -500,6 +502,32 @@ async def test_a_lease_is_rounded_up_never_down(
     # Assert
     assert held is True
     assert taken is not None
+
+
+async def test_auto_extend_holds_past_several_leases(
+    backend: LockBackend, expire_duration: timedelta, expire_wait: float
+) -> None:
+    """A hold with `auto_extend=True` keeps the lock long after its lease."""
+    # Arrange
+    name = "test_auto_extend" + uuid4().hex
+    mine, theirs = (
+        Lock(
+            name, backend=backend, worker=worker, lease_duration=expire_duration
+        )
+        for worker in ("worker_0", "worker_1")
+    )
+
+    # Act
+    async with mine.hold(timeout=None, auto_extend=True) as held:
+        await sleep(expire_wait * 2)
+        with pytest.raises(WouldBlockError):
+            await theirs.acquire_nowait()
+        owned = await mine.owned()
+
+    # Assert
+    assert held.fencing_token >= 1
+    assert owned
+    assert not await mine.locked()
 
 
 class _FakeContainer:

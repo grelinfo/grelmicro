@@ -126,9 +126,9 @@ Pick the backend that matches your deployment, not the fastest one on paper.
 - **PostgreSQL**: use when Postgres is already in your stack. It needs no extra
   infrastructure and gives transactional, durable locks. Slightly slower than
   Redis, but the right default when you want one fewer moving part.
-- **SQLite**: use for a single node that needs persistent locks with no
-  operational overhead. State survives restarts on local disk, but it does not
-  coordinate across nodes. Good for home labs and single-instance deployments.
+- **SQLite**: use for a single node that needs persistent locks or leader
+  election with no operational overhead. State survives restarts on local disk,
+  but it does not coordinate across nodes. Good for home labs and single-instance deployments.
 - **Kubernetes**: use for leader election in a Kubernetes-native deployment. It
   builds on the Kubernetes Lease API and reuses the existing API server, so no
   extra infrastructure is needed. It guarantees one holder at a time within the

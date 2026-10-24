@@ -6,13 +6,14 @@ import asyncio
 import sqlite3
 from logging import getLogger
 from time import monotonic
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Self
 
 import aiosqlite
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Doc
 
+from grelmicro._config import any_case
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
 
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 
     from grelmicro.cache.sqlite import SQLiteCacheAdapter
     from grelmicro.coordination.sqlite import (
+        SQLiteLeaderElectionAdapter,
         SQLiteLockAdapter,
         SQLiteReadWriteLockAdapter,
         SQLiteScheduleAdapter,
@@ -93,6 +95,10 @@ async def _enable_wal(connection: aiosqlite.Connection, path: str) -> None:
             return
 
 
+type SQLiteSynchronous = Literal["full", "normal"]
+"""SQLite `synchronous` mode, matched in any case."""
+
+
 class SQLiteConfig(BaseModel):
     """SQLite connection settings.
 
@@ -101,7 +107,17 @@ class SQLiteConfig(BaseModel):
     on the provider, not the config.
     """
 
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     path: str | None = None
+    synchronous: Annotated[
+        SQLiteSynchronous | None,
+        any_case(SQLiteSynchronous),
+        Doc(
+            "SQLite `synchronous` mode set on each opened connection. None "
+            "keeps SQLite's default, `full`."
+        ),
+    ] = None
 
 
 class _SQLiteEnvSettings(BaseSettings):
@@ -110,6 +126,20 @@ class _SQLiteEnvSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     path: str | None = None
+
+
+class _SQLiteSynchronousEnvSettings(BaseSettings):
+    """Read only the synchronous mode from the environment.
+
+    Kept separate from `_SQLiteEnvSettings` so an explicit path still reads
+    `{env_prefix}SYNCHRONOUS`.
+    """
+
+    model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
+
+    synchronous: Annotated[
+        SQLiteSynchronous | None, any_case(SQLiteSynchronous)
+    ] = None
 
 
 def _resolve_path(
@@ -132,6 +162,31 @@ def _resolve_path(
     raise SettingsValidationError(msg)
 
 
+def _resolve_synchronous(
+    synchronous: SQLiteSynchronous | None,
+    env_prefix: str,
+    *,
+    env_load: bool,
+) -> SQLiteSynchronous | None:
+    """Resolve the synchronous mode from a kwarg or `{env_prefix}SYNCHRONOUS`.
+
+    The kwarg wins. When it is None and `env_load` is True, the environment
+    is read. Returns None when neither is set.
+
+    Raises:
+        SettingsValidationError: When the mode is not `full` or `normal`.
+            The rejected value is not echoed.
+    """
+    try:
+        if synchronous is not None:
+            return SQLiteConfig(synchronous=synchronous).synchronous
+        if not env_load:
+            return None
+        return _SQLiteSynchronousEnvSettings(_env_prefix=env_prefix).synchronous
+    except ValidationError as error:
+        raise SettingsValidationError(error) from None
+
+
 class SQLiteProvider(Provider):
     """SQLite connection provider.
 
@@ -152,7 +207,8 @@ class SQLiteProvider(Provider):
     micro = Grelmicro(uses=[sqlite, RateLimiterComponent(sqlite)])
     ```
 
-    The path can also come from the `SQLITE_PATH` environment variable.
+    The path can also come from the `SQLITE_PATH` environment variable,
+    and the synchronous mode from `SQLITE_SYNCHRONOUS`.
     """
 
     short_name: ClassVar[str] = "sqlite"
@@ -169,11 +225,27 @@ class SQLiteProvider(Provider):
             ),
         ] = None,
         *,
+        synchronous: Annotated[
+            SQLiteSynchronous | None,
+            Doc(
+                """
+                SQLite `synchronous` mode, `full` or `normal`, matched in any
+                case. It is set with `PRAGMA synchronous` each time the
+                provider opens its connection. When omitted, the mode is
+                read from `{env_prefix}SYNCHRONOUS`, and if that is unset
+                no PRAGMA runs and SQLite keeps its default, `full`, which
+                keeps every commit through a power cut. `normal` commits
+                faster and keeps commits through an app crash, but a power
+                cut or OS crash can roll back the last commits.
+                """
+            ),
+        ] = None,
         env_prefix: Annotated[
             str,
             Doc(
                 """
-                Environment variable prefix used to resolve the path.
+                Environment variable prefix used to resolve the path and
+                the synchronous mode.
                 `SQLITE_PATH` is read out of the box. Override to split
                 databases: `CACHE_SQLITE_`, `LOCK_SQLITE_`.
                 """
@@ -192,6 +264,9 @@ class SQLiteProvider(Provider):
         """Initialize the provider and resolve the database path."""
         self._env_prefix = env_prefix
         self._path = _resolve_path(path, env_prefix, env_load=env_load)
+        self._synchronous = _resolve_synchronous(
+            synchronous, env_prefix, env_load=env_load
+        )
         self._conn: aiosqlite.Connection | None = None
         self._lock = asyncio.Lock()
         self._own = True
@@ -207,7 +282,12 @@ class SQLiteProvider(Provider):
         env_prefix: str = "SQLITE_",
     ) -> Self:
         """Build a provider from a `SQLiteConfig` instance (no env reads)."""
-        return cls(path=config.path, env_prefix=env_prefix, env_load=False)
+        return cls(
+            path=config.path,
+            synchronous=config.synchronous,
+            env_prefix=env_prefix,
+            env_load=False,
+        )
 
     @classmethod
     def from_client(
@@ -228,10 +308,15 @@ class SQLiteProvider(Provider):
             ),
         ] = False,
     ) -> Self:
-        """Build a provider that wraps an existing `aiosqlite` connection."""
+        """Build a provider that wraps an existing `aiosqlite` connection.
+
+        The connection is used as it is: no PRAGMA runs on it, so it keeps
+        the busy timeout, journal mode and synchronous mode its owner set.
+        """
         self = cls.__new__(cls)
         self._env_prefix = "SQLITE_"
         self._path = ""
+        self._synchronous = None
         self._conn = client
         self._lock = asyncio.Lock()
         self._own = own
@@ -241,6 +326,14 @@ class SQLiteProvider(Provider):
     def path(self) -> str:
         """Resolved database path (empty for `from_client` providers)."""
         return self._path
+
+    @property
+    def synchronous(self) -> SQLiteSynchronous | None:
+        """SQLite `synchronous` mode set on open, or None for SQLite's default.
+
+        Always None for `from_client` providers.
+        """
+        return self._synchronous
 
     @property
     def env_prefix(self) -> str:
@@ -296,6 +389,17 @@ class SQLiteProvider(Provider):
 
         return SQLiteReadWriteLockAdapter(provider=self, **kwargs)
 
+    def leaderelection_backend(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> SQLiteLeaderElectionAdapter:
+        """Build a `SQLiteLeaderElectionAdapter` bound to this provider."""
+        from grelmicro.coordination.sqlite import (  # noqa: PLC0415
+            SQLiteLeaderElectionAdapter,
+        )
+
+        return SQLiteLeaderElectionAdapter(provider=self, **kwargs)
+
     def schedule_backend(self, **kwargs: Any) -> SQLiteScheduleAdapter:  # noqa: ANN401
         """Build a `SQLiteScheduleAdapter` bound to this provider."""
         from grelmicro.coordination.sqlite import (  # noqa: PLC0415
@@ -344,6 +448,11 @@ class SQLiteProvider(Provider):
                 ) as cursor:
                     await cursor.fetchall()
                 await _enable_wal(conn, self._path)
+                if self._synchronous is not None:
+                    async with conn.execute(
+                        f"PRAGMA synchronous={self._synchronous.upper()};"
+                    ) as cursor:
+                        await cursor.fetchall()
             except BaseException:
                 await conn.close()
                 raise

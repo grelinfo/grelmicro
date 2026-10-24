@@ -264,7 +264,7 @@ Each Provider exposes factory methods that return its matching adapter:
 | `.lock_backend(**kwargs)`           | `LockBackend` implementation  |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 | `.readwritelock_backend(**kwargs)`  | `ReadWriteLockBackend` impl   |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 | `.schedule_backend(**kwargs)`       | `ScheduleBackend` impl        |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
-| `.leaderelection_backend(**kwargs)` | `LeaderElectionBackend` impl  |       ✓       |       ✓        |        ✓         |      N/A       |       ✓        |
+| `.leaderelection_backend(**kwargs)` | `LeaderElectionBackend` impl  |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 | `.cache_backend(**kwargs)`          | `CacheBackend` implementation |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 | `.outbox_backend(**kwargs)`         | `OutboxBackend` impl          |      N/A      |      N/A       |        ✓         |      N/A       |       ✓        |
 | `.ratelimiter_backend(**kwargs)`    | `RateLimiterBackend` impl     |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
@@ -306,8 +306,8 @@ reader. If you want the list you wrote to be exactly the list that runs,
 ## SQLite
 
 `SQLiteProvider` ships the `.lock_backend()`, `.readwritelock_backend()`,
-`.schedule_backend()`, `.cache_backend()`, `.ratelimiter_backend()`, and
-`.circuitbreaker_backend()` factories. The provider owns one `aiosqlite`
+`.leaderelection_backend()`, `.schedule_backend()`, `.cache_backend()`,
+`.ratelimiter_backend()`, and `.circuitbreaker_backend()` factories. The provider owns one `aiosqlite`
 connection (autocommit, WAL) and a shared lock that adapters borrow.
 
 ```python
@@ -327,9 +327,24 @@ SQLiteProvider(path="app.db")             # keyword path
 SQLiteProvider()                          # env-driven (SQLITE_PATH)
 SQLiteProvider(env_prefix="CACHE_SQLITE_")  # custom env prefix
 SQLiteProvider(env_load=False)            # kwargs only, no env
+SQLiteProvider("app.db", synchronous="normal")  # faster commits, see below
 SQLiteProvider.from_config(SQLiteConfig(...))
 SQLiteProvider.from_client(connection)    # bring-your-own connection
 ```
+
+### Durability
+
+By default, the provider keeps SQLite's own setting, which is `full` in a
+standard build, so every commit survives a power cut. `synchronous="normal"` (or
+`SQLITE_SYNCHRONOUS=normal`) commits faster, about twice as fast for small
+commits in a local test. Commits still survive an app crash, but a power cut
+or OS crash can roll back the last ones. See
+[`PRAGMA synchronous`](https://www.sqlite.org/pragma.html#pragma_synchronous).
+A rolled-back commit can run a cron fire again or hand out a fencing token
+twice, so keep the default when those matter.
+
+`from_client` leaves the connection as you set it up: the provider runs no
+PRAGMA on it.
 
 ## Memory
 
