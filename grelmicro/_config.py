@@ -42,6 +42,7 @@ from typing import (
     Final,
     TypeVar,
     Union,
+    cast,
     get_args,
     get_origin,
 )
@@ -55,8 +56,13 @@ from grelmicro.errors import EnvLoadOffWarning, SettingsValidationError
 
 if TYPE_CHECKING:
     import asyncio
+    from collections.abc import Sequence
 
-    from pydantic_settings import BaseSettings
+    from pydantic_settings import (
+        BaseSettings,
+        EnvSettingsSource,
+        PydanticBaseSettingsSource,
+    )
 
 C = TypeVar("C", bound=BaseModel)
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
@@ -205,6 +211,145 @@ def refuse_retired_env(
                 raise SettingsValidationError(
                     _retired_message(prefix.upper(), field, fix)
                 )
+
+
+_SERVICE_LINK = re.compile(r"([a-z]+)://(\[[0-9a-fA-F:.]+\]|[^\s:/]+):(\d+)")
+"""The shape of `{SERVICE}_PORT`, such as `tcp://10.0.0.5:6379`.
+
+The groups are the protocol, the host (an IPv6 address in brackets) and
+the port.
+"""
+
+
+def _field_variables(
+    field: str,
+    env_prefix: str,
+    kind_env_prefix: str | None,
+    shared_env: Mapping[str, str] | None,
+) -> list[str]:
+    """Return the variables a field reads, most specific first.
+
+    The instance variable, then the kind-wide one every instance shares,
+    then the app-wide one. The first that is set is the one read.
+    """
+    names = [f"{env_prefix}{field.upper()}"]
+    if kind_env_prefix:
+        names.append(f"{kind_env_prefix}{field.upper()}")
+    if shared_env and field in shared_env:
+        names.append(shared_env[field])
+    return names
+
+
+def is_service_link(name: str, value: object) -> bool:
+    """Return True for a service link Kubernetes set, such as `GREL_OPS_PORT`.
+
+    Kubernetes injects `{SERVICE}_PORT=tcp://<ip>:<port>` into every pod
+    for each Service in the namespace, so a Service named `grel-ops` sets
+    `GREL_OPS_PORT`. It always sets `{SERVICE}_PORT_<port>_<PROTO>` to the
+    same value beside it. A name ending in `_PORT` is a service link only
+    when its value has that shape and that companion holds the same value.
+    """
+    # `type`, not `isinstance`: a value can be a proxy that raises when
+    # asked for its `__class__`.
+    if not name.upper().endswith("_PORT") or type(value) is not str:
+        return False
+    match = _SERVICE_LINK.fullmatch(value)
+    if match is None:
+        return False
+    proto, _, port = match.groups()
+    return os.environ.get(f"{name.upper()}_{port}_{proto.upper()}") == value
+
+
+def refuse_link_shaped_port(
+    error: ValidationError, variables: Mapping[str, Sequence[str]]
+) -> None:
+    """Raise a clear error for a port shaped like a service link.
+
+    Called after validation failed. A service link Kubernetes set never
+    reaches validation, since `settings_sources` drops it. A value with the
+    same shape but without the companion Kubernetes sets beside it is
+    reported here, naming the variable and never the value. Returns
+    without raising when no error matches, so the caller raises the usual
+    one.
+
+    `variables` maps the location pydantic reports a field under to the
+    variables that field reads.
+
+    Raises:
+        SettingsValidationError: Naming the variable and the fix.
+    """
+    for data in error.errors(include_url=False):
+        value = data.get("input")
+        if type(value) is not str or not _SERVICE_LINK.fullmatch(value):
+            continue
+        location = next(iter(data["loc"]), None)
+        for name in variables.get(str(location), ()):
+            upper = name.upper()
+            if upper.endswith("_PORT") and os.environ.get(upper) == value:
+                msg = (
+                    f"- {upper}: looks like a Kubernetes service link, but "
+                    f"Kubernetes did not set it. Set a plain port number, or "
+                    f"`enableServiceLinks: false` on the pod if it came from "
+                    f"a Service."
+                )
+                raise SettingsValidationError(msg)
+
+
+_reported_service_links: set[str] = set()
+"""Service link variables already logged as ignored, process-wide."""
+
+
+def _report_service_link(name: str) -> None:
+    """Log once that `name` holds a service link and is ignored.
+
+    The record names the variable and the Service, never the value, and
+    carries the variable in a `variable` field. It waits until logging is
+    configured.
+    """
+    if name in _reported_service_links:
+        return
+    _reported_service_links.add(name)
+    service = name.removesuffix("_PORT").lower().replace("_", "-")
+    message = (
+        f"{name} holds a Kubernetes service link for a Service named "
+        f"`{service}`, so it is ignored. Set `enableServiceLinks: false` on "
+        f"the pod to drop these variables."
+    )
+    defer_report(lambda: logger.info(message, extra={"variable": name}))
+
+
+def settings_sources(
+    cls: type[BaseSettings],  # noqa: ARG001
+    settings_cls: type[BaseSettings],
+    init_settings: PydanticBaseSettingsSource,
+    env_settings: PydanticBaseSettingsSource,
+    dotenv_settings: PydanticBaseSettingsSource,
+    file_secret_settings: PydanticBaseSettingsSource,
+) -> tuple[PydanticBaseSettingsSource, ...]:
+    """Return the default sources, with service links dropped from the env.
+
+    The body of `settings_customise_sources` on every grelmicro settings
+    class. A variable `is_service_link` matches is treated as unset, so its
+    field falls back to the next variable, then to its default. A dropped
+    variable the class would have read is logged once.
+    """
+    env = cast("EnvSettingsSource", env_settings)
+    read: set[str] = set()
+    for field, info in settings_cls.model_fields.items():
+        alias = info.validation_alias
+        if isinstance(alias, AliasChoices):
+            read.update(str(choice).upper() for choice in alias.choices)
+        else:
+            read.add(f"{env.env_prefix}{field}".upper())
+    kept: dict[str, str | None] = {}
+    for key, value in env.env_vars.items():
+        if is_service_link(key, value):
+            if key.upper() in read:
+                _report_service_link(key.upper())
+            continue
+        kept[key] = value
+    env.env_vars = kept
+    return init_settings, env_settings, dotenv_settings, file_secret_settings
 
 
 _ENV_LOAD_VAR = "GREL_ENV_LOAD"
@@ -431,6 +576,17 @@ def _resolve_from_env[C: BaseModel](
         # `config_cls` or that it returns `C`. Pydantic's runtime validation
         # enforces the contract.
         return settings_cls(**provided)  # ty: ignore[invalid-return-type, invalid-argument-type]
+    except ValidationError as error:
+        # An aliased field is reported under its first variable, a plain
+        # one under its name, so both keys lead to the same variables.
+        variables: dict[str, list[str]] = {}
+        for field in config_cls.model_fields:
+            names = _field_variables(
+                field, env_prefix, kind_env_prefix, shared_env
+            )
+            variables[field] = variables[names[0]] = names
+        refuse_link_shaped_port(error, variables)
+        raise
     except SettingsError as error:
         # A complex field (a dict or a list) is JSON-decoded by
         # pydantic-settings in the source stage, before validation runs, so a
@@ -514,17 +670,17 @@ def warn_ignored_env(
     for field in (*config_cls.model_fields, *sorted(sibling)):
         if field in provided:
             continue
-        instance_name = f"{env_prefix}{field.upper()}"
-        names = [f"{env_prefix}{field.upper()}"]
         # The kind address applies to every instance since 0.38.0, so a
         # variable set there would have been read too. Still an exact-name
         # lookup of a declared field, never a prefix sweep.
-        if kind_env_prefix:
-            names.append(f"{kind_env_prefix}{field.upper()}")
-        if shared_env and field in shared_env:
-            names.append(shared_env[field])
+        names = _field_variables(field, env_prefix, kind_env_prefix, shared_env)
+        instance_name = names[0]
         for name in names:
-            if name not in os.environ or name in _warned_ignored_env:
+            if (
+                name not in os.environ
+                or name in _warned_ignored_env
+                or is_service_link(name, os.environ[name])
+            ):
                 continue
             _warned_ignored_env.add(name)
             # A sibling field is a mistake only at an instance address,
@@ -660,15 +816,10 @@ def _build_settings_cls[C: BaseModel](
         merged_config["populate_by_name"] = True
         annotations: dict[str, Any] = {}
         for field, info in config_cls.model_fields.items():
-            # Most specific first: this instance's own variable, then the
-            # kind-wide one every instance shares, then the app-wide one.
-            # pydantic-settings takes the first that is set.
-            choices = [f"{env_prefix}{field.upper()}"]
-            if kind_env_prefix:
-                choices.append(f"{kind_env_prefix}{field.upper()}")
-            shared_var = shared_map.get(field)
-            if shared_var:
-                choices.append(shared_var)
+            # pydantic-settings takes the first variable that is set.
+            choices = _field_variables(
+                field, env_prefix, kind_env_prefix, shared_map
+            )
             if len(choices) == 1:
                 continue
             # Copy the original `FieldInfo` rather than building a new one,
@@ -682,6 +833,7 @@ def _build_settings_cls[C: BaseModel](
             namespace[field] = aliased
         namespace["__annotations__"] = annotations
     namespace["model_config"] = SettingsConfigDict(**merged_config)
+    namespace["settings_customise_sources"] = classmethod(settings_sources)
     return type(
         f"_{config_cls.__name__}Settings",
         (config_cls, BaseSettings),

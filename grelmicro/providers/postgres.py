@@ -13,9 +13,14 @@ from pydantic import (
     ValidationError,
 )
 from pydantic_core import MultiHostUrl
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 from typing_extensions import Doc
 
+from grelmicro._config import refuse_link_shaped_port, settings_sources
 from grelmicro._redact import redact_url
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
@@ -83,6 +88,25 @@ class _PostgresEnvSettings(BaseSettings):
     database: str | None = None
     user: str | None = None
     password: SecretStr | None = None
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Read a Kubernetes service link in `{env_prefix}PORT` as unset."""
+        return settings_sources(
+            cls,
+            settings_cls,
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            file_secret_settings,
+        )
 
 
 class _PostgresTimeoutEnvSettings(BaseSettings):
@@ -611,6 +635,7 @@ def _resolve_url(
         # so static checkers reject it even though the runtime accepts it.
         settings = _PostgresEnvSettings(_env_prefix=env_prefix)
     except ValidationError as error:
+        refuse_link_shaped_port(error, {"port": (f"{env_prefix}PORT",)})
         raise SettingsValidationError(error) from None
 
     if settings.url is not None and settings.host is not None:
