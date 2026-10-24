@@ -325,6 +325,7 @@ spec:
       labels:
         app.kubernetes.io/name: cart
     spec:
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
@@ -385,6 +386,12 @@ spec:
 `GREL_ENV_LOAD=1` is missing here on purpose: the image sets it, so no
 manifest can forget it. Put it in the `env` block only when you cannot
 change the image, and then put it in every copy of the manifest.
+
+Kubernetes also sets variables for every Service in the namespace. A Service
+named `grel-ops` sets `GREL_OPS_PORT=tcp://10.0.0.5:8080`, and one named
+`redis` sets `REDIS_PORT`. grelmicro ignores these service links and logs each
+one it would have read. `enableServiceLinks: false` keeps them out of the
+pod's environment.
 
 ## Checklist
 

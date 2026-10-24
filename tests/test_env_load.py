@@ -14,6 +14,7 @@ from grelmicro._config import (
 )
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.http import OpsServer
 from tests._logs import records_of
 
 LEASE_OVERRIDE = 999
@@ -162,6 +163,51 @@ def test_unrelated_prefixed_env_is_not_reported(
         Lock("cart", backend=backend)
 
     assert [w for w in caught if w.category is GrelmicroConfigWarning] == []
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "GREL_OPS_SERVICE_HOST",
+        "GREL_OPS_SERVICE_PORT",
+        "GREL_OPS_SERVICE_PORT_HTTP",
+        "GREL_OPS_PORT_8080_TCP",
+        "GREL_OPS_PORT_8080_TCP_PROTO",
+        "GREL_OPS_PORT_8080_TCP_PORT",
+        "GREL_OPS_PORT_8080_TCP_ADDR",
+        "GREL_OPS_ADMIN_PORT_8080_UDP_ADDR",
+    ],
+)
+def test_kubernetes_service_link_companions_are_not_reported(
+    variable: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The variables Kubernetes injects beside `{SVCNAME}_PORT` never warn."""
+    monkeypatch.setenv(variable, "tcp://10.0.0.5:8080")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        OpsServer()
+        OpsServer(name="admin")
+
+    assert [w for w in caught if issubclass(w.category, Warning)] == []
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
+@pytest.mark.parametrize("variable", ["GREL_OPS_PORT", "GREL_OPS_ADMIN_PORT"])
+def test_a_kubernetes_service_link_is_not_reported(
+    variable: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A service link is never reported as an ignored variable."""
+    monkeypatch.setenv(variable, "tcp://10.0.0.5:8080")
+    monkeypatch.setenv(f"{variable}_8080_TCP", "tcp://10.0.0.5:8080")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        OpsServer()
+        OpsServer(name="admin")
+
+    assert caught == []
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
