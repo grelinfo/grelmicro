@@ -137,5 +137,6 @@ def _reset_ignored_env_reports(monkeypatch: pytest.MonkeyPatch) -> None:
     _config._warned_ignored_env.clear()
     _config._pending_ignored_env.clear()
     _config._pending_reports.clear()
+    _config._reported_service_links.clear()
     _environment._reported_unknown.clear()
     monkeypatch.setattr(_config, "_logging_configured", False)

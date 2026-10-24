@@ -325,6 +325,13 @@ the pod directly too, through a `PodMonitor` that names the `ops` port. If
 your setup scrapes through a Service, give the ops port a separate Service of
 type `ClusterIP`, never `LoadBalancer` or `NodePort`.
 
+Kubernetes also sets variables for every Service in the namespace. A Service
+named `grel-ops` sets `GREL_OPS_PORT=tcp://10.0.0.5:8080`, and one named
+`redis` sets `REDIS_PORT`. grelmicro ignores these service links and logs each
+one it would have read. Set `enableServiceLinks: false` on the pod, as the
+[complete manifest](#a-complete-manifest) does, to keep them out of its
+environment.
+
 Then admit the ops port from the Prometheus namespace alone:
 
 ```yaml
@@ -462,6 +469,7 @@ spec:
       labels:
         app.kubernetes.io/name: cart
     spec:
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true

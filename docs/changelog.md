@@ -24,6 +24,8 @@
 * 🗑️ `HealthChecks(auto_health=True)` and `auto_health=False` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Pass `providers="require"` or `providers="off"` instead. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 * 🗑️ `HealthChecks()` with no `providers=` warns with `GrelmicroFutureWarning` when the app opens beside a Provider. From 0.44.0 it defaults to `"report"`. Pass `providers=` to choose now. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 
+### Fixed
+* 🐛 A Kubernetes service link such as `REDIS_PORT=tcp://...`, set for a Service named `redis`, is ignored instead of crashing startup with a port parse error. The same holds for `GREL_OPS_PORT` and every other port variable. A value of that shape that Kubernetes did not set fails with an error naming the variable. ([#1147](https://github.com/grelinfo/grelmicro/pull/1147))
 
 ### Docs
 * 📝 Health, Metrics, Deployment and the FastAPI reference recommend `OpsServer` for the probes and `/metrics`, next to a web app too. `health_router()` and `metrics_router()` stay as the app-port alternative, with what they expose. ([#1132](https://github.com/grelinfo/grelmicro/pull/1132))
