@@ -318,6 +318,16 @@ if info is not None:
 next_fire = task.next_fire_time  # None until the first loop iteration
 ```
 
+## Check what is scheduled
+
+`micro.describe()` lists every task the app's `Tasks` holds, included routers too. `CronTask.gate` and `IntervalTask.gate` read back the gate you passed, so a test can pin both the wiring and the gate:
+
+```python
+--8<-- "task/check_scheduled.py"
+```
+
+`report.tasks` is `None` when no `Tasks` is registered. Each entry is a `TaskReport` with the schedule, the gate (`"claim"`, `"leader"` or `"lock"`), the name it claims under, and the backend it claims through. `python -m grelmicro check` prints the same list, see [See what got wired](wiring.md#see-what-got-wired).
+
 ## Task Router
 
 For bigger applications, use the `TaskRouter` class to organize tasks across modules:

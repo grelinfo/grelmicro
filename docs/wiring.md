@@ -268,6 +268,12 @@ Components
   coordination/default    RedisLockAdapter, RedisScheduleAdapter <- redis
   cache/default           RedisCacheAdapter <- redis
 
+Tasks
+  primary         -                     none
+  purge-sessions  every 60s             claim           RedisLockAdapter <- redis
+  nightly-report  cron 0 3 * * * (UTC)  leader primary  RedisScheduleAdapter <- redis
+  heartbeat       every 10s             none
+
 Providers
   redis  (RedisProvider)  redis://user:***@localhost:6379/0
     env:      REDIS_*
@@ -276,7 +282,18 @@ Providers
 
 Checks
   ok    backend-scope: every bound backend reaches as far as its component requires
+  ok    ungated-cron: every cron task names its gate
+  ok    gate-backend: every gated task resolves its claim backend
+  ok    leader-not-running: every leader election a task is gated on is registered
 ```
+
+The `Tasks` block lists every task the registered `Tasks` holds, one row
+each: name, schedule, gate, and the backend it claims through. The gate reads
+`claim`, `leader` with the election's name, `lock` for a `TaskLock`, or `none`
+when every worker runs it. A row with `-` is not a schedule, such as the
+`LeaderElection` itself. `none registered` means a `Tasks` holds no task, and
+no block means no `Tasks` is registered. See
+[Check what is scheduled](task.md#check-what-is-scheduled).
 
 The `declines` line is the one to read when a pattern is not wired the way you
 expected. A provider fills a default component only for the kinds it serves, so
@@ -330,6 +347,8 @@ route.
 | `path-patterns` | An `include=` pattern that names no route, which turns its rule off without a word. Needs `--app`. | `warn` |
 | `ambient-binding` | An app or mounted sub-app that `micro.install(app)` never saw. Needs `--app`. | `FAIL`, or `warn` for a framework it does not recognize |
 | `health-not-served` | A registered `HealthChecks` whose endpoints nothing serves, once an app is installed. | `warn` |
+| `gate-backend` | A gated task that resolves no backend to claim through, so every fire runs nothing. | `warn` with no environment and in `staging` and `production`, `ok` in `development` and `test`. `FAIL` in `staging` and `production` from 0.44.0. |
+| `leader-not-running` | A task gated on a `LeaderElection` that no registered `Tasks` holds. | `warn` |
 | `routes-not-declared` | An integration that lists no routes while a component acting per endpoint is registered, so no endpoint row is shown and no `include=` pattern is checked. Needs `--app`. | `warn` |
 
 The command exits `0` when no check fails, `1` when one does, and `2` when the

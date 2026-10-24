@@ -232,7 +232,7 @@
   },
   "grelmicro.describe": {
     "AppReport": {
-      "()": "(environment=None, components=(), providers=(), checks=(), endpoints=()) -> None"
+      "()": "(environment=None, components=(), providers=(), checks=(), endpoints=(), tasks=None) -> None"
     },
     "CheckReport": {
       "()": "(name, status, detail) -> None"
@@ -248,6 +248,12 @@
     },
     "ProviderReport": {
       "()": "(short_name, provider, url=None, env_prefix=None, serves=(), declines=()) -> None"
+    },
+    "TaskGate": {
+      "()": "(*args, **kwargs)"
+    },
+    "TaskReport": {
+      "()": "(name, interval=None, cron=None, timezone=None, gate=None, leader=None, claim_key=None, backend=None, provider=None) -> None"
     }
   },
   "grelmicro.health": {
@@ -1089,6 +1095,9 @@
     "CronError": {
       "()": "(reason) -> None"
     },
+    "CronTask": {
+      "()": "(*, function, expr, timezone=None, name=None, misfire_grace=None, backend=None, gate=UNSET, sync=None) -> 'None'"
+    },
     "FireInfo": {
       "()": "(started_at, outcome, duration) -> None"
     },
@@ -1097,6 +1106,9 @@
     },
     "FunctionTypeError": {
       "()": "(reference) -> None"
+    },
+    "IntervalTask": {
+      "()": "(*, function, name=None, interval, gate=None, sync=None) -> None"
     },
     "Task": {
       "()": "(*args, **kwargs)"

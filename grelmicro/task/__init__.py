@@ -7,7 +7,9 @@ import typing as _typing
 
 if _typing.TYPE_CHECKING:
     from grelmicro._task import Task
+    from grelmicro.task._cron import CronTask
     from grelmicro.task._fire import FireInfo, FireOutcome
+    from grelmicro.task._interval import IntervalTask
     from grelmicro.task._tasks import Tasks, TasksConfig
     from grelmicro.task.errors import (
         CronError,
@@ -21,9 +23,11 @@ if _typing.TYPE_CHECKING:
 
 __all__ = [
     "CronError",
+    "CronTask",
     "FireInfo",
     "FireOutcome",
     "FunctionTypeError",
+    "IntervalTask",
     "Task",
     "TaskAddOperationError",
     "TaskError",
@@ -36,9 +40,11 @@ __all__ = [
 
 _LAZY: dict[str, str] = {
     "CronError": "grelmicro.task.errors",
+    "CronTask": "grelmicro.task._cron",
     "FireInfo": "grelmicro.task._fire",
     "FireOutcome": "grelmicro.task._fire",
     "FunctionTypeError": "grelmicro.task.errors",
+    "IntervalTask": "grelmicro.task._interval",
     "Task": "grelmicro._task",
     "TaskAddOperationError": "grelmicro.task.errors",
     "TaskError": "grelmicro.task.errors",
