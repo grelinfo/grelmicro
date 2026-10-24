@@ -6,7 +6,11 @@ Each name loads its submodule on first access.
 import typing as _typing
 
 if _typing.TYPE_CHECKING:
-    from grelmicro.health._checks import HealthChecks, HealthChecksConfig
+    from grelmicro.health._checks import (
+        HealthChecks,
+        HealthChecksConfig,
+        ProviderChecks,
+    )
     from grelmicro.health._endpoints import health_asgi
     from grelmicro.health._liveness import Liveness
     from grelmicro.health._models import (
@@ -27,6 +31,7 @@ __all__ = [
     "HealthReport",
     "HealthStatus",
     "Liveness",
+    "ProviderChecks",
     "health_asgi",
 ]
 
@@ -40,6 +45,7 @@ _LAZY: dict[str, str] = {
     "HealthReport": "grelmicro.health._models",
     "HealthStatus": "grelmicro.health._models",
     "Liveness": "grelmicro.health._liveness",
+    "ProviderChecks": "grelmicro.health._checks",
     "health_asgi": "grelmicro.health._endpoints",
 }
 """The submodule each public name loads from."""

@@ -144,17 +144,27 @@ Register a provider's check with `add_provider`. It registers under `provider:{s
 
 The check is **critical** by default, so an unreachable backend fails `/readyz`. Pass `critical=False` for a degradable dependency such as a cache. Pass `name=` to disambiguate two providers of the same vendor, which registers `provider:{name}` instead.
 
-To register a check for every provider on the app at once, build the `HealthChecks` with `auto_health=True`:
+To register a check for every provider on the app at once, pass `provider_checks=` to the `HealthChecks`:
 
 ```python
---8<-- "health/auto_health.py"
+--8<-- "health/provider_checks.py"
 ```
 
-On startup this discovers every active provider, including ones a Component borrows without listing, and registers a critical `provider:{short_name}` check for each. A provider with no built-in probe is skipped. It is off by default, so checks appear only when you ask for them. When two providers share a `short_name`, the second is skipped with a warning: register it explicitly with `add_provider(provider, name=...)` to give it a distinct name.
+On startup this discovers every active provider, including ones a Component borrows without listing, and registers a `provider:{short_name}` check for each. `provider_checks=` takes one of three modes:
+
+| Mode | What it registers |
+|---|---|
+| `"report"` | A non-critical check per provider. It shows in `/healthz` and leaves `/readyz` alone. |
+| `"require"` | A critical check per provider. A down backend fails `/readyz`. |
+| `"off"` | Nothing. |
+
+Today the default is `"off"`, and leaving `provider_checks=` unset beside a provider warns with `GrelmicroFutureWarning` on startup. From 0.44.0 the default is `"report"`. A backend that every replica shares takes every replica out of rotation at once when it fails `/readyz`, so the default shows it without failing readiness.
+
+A provider with no built-in probe is skipped. A provider you already register with `add_provider` keeps that registration. When two providers share a `short_name`, the second is skipped with a warning: register it explicitly with `add_provider(provider, name=...)` to give it a distinct name.
 
 ## Circuit Breakers
 
-Register a check on a [circuit breaker](resilience/circuit-breaker.md) with `add_breaker`. It registers under `circuitbreaker:{breaker.name}`, for example `circuitbreaker:inverter`:
+Register a check on a [circuit breaker](resilience/circuit-breaker.md) with `add_circuitbreaker`. It registers under `circuitbreaker:{breaker.name}`, for example `circuitbreaker:inverter`:
 
 ```python
 --8<-- "health/breaker_check.py"
@@ -366,7 +376,9 @@ from grelmicro import Grelmicro
 from grelmicro.health import HealthChecks
 from grelmicro.http import OpsServer
 
-micro = Grelmicro(uses=[HealthChecks(auto_health=True), OpsServer(port=8080)])
+micro = Grelmicro(
+    uses=[HealthChecks(provider_checks="require"), OpsServer(port=8080)]
+)
 ```
 
 `GET /livez`, `/readyz` and `/healthz` answer on 8080, exactly as the FastAPI

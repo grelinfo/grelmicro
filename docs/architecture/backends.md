@@ -125,7 +125,7 @@ A Component of a kind no Provider serves (`HealthChecks`, `Log`, `Trace`) claims
 
 The defaults are registered when the app opens or first reads its components, so `micro.use(...)` follows the same rule as `uses=[...]`, in any order. After that, a Component of a kind a default holds raises `ComponentAlreadyRegisteredError`.
 
-Two bare Providers with no Components raise `AmbiguousProviderError` when the app opens or first reads its components. The default Component for a shared kind could come from either Provider. Neither fills defaults, so listing any Component alongside them makes both lifecycle-only, which is how `HealthChecks(auto_health=True)` probes several Providers at once. Wrap each Provider in the Components it should serve to resolve the ambiguity. `Bulkhead(uses=[...])` resolves its Provider defaults at construction, because it has no `use()`.
+Two bare Providers with no Components raise `AmbiguousProviderError` when the app opens or first reads its components. The default Component for a shared kind could come from either Provider. Neither fills defaults, so listing any Component alongside them makes both lifecycle-only, which is how `HealthChecks(provider_checks="require")` probes several Providers at once. Wrap each Provider in the Components it should serve to resolve the ambiguity. `Bulkhead(uses=[...])` resolves its Provider defaults at construction, because it has no `use()`.
 
 ```python
 # raises AmbiguousProviderError when the app opens

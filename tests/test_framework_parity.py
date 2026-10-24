@@ -325,7 +325,7 @@ def _micro() -> Grelmicro:
     return Grelmicro(
         uses=[
             MemoryProvider(),
-            HealthChecks(),
+            HealthChecks(provider_checks="off"),
             Outbox(MemoryOutboxAdapter(), relay=False, requires="process"),
         ]
     )

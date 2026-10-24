@@ -13,6 +13,7 @@ from grelmicro.errors import (
     AmbientBindingWarning,
     BackendScopeError,
     BackendScopeWarning,
+    EnvLoadDefaultWarning,
     EnvLoadOffWarning,
     GrelmicroConfigWarning,
     LeaderNotRunningWarning,
@@ -24,6 +25,7 @@ from grelmicro.errors import (
 
 _CATEGORIES: list[type[GrelmicroConfigWarning]] = [
     EnvLoadOffWarning,
+    EnvLoadDefaultWarning,
     UnknownEnvironmentWarning,
     BackendScopeWarning,
     AmbientBindingWarning,

@@ -9,12 +9,17 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from pydantic import BaseModel, ConfigDict, RedisDsn, SecretStr, ValidationError
 from pydantic.networks import UrlConstraints
 from pydantic_core import MultiHostUrl, Url
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 from redis.asyncio.client import Redis
 from redis.asyncio.cluster import RedisCluster
 from redis.asyncio.sentinel import Sentinel
 from typing_extensions import Doc
 
+from grelmicro._config import refuse_link_shaped_port, settings_sources
 from grelmicro._diagnostics import SENTINEL_PASSWORD, diagnostic
 from grelmicro._redact import redact_url
 from grelmicro.errors import (
@@ -97,6 +102,25 @@ class _RedisEnvSettings(BaseSettings):
     db: int = 0
     password: SecretStr | None = None
     sentinel_password: SecretStr | None = None
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Read a Kubernetes service link in `{env_prefix}PORT` as unset."""
+        return settings_sources(
+            cls,
+            settings_cls,
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            file_secret_settings,
+        )
 
 
 class RedisProvider(Provider):
@@ -640,6 +664,7 @@ def _resolve_url(
         # so static checkers reject it even though the runtime accepts it.
         settings = settings_cls(_env_prefix=env_prefix)
     except ValidationError as error:
+        refuse_link_shaped_port(error, {"port": (f"{env_prefix}PORT",)})
         raise SettingsValidationError(error) from None
 
     if settings.url is not None and settings.host is not None:

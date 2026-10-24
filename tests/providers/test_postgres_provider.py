@@ -163,6 +163,53 @@ class TestConstruction:
 
         assert provider.url == expected_url
 
+    def test_a_kubernetes_service_link_in_the_port_is_ignored(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Service named `postgres` injects `POSTGRES_PORT`, and the URL still wins."""
+        monkeypatch.delenv("POSTGRES_HOST", raising=False)
+        monkeypatch.setenv("POSTGRES_URL", URL)
+        monkeypatch.setenv("POSTGRES_PORT", "tcp://10.0.0.5:5432")
+        monkeypatch.setenv("POSTGRES_PORT_5432_TCP", "tcp://10.0.0.5:5432")
+
+        assert PostgresProvider().url == URL
+
+    def test_a_service_link_beside_a_host_leaves_the_default_port(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The link is read as unset, so the default port applies."""
+        for name in ("URL", "USER", "PASSWORD", "DB", "DATABASE"):
+            monkeypatch.delenv(f"POSTGRES_{name}", raising=False)
+        monkeypatch.setenv("POSTGRES_HOST", "test_host")
+        monkeypatch.setenv("POSTGRES_PORT", "tcp://10.0.0.5:9999")
+        monkeypatch.setenv("POSTGRES_PORT_9999_TCP", "tcp://10.0.0.5:9999")
+
+        assert PostgresProvider().url == "postgresql://test_host:5432"
+
+    def test_a_link_kubernetes_did_not_set_names_the_fix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without its companion, a link-shaped port is refused clearly."""
+        monkeypatch.setenv("POSTGRES_HOST", "test_host")
+        monkeypatch.setenv("POSTGRES_PORT", "tcp://10.0.0.5:1")
+
+        with pytest.raises(SettingsValidationError) as caught:
+            PostgresProvider()
+
+        message = str(caught.value)
+        assert "POSTGRES_PORT: looks like a Kubernetes service link" in message
+        assert "10.0.0.5" not in message
+
+    def test_a_plain_port_is_still_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A port number in `POSTGRES_PORT` is not mistaken for a service link."""
+        monkeypatch.delenv("POSTGRES_URL", raising=False)
+        monkeypatch.setenv("POSTGRES_HOST", "test_host")
+        monkeypatch.setenv("POSTGRES_PORT", "1234")
+
+        assert ":1234" in PostgresProvider().url
+
     @pytest.mark.parametrize(
         ("environs", "expected_db"),
         [

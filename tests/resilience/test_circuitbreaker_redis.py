@@ -358,7 +358,7 @@ async def test_health_check_reports_open_on_an_idle_replica(
             raise BoomError
     idle = make_breaker()
     health = HealthChecks(cache_ttl=0)
-    health.add_breaker(idle)
+    health.add_circuitbreaker(idle)
 
     report = await health.run()
 

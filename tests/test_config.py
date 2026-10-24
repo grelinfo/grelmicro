@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
 import pytest
@@ -12,12 +13,14 @@ from grelmicro._config import (
     default_env_prefix,
     env_prefixes,
     env_segment,
+    flush_ignored_env_reports,
     parse_csv_or_json,
     resolve_config,
     resolve_config_from_mapping,
 )
 from grelmicro.coordination import Lock
 from grelmicro.errors import SettingsValidationError
+from tests._logs import records_of
 
 _KIND_DEFAULT = 42
 """Value of `GREL_LOCK_LEASE_DURATION`, the kind-wide fallback."""
@@ -425,3 +428,161 @@ def test_env_prefixes_helper() -> None:
     assert env_prefixes("LOCK", "cart") == ("GREL_LOCK_CART_", "GREL_LOCK_")
     assert env_prefixes("LOCK", "default") == ("GREL_LOCK_", None)
     assert env_prefixes("LOCK", "cart", "MYAPP_") == ("MYAPP_", None)
+
+
+class _Listener(BaseModel):
+    """A config with a port, the field a Kubernetes service link lands in."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    port: int = 8080
+    retries: int = DEFAULT_RETRIES
+
+
+_SERVICE_LINK = "tcp://10.0.0.5:9100"
+"""What Kubernetes injects in `{SERVICE}_PORT` for every Service."""
+
+_REAL_PORT = 9200
+"""A port an operator set on purpose."""
+
+
+def _set_service_link(monkeypatch: pytest.MonkeyPatch, variable: str) -> None:
+    """Set `variable` and its companion, as Kubernetes does for a Service."""
+    monkeypatch.setenv(variable, _SERVICE_LINK)
+    monkeypatch.setenv(f"{variable}_9100_TCP", _SERVICE_LINK)
+
+
+def _resolve_listener(
+    *, kind_env_prefix: str | None = None, shared: bool = False
+) -> _Listener:
+    """Resolve `_Listener` for the `cart` instance, reading the environment."""
+    return resolve_config(
+        _Listener,
+        explicit=None,
+        kwargs={},
+        env_prefix="GREL_X_CART_",
+        env_load=True,
+        kind_env_prefix=kind_env_prefix,
+        shared_env={"port": "GREL_PORT"} if shared else None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("variable", "kind", "shared"),
+    [
+        pytest.param("GREL_X_CART_PORT", None, False, id="own"),
+        pytest.param("GREL_X_PORT", "GREL_X_", False, id="kind"),
+        pytest.param("GREL_PORT", None, True, id="shared"),
+    ],
+)
+def test_a_service_link_is_read_as_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+    kind: str | None,
+    *,
+    shared: bool,
+) -> None:
+    """A service link in any variable a field reads leaves the default."""
+    _set_service_link(monkeypatch, variable)
+
+    listener = _resolve_listener(kind_env_prefix=kind, shared=shared)
+
+    assert listener.port == _Listener.model_fields["port"].default
+
+
+@pytest.mark.parametrize(
+    ("link", "real", "kind", "shared"),
+    [
+        pytest.param("GREL_X_PORT", "GREL_X_CART_PORT", "GREL_X_", False),
+        pytest.param("GREL_X_CART_PORT", "GREL_X_PORT", "GREL_X_", False),
+        pytest.param("GREL_X_CART_PORT", "GREL_PORT", None, True),
+    ],
+)
+def test_a_real_port_wins_over_a_service_link(
+    monkeypatch: pytest.MonkeyPatch,
+    link: str,
+    real: str,
+    kind: str | None,
+    *,
+    shared: bool,
+) -> None:
+    """The field falls through the service link to the next variable."""
+    _set_service_link(monkeypatch, link)
+    monkeypatch.setenv(real, str(_REAL_PORT))
+
+    listener = _resolve_listener(kind_env_prefix=kind, shared=shared)
+
+    assert listener.port == _REAL_PORT
+
+
+def test_a_service_link_in_another_field_is_still_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a `_PORT` variable is read as a Kubernetes service link."""
+    monkeypatch.setenv("GREL_X_CART_RETRIES", _SERVICE_LINK)
+
+    with pytest.raises(SettingsValidationError, match="- retries: "):
+        _resolve_listener()
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["tcp://", "TCP://10.0.0.5:8080", "tcp://10.0.0.5", "eighty"],
+)
+def test_a_port_that_is_not_a_service_link_is_still_refused(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """A malformed port not shaped like a service link is not ignored."""
+    monkeypatch.setenv("GREL_X_CART_PORT", value)
+
+    with pytest.raises(SettingsValidationError, match="- port: "):
+        _resolve_listener()
+
+
+def test_an_ignored_service_link_is_logged_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The record names the variable and the Service, never the value."""
+    _set_service_link(monkeypatch, "GREL_X_CART_PORT")
+
+    with caplog.at_level(logging.INFO, logger="grelmicro"):
+        _resolve_listener()
+        _resolve_listener()
+        flush_ignored_env_reports()
+
+    [record] = records_of(caplog, "grelmicro")
+    assert record.levelno == logging.INFO
+    assert record.__dict__["variable"] == "GREL_X_CART_PORT"
+    message = record.getMessage()
+    assert message.startswith("GREL_X_CART_PORT holds a Kubernetes service")
+    assert "Service named `grel-x-cart`" in message
+    assert "enableServiceLinks: false" in message
+    assert "10.0.0.5" not in message
+
+
+def test_an_unread_service_link_is_not_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A service link for another Service is dropped without a record."""
+    monkeypatch.setenv("KUBERNETES_PORT", "tcp://10.96.0.1:443")
+    monkeypatch.setenv("KUBERNETES_PORT_443_TCP", "tcp://10.96.0.1:443")
+
+    with caplog.at_level(logging.INFO, logger="grelmicro"):
+        _resolve_listener()
+        flush_ignored_env_reports()
+
+    assert records_of(caplog, "grelmicro") == []
+
+
+def test_a_link_kubernetes_did_not_set_names_the_variable_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without its companion, the variable that supplied the value is named."""
+    monkeypatch.setenv("GREL_X_PORT", _SERVICE_LINK)
+
+    with pytest.raises(SettingsValidationError) as caught:
+        _resolve_listener(kind_env_prefix="GREL_X_")
+
+    message = str(caught.value)
+    assert "- GREL_X_PORT: looks like a Kubernetes service link" in message
+    assert _SERVICE_LINK not in message
