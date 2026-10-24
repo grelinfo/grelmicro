@@ -471,3 +471,205 @@ async def test_in_memory_provider_opens_without_a_warning(
 
     # Assert
     assert caplog.records == []
+
+
+SYNCHRONOUS_FULL = 2
+"""Value `PRAGMA synchronous` reports for FULL, SQLite's default."""
+
+SYNCHRONOUS_NORMAL = 1
+"""Value `PRAGMA synchronous` reports for NORMAL."""
+
+
+@asynccontextmanager
+async def _traced_open(
+    provider: SQLiteProvider, mocker: MockerFixture
+) -> AsyncGenerator[list[str]]:
+    """Open `provider` and collect every statement its connection runs."""
+    statements: list[str] = []
+    connect = aiosqlite.connect
+
+    async def traced_connect(*args: Any, **kwargs: Any) -> aiosqlite.Connection:  # noqa: ANN401
+        conn = await connect(*args, **kwargs)
+        await conn.set_trace_callback(statements.append)
+        return conn
+
+    mocker.patch(
+        "grelmicro.providers.sqlite.aiosqlite.connect", new=traced_connect
+    )
+    async with provider:
+        yield statements
+
+
+async def _synchronous(provider: SQLiteProvider) -> int:
+    """Return the `PRAGMA synchronous` value of the open connection."""
+    async with provider.client.execute("PRAGMA synchronous;") as cursor:
+        row = await cursor.fetchone()
+    assert row is not None
+    return row[0]
+
+
+async def test_default_runs_no_synchronous_pragma(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """By default the provider leaves SQLite's FULL synchronous mode alone."""
+    # Arrange
+    provider = SQLiteProvider(tmp_path / "default.db")
+
+    # Act
+    async with _traced_open(provider, mocker) as statements:
+        opened = list(statements)
+        value = await _synchronous(provider)
+
+    # Assert
+    assert provider.synchronous is None
+    assert not [s for s in opened if "synchronous" in s.lower()]
+    assert value == SYNCHRONOUS_FULL
+
+
+@pytest.mark.parametrize(
+    ("synchronous", "expected"),
+    [
+        ("normal", SYNCHRONOUS_NORMAL),
+        ("NORMAL", SYNCHRONOUS_NORMAL),
+        ("Normal", SYNCHRONOUS_NORMAL),
+        ("full", SYNCHRONOUS_FULL),
+        ("FULL", SYNCHRONOUS_FULL),
+    ],
+)
+async def test_synchronous_is_applied_on_open(
+    tmp_path: Path, synchronous: str, expected: int
+) -> None:
+    """`synchronous=` sets the mode on the connection, matched in any case."""
+    # Arrange
+    provider = SQLiteProvider(tmp_path / "sync.db", synchronous=synchronous)  # ty: ignore[invalid-argument-type]
+
+    # Act
+    async with provider:
+        value = await _synchronous(provider)
+        async with provider.client.execute("PRAGMA journal_mode;") as cursor:
+            journal_mode = await cursor.fetchone()
+
+    # Assert
+    assert provider.synchronous == synchronous.lower()
+    assert value == expected
+    assert journal_mode == ("wal",)
+
+
+async def test_synchronous_pragma_runs_after_wal(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """The synchronous mode is set once WAL is on."""
+    # Arrange
+    provider = SQLiteProvider(tmp_path / "order.db", synchronous="normal")
+
+    # Act
+    async with _traced_open(provider, mocker) as statements:
+        opened = [s.upper() for s in statements]
+
+    # Assert
+    assert opened.index("PRAGMA SYNCHRONOUS=NORMAL;") > opened.index(
+        "PRAGMA JOURNAL_MODE=WAL;"
+    )
+
+
+async def test_synchronous_from_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the kwarg, the provider reads `SQLITE_SYNCHRONOUS`."""
+    # Arrange
+    monkeypatch.setenv("SQLITE_SYNCHRONOUS", "Normal")
+    provider = SQLiteProvider(tmp_path / "env.db")
+
+    # Act
+    async with provider:
+        value = await _synchronous(provider)
+
+    # Assert
+    assert provider.synchronous == "normal"
+    assert value == SYNCHRONOUS_NORMAL
+
+
+def test_synchronous_env_follows_the_env_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom `env_prefix` reads `{env_prefix}SYNCHRONOUS`."""
+    monkeypatch.setenv("CACHE_SQLITE_SYNCHRONOUS", "normal")
+    monkeypatch.setenv("SQLITE_SYNCHRONOUS", "full")
+    provider = SQLiteProvider("app.db", env_prefix="CACHE_SQLITE_")
+    assert provider.synchronous == "normal"
+
+
+def test_synchronous_kwarg_wins_over_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The kwarg overrides `SQLITE_SYNCHRONOUS`."""
+    monkeypatch.setenv("SQLITE_SYNCHRONOUS", "normal")
+    assert SQLiteProvider("app.db", synchronous="full").synchronous == "full"
+
+
+def test_synchronous_env_load_false_ignores_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`env_load=False` does not read `SQLITE_SYNCHRONOUS`."""
+    monkeypatch.setenv("SQLITE_SYNCHRONOUS", "normal")
+    assert SQLiteProvider("app.db", env_load=False).synchronous is None
+
+
+def test_synchronous_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`from_config` takes the mode from the config, matched in any case."""
+    monkeypatch.setenv("SQLITE_SYNCHRONOUS", "full")
+    config = SQLiteConfig(path="cfg.db", synchronous="NORMAL")  # ty: ignore[invalid-argument-type]
+    assert config.synchronous == "normal"
+    assert SQLiteProvider.from_config(config).synchronous == "normal"
+
+
+def test_from_config_leaves_synchronous_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A config without the mode reads no environment variable."""
+    monkeypatch.setenv("SQLITE_SYNCHRONOUS", "normal")
+    provider = SQLiteProvider.from_config(SQLiteConfig(path="cfg.db"))
+    assert provider.synchronous is None
+
+
+@pytest.mark.parametrize("value", ["off", "OFF", "extra", "fast-secret", "0"])
+def test_invalid_synchronous_kwarg_is_refused(value: str) -> None:
+    """A mode other than `full` or `normal` is refused without echoing it."""
+    with pytest.raises(SettingsValidationError) as info:
+        SQLiteProvider("app.db", synchronous=value)  # ty: ignore[invalid-argument-type]
+    message = str(info.value)
+    assert "synchronous" in message
+    assert value not in message
+
+
+@pytest.mark.parametrize("value", ["off", "fast-secret"])
+def test_invalid_synchronous_env_is_refused(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """An invalid `SQLITE_SYNCHRONOUS` is refused without echoing it."""
+    monkeypatch.setenv("SQLITE_SYNCHRONOUS", value)
+    with pytest.raises(SettingsValidationError) as info:
+        SQLiteProvider("app.db")
+    message = str(info.value)
+    assert "synchronous" in message
+    assert value not in message
+
+
+def test_invalid_synchronous_config_is_refused() -> None:
+    """`SQLiteConfig` refuses `off` like any pydantic model."""
+    with pytest.raises(ValueError, match="'full' or 'normal'"):
+        SQLiteConfig(path="cfg.db", synchronous="off")  # ty: ignore[invalid-argument-type]
+
+
+async def test_from_client_leaves_synchronous_alone(tmp_path: Path) -> None:
+    """A borrowed connection keeps the mode its owner set."""
+    conn = await aiosqlite.connect(tmp_path / "byo.db", isolation_level=None)
+    try:
+        await conn.execute("PRAGMA synchronous=OFF;")
+        provider = SQLiteProvider.from_client(conn)
+        async with provider:
+            value = await _synchronous(provider)
+        assert provider.synchronous is None
+        assert value == 0
+    finally:
+        await conn.close()

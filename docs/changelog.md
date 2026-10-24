@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+* ✨ `SQLiteProvider(synchronous="normal")` and `SQLITE_SYNCHRONOUS=normal` commit faster. A power cut or OS crash can roll back the last commits. The default keeps SQLite's `full` mode. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
 * ✨ `HealthChecks(providers=)` picks the check registered for each Provider: `"report"` shows it in `/healthz` only, `"require"` fails `/readyz` while the backend is down, and `"off"` registers none. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 * ✨ `OpsServer(enabled=False)` and `GREL_OPS_ENABLED=false` switch the ops server off. It binds no port, and `health-not-served` says it is switched off. ([#1142](https://github.com/grelinfo/grelmicro/pull/1142))
 * ✨ `HealthChecks.add_breaker` reports a circuit breaker as a `circuitbreaker:{name}` check. An open breaker fails it with the seconds until the next probe, and it is non-critical by default. ([#1137](https://github.com/grelinfo/grelmicro/pull/1137))

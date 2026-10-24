@@ -327,9 +327,24 @@ SQLiteProvider(path="app.db")             # keyword path
 SQLiteProvider()                          # env-driven (SQLITE_PATH)
 SQLiteProvider(env_prefix="CACHE_SQLITE_")  # custom env prefix
 SQLiteProvider(env_load=False)            # kwargs only, no env
+SQLiteProvider("app.db", synchronous="normal")  # faster commits, see below
 SQLiteProvider.from_config(SQLiteConfig(...))
 SQLiteProvider.from_client(connection)    # bring-your-own connection
 ```
+
+### Durability
+
+By default, the provider keeps SQLite's own setting, which is `full` in a
+standard build, so every commit survives a power cut. `synchronous="normal"` (or
+`SQLITE_SYNCHRONOUS=normal`) commits faster, about twice as fast for small
+commits in a local test. Commits still survive an app crash, but a power cut
+or OS crash can roll back the last ones. See
+[`PRAGMA synchronous`](https://www.sqlite.org/pragma.html#pragma_synchronous).
+A rolled-back commit can run a cron fire again or hand out a fencing token
+twice, so keep the default when those matter.
+
+`from_client` leaves the connection as you set it up: the provider runs no
+PRAGMA on it.
 
 ## Memory
 
