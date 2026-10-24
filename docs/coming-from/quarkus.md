@@ -7,7 +7,7 @@ SmallRye Health, MicroProfile Fault Tolerance, the scheduler, the cache and `qua
 | Quarkus | grelmicro | Page |
 |---|---|---|
 | `@Liveness`, `@Readiness`, `/q/health` | `@health.check(..., liveness=True)` for `/livez`, `@health.check(...)` for `/readyz` and `/healthz` | [Health](../health.md) |
-| Extension health checks | `providers=`, one check per provider | [Health](../health.md) |
+| Extension health checks | `provider_checks=`, one check per provider | [Health](../health.md) |
 | `@Retry` | `@retry(when=..., attempts=...)` | [Retry](../resilience/retry.md) |
 | `@Timeout` | `Timeout(name, seconds=...)` | [Timeout](../resilience/timeout.md) |
 | `@CircuitBreaker` | `CircuitBreaker(name)` | [Circuit Breaker](../resilience/circuit-breaker.md) |

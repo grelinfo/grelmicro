@@ -15,7 +15,11 @@ from grelmicro._config import (
 from grelmicro._deprecation import ENV_LOAD_DEFAULT, PENDING, unread_env
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
-from grelmicro.errors import EnvLoadOffWarning, GrelmicroFutureWarning
+from grelmicro.errors import (
+    EnvLoadDefaultWarning,
+    EnvLoadOffWarning,
+    GrelmicroFutureWarning,
+)
 from grelmicro.http import OpsServer
 from grelmicro.resilience import Fallback
 from tests._future import assert_future_warning
@@ -332,7 +336,7 @@ def test_unread_env_message_names_the_variable() -> None:
     """The message names the variable and the flag value for each choice."""
     assert unread_env(UNREAD).message == (
         f"`{UNREAD}` is set but not read today, and is read by default "
-        "from 0.44.0. Pass `GREL_ENV_LOAD=0` to keep the current behavior, "
+        "from 0.44.0. Set `GREL_ENV_LOAD=0` to keep the current behavior, "
         "or `GREL_ENV_LOAD=1` to adopt the new one now."
     )
 
@@ -381,8 +385,52 @@ def test_unread_env_replaces_the_diagnostic(
         warnings.simplefilter("always")
         lock = Lock("cart", backend=backend)
 
-    assert [w.category for w in caught] == [GrelmicroFutureWarning]
+    assert [w.category for w in caught] == [EnvLoadDefaultWarning]
     assert lock.config.lease_duration == DEFAULT_LEASE
+
+
+def test_unread_env_warning_is_both_categories() -> None:
+    """A 0.42 filter on `EnvLoadOffWarning` still matches the future warning."""
+    assert issubclass(EnvLoadDefaultWarning, GrelmicroFutureWarning)
+    assert issubclass(EnvLoadDefaultWarning, EnvLoadOffWarning)
+    assert EnvLoadDefaultWarning.code == EnvLoadOffWarning.code
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+@pytest.mark.parametrize(
+    "category",
+    [EnvLoadOffWarning, GrelmicroFutureWarning, FutureWarning],
+)
+def test_unread_env_is_silenced_by_each_parent_filter(
+    category: type[Warning],
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A filter on any parent category silences the unread variable."""
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("ignore", category=category)
+        Lock("cart", backend=backend)
+
+    assert caught == []
+
+
+@pytest.mark.usefixtures("_env_load_unset")
+def test_unread_env_shows_under_the_default_filters(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The interpreter's default filters show it, as a `FutureWarning`."""
+    monkeypatch.setenv(UNREAD, UNREAD_VALUE)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.resetwarnings()
+        warnings.simplefilter("default")
+        Lock("cart", backend=backend)
+
+    assert [w.category for w in caught] == [EnvLoadDefaultWarning]
 
 
 @pytest.mark.usefixtures("_env_load_unset")

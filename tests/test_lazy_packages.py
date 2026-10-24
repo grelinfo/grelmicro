@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+import warnings
 from types import ModuleType
 
 import pytest
+
+from grelmicro.errors import GrelmicroFutureWarning
 
 _LAZY_PACKAGES = [
     "grelmicro.cache",
@@ -51,6 +54,15 @@ def _package(name: str) -> ModuleType:
     return importlib.import_module(name)
 
 
+def _removed(package: ModuleType) -> frozenset[str]:
+    """Return the names in `__all__` removed in a coming release.
+
+    Each one warns on every access, so the package serves it from
+    `__getattr__` and never lists it in `_LAZY`.
+    """
+    return getattr(package, "_MODE_ENUMS", frozenset())
+
+
 def _submodules(package: ModuleType) -> set[str]:
     return {info.name for info in pkgutil.iter_modules(package.__path__)}
 
@@ -63,7 +75,10 @@ def test_every_public_name_resolves_to_its_submodule_object(name: str) -> None:
     sources = {**package._LAZY, **_EAGER.get(name, {})}
 
     # Act
-    resolved = {attr: getattr(package, attr) for attr in package.__all__}
+    resolved = {
+        attr: getattr(package, attr)
+        for attr in set(package.__all__) - _removed(package)
+    }
 
     # Assert
     for attr, value in resolved.items():
@@ -73,7 +88,7 @@ def test_every_public_name_resolves_to_its_submodule_object(name: str) -> None:
 
 @pytest.mark.parametrize("name", _LAZY_PACKAGES)
 def test_lazy_table_covers_exactly_the_public_names(name: str) -> None:
-    """The table lists every name in `__all__` the package does not bind at import."""
+    """The table lists every name in `__all__` bound neither at import nor on each access."""
     # Arrange
     package = _package(name)
     eager = set(_EAGER.get(name, {}))
@@ -82,7 +97,8 @@ def test_lazy_table_covers_exactly_the_public_names(name: str) -> None:
     table = set(package._LAZY)
 
     # Assert
-    assert table == set(package.__all__) - eager
+    assert table == set(package.__all__) - eager - _removed(package)
+    assert _removed(package) <= set(package.__all__)
     assert eager <= set(package.__all__)
 
 
@@ -130,11 +146,14 @@ def test_star_import_binds_every_public_name(name: str) -> None:
     namespace: dict[str, object] = {}
 
     # Act
-    exec(f"from {name} import *", namespace)  # noqa: S102
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", GrelmicroFutureWarning)
+        exec(f"from {name} import *", namespace)  # noqa: S102
 
     # Assert
     package = _package(name)
-    for attr in package.__all__:
+    assert set(package.__all__) <= set(namespace)
+    for attr in set(package.__all__) - _removed(package):
         assert namespace[attr] is getattr(package, attr)
 
 

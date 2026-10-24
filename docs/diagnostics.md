@@ -53,7 +53,8 @@ of them to an exception.
 
 A coming change of default or name warns with `GrelmicroFutureWarning`
 instead. It is a `FutureWarning`, not a configuration diagnostic, so it carries
-no code and the filters above leave it alone. See
+no code and the filters above leave it alone. The one exception is
+[`EnvLoadDefaultWarning`](#env-load-off), which is both. See
 [About deprecation](migration.md#about-deprecation).
 
 **An error** is raised and cannot be filtered. It is averted by fixing the
@@ -63,7 +64,7 @@ configuration it names. Each entry below says which.
 
 | Code | Warning category | Error | What it means |
 |---|---|---|---|
-| `env-load-off` | `EnvLoadOffWarning` | none | A `GREL_*` variable is set but `GREL_ENV_LOAD` is off, so it was not applied. |
+| `env-load-off` | `EnvLoadOffWarning`, `EnvLoadDefaultWarning` | none | A `GREL_*` variable is set but `GREL_ENV_LOAD` is off, so it was not applied. |
 | `unknown-environment` | `UnknownEnvironmentWarning` | none | `GREL_ENVIRONMENT` names no known tier, so the backend check runs as if undeclared. |
 | `backend-scope` | `BackendScopeWarning` | `BackendScopeError` | A bound backend reaches less far than its component requires. |
 | `ambient-binding` | `AmbientBindingWarning` | `AmbientBindingError` | Ambient components are registered but the binding middleware is missing. |
@@ -81,9 +82,16 @@ Environment-driven configuration is opt-in. Set `GREL_ENV_LOAD=1` to turn it
 on, or pass the value directly in code. See [Configuration](config.md).
 
 While `GREL_ENV_LOAD` is unset, the same variable warns with
-`GrelmicroFutureWarning` instead, because from 0.44.0 it is read by default.
-`EnvLoadOffWarning` is emitted when `GREL_ENV_LOAD` is set to a falsy value
-such as `0`. The log record carries `env-load-off` in both cases.
+`EnvLoadDefaultWarning` instead, because from 0.44.0 it is read by default.
+`EnvLoadDefaultWarning` is a `GrelmicroFutureWarning` and an
+`EnvLoadOffWarning`, so a filter on either one silences it:
+
+```toml
+filterwarnings = ["ignore::grelmicro.EnvLoadOffWarning"]
+```
+
+`EnvLoadOffWarning` alone is emitted when `GREL_ENV_LOAD` is set to a falsy
+value such as `0`. The log record carries `env-load-off` in both cases.
 
 ### `unknown-environment`
 

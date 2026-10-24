@@ -8,7 +8,7 @@ from grelmicro.metrics import Metrics
 micro = Grelmicro(
     uses=[
         OpsServer(),
-        HealthChecks(providers="require"),
+        HealthChecks(provider_checks="require"),
         Metrics(exporter="prometheus"),
     ]
 )

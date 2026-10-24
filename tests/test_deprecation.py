@@ -1,6 +1,7 @@
 """Tests for the warnings that announce a behavior change or a rename."""
 
 import warnings
+from dataclasses import replace
 
 import pytest
 
@@ -45,6 +46,43 @@ def test_future_change_message() -> None:
         "Pass `gate=None` to keep the current behavior, "
         "or `gate=leader` to adopt the new one now."
     )
+
+
+def test_future_change_message_for_an_environment_variable() -> None:
+    """An environment variable is set, not passed."""
+    entry = replace(
+        GATE, keep="GREL_GATE=none", adopt="GREL_GATE=leader", verb="Set"
+    )
+
+    assert entry.message == (
+        "`Example(gate=)` defaults to `leader` from 0.44.0. "
+        "Set `GREL_GATE=none` to keep the current behavior, "
+        "or `GREL_GATE=leader` to adopt the new one now."
+    )
+
+
+def test_future_change_message_with_nothing_to_keep() -> None:
+    """With no `keep`, the message offers only the new behavior."""
+    entry = replace(GATE, keep=None)
+
+    assert entry.message == (
+        "`Example(gate=)` defaults to `leader` from 0.44.0. "
+        "Pass `gate=leader` now."
+    )
+
+
+def test_future_change_warns_under_its_category() -> None:
+    """An entry with a narrower category warns under it, at the caller."""
+
+    class NarrowWarning(GrelmicroFutureWarning):
+        """A narrower future warning."""
+
+    def example() -> None:
+        replace(GATE, category=NarrowWarning).warn()
+
+    with pytest.warns(NarrowWarning) as caught:
+        example()
+    assert caught[0].filename == __file__
 
 
 def test_rename_message() -> None:

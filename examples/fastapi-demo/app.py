@@ -46,10 +46,10 @@ tasks = Tasks()
 leader = LeaderElection("demo-leader")
 tasks.add_task(leader)
 
-# providers="require" registers a provider:{short_name} readiness check for
+# provider_checks="require" registers a provider:{short_name} readiness check for
 # every active provider, so /readyz probes Redis and Postgres with no
 # boilerplate.
-health = HealthChecks(providers="require")
+health = HealthChecks(provider_checks="require")
 
 # Redis fills every kind it serves. The breaker is the one override, so it
 # is the only component named here.
