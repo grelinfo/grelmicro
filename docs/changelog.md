@@ -3,9 +3,9 @@
 ## Unreleased
 
 ### Added
-* ✨ `micro.describe()` lists the scheduled tasks in `AppReport.tasks`, each a `TaskReport` with its schedule, gate, claim name and backend. `grelmicro check` text output gains a `Tasks` block when a task is registered. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
-* ✨ A cron or interval task in `tasks.tasks` has a read-only `gate` that returns the gate it was built with, the same `LeaderElection` or `TaskLock` object included. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
-* ✨ `grelmicro check` warns with `gate-backend` on a gated task that resolves no backend to claim through, and with `leader-not-running` on a task gated on an election no `Tasks` holds. `gate-backend` fails in `staging` and `production` from 0.44.0. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+* ✨ `micro.describe()` lists the scheduled tasks in `AppReport.tasks`, each a `TaskReport` with its schedule, gate, claim name and backend. `grelmicro check` text output gains a `Tasks` block when a task is registered. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
+* ✨ A cron or interval task in `tasks.tasks` has a read-only `gate` that returns the gate it was built with, the same `LeaderElection` or `TaskLock` object included. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
+* ✨ `grelmicro check` warns with `gate-backend` on a gated task that resolves no backend to claim through, and with `leader-not-running` on a task gated on an election no `Tasks` holds. `gate-backend` fails in `staging` and `production` from 0.44.0. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
 * ✨ `OpsServer(enabled=False)` and `GREL_OPS_ENABLED=false` switch the ops server off. It binds no port, and `health-not-served` says it is switched off. ([#1142](https://github.com/grelinfo/grelmicro/pull/1142))
 * ✨ `HealthChecks.add_breaker` reports a circuit breaker as a `circuitbreaker:{name}` check. An open breaker fails it with the seconds until the next probe, and it is non-critical by default. ([#1137](https://github.com/grelinfo/grelmicro/pull/1137))
 * ✨ `GrelmicroFutureWarning` warns one minor release before a default changes or a name is removed. Passing the argument silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
