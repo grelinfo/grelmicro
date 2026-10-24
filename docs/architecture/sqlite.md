@@ -8,6 +8,12 @@ This page documents the internal design of the SQLite [Coordination backend](../
 
 Installing a table takes the same lock. Components open in registration order, and one of them may already have a transaction open on the shared connection when the next one creates its tables. `executescript` commits before it runs, so a schema init that skipped the lock would end that transaction and fail.
 
+## Leader Election
+
+`SQLiteLeaderElectionAdapter` keeps one row per election with the holder, the lease, when it was acquired and renewed, when it expires, the number of holder changes, and the metadata. Acquire and renew are one UPSERT inside a `BEGIN IMMEDIATE` transaction. It writes only when the election is vacant, the lease has expired, or the caller already holds it. A live lease held by another worker is read back unchanged. Times come from the SQLite clock, to the millisecond.
+
+An expired row stays in place, so a takeover by another worker counts one more transition. Release deletes the row.
+
 ## Several Processes
 
 Two processes may open the same file. SQLite allows one writer at a time and refuses the others, so the provider sets `PRAGMA busy_timeout` on every connection it opens. A write that finds the file busy then retries until the timeout instead of failing right away.

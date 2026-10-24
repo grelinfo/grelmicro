@@ -18,6 +18,7 @@ from grelmicro import Grelmicro
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.sqlite import (
+    SQLiteLeaderElectionAdapter,
     SQLiteLockAdapter,
     SQLiteScheduleAdapter,
 )
@@ -167,6 +168,9 @@ def test_factories_return_adapters() -> None:
     provider = SQLiteProvider("x.db")
     assert isinstance(provider.ratelimiter_backend(), SQLiteRateLimiterAdapter)
     assert isinstance(provider.lock_backend(), SQLiteLockAdapter)
+    assert isinstance(
+        provider.leaderelection_backend(), SQLiteLeaderElectionAdapter
+    )
     assert isinstance(provider.schedule_backend(), SQLiteScheduleAdapter)
     assert isinstance(provider.cache_backend(), SQLiteCacheAdapter)
     assert isinstance(
