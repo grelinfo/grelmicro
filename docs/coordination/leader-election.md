@@ -82,6 +82,7 @@ Pick the backend that matches your deployment.
 | `MemoryLeaderElectionAdapter` | Tests and single-process apps. | A process-local dict (not shared across nodes). |
 | `RedisLeaderElectionAdapter` | A Redis-backed cluster. | A Redis hash, updated atomically. |
 | `PostgresLeaderElectionAdapter` | Postgres is already in your stack. | A row, updated atomically under an advisory lock (a lock PostgreSQL holds by name, not on a table row). |
+| `SQLiteLeaderElectionAdapter` | A single host, such as a home lab or a prototype. | A row in the database file, updated atomically in one write transaction. |
 | `KubernetesLeaderElectionAdapter` | A Kubernetes-native deployment. | A `coordination.k8s.io` Lease, metadata in its annotations. |
 
 A `Provider` builds the matching backend for you: `Coordination(redis)` calls

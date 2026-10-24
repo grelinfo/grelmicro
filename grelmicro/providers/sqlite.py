@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
     from grelmicro.cache.sqlite import SQLiteCacheAdapter
     from grelmicro.coordination.sqlite import (
+        SQLiteLeaderElectionAdapter,
         SQLiteLockAdapter,
         SQLiteReadWriteLockAdapter,
         SQLiteScheduleAdapter,
@@ -387,6 +388,17 @@ class SQLiteProvider(Provider):
         )
 
         return SQLiteReadWriteLockAdapter(provider=self, **kwargs)
+
+    def leaderelection_backend(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> SQLiteLeaderElectionAdapter:
+        """Build a `SQLiteLeaderElectionAdapter` bound to this provider."""
+        from grelmicro.coordination.sqlite import (  # noqa: PLC0415
+            SQLiteLeaderElectionAdapter,
+        )
+
+        return SQLiteLeaderElectionAdapter(provider=self, **kwargs)
 
     def schedule_backend(self, **kwargs: Any) -> SQLiteScheduleAdapter:  # noqa: ANN401
         """Build a `SQLiteScheduleAdapter` bound to this provider."""

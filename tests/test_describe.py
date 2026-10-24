@@ -88,7 +88,7 @@ def test_describe_reports_declined_provider_kinds() -> None:
 
     sqlite = next(p for p in report.providers if p.short_name == "sqlite")
     assert "outbox" in sqlite.declines
-    assert "leaderelection" in sqlite.declines
+    assert "leaderelection" in sqlite.serves
     assert "cache" in sqlite.serves
 
 
