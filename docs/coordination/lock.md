@@ -156,7 +156,16 @@ When the lease is lost, the body is cancelled at its next `await` and the
 `async with` raises `LockNotOwnedError`. The lease is lost when the backend no
 longer holds it, or when the backend keeps failing until only a tenth of the
 lease is left. One warning names the lock. A cancellation from outside is
-raised as `CancelledError`, as usual.
+raised as `CancelledError`, as usual. When the body raises its own error after
+the lease is lost, that error propagates, and the loss shows only in the
+warning.
+
+A body that does not `await` again after the loss runs to its end, then the
+`async with` raises. Its side effects have already happened, which is one more
+reason to pass the fencing token.
+
+`auto_extend` is available on `async with lock.hold(...)`. The thread form,
+`lock.from_thread.hold()`, and the read-write lock holds do not take it.
 
 Renewal does not survive a process pause, such as a long garbage collection
 or a suspended VM, so pass `held.fencing_token` to the resource as well. See
