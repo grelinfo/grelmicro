@@ -142,6 +142,27 @@ async with lock as held:
 (expired or taken over by another holder), and `LockExtendError` when the
 backend call fails.
 
+## Hold a lock for a long job
+
+Pass `auto_extend=True` to `hold()` when the body may run longer than
+`lease_duration`. The lease is extended every third of `lease_duration` until
+the body ends:
+
+```python
+--8<-- "coordination/lock_auto_extend.py"
+```
+
+When the lease is lost, the body is cancelled at its next `await` and the
+`async with` raises `LockNotOwnedError`. The lease is lost when the backend no
+longer holds it, or when the backend keeps failing until only a tenth of the
+lease is left. One warning names the lock. A cancellation from outside is
+raised as `CancelledError`, as usual.
+
+Renewal does not survive a process pause, such as a long garbage collection
+or a suspended VM, so pass `held.fencing_token` to the resource as well. See
+[How to do distributed locking](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html)
+and [Fencing tokens](#fencing-tokens).
+
 ## When the body outlives its lease
 
 The lease bounds how long the lock is yours. Once it expires, another holder
@@ -153,8 +174,8 @@ Protect against it in two ways:
 
 - Pass `held.fencing_token` from `async with lock as held:` to every write, so
   the resource rejects the old holder. See [Fencing tokens](#fencing-tokens).
-- Set a `lease_duration` longer than the work really takes, or call
-  `extend()` before the lease runs out.
+- Set a `lease_duration` longer than the work really takes, call `extend()`
+  before the lease runs out, or [hold it with `auto_extend=True`](#hold-a-lock-for-a-long-job).
 
 ## Releasing
 

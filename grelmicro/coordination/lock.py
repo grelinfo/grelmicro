@@ -2,7 +2,9 @@
 
 import asyncio
 import re
+from contextlib import suppress
 from datetime import timedelta
+from logging import getLogger
 from types import TracebackType
 from typing import Annotated, ClassVar, Final, Self
 from uuid import UUID
@@ -17,6 +19,7 @@ from grelmicro._async import (
     raise_backend_not_open,
     raise_event_loop_deadlock,
     run_to_completion,
+    sleep_or_stop,
 )
 from grelmicro._config import (
     Reconfigurable,
@@ -32,7 +35,7 @@ from grelmicro.coordination._base import (
     jittered_interval,
 )
 from grelmicro.coordination._handle import LockHandle
-from grelmicro.coordination._hold import Hold, ThreadHold
+from grelmicro.coordination._hold import Hold, RenewedHold, ThreadHold
 from grelmicro.coordination._metrics import (
     ACQUIRED,
     ERROR,
@@ -62,6 +65,8 @@ from grelmicro.errors import (
     SettingsValidationError,
     WouldBlockError,
 )
+
+logger = getLogger("grelmicro.coordination")
 
 _MIN_RETRY_INTERVAL: float = 0.001
 LOCK_NAME_MAX_LENGTH = 200
@@ -470,6 +475,18 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 """,
             ),
         ],
+        auto_extend: Annotated[
+            bool,
+            Doc(
+                """
+                Extend the lease every third of `lease_duration` while
+                the body runs.
+
+                When the lease is lost, the body is cancelled at its next
+                `await` and leaving raises `LockNotOwnedError`.
+                """,
+            ),
+        ] = False,
     ) -> Hold[LockHandle]:
         """Hold the lock for the body of `async with`, waiting at most `timeout`.
 
@@ -480,8 +497,84 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
         Entering raises `LockTimeoutError` when `timeout` elapses first,
         and the body does not run. Leaving releases the lock.
+
+        With `auto_extend=True`, a task renews the lease until the body
+        ends. A renewal the backend fails is retried every tenth of the
+        lease, until only a tenth of the lease is left. The lease is lost
+        when the backend no longer holds it or when the retries run out.
+        A lost lease logs one warning, cancels the body at its next
+        `await`, and makes leaving raise `LockNotOwnedError`. A
+        cancellation from outside is raised as it is.
         """
-        return Hold(self.acquire, self.__aexit__, timeout)
+        if not auto_extend:
+            return Hold(self.acquire, self.__aexit__, timeout)
+        return RenewedHold(
+            self.acquire,
+            self.__aexit__,
+            timeout,
+            name=self._name,
+            keep=self._keep_lease,
+            drop=self._drop_lost_lease,
+        )
+
+    async def _keep_lease(self, token: str, stop: asyncio.Event) -> bool:
+        """Extend the lease `token` holds until `stop` is set.
+
+        Extends every third of the lease, read again before each wait so
+        a `reconfigure` sets the pace. An extension the backend fails or
+        does not answer is retried every tenth of the lease. The retries
+        stop when less than a tenth of the lease since the last extension
+        that worked is left.
+
+        Returns False once `stop` is set. Returns True, after one warning,
+        when the backend no longer holds the lease or the retries ran out.
+        """
+        loop = asyncio.get_running_loop()
+        extended_at = loop.time()
+        failing = False
+        while True:
+            duration = self._config.lease_duration
+            lease = duration.total_seconds()
+            if await sleep_or_stop(lease / 10 if failing else lease / 3, stop):
+                return False
+            sent = loop.time()
+            cutoff = extended_at + lease - lease / 10
+            try:
+                async with asyncio.timeout_at(cutoff):
+                    fencing_token = await self._backend_extend(token, duration)
+            except LockExtendError, TimeoutError:
+                self._metrics.extension(ERROR)
+                if loop.time() + lease / 10 < cutoff:
+                    failing = True
+                    continue
+                logger.warning(
+                    "Lock could not extend its lease in time: %s",
+                    self._name,
+                    exc_info=True,
+                )
+                return True
+            if fencing_token is None:
+                self._metrics.extension(LOST)
+                logger.warning(
+                    "Lock lost its lease while the body ran: %s", self._name
+                )
+                return True
+            self._metrics.extension(SUCCESS)
+            extended_at = sent
+            failing = False
+
+    async def _drop_lost_lease(self) -> None:
+        """Let go of a lost lease and stop counting this task as its holder.
+
+        The release is still sent, so a lease the backend kept is freed
+        now. Its "not owned" answer and its backend error are dropped.
+        """
+        task = self._running_task()
+        try:
+            with suppress(LockNotOwnedError, LockReleaseError):
+                await self.release()
+        finally:
+            self._forget(task)
 
     async def acquire(
         self,
