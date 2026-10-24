@@ -168,7 +168,8 @@
     "url"
   ],
   "grelmicro.providers.sqlite.SQLiteConfig": [
-    "path"
+    "path",
+    "synchronous"
   ],
   "grelmicro.providers.valkey.ValkeyConfig": [
     "db",
