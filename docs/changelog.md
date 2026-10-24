@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Added
-* ✨ `HealthChecks(providers=)` picks the check registered for each Provider: `"report"` shows it in `/healthz` only, `"require"` fails `/readyz` while the backend is down, and `"off"` registers none. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+* ✨ `HealthChecks(providers=)` picks the check registered for each Provider: `"report"` shows it in `/healthz` only, `"require"` fails `/readyz` while the backend is down, and `"off"` registers none. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 * ✨ `OpsServer(enabled=False)` and `GREL_OPS_ENABLED=false` switch the ops server off. It binds no port, and `health-not-served` says it is switched off. ([#1142](https://github.com/grelinfo/grelmicro/pull/1142))
 * ✨ `HealthChecks.add_breaker` reports a circuit breaker as a `circuitbreaker:{name}` check. An open breaker fails it with the seconds until the next probe, and it is non-critical by default. ([#1137](https://github.com/grelinfo/grelmicro/pull/1137))
 * ✨ `GrelmicroFutureWarning` warns one minor release before a default changes or a name is removed. Passing the argument silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
@@ -21,8 +21,8 @@
 * 🗑️ `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Pass the string instead. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
 * 🗑️ `GREL_ENVIRONMENT=Production`, or any tier in another case, warns with `GrelmicroFutureWarning`. It reads as undeclared until 0.44.0, then as that tier. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
 * 🗑️ A `GREL_*` variable set while `GREL_ENV_LOAD` is unset warns with `GrelmicroFutureWarning`. It is not read until 0.44.0, then read by default. Set `GREL_ENV_LOAD=1` or `GREL_ENV_LOAD=0` to choose now. ([#1145](https://github.com/grelinfo/grelmicro/pull/1145))
-* 🗑️ `HealthChecks(auto_health=True)` and `auto_health=False` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Pass `providers="require"` or `providers="off"` instead. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
-* 🗑️ `HealthChecks()` with no `providers=` warns with `GrelmicroFutureWarning` when the app opens beside a Provider. From 0.44.0 it defaults to `"report"`. Pass `providers=` to choose now. ([#TBD](https://github.com/grelinfo/grelmicro/pull/TBD))
+* 🗑️ `HealthChecks(auto_health=True)` and `auto_health=False` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Pass `providers="require"` or `providers="off"` instead. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
+* 🗑️ `HealthChecks()` with no `providers=` warns with `GrelmicroFutureWarning` when the app opens beside a Provider. From 0.44.0 it defaults to `"report"`. Pass `providers=` to choose now. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 
 
 ### Docs
