@@ -189,9 +189,35 @@ def unread_env(name: str) -> FutureChange:
     )
 
 
+AUTO_HEALTH: dict[bool, Rename] = {
+    True: Rename(
+        old="auto_health=True",
+        new='providers="require"',
+        removed_in="0.44.0",
+    ),
+    False: Rename(
+        old="auto_health=False",
+        new='providers="off"',
+        removed_in="0.44.0",
+    ),
+}
+"""`HealthChecks(auto_health=)` replaced by `providers=`, by the value passed."""
+
+
+PROVIDERS_DEFAULT = FutureChange(
+    change="`HealthChecks()` reports each Provider in `/healthz` by default",
+    switch_in="0.44.0",
+    keep='providers="off"',
+    adopt='providers="report"',
+)
+"""`HealthChecks` registers a non-critical check per Provider by default."""
+
+
 PENDING: tuple[FutureChange | Rename | Removal, ...] = (
     *MODE_ENUMS.values(),
     ENVIRONMENT_CASE,
     ENV_LOAD_DEFAULT,
+    *AUTO_HEALTH.values(),
+    PROVIDERS_DEFAULT,
 )
 """Every behavior change, rename and removal that currently warns."""

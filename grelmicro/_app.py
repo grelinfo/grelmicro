@@ -432,6 +432,8 @@ class Grelmicro:
         self._allow_multiple = allow_multiple
         self._bare_providers: list[Provider] = []
         """Every Provider passed bare, each one once."""
+        self._warned_providers_default = False
+        """Whether this app already warned that `providers=` gets a default."""
         self._pending_providers: list[tuple[Provider, list[Component]]] = []
         """Bare Providers and their default Components, not registered yet."""
         self._pending_kinds: set[str] = set()
@@ -1232,6 +1234,39 @@ class Grelmicro:
             )
         )
 
+    def _warn_providers_default(self) -> None:
+        """Warn once that `HealthChecks(providers=)` defaults to "report".
+
+        Warns when a registered `HealthChecks` left `providers` unset and
+        `"report"` would register a check for a Provider on the app. Under
+        `fake()` it counts the Providers the app has without the fake, so
+        the memory store a fake swaps in warns nothing. The warning points
+        at the line that opened the app.
+        """
+        health = [
+            component
+            for component in self._by_key.values()
+            if component.kind == "health"
+        ]
+        if self._warned_providers_default or not health:
+            return
+        from grelmicro._deprecation import PROVIDERS_DEFAULT  # noqa: PLC0415
+        from grelmicro.health._checks import (  # noqa: PLC0415
+            warns_providers_default,
+        )
+
+        items = (
+            self._items
+            if self._unfaked is None
+            else _with_shared_providers(self._unfaked.items)
+        )
+        if not any(
+            warns_providers_default(component, items) for component in health
+        ):
+            return
+        self._warned_providers_default = True
+        PROVIDERS_DEFAULT.warn(stacklevel=3)
+
     def _health_check(self) -> CheckReport | None:
         """Return the served-health check, or `None` with no HTTP app installed."""
         from grelmicro._describe import CheckReport  # noqa: PLC0415
@@ -1298,7 +1333,7 @@ class Grelmicro:
         Includes Providers listed in `uses=` and those adopted from
         Components that borrow them (see `_discover_shared_providers`). One
         Provider feeding several Components appears once. Useful for
-        introspection and for `HealthChecks(auto_health=True)`, which
+        introspection and for `HealthChecks(providers=...)`, which
         registers a `provider:{short_name}` check per entry.
         """
         if self._pending_providers:
@@ -1937,6 +1972,7 @@ class Grelmicro:
             self._instrument_providers()
             self._opened = True
             self._report_unserved_health()
+            self._warn_providers_default()
         except BaseException:
             self._closing = True
             self._opened = False

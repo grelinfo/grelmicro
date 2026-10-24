@@ -6,7 +6,7 @@ from grelmicro.providers.redis import RedisProvider
 
 
 def build_components() -> list[Usable]:
-    components: list[Usable] = [HealthChecks()]
+    components: list[Usable] = [HealthChecks(providers="require")]
     if os.getenv("STORE_BACKEND") == "redis":
         components.append(RedisProvider("redis://localhost:6379/0"))
     return components

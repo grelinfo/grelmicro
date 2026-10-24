@@ -243,7 +243,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         """Run a cheap readiness probe against the backend.
 
         A `HealthChecks` registers this as a `provider:{short_name}` check
-        via `add_provider` or `auto_health`. Returns `None` on success.
+        via `add_provider` or `providers=`. Returns `None` on success.
         Raises on failure: the exception surfaces in the health report and
         flips the check to `error`.
 

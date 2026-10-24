@@ -127,6 +127,8 @@ raises](#0-42-raising).
 - `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. [Pass the string](#0-43-mode-strings).
 - `GREL_ENVIRONMENT=Production`, or any tier in another case, still reads as undeclared and now also warns with `GrelmicroFutureWarning`. From 0.44.0 it declares that tier. [Spell the tier in lowercase](#0-43-environment-case).
 - A `GREL_*` variable such as `GREL_OPS_PORT`, set while `GREL_ENV_LOAD` is unset, is still not read and now warns with `GrelmicroFutureWarning` instead of `EnvLoadOffWarning`. From 0.44.0 it is read. [Set `GREL_ENV_LOAD`](#0-43-env-load-default).
+- `HealthChecks(auto_health=True)` and `auto_health=False` still work and now warn with `GrelmicroFutureWarning`. `auto_health=` is removed in 0.44.0. [Pass `providers=`](#0-43-provider-checks).
+- A `HealthChecks` with no `providers=` beside a Provider still registers no provider checks, and now warns with `GrelmicroFutureWarning` on startup. From 0.44.0 it shows each Provider in `/healthz`. [Pass `providers=`](#0-43-provider-checks).
 - A choice in another case is accepted where it used to be refused, such as `requires="Cluster"`, `lock="Process"`, `gate="Claim"` or `environment="Production"`. [Nothing to change](#0-43-mode-strings).
 
 ### A mode is a string {#0-43-mode-strings}
@@ -210,6 +212,30 @@ GREL_ENV_LOAD=0
 
 `env_load=True` or `env_load=False` on one component chooses for that
 component only. Provider variables such as `POSTGRES_URL` are read as before.
+
+### `auto_health` is renamed to `providers` {#0-43-provider-checks}
+
+`HealthChecks(providers=)` picks the check registered for each Provider on
+the app. `"report"` shows it in `/healthz` and leaves `/readyz` alone,
+`"require"` fails `/readyz` while the backend is down, and `"off"` registers
+none. `auto_health=` still works in 0.43, warns, and is removed in 0.44.0.
+
+```python
+from grelmicro.health import HealthChecks
+
+# Before
+HealthChecks(auto_health=True)
+HealthChecks(auto_health=False)
+
+# After
+HealthChecks(providers="require")
+HealthChecks(providers="off")
+```
+
+Left unset, `providers=` registers nothing, as before, and warns on startup
+when the app has a Provider it would check. From 0.44.0 it defaults to
+`"report"`. Pass `providers="off"` to keep the current behavior, or
+`providers="report"` to show each Provider in `/healthz` now.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 

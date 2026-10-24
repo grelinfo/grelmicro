@@ -175,7 +175,11 @@ async def test_strict_opens_tasks_after_the_provider_listed_later(
     tasks = Tasks()
 
     await _assert_first_claimed_run(
-        [tasks, SQLiteProvider(tmp_path / "app.db"), HealthChecks()],
+        [
+            tasks,
+            SQLiteProvider(tmp_path / "app.db"),
+            HealthChecks(providers="off"),
+        ],
         tasks,
         strict=True,
     )
