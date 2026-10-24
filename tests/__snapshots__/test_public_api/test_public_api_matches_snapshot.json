@@ -233,7 +233,7 @@
   },
   "grelmicro.describe": {
     "AppReport": {
-      "()": "(environment=None, components=(), providers=(), checks=(), endpoints=()) -> None"
+      "()": "(environment=None, components=(), providers=(), checks=(), endpoints=(), tasks=()) -> None"
     },
     "CheckReport": {
       "()": "(name, status, detail) -> None"
@@ -249,6 +249,12 @@
     },
     "ProviderReport": {
       "()": "(short_name, provider, url=None, env_prefix=None, serves=(), declines=()) -> None"
+    },
+    "TaskGate": {
+      "()": "(*args, **kwargs)"
+    },
+    "TaskReport": {
+      "()": "(name, interval=None, cron=None, timezone=None, gate=None, leader=None, claim_name=None, backend=None, provider=None) -> None"
     }
   },
   "grelmicro.health": {

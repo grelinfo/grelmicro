@@ -84,6 +84,7 @@ class IntervalTask(Task):
         )
 
         gate = spell_gate(gate)
+        self._gate = gate
         primitives = self._gate_primitives(gate, interval)
         self._gate_label = gate_label(gate, takes_lock=True)
         self._watch = (
@@ -170,6 +171,16 @@ class IntervalTask(Task):
     def name(self) -> str:
         """Return the task name."""
         return self._name
+
+    @property
+    def gate(self) -> Literal["claim"] | TaskLock | LeaderElection | None:
+        """The gate the task was built with.
+
+        `"claim"` reads back as the string, a `TaskLock` or a
+        `LeaderElection` as the object passed, and `None` when every
+        worker runs it.
+        """
+        return self._gate
 
     @property
     def next_fire_time(self) -> datetime | None:

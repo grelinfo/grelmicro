@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+* ✨ `micro.describe()` lists the scheduled tasks in `AppReport.tasks`, each a `TaskReport` with its schedule, gate, claim name and backend. `grelmicro check` text output gains a `Tasks` block when a task is registered. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
+* ✨ A cron or interval task in `tasks.tasks` has a read-only `gate` that returns the gate it was built with, the same `LeaderElection` or `TaskLock` object included. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
+* ✨ `grelmicro check` warns with `gate-backend` on a gated task that resolves no backend to claim through, and with `leader-not-running` on a task gated on an election no `Tasks` holds. `gate-backend` fails in `staging` and `production` from 0.44.0. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
 * ✨ `lock.hold(timeout=..., auto_extend=True)` extends the lease while the body runs. When the lease is lost, the body is cancelled and the `async with` raises `LockNotOwnedError`. ([#1149](https://github.com/grelinfo/grelmicro/pull/1149))
 * ✨ `SQLiteLeaderElectionAdapter` runs leader election on SQLite, so `gate=LeaderElection(...)` works on a `SQLiteProvider`. Moving to Postgres or Redis changes the provider line only. ([#1148](https://github.com/grelinfo/grelmicro/pull/1148))
 * ✨ `SQLiteProvider(synchronous="normal")` and `SQLITE_SYNCHRONOUS=normal` commit faster. A power cut or OS crash can roll back the last commits. The default keeps SQLite's `full` mode. ([#1154](https://github.com/grelinfo/grelmicro/pull/1154))

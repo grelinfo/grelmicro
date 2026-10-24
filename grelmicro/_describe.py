@@ -17,7 +17,12 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from grelmicro._diagnostics import ROUTES_NOT_DECLARED, UNGATED_CRON
+from grelmicro._diagnostics import (
+    GATE_BACKEND,
+    LEADER_NOT_RUNNING,
+    ROUTES_NOT_DECLARED,
+    UNGATED_CRON,
+)
 from grelmicro._discovery import framework_of, load_integration, serves_http
 from grelmicro._duration import SECOND, microseconds
 from grelmicro._environment import recorded_bindings, unmet_requirements
@@ -33,6 +38,7 @@ if TYPE_CHECKING:
     from grelmicro._app import Grelmicro
     from grelmicro._component import Component
     from grelmicro._discovery import Integration
+    from grelmicro._task import Task
     from grelmicro.http._routes import RouteDeclaration
     from grelmicro.providers._base import Provider
     from grelmicro.types import Environment
@@ -43,10 +49,18 @@ __all__ = [
     "ComponentReport",
     "EndpointReport",
     "ProviderReport",
+    "TaskReport",
 ]
 
 CheckStatus = Literal["ok", "warn", "fail"]
 """How a single check came out. Only `fail` sets a non-zero exit code."""
+
+TaskGate = Literal["claim", "leader", "lock"]
+"""Which gate a task runs behind, as the report names it.
+
+`claim` for `gate="claim"`, `leader` for a `LeaderElection`, and `lock`
+for a `TaskLock`.
+"""
 
 _SECRET_HINTS = frozenset({"password", "secret", "token", "key", "auth"})
 """Field-name fragments whose value is masked whatever its type."""
@@ -121,6 +135,66 @@ class CheckReport:
 
 
 @dataclass(frozen=True)
+class TaskReport:
+    """One scheduled task, when it fires, and which workers run it.
+
+    A task that is neither an interval nor a cron task, such as a
+    `LeaderElection` added with `tasks.add_task`, reports its name only:
+    every other field, `gate` included, is `None`.
+    """
+
+    name: Annotated[str, Doc("The task name.")]
+    interval: Annotated[
+        timedelta | None,
+        Doc("Time between two runs of an interval task. `None` for any other."),
+    ] = None
+    cron: Annotated[
+        str | None,
+        Doc(
+            "Cron expression of a cron task, as written. `None` for any other."
+        ),
+    ] = None
+    timezone: Annotated[
+        str | None,
+        Doc(
+            "IANA timezone a cron task fires in: its own, else its router's, "
+            "else the one of its `Tasks`. `None` for any other task."
+        ),
+    ] = None
+    gate: Annotated[
+        TaskGate | None,
+        Doc(
+            "Gate the task runs behind. `None` when every worker runs it, "
+            "and for a task that is neither an interval nor a cron task."
+        ),
+    ] = None
+    leader: Annotated[
+        str | None,
+        Doc("Name of the `LeaderElection` the task is gated on, if any."),
+    ] = None
+    claim_name: Annotated[
+        str | None,
+        Doc(
+            """
+            Name the task claims each fire under: the task name for a cron
+            task, the lock name for an interval task. `None` without a gate.
+            """,
+        ),
+    ] = None
+    backend: Annotated[
+        str | None,
+        Doc(
+            "Class name of the backend the task claims through. `None` "
+            "without a gate, or when none resolves."
+        ),
+    ] = None
+    provider: Annotated[
+        str | None,
+        Doc("Short name of the Provider that backend borrows, if any."),
+    ] = None
+
+
+@dataclass(frozen=True)
 class EndpointReport:
     """One endpoint, and what every registered component does to it.
 
@@ -172,6 +246,13 @@ class AppReport:
             "What each registered component does to each endpoint. Empty "
             "unless `describe(app)` was given the application, since the "
             "routes are read off it."
+        ),
+    ] = ()
+    tasks: Annotated[
+        tuple[TaskReport, ...],
+        Doc(
+            "Scheduled tasks, in registration order, those of included "
+            "routers too. Empty when no `Tasks` holds a task."
         ),
     ] = ()
 
@@ -883,6 +964,193 @@ def _cron_checks(micro: Grelmicro) -> list[CheckReport]:
     ]
 
 
+def _coordination_backend(
+    micro: Grelmicro, name: str, attribute: str
+) -> object | None:
+    """Return a backend of the `Coordination` named `name`, or `None`.
+
+    `attribute` names the backend, such as `"lock_backend"`. `None` when
+    no such `Coordination` is registered or it holds no such backend.
+    """
+    from grelmicro._app import ComponentNotRegisteredError  # noqa: PLC0415
+    from grelmicro.coordination.errors import (  # noqa: PLC0415
+        CoordinationBackendError,
+    )
+
+    try:
+        return getattr(micro.get("coordination", name), attribute)
+    except ComponentNotRegisteredError, CoordinationBackendError:
+        return None
+
+
+def _gated(
+    name: str,
+    gate: TaskGate,
+    claim_name: str,
+    backend: object | None,
+    leader: str | None,
+) -> TaskReport:
+    """Return the report entry of a gated task, its schedule left out."""
+    return TaskReport(
+        name=name,
+        gate=gate,
+        leader=leader,
+        claim_name=claim_name,
+        backend=None if backend is None else type(backend).__name__,
+        provider=None if backend is None else _provider_of((backend,)),
+    )
+
+
+def describe_task(
+    micro: Grelmicro, task: Task, timezone: str | None
+) -> TaskReport:
+    """Build the report entry for one scheduled task.
+
+    `timezone` is the one a cron task fires in. The backend is the one the
+    task claims through in `micro`: the one it was given, else the matching
+    backend of the app's `Coordination`. A task that is neither a cron nor
+    an interval task, such as a `LeaderElection`, reports its name only.
+    """
+    from grelmicro.coordination.leaderelection import (  # noqa: PLC0415
+        LeaderElection,
+    )
+    from grelmicro.task._cron import CronTask  # noqa: PLC0415
+    from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
+
+    if isinstance(task, CronTask):
+        cron = task._expr_source  # noqa: SLF001
+        gate = task.gate
+        if gate is None:
+            return TaskReport(name=task.name, cron=cron, timezone=timezone)
+        backend = task._backend or _coordination_backend(  # noqa: SLF001
+            micro, "default", "schedule_backend"
+        )
+        leader = gate.name if isinstance(gate, LeaderElection) else None
+        report = _gated(
+            task.name,
+            "claim" if leader is None else "leader",
+            task.name,
+            backend,
+            leader,
+        )
+        return replace(report, cron=cron, timezone=timezone)
+    if not isinstance(task, IntervalTask):
+        return TaskReport(name=task.name)
+    interval = task._interval  # noqa: SLF001
+    claim = task._claim  # noqa: SLF001
+    if claim is None:
+        return TaskReport(name=task.name, interval=interval)
+    backend = claim._backend or _coordination_backend(  # noqa: SLF001
+        micro,
+        claim._backend_name or "default",  # noqa: SLF001
+        "lock_backend",
+    )
+    passed = task.gate
+    leader = passed.name if isinstance(passed, LeaderElection) else None
+    kind: TaskGate = "claim" if passed == "claim" else "lock"
+    if leader is not None:
+        kind = "leader"
+    report = _gated(task.name, kind, claim._named, backend, leader)  # noqa: SLF001
+    return replace(report, interval=interval)
+
+
+def _gate_finding(task: TaskReport) -> str:
+    """Return what a gated task that resolves no backend does, and the fix."""
+    kind = "lock" if task.cron is None else "schedule"
+    return (
+        f"Task {task.name!r} is gated but resolves no {kind} backend, so "
+        f"every fire reports a coordination_error and runs nothing. "
+        f"Register a Coordination with a {kind} backend, or pass backend=."
+    )
+
+
+def _gate_checks(tasks: Sequence[TaskReport]) -> list[CheckReport]:
+    """Report each gated task that resolves no backend to claim through.
+
+    One `warn` entry per such task, in every tier, since such a task runs
+    nothing anywhere. One `ok` entry when every gated task resolves one.
+    Nothing without a gated task.
+    """
+    gated = [task for task in tasks if task.gate is not None]
+    if not gated:
+        return []
+    missing = [task for task in gated if task.backend is None]
+    if not missing:
+        return [
+            CheckReport(
+                name=GATE_BACKEND,
+                status="ok",
+                detail="every gated task resolves its claim backend",
+            )
+        ]
+    return [
+        CheckReport(
+            name=GATE_BACKEND, status="warn", detail=_gate_finding(task)
+        )
+        for task in missing
+    ]
+
+
+def _leader_checks(
+    scheduled: Sequence[tuple[Task, str | None]],
+) -> list[CheckReport]:
+    """Report each task gated on a leader election no registered `Tasks` runs.
+
+    One `warn` entry per such task, or one `ok` entry when every election
+    is registered. Nothing without a leader-gated task.
+    """
+    from grelmicro.coordination.leaderelection import (  # noqa: PLC0415
+        LeaderElection,
+    )
+
+    registered = {id(task) for task, _ in scheduled}
+    gated = [
+        (task.name, gate)
+        for task, _ in scheduled
+        if isinstance(gate := getattr(task, "gate", None), LeaderElection)
+    ]
+    if not gated:
+        return []
+    missing = [
+        (name, gate) for name, gate in gated if id(gate) not in registered
+    ]
+    if not missing:
+        return [
+            CheckReport(
+                name=LEADER_NOT_RUNNING,
+                status="ok",
+                detail="every leader election a task is gated on is registered",
+            )
+        ]
+    return [
+        CheckReport(
+            name=LEADER_NOT_RUNNING,
+            status="warn",
+            detail=(
+                f"Task {name!r} is gated on the leader election "
+                f"{gate.name!r}, which no registered Tasks runs, so the task "
+                f"skips every fire unless the election is started elsewhere. "
+                f"Register it with tasks.add_task(election)."
+            ),
+        )
+        for name, gate in missing
+    ]
+
+
+def _task_reports(
+    micro: Grelmicro,
+) -> tuple[tuple[TaskReport, ...], list[CheckReport]]:
+    """Return the report entry of every scheduled task, and their checks."""
+    from grelmicro.task.router import scheduled_tasks  # noqa: PLC0415
+
+    scheduled = scheduled_tasks(micro._items)  # noqa: SLF001
+    tasks = tuple(
+        describe_task(micro, task, timezone) for task, timezone in scheduled
+    )
+    checks = _gate_checks(tasks) + _leader_checks(scheduled)
+    return tasks, checks
+
+
 def build_report(micro: Grelmicro, app: object = None) -> AppReport:
     """Build the full report for `micro`.
 
@@ -897,6 +1165,8 @@ def build_report(micro: Grelmicro, app: object = None) -> AppReport:
     )
     checks = _scope_checks(list(micro.components), micro.environment)
     checks += _cron_checks(micro)
+    tasks, task_checks = _task_reports(micro)
+    checks += task_checks
     endpoints: tuple[EndpointReport, ...] = ()
     if app is not None:
         routes = _Routes.of(app)
@@ -911,6 +1181,7 @@ def build_report(micro: Grelmicro, app: object = None) -> AppReport:
         providers=providers,
         checks=tuple(checks),
         endpoints=endpoints,
+        tasks=tasks,
     )
 
 
@@ -927,6 +1198,57 @@ def _render_components(report: AppReport) -> list[str]:
         if component.config.get("enabled") is False:
             suffix += " (switched off)"
         lines.append(f"  {text.ljust(width)}  {backends}{suffix}")
+    lines.append("")
+    return lines
+
+
+def _schedule_text(task: TaskReport) -> str:
+    """Write when a task fires, such as `every 60s` or `cron 0 3 * * * (UTC)`."""
+    if task.interval is not None:
+        return f"every {_seconds_text(task.interval)}"
+    if task.cron is not None:
+        return f"cron {task.cron} ({task.timezone})"
+    return "-"
+
+
+def _gate_text(task: TaskReport) -> str:
+    """Write the gate a task runs behind, `none` when every worker runs it.
+
+    A task that is neither an interval nor a cron task has no gate to
+    speak of, and writes `-`.
+    """
+    if task.interval is None and task.cron is None:
+        return "-"
+    if task.gate == "leader":
+        return f"leader {task.leader}"
+    return task.gate or "none"
+
+
+def _backend_text(task: TaskReport) -> str:
+    """Write the backend a gated task claims through, and its Provider."""
+    if task.gate is None:
+        return ""
+    if task.backend is None:
+        return "no backend"
+    suffix = f" <- {task.provider}" if task.provider else ""
+    return f"{task.backend}{suffix}"
+
+
+def _render_tasks(report: AppReport) -> list[str]:
+    """Return the Tasks block, one aligned row per task."""
+    if not report.tasks:
+        return []
+    rows = [
+        (task.name, _schedule_text(task), _gate_text(task), _backend_text(task))
+        for task in report.tasks
+    ]
+    widths = [max(len(row[column]) for row in rows) for column in range(3)]
+    lines = ["Tasks"]
+    for *cells, backend in rows:
+        aligned = "  ".join(
+            cell.ljust(width) for cell, width in zip(cells, widths, strict=True)
+        )
+        lines.append(f"  {aligned}  {backend}".rstrip())
     lines.append("")
     return lines
 
@@ -967,6 +1289,7 @@ def _render(report: AppReport) -> str:
     environment = report.environment or "undeclared"
     lines = [f"Environment: {environment}", ""]
     lines += _render_components(report)
+    lines += _render_tasks(report)
     lines += _render_providers(report)
     lines += _render_endpoints(report)
     lines.append("Checks")

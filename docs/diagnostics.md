@@ -73,6 +73,7 @@ configuration it names. Each entry below says which.
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
 | `leader-not-running` | `LeaderNotRunningWarning` | none | A task is gated on a leader election that does not run, so it skips every fire. |
 | `ungated-cron` | `UngatedCronWarning` | none | A cron task with no `gate=` runs each fire on every worker, although a schedule backend is registered. |
+| `gate-backend` | none | none | A gated task resolves no backend to claim through, so every fire runs nothing. Reported by `grelmicro check` and `micro.describe()`. |
 | `health-not-served` | `HealthNotServedWarning` | none | A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404. |
 | `routes-not-declared` | `RoutesNotDeclaredWarning` | none | `AuthenticatedRequests` is installed through an integration with no `install_route_gate`, so every route needs a credential, `Anonymous()` included. `grelmicro check` also reports an HTTP integration with no `route_declarations` when a component acting per endpoint is registered. |
 
@@ -174,6 +175,10 @@ task with `tasks.add_task(election)`, or start it yourself. An election started
 later, by another `Tasks` or a lifespan, is fine as long as it runs within the
 lease duration. See [Leader Election](coordination/leader-election.md).
 
+`python -m grelmicro check` and `micro.describe()` report the same code, as a
+warning, for a task gated on an election that no registered `Tasks` holds. An
+election you start yourself still shows it, so read it as a reminder.
+
 ### `ungated-cron`
 
 A cron task runs each fire on every worker unless it passes `gate=`. With a
@@ -181,6 +186,20 @@ schedule backend registered, a task that leaves `gate=` out is reported each
 time it starts. Pass `gate="claim"` to run each fire on one worker, or `gate=None` to
 keep every worker. Quiet in `development` and `test`. `python -m grelmicro
 check` shows the same check. See [Run on one worker](task.md#run-on-one-worker).
+
+### `gate-backend`
+
+A task gated with `"claim"`, a `LeaderElection` or a `TaskLock` claims each
+fire through a backend: the schedule backend for a cron task, the lock backend
+for an interval task. With none to resolve, every fire reports a
+`coordination_error` and runs nothing. Register a
+[`Coordination`](coordination/index.md) that holds that backend, or pass
+`backend=` to the task or its `TaskLock`.
+
+`python -m grelmicro check` and `micro.describe()` report it as a warning in
+every tier, `development` and `test` included, since such a task runs nothing
+anywhere. From 0.44.0 it fails in `staging` and `production`,
+so `grelmicro check` exits `1` there.
 
 ### `health-not-served`
 
