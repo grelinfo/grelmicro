@@ -15,7 +15,9 @@ from grelmicro.coordination.memory import (
 )
 from grelmicro.describe import TaskGate, TaskReport
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.task import CronTask, IntervalTask, TaskRouter, Tasks
+from grelmicro.task import TaskRouter, Tasks
+from grelmicro.task._cron import CronTask
+from grelmicro.task._interval import IntervalTask
 
 if TYPE_CHECKING:
     from grelmicro import Usable
@@ -61,10 +63,8 @@ def _app(
 
 
 def _reported(micro: Grelmicro) -> tuple[TaskReport, ...]:
-    """Return the tasks `micro` reports, which a registered `Tasks` sets."""
-    tasks = micro.describe().tasks
-    assert tasks is not None
-    return tasks
+    """Return the tasks `micro` reports."""
+    return micro.describe().tasks
 
 
 def _task(tasks: TaskRouter, name: str) -> CronTask | IntervalTask:
@@ -85,7 +85,7 @@ def test_report_lists_an_interval_task_behind_a_claim() -> None:
         name=f"{MODULE}:purge",
         interval=timedelta(seconds=60),
         gate="claim",
-        claim_key=f"{MODULE}:purge",
+        claim_name=f"{MODULE}:purge",
         backend="MemoryLockAdapter",
     )
 
@@ -105,7 +105,7 @@ def test_report_lists_a_cron_task_behind_a_leader() -> None:
         timezone="UTC",
         gate="leader",
         leader="primary",
-        claim_key=f"{MODULE}:nightly",
+        claim_name=f"{MODULE}:nightly",
         backend="MemoryScheduleAdapter",
     )
 
@@ -124,7 +124,7 @@ def test_report_lists_an_interval_task_behind_a_leader() -> None:
         interval=timedelta(seconds=60),
         gate="leader",
         leader="primary",
-        claim_key="purge",
+        claim_name="purge",
         backend="MemoryLockAdapter",
     )
 
@@ -150,7 +150,7 @@ def test_report_lists_a_task_lock_gate_under_its_own_name() -> None:
     [report] = _reported(_app(tasks))
 
     assert report.gate == "lock"
-    assert report.claim_key == "purge-lock"
+    assert report.claim_name == "purge-lock"
     assert report.backend == "MemoryLockAdapter"
 
 
@@ -163,7 +163,7 @@ def test_report_resolves_a_task_lock_from_a_named_coordination() -> None:
 
     [report] = _reported(_app(jobs, tasks))
 
-    assert report.claim_key == "purge"
+    assert report.claim_name == "purge"
     assert report.backend == "MemoryLockAdapter"
 
 
@@ -179,7 +179,7 @@ def test_report_names_a_cron_backend_passed_to_the_task() -> None:
     assert report.backend == "MemoryScheduleAdapter"
 
 
-def test_claim_key_of_an_explicit_name_is_the_name() -> None:
+def test_claim_name_of_an_explicit_name_is_the_name() -> None:
     """A task given `name=` claims under that name, for both kinds."""
     tasks = Tasks()
     tasks.every(interval=60, gate="claim", name="purge-sessions")(purge)
@@ -187,13 +187,13 @@ def test_claim_key_of_an_explicit_name_is_the_name() -> None:
 
     report = _reported(_app(_coordination(), tasks))
 
-    assert [task.claim_key for task in report] == [
+    assert [task.claim_name for task in report] == [
         "purge-sessions",
         "nightly-report",
     ]
 
 
-def test_claim_key_of_a_derived_name_is_the_lock_name_it_maps_to() -> None:
+def test_claim_name_of_a_derived_name_is_the_lock_name_it_maps_to() -> None:
     """An interval claim maps a derived name to a lock name, cron keeps it."""
     tasks = Tasks()
     tasks.every(interval=60, gate="claim")(unsafe)
@@ -201,8 +201,8 @@ def test_claim_key_of_a_derived_name_is_the_lock_name_it_maps_to() -> None:
 
     interval, cron = _reported(_app(_coordination(), tasks))
 
-    assert interval.claim_key == "task-__main__:unsafe"
-    assert cron.claim_key == "__main__:unsafe"
+    assert interval.claim_name == "task-__main__:unsafe"
+    assert cron.claim_name == "__main__:unsafe"
 
 
 def test_report_includes_router_tasks_in_registration_order() -> None:
@@ -257,27 +257,24 @@ def test_report_names_the_provider_the_backend_borrows() -> None:
     assert report.provider == "redis"
 
 
-def test_report_without_tasks_registered_holds_none() -> None:
-    """An app with no `Tasks` reports no task list and renders no block."""
-    report = _app(_coordination()).describe()
+@pytest.mark.parametrize("registered", [False, True], ids=["none", "empty"])
+def test_report_with_no_task_renders_no_block(*, registered: bool) -> None:
+    """No task, registered `Tasks` or not, reports an empty tuple and no block."""
+    uses: list[Usable] = [_coordination()]
+    if registered:
+        uses.append(Tasks())
 
-    assert report.tasks is None
-    assert "Tasks" not in report.render()
-
-
-def test_report_with_empty_tasks_renders_none_registered() -> None:
-    """A registered `Tasks` with no task says so, like Components."""
-    report = _app(Tasks()).describe()
+    report = _app(*uses).describe()
 
     assert report.tasks == ()
-    assert "Tasks\n  none registered\n" in report.render()
+    assert "Tasks" not in report.render()
 
 
 def test_report_renders_one_row_per_task() -> None:
     """Each row reads name, schedule, gate, backend and provider.
 
     A task that is neither a cron nor an interval task, such as the
-    election itself, shows `-` for its schedule.
+    election itself, shows `-` for its schedule and its gate.
     """
     leader = LeaderElection("primary")
     tasks = Tasks()
@@ -296,7 +293,7 @@ def test_report_renders_one_row_per_task() -> None:
         "  nightly  cron 0 3 * * * (UTC)  leader primary  RedisScheduleAdapter <- redis",
         "  beat     every 0.5s            none",
         "  locked   every 1s              lock            RedisLockAdapter <- redis",
-        "  primary  -                     none",
+        "  primary  -                     -",
     ]
     assert text.index("Components") < text.index("Tasks") < text.index("Checks")
 
@@ -354,6 +351,17 @@ def test_interval_gate_reads_back_what_was_passed() -> None:
     assert _task(tasks, "none").gate is None
 
 
+def test_report_of_a_task_that_is_not_scheduled_has_no_gate() -> None:
+    """A `LeaderElection` registered as a task reports its name only."""
+    leader = LeaderElection("primary")
+    tasks = Tasks()
+    tasks.add_task(leader)
+
+    assert _reported(_app(_coordination(), tasks)) == (
+        TaskReport(name="primary"),
+    )
+
+
 def test_task_report_and_gate_are_public() -> None:
     """The report model and its gate type import from `grelmicro.describe`."""
     gate: TaskGate = "claim"
@@ -370,12 +378,14 @@ def _gate_backend(micro: Grelmicro) -> list[tuple[str, str]]:
     ]
 
 
-@pytest.mark.parametrize("environment", ["production", "staging", None])
+@pytest.mark.parametrize(
+    "environment", ["production", "staging", "development", "test", None]
+)
 def test_gate_backend_warns_on_a_gated_task_with_no_backend(
     environment: Environment | None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A gated task with no claim backend warns, and never fails the report."""
+    """A gated task with no claim backend warns in every tier, never fails."""
     monkeypatch.delenv("GREL_ENVIRONMENT", raising=False)
     tasks = Tasks()
     tasks.every(interval=60, gate="claim", name="purge")(purge)
@@ -404,20 +414,6 @@ def test_gate_backend_warns_when_coordination_lacks_the_kind() -> None:
 
     assert status == "warn"
     assert "'nightly'" in detail
-
-
-@pytest.mark.parametrize("environment", ["development", "test"])
-def test_gate_backend_passes_in_development_and_test(
-    environment: Environment,
-) -> None:
-    """A missing claim backend is expected where memory wiring is the point."""
-    tasks = Tasks()
-    tasks.every(interval=60, gate="claim")(purge)
-
-    [(status, detail)] = _gate_backend(_app(tasks, environment=environment))
-
-    assert status == "ok"
-    assert repr(environment) in detail
 
 
 def test_gate_backend_passes_when_every_gate_resolves() -> None:

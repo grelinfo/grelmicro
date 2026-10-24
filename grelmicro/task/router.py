@@ -467,18 +467,19 @@ class TaskRouter:
 
 def scheduled_tasks(
     items: Iterable[object],
-) -> list[tuple[Task, str | None]] | None:
+) -> list[tuple[Task, str | None]]:
     """Return every task the routers in `items` hold, with its timezone.
 
     In registration order, the tasks of included routers after their
     router's own. The timezone is the one a cron task fires in once its
-    `Tasks` starts, and `None` for any other task. Returns `None` when
-    `items` holds no `TaskRouter`.
+    `Tasks` starts, and `None` for any other task.
     """
-    routers = [item for item in items if isinstance(item, TaskRouter)]
-    if not routers:
-        return None
-    return [entry for router in routers for entry in router._zoned(UTC_NAME)]  # noqa: SLF001
+    return [
+        entry
+        for item in items
+        if isinstance(item, TaskRouter)
+        for entry in item._zoned(UTC_NAME)  # noqa: SLF001
+    ]
 
 
 def ungated_cron_names(items: Iterable[object]) -> list[str] | None:

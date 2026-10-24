@@ -136,7 +136,12 @@ class CheckReport:
 
 @dataclass(frozen=True)
 class TaskReport:
-    """One scheduled task, when it fires, and which workers run it."""
+    """One scheduled task, when it fires, and which workers run it.
+
+    A task that is neither an interval nor a cron task, such as a
+    `LeaderElection` added with `tasks.add_task`, reports its name only:
+    every other field, `gate` included, is `None`.
+    """
 
     name: Annotated[str, Doc("The task name.")]
     interval: Annotated[
@@ -158,13 +163,16 @@ class TaskReport:
     ] = None
     gate: Annotated[
         TaskGate | None,
-        Doc("Gate the task runs behind. `None` when every worker runs it."),
+        Doc(
+            "Gate the task runs behind. `None` when every worker runs it, "
+            "and for a task that is neither an interval nor a cron task."
+        ),
     ] = None
     leader: Annotated[
         str | None,
         Doc("Name of the `LeaderElection` the task is gated on, if any."),
     ] = None
-    claim_key: Annotated[
+    claim_name: Annotated[
         str | None,
         Doc(
             """
@@ -241,13 +249,12 @@ class AppReport:
         ),
     ] = ()
     tasks: Annotated[
-        tuple[TaskReport, ...] | None,
+        tuple[TaskReport, ...],
         Doc(
             "Scheduled tasks, in registration order, those of included "
-            "routers too. Empty when the registered `Tasks` holds none, "
-            "and `None` when no `Tasks` is registered."
+            "routers too. Empty when no `Tasks` holds a task."
         ),
-    ] = None
+    ] = ()
 
     @property
     def ok(self) -> bool:
@@ -979,7 +986,7 @@ def _coordination_backend(
 def _gated(
     name: str,
     gate: TaskGate,
-    claim_key: str,
+    claim_name: str,
     backend: object | None,
     leader: str | None,
 ) -> TaskReport:
@@ -988,7 +995,7 @@ def _gated(
         name=name,
         gate=gate,
         leader=leader,
-        claim_key=claim_key,
+        claim_name=claim_name,
         backend=None if backend is None else type(backend).__name__,
         provider=None if backend is None else _provider_of((backend,)),
     )
@@ -1057,34 +1064,23 @@ def _gate_finding(task: TaskReport) -> str:
     )
 
 
-def _gate_checks(
-    tasks: Sequence[TaskReport], environment: Environment | None
-) -> list[CheckReport]:
+def _gate_checks(tasks: Sequence[TaskReport]) -> list[CheckReport]:
     """Report each gated task that resolves no backend to claim through.
 
-    One `warn` entry per such task, or one `ok` entry when every gated
-    task resolves one or the tier is `development` or `test`. Nothing
-    without a gated task.
+    One `warn` entry per such task, in every tier, since such a task runs
+    nothing anywhere. One `ok` entry when every gated task resolves one.
+    Nothing without a gated task.
     """
-    from grelmicro._environment import QUIET_ENVIRONMENTS  # noqa: PLC0415
-
     gated = [task for task in tasks if task.gate is not None]
     if not gated:
         return []
     missing = [task for task in gated if task.backend is None]
-    if not missing or environment in QUIET_ENVIRONMENTS:
+    if not missing:
         return [
             CheckReport(
                 name=GATE_BACKEND,
                 status="ok",
-                detail=(
-                    "every gated task resolves its claim backend"
-                    if not missing
-                    else (
-                        "gated tasks with no claim backend are expected "
-                        f"in {environment!r}"
-                    )
-                ),
+                detail="every gated task resolves its claim backend",
             )
         ]
     return [
@@ -1143,20 +1139,15 @@ def _leader_checks(
 
 def _task_reports(
     micro: Grelmicro,
-) -> tuple[tuple[TaskReport, ...] | None, list[CheckReport]]:
-    """Return the report entry of every scheduled task, and their checks.
-
-    `None` and no check when no `Tasks` is registered.
-    """
+) -> tuple[tuple[TaskReport, ...], list[CheckReport]]:
+    """Return the report entry of every scheduled task, and their checks."""
     from grelmicro.task.router import scheduled_tasks  # noqa: PLC0415
 
     scheduled = scheduled_tasks(micro._items)  # noqa: SLF001
-    if scheduled is None:
-        return None, []
     tasks = tuple(
         describe_task(micro, task, timezone) for task, timezone in scheduled
     )
-    checks = _gate_checks(tasks, micro.environment) + _leader_checks(scheduled)
+    checks = _gate_checks(tasks) + _leader_checks(scheduled)
     return tasks, checks
 
 
@@ -1221,7 +1212,13 @@ def _schedule_text(task: TaskReport) -> str:
 
 
 def _gate_text(task: TaskReport) -> str:
-    """Write the gate a task runs behind, `none` when every worker runs it."""
+    """Write the gate a task runs behind, `none` when every worker runs it.
+
+    A task that is neither an interval nor a cron task has no gate to
+    speak of, and writes `-`.
+    """
+    if task.interval is None and task.cron is None:
+        return "-"
     if task.gate == "leader":
         return f"leader {task.leader}"
     return task.gate or "none"
@@ -1239,10 +1236,8 @@ def _backend_text(task: TaskReport) -> str:
 
 def _render_tasks(report: AppReport) -> list[str]:
     """Return the Tasks block, one aligned row per task."""
-    if report.tasks is None:
-        return []
     if not report.tasks:
-        return ["Tasks", "  none registered", ""]
+        return []
     rows = [
         (task.name, _schedule_text(task), _gate_text(task), _backend_text(task))
         for task in report.tasks
