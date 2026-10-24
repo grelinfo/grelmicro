@@ -4,28 +4,23 @@ Each one takes the documented string with nothing to import, and a string
 outside the choices fails the type check.
 """
 
+import grelmicro.log
+import grelmicro.metrics
+import grelmicro.trace
 from grelmicro.log import (
     Log,
-    LogBackendType,
     LogConfig,
     LogFormat,
-    LogFormatType,
-    LogLevelType,
-    LogSerializerType,
     configure,
 )
 from grelmicro.metrics import (
     Metrics,
     MetricsConfig,
     MetricsExporter,
-    MetricsExporterType,
 )
 from grelmicro.trace import (
     Trace,
     TraceConfig,
-    TraceExporterType,
-    TraceProcessorType,
-    TraceSamplerType,
 )
 from grelmicro.types import LogLevel
 
@@ -54,17 +49,24 @@ def unknown() -> None:
 
 
 def enum_members() -> None:
-    """Pass a member of an old enum, accepted until 0.44.0."""
-    Metrics(exporter=MetricsExporterType.PROMETHEUS)
+    """Pass a member of an old enum, accepted until 0.44.0 and reported."""
+    log = grelmicro.log
+    trace = grelmicro.trace
+    Metrics(
+        exporter=grelmicro.metrics.MetricsExporterType.PROMETHEUS  # type: ignore[deprecated]  # ty: ignore[deprecated]
+    )
     Trace(
-        exporter=TraceExporterType.CONSOLE,
-        processor=TraceProcessorType.SIMPLE,
-        sampler=TraceSamplerType.TRACEIDRATIO,
+        exporter=trace.TraceExporterType.CONSOLE,  # type: ignore[deprecated]  # ty: ignore[deprecated]
+        processor=trace.TraceProcessorType.SIMPLE,  # type: ignore[deprecated]  # ty: ignore[deprecated]
+        sampler=trace.TraceSamplerType.TRACEIDRATIO,  # type: ignore[deprecated]  # ty: ignore[deprecated]
     )
     configure(
-        backend=LogBackendType.LOGURU,
-        level=LogLevelType.DEBUG,
-        format=LogFormatType.JSON,
-        json_serializer=LogSerializerType.ORJSON,
+        backend=log.LogBackendType.LOGURU,  # type: ignore[deprecated]  # ty: ignore[deprecated]
+        level=log.LogLevelType.DEBUG,  # type: ignore[deprecated]  # ty: ignore[deprecated]
+        format=log.LogFormatType.JSON,  # type: ignore[deprecated]  # ty: ignore[deprecated]
+        json_serializer=log.LogSerializerType.ORJSON,  # type: ignore[deprecated]  # ty: ignore[deprecated]
     )
-    Log(backend=LogBackendType.STDLIB, level=LogLevelType.INFO)
+    Log(
+        backend=log.LogBackendType.STDLIB,  # type: ignore[deprecated]  # ty: ignore[deprecated]
+        level=log.LogLevelType.INFO,  # type: ignore[deprecated]  # ty: ignore[deprecated]
+    )

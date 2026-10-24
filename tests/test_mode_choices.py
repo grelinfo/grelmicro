@@ -1,11 +1,16 @@
 """An argument that picks a mode takes a string literal, matched in any case."""
 
 import annotationlib
+import copy
 import importlib
+import json
+import pickle
 import re
 import warnings
 from collections.abc import Callable
 from enum import StrEnum
+from types import SimpleNamespace
+from typing import Literal
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -14,6 +19,7 @@ from grelmicro import Grelmicro
 from grelmicro._config import resolve_config
 from grelmicro._deprecation import (
     ENVIRONMENT_CASE,
+    MEMBER_ATTRIBUTES,
     MODE_ENUMS,
     PENDING,
     environment_case,
@@ -174,7 +180,7 @@ def test_a_string_reads_back_as_the_old_enum_member_until_0_44(
     choice: tuple[type[BaseModel], str, str, str],
     enum: tuple[str, str, str],
 ) -> None:
-    """A string reads back as its member, so `.value` and `is` still work."""
+    """A string reads back as its member, so `is` and `.value` still work."""
     # Arrange
     config, field, spelling, stored = choice
     module, name, member = enum
@@ -185,7 +191,8 @@ def test_a_string_reads_back_as_the_old_enum_member_until_0_44(
 
     # Assert
     assert result is expected
-    assert result.value == stored
+    with pytest.warns(GrelmicroFutureWarning):
+        assert result.value == stored
 
 
 @pytest.mark.parametrize(
@@ -264,7 +271,35 @@ def test_the_package_warns_on_each_access(
             getattr(package, name)
         assert caught[0].filename == __file__
     assert name not in vars(package)
-    assert name not in package.__all__
+    assert name in package.__all__
+
+
+@pytest.mark.parametrize(
+    "package", ["grelmicro.metrics", "grelmicro.trace", "grelmicro.log"]
+)
+def test_star_import_binds_the_old_enums_and_warns(package: str) -> None:
+    """`from grelmicro.log import *` still binds each old enum, with a warning."""
+    # Arrange
+    names = {name for module, name, _ in ENUMS if _package(module) == package}
+    namespace: dict[str, object] = {}
+
+    # Act
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        exec(f"from {package} import *", namespace)  # noqa: S102
+
+    # Assert
+    future = [
+        warning
+        for warning in caught
+        if issubclass(warning.category, GrelmicroFutureWarning)
+    ]
+    assert {str(warning.message) for warning in future} == {
+        MODE_ENUMS[name].message for name in names
+    }
+    assert {warning.filename for warning in future} == {"<string>"}
+    for name in names:
+        assert namespace[name] is _enum(f"{package}.config", name)
 
 
 @pytest.mark.parametrize(("module", "name", "_member"), ENUMS)
@@ -298,7 +333,7 @@ def test_an_old_enum_still_looks_up_in_any_case(
     enum = _enum(module, name)
 
     # Act
-    found = enum(enum[member].value.swapcase())
+    found = enum(str(enum[member]).swapcase())
 
     # Assert
     assert found is enum[member]
@@ -360,11 +395,153 @@ def test_every_old_enum_is_a_pending_removal() -> None:
     """The stale-entry guard covers each alias, so none outlives 0.44.0."""
     # Act
     names = {name for _, name, _ in ENUMS}
+    removals = [*MODE_ENUMS.values(), *MEMBER_ATTRIBUTES.values()]
 
     # Assert
     assert set(MODE_ENUMS) == names
-    assert all(removal in PENDING for removal in MODE_ENUMS.values())
-    assert {removal.removed_in for removal in MODE_ENUMS.values()} == {"0.44.0"}
+    assert set(MEMBER_ATTRIBUTES) == {
+        (name, attribute) for name in names for attribute in ("value", "name")
+    }
+    assert all(removal in PENDING for removal in removals)
+    assert {removal.removed_in for removal in removals} == {"0.44.0"}
+
+
+@pytest.mark.parametrize(("module", "name", "_member"), ENUMS)
+def test_an_old_enum_is_deprecated_for_checkers(
+    module: str, name: str, _member: str
+) -> None:
+    """`@deprecated` carries the runtime message, and adds no warning of its own."""
+    # Arrange
+    enum = _enum(module, name)
+
+    # Act / Assert
+    assert enum.__deprecated__ == MODE_ENUMS[name].message  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        list(enum)
+
+
+@pytest.mark.parametrize(("module", "name", "member"), ENUMS)
+def test_reading_value_of_a_member_warns_at_the_caller(
+    module: str, name: str, member: str
+) -> None:
+    """`.value` returns the string and warns it is gone from 0.44.0."""
+    # Arrange
+    item = _enum(module, name)[member]
+    message = re.escape(MEMBER_ATTRIBUTES[name, "value"].message)
+
+    # Act
+    with pytest.warns(GrelmicroFutureWarning, match=message) as caught:
+        value = item.value
+
+    # Assert
+    assert value == item
+    assert type(value) is str
+    assert caught[0].filename == __file__
+
+
+@pytest.mark.parametrize(("module", "name", "member"), ENUMS)
+def test_reading_name_of_a_member_warns_at_the_caller(
+    module: str, name: str, member: str
+) -> None:
+    """`.name` returns the member name and warns it is gone from 0.44.0."""
+    # Arrange
+    item = _enum(module, name)[member]
+    message = re.escape(MEMBER_ATTRIBUTES[name, "name"].message)
+
+    # Act
+    with pytest.warns(GrelmicroFutureWarning, match=message) as caught:
+        found = item.name
+
+    # Assert
+    assert found == member
+    assert caught[0].filename == __file__
+
+
+def test_the_member_attribute_message() -> None:
+    """The message names the attribute and what to use instead."""
+    assert MEMBER_ATTRIBUTES["LogLevelType", "value"].message == (
+        "`LogLevelType.value` is removed in 0.44.0. "
+        "Use the member as a plain `str` instead."
+    )
+
+
+class _LevelModel(BaseModel):
+    """A model with a `Literal` field, as a user would declare one."""
+
+    level: Literal["DEBUG", "INFO"]
+
+
+def _silent_uses(enum: type[StrEnum], member: str) -> None:
+    """Use a member every way that does not read `.value` or `.name`."""
+    item = enum[member]
+    text = item._value_
+    assert item == text
+    assert hash(item) == hash(enum[member])
+    assert str(item) == text
+    assert f"{item}" == text
+    assert member in repr(item)
+    assert enum(text) is item
+    assert enum(text.swapcase()) is item
+    assert item in list(enum)
+    assert {text: 1}[item] == 1
+    assert json.dumps(item) == json.dumps(text)
+    assert pickle.loads(pickle.dumps(item)) is item  # noqa: S301
+    assert copy.deepcopy(item) is item
+
+
+@pytest.mark.parametrize(("module", "name", "member"), ENUMS)
+def test_every_other_use_of_a_member_is_silent(
+    module: str, name: str, member: str
+) -> None:
+    """Comparing, hashing, printing and serializing a member warn nothing."""
+    # Arrange
+    enum = _enum(module, name)
+
+    # Act / Assert
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _silent_uses(enum, member)
+
+
+@pytest.mark.parametrize(("config", "field", "_any", "stored"), CHOICES)
+def test_a_mode_field_dumps_to_json_silently(
+    config: type[BaseModel], field: str, _any: str, stored: str
+) -> None:
+    """A config dumps its mode fields as strings, without reading `.value`."""
+    # Arrange
+    model = config(**{field: stored})
+
+    # Act
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        dumped = model.model_dump(mode="json")
+        text = model.model_dump_json()
+
+    # Assert
+    assert dumped[field] == stored
+    assert type(dumped[field]) is str
+    assert json.loads(text)[field] == stored
+
+
+def test_a_member_in_a_literal_field_is_silent() -> None:
+    """Pydantic and `match` take a member without reading `.value`."""
+    # Arrange
+    members = SimpleNamespace(
+        INFO=_enum("grelmicro.log.config", "LogLevelType")["INFO"]
+    )
+
+    # Act / Assert
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        model = _LevelModel(level=members.INFO)
+        assert model.model_dump() == {"level": "INFO"}
+        assert model.model_dump_json() == '{"level":"INFO"}'
+        match "INFO":
+            case members.INFO:
+                pass
+            case _:  # pragma: no cover
+                pytest.fail("match missed the member")
 
 
 def test_a_circuit_breaker_log_level_matches_any_case() -> None:
@@ -432,7 +609,10 @@ def test_an_environment_variable_in_another_case_warns_ahead_of_the_switch(
 
     # Act / Assert
     assert_future_warning(entry, default=other_case, explicit=exact_case)
-    assert f"`GREL_ENVIRONMENT={spelling}` reads as `{tier}`" in entry.message
+    assert entry.message == (
+        f"`GREL_ENVIRONMENT={spelling}` reads as undeclared today and as "
+        f"`{tier}` from 0.44.0. Set `GREL_ENVIRONMENT={tier}` now."
+    )
 
 
 @pytest.mark.parametrize(("spelling", "tier"), OTHER_CASE_TIERS)

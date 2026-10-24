@@ -6,9 +6,10 @@
 * ✨ `micro.describe()` lists the scheduled tasks in `AppReport.tasks`, each a `TaskReport` with its schedule, gate, claim name and backend. `grelmicro check` text output gains a `Tasks` block when a task is registered. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
 * ✨ A cron or interval task in `tasks.tasks` has a read-only `gate` that returns the gate it was built with, the same `LeaderElection` or `TaskLock` object included. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
 * ✨ `grelmicro check` warns with `gate-backend` on a gated task that resolves no backend to claim through, and with `leader-not-running` on a task gated on an election no `Tasks` holds. `gate-backend` fails in `staging` and `production` from 0.44.0. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))
+* ✨ `HealthChecks(provider_checks=)` picks the check registered for each Provider: `"report"` shows it in `/healthz` only, `"require"` fails `/readyz` while the backend is down, and `"off"` registers none. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 * ✨ `OpsServer(enabled=False)` and `GREL_OPS_ENABLED=false` switch the ops server off. It binds no port, and `health-not-served` says it is switched off. ([#1142](https://github.com/grelinfo/grelmicro/pull/1142))
-* ✨ `HealthChecks.add_breaker` reports a circuit breaker as a `circuitbreaker:{name}` check. An open breaker fails it with the seconds until the next probe, and it is non-critical by default. ([#1137](https://github.com/grelinfo/grelmicro/pull/1137))
-* ✨ `GrelmicroFutureWarning` warns one minor release before a default changes or a name is removed. Passing the argument silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
+* ✨ `HealthChecks.add_circuitbreaker` reports a circuit breaker as a `circuitbreaker:{name}` check. An open breaker fails it with the seconds until the next probe, and it is non-critical by default. ([#1137](https://github.com/grelinfo/grelmicro/pull/1137))
+* ✨ `GrelmicroFutureWarning` warns one minor release before a default changes or a name is removed. Choosing the value explicitly, or switching to the new name, silences it. ([#1123](https://github.com/grelinfo/grelmicro/issues/1123))
 
 ### Changed
 * ⚡️ `grelmicro.log` no longer loads `grelmicro.resilience` at import. A `RateLimitFilter` loads its token bucket when it is built. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
@@ -19,11 +20,15 @@
 * ✨ `environment=`, `requires=`, `lock=`, the backoff `jitter`, the log filter `key_mode`, the circuit breaker `log_level`, `gate=`, and the OAuth `method=` and `audience=` match their choices in any case. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
 
 ### Deprecated
-* 🗑️ A mode field such as `MetricsConfig.exporter` reads back as its old enum member until 0.44.0, then as a plain `str`. Compare it with the string. ([#1139](https://github.com/grelinfo/grelmicro/pull/1139))
-* 🗑️ `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Pass the string instead. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
+* 🗑️ A mode field such as `MetricsConfig.exporter` reads back as its old enum member until 0.44.0, then as a plain `str`. Its `.value` and `.name` warn with `GrelmicroFutureWarning`. Compare it with the string. ([#1139](https://github.com/grelinfo/grelmicro/pull/1139))
+* 🗑️ `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Type checkers report them as deprecated. Pass the string instead. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
 * 🗑️ `GREL_ENVIRONMENT=Production`, or any tier in another case, warns with `GrelmicroFutureWarning`. It reads as undeclared until 0.44.0, then as that tier. ([#1136](https://github.com/grelinfo/grelmicro/pull/1136))
-* 🗑️ A `GREL_*` variable set while `GREL_ENV_LOAD` is unset warns with `GrelmicroFutureWarning`. It is not read until 0.44.0, then read by default. Set `GREL_ENV_LOAD=1` or `GREL_ENV_LOAD=0` to choose now. ([#1145](https://github.com/grelinfo/grelmicro/pull/1145))
+* 🗑️ A `GREL_*` variable set while `GREL_ENV_LOAD` is unset warns with `EnvLoadDefaultWarning`, a `GrelmicroFutureWarning` that a filter on `EnvLoadOffWarning` still silences. It is not read until 0.44.0, then read by default. Set `GREL_ENV_LOAD=1` or `GREL_ENV_LOAD=0` to choose now. ([#1145](https://github.com/grelinfo/grelmicro/pull/1145))
+* 🗑️ `HealthChecks(auto_health=True)` and `auto_health=False` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Type checkers report them as deprecated. Pass `provider_checks="require"` or `provider_checks="off"` instead. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
+* 🗑️ `HealthChecks()` with no `provider_checks=` warns with `GrelmicroFutureWarning` when the app opens beside a Provider. From 0.44.0 it defaults to `"report"`. Pass `provider_checks=` to choose now. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 
+### Fixed
+* 🐛 A Kubernetes service link such as `REDIS_PORT=tcp://...`, set for a Service named `redis`, is ignored instead of crashing startup with a port parse error. The same holds for `GREL_OPS_PORT` and every other port variable. A value of that shape that Kubernetes did not set fails with an error naming the variable. ([#1147](https://github.com/grelinfo/grelmicro/pull/1147))
 
 ### Docs
 * 📝 Health, Metrics, Deployment and the FastAPI reference recommend `OpsServer` for the probes and `/metrics`, next to a web app too. `health_router()` and `metrics_router()` stay as the app-port alternative, with what they expose. ([#1132](https://github.com/grelinfo/grelmicro/pull/1132))
