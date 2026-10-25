@@ -33,7 +33,11 @@ from weakref import WeakKeyDictionary, WeakSet
 
 from typing_extensions import Doc
 
-from grelmicro._backend_kinds import backend_kinds, most_specific_backend
+from grelmicro._backend_kinds import (
+    backend_kinds_of,
+    load,
+    most_specific_backend,
+)
 from grelmicro._component import (
     Component,
     Usable,
@@ -2195,11 +2199,7 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     Raises:
         AmbiguousBackendError: If the backend matches two unrelated protocols.
     """
-    matches = [
-        kind
-        for kind in backend_kinds()
-        if kind.factory is not None and isinstance(item, kind.protocol)
-    ]
+    matches = backend_kinds_of(item, wrappable=True)
     if not matches:
         return None
     kind = (
@@ -2207,7 +2207,7 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
         if len(matches) == 1
         else most_specific_backend(matches, item)
     )
-    factory = cast("Callable[[object], Component]", kind.factory)
+    factory: Callable[[object], Component] = load(cast("str", kind.factory))
     return _marked(factory(item), item)
 
 

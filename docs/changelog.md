@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+* ⚡️ `grelmicro.http` and the Starlette integration no longer load the JWT verifier or pydantic-settings at import. ([#1167](https://github.com/grelinfo/grelmicro/pull/1167))
+* ⚡️ `Grelmicro(uses=[...])` checks a backend against the first-party backend kinds without importing their packages. A Tasks app no longer loads `grelmicro.outbox`. ([#1166](https://github.com/grelinfo/grelmicro/pull/1166))
+
 ### Fixed
 * 🐛 The `BackendScopeError` for `Idempotency` or `IdempotentRequests` with no lock backend says to register a `Coordination` with a Redis, Valkey, Postgres or Kubernetes provider, not to use one of those backends. ([#1168](https://github.com/grelinfo/grelmicro/pull/1168))
 
