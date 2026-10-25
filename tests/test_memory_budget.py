@@ -104,3 +104,39 @@ def test_loaded_modules_stay_within_budget(case: str) -> None:
     }
     assert subpackages == _EXPECTED_SUBPACKAGES[case]
     assert len(modules) <= _MAX_MODULES[case]
+
+
+_STATE_MODULES = (
+    "grelmicro.resilience.circuitbreaker",
+    "grelmicro.resilience.ratelimiter",
+)
+"""Modules with a lazy loader and a `_State` dataclass."""
+
+
+@pytest.mark.parametrize("module", _STATE_MODULES)
+def test_reading_state_annotations_loads_nothing(module: str) -> None:
+    """Reading `_State` field annotations by name loads no grelmicro module.
+
+    Python 3.15 `dataclasses` reads each field annotation from the module, so
+    a name the lazy loader resolves would load its module at import.
+    """
+    # Arrange
+    code = (
+        "import importlib, json, sys\n"
+        f"module = importlib.import_module({module!r})\n"
+        "before = set(sys.modules)\n"
+        "for annotation in module._State.__annotations__.values():\n"
+        "    getattr(module, annotation.split()[0], None)\n"
+        "print(json.dumps(sorted(set(sys.modules) - before)))"
+    )
+
+    # Act
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", code],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+
+    # Assert
+    assert json.loads(result.stdout) == []

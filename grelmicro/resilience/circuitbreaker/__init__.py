@@ -123,6 +123,9 @@ if TYPE_CHECKING:
     serialized configs.
     """
 
+    _StateConfig = CircuitBreakerConfig
+    """`CircuitBreakerConfig` for `_State`, under a name no lazy loader resolves."""
+
 __all__ = [
     "CircuitBreaker",
     "CircuitBreakerConfig",
@@ -982,7 +985,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
 class _State:
     """Read-side snapshot bundling the published config with its bound strategy."""
 
-    config: CircuitBreakerConfig
+    config: _StateConfig
     strategy: CircuitBreakerStrategy | None
 
 

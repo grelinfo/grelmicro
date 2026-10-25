@@ -56,6 +56,9 @@ if TYPE_CHECKING:
     ]
     """Discriminated union of supported rate-limiter algorithm configurations."""
 
+    _StateConfig = RateLimiterConfig
+    """`RateLimiterConfig` for `_State`, under a name no lazy loader resolves."""
+
 __all__ = [
     "RateLimiter",
     "RateLimiterBinding",
@@ -139,7 +142,7 @@ The lead names the miss, and the fix is given when no app is bound.
 class _State:
     """Read-side snapshot bundling the config with its bound strategy."""
 
-    config: RateLimiterConfig
+    config: _StateConfig
     strategy: RateLimiterStrategy | None
 
 
