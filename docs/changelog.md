@@ -5,6 +5,10 @@
 ### Added
 * ✨ `micro.describe()` names the bare Provider each default component came from in `ComponentReport.default_of`, such as `"RedisProvider"`. `grelmicro check` adds `(default of RedisProvider)` to the line. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
 
+### Changed
+* ⚡️ `grelmicro.http` and the Starlette integration no longer load the JWT verifier or pydantic-settings at import. ([#1167](https://github.com/grelinfo/grelmicro/pull/1167))
+* ⚡️ `Grelmicro(uses=[...])` checks a backend against the first-party backend kinds without importing their packages. A Tasks app no longer loads `grelmicro.outbox`. ([#1166](https://github.com/grelinfo/grelmicro/pull/1166))
+
 ### Docs
 * 📝 The wiring guide shows how to serve only some kinds of a provider by listing its components instead of the bare provider. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
 * 📝 The README and docs tagline is back to "Async-first toolkit. Microservice patterns inside." and the comparison page names no single framework. ([#1165](https://github.com/grelinfo/grelmicro/pull/1165))
