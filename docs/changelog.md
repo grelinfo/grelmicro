@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.43.0 - 2026-10-25
 
 ### Added
 * ✨ `micro.describe()` lists the scheduled tasks in `AppReport.tasks`, each a `TaskReport` with its schedule, gate, claim name and backend. `grelmicro check` text output gains a `Tasks` block when a task is registered. ([#1155](https://github.com/grelinfo/grelmicro/pull/1155))

@@ -235,7 +235,7 @@ when the app has a Provider it would check. From 0.44.0 it defaults to
 `"report"`. Pass `provider_checks="off"` to keep the current behavior, or
 `provider_checks="report"` to show each Provider in `/healthz` now.
 
-Full list: [Unreleased in the changelog](changelog.md#unreleased)
+Full list: [0.43.0 in the changelog](changelog.md#0430-2026-10-25)
 
 ## 0.42
 
