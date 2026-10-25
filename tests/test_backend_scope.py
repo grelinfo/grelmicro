@@ -928,6 +928,37 @@ async def test_idempotency_with_no_lock_backend_is_refused() -> None:
         await micro.__aenter__()
 
 
+def test_the_error_for_a_missing_lock_backend_names_the_coordination() -> None:
+    """With no `Coordination`, the fix is to register one, not to swap a backend."""
+    micro = Grelmicro(uses=[Cache(_SharedCacheAdapter()), IdempotentRequests()])
+
+    with pytest.raises(BackendScopeError) as error:
+        micro.check_backends()
+
+    message = str(error.value)
+    assert (
+        "Register a Coordination with a Redis, Valkey, Postgres, or "
+        "Kubernetes provider, or pass requires= to say what reach you want."
+    ) in message
+    assert "Use a" not in message
+
+
+def test_the_error_for_a_short_backend_and_a_missing_one_names_both_fixes() -> (
+    None
+):
+    """A short cache and a missing lock backend each get their own fix."""
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()])
+
+    with pytest.raises(BackendScopeError) as error:
+        micro.check_backends()
+
+    assert (
+        "Use a Redis, Valkey, or Postgres backend, or register a "
+        "Coordination with a Redis, Valkey, Postgres, or Kubernetes "
+        "provider, or pass requires= to say what reach you want."
+    ) in str(error.value)
+
+
 async def test_idempotency_on_a_short_lock_backend_is_refused() -> None:
     """A lock the `Coordination` accepts as local is still short for idempotency."""
     micro = Grelmicro(
