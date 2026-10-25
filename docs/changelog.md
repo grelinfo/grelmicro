@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+* ⚡️ `grelmicro.http` and the Starlette integration no longer load the JWT verifier or pydantic-settings at import. ([#1167](https://github.com/grelinfo/grelmicro/pull/1167))
+
 ### Docs
 * 📝 The README and docs tagline is back to "Async-first toolkit. Microservice patterns inside." and the comparison page names no single framework. ([#1165](https://github.com/grelinfo/grelmicro/pull/1165))
 

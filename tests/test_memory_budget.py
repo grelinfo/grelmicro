@@ -140,3 +140,35 @@ def test_reading_state_annotations_loads_nothing(module: str) -> None:
 
     # Assert
     assert json.loads(result.stdout) == []
+
+
+_ERROR_MODULES = ("grelmicro.http._authentication", "grelmicro.http._kinds")
+"""Modules that raise or catch the security errors without verifying a token."""
+
+
+@pytest.mark.parametrize("module", _ERROR_MODULES)
+def test_security_errors_load_no_settings(module: str) -> None:
+    """A module that raises or catches security errors loads no JWT verifier.
+
+    The verifier pulls in `pydantic_settings`, which a service that never
+    verifies a token should not pay for.
+    """
+    # Arrange
+    code = (
+        "import importlib, json, sys\n"
+        f"importlib.import_module({module!r})\n"
+        "print(json.dumps(sorted(sys.modules)))"
+    )
+
+    # Act
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", code],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+
+    # Assert
+    loaded = set(json.loads(result.stdout))
+    assert "pydantic_settings" not in loaded
+    assert "grelmicro.security.jwt" not in loaded

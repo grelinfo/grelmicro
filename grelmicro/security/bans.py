@@ -44,10 +44,9 @@ from typing_extensions import Doc
 
 from grelmicro._config import Reconfigurable, env_prefixes, resolve_config
 from grelmicro._duration import NANOSECONDS_PER_SECOND, Duration, nanoseconds
-from grelmicro.errors import AdmissionError
 from grelmicro.metrics import _hub
+from grelmicro.security._errors import ClientBannedError, TokenRejectedReason
 from grelmicro.security._events import BANS_ACTIVE, ban_started
-from grelmicro.security.jwt import TokenRejectedReason
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -78,27 +77,6 @@ a client whose token needs refreshing, which is ordinary. `not-yet-valid` is
 a clock that disagrees. `audience` and `issuer` are a token meant for a
 neighbouring service, which is a misrouted client rather than an attacker.
 """
-
-
-class ClientBannedError(AdmissionError, RuntimeError):
-    """The caller is banned, so its token was not looked at.
-
-    Distinct from `TokenRejectedError` because it says nothing about the
-    token. Answer it with `429`, not `401`: the caller is being refused for
-    what it did before this request, and a fresh token would not change it.
-    `retry_after` says how long the ban has left.
-    """
-
-    def __init__(
-        self,
-        *,
-        retry_after: Annotated[
-            float, Doc("Seconds the ban has left, `0.0` when not known.")
-        ] = 0.0,
-    ) -> None:
-        """Initialize the error."""
-        self.retry_after = retry_after
-        super().__init__("Too many rejected tokens from this client.")
 
 
 class ClientBansConfig(BaseModel, frozen=True):
