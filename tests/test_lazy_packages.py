@@ -181,3 +181,95 @@ def test_resolved_name_is_cached_on_the_package(name: str) -> None:
 
     # Assert
     assert vars(package)[attr] is value
+
+
+_LAZY_MODULES: dict[str, frozenset[str]] = {
+    "grelmicro.integrations.starlette": frozenset(
+        {
+            "install",
+            "install_error_responses",
+            "install_middleware",
+            "install_route_gate",
+            "is_bound",
+            "route_declarations",
+        }
+    ),
+}
+"""The modules that load some public names on first access, with the public names they define."""
+
+
+@pytest.mark.parametrize("name", sorted(_LAZY_MODULES))
+def test_module_table_and_own_names_cover_the_public_names(name: str) -> None:
+    """The lazy table and the names a module defines itself make up `__all__`."""
+    # Arrange
+    module = _package(name)
+    own = _LAZY_MODULES[name]
+
+    # Act
+    table = set(module._LAZY)
+
+    # Assert
+    assert table | own == set(module.__all__)
+    assert not table & own
+    for attr in own:
+        assert vars(module)[attr].__module__ == name
+
+
+@pytest.mark.parametrize("name", sorted(_LAZY_MODULES))
+def test_module_lazy_names_resolve_and_are_cached(name: str) -> None:
+    """Each lazy name is its submodule's object, stored on the module once read."""
+    # Arrange
+    module = _package(name)
+    for attr in module._LAZY:
+        vars(module).pop(attr, None)
+
+    # Act
+    resolved = {attr: getattr(module, attr) for attr in module._LAZY}
+
+    # Assert
+    for attr, value in resolved.items():
+        source = importlib.import_module(module._LAZY[attr])
+        assert value is getattr(source, attr)
+        assert vars(module)[attr] is value
+
+
+@pytest.mark.parametrize("name", sorted(_LAZY_MODULES))
+def test_module_dir_lists_the_public_names(name: str) -> None:
+    """`dir()` shows every name in `__all__`, loaded or not."""
+    # Arrange
+    module = _package(name)
+    for attr in module._LAZY:
+        vars(module).pop(attr, None)
+
+    # Act
+    listed = set(dir(module))
+
+    # Assert
+    assert set(module.__all__) <= listed
+
+
+@pytest.mark.parametrize("name", sorted(_LAZY_MODULES))
+def test_module_star_import_binds_every_public_name(name: str) -> None:
+    """`from module import *` binds each name in `__all__`."""
+    # Arrange
+    namespace: dict[str, object] = {}
+
+    # Act
+    exec(f"from {name} import *", namespace)  # noqa: S102
+
+    # Assert
+    module = _package(name)
+    assert set(module.__all__) <= set(namespace)
+    for attr in module.__all__:
+        assert namespace[attr] is getattr(module, attr)
+
+
+@pytest.mark.parametrize("name", sorted(_LAZY_MODULES))
+def test_module_unknown_name_raises_attribute_error(name: str) -> None:
+    """A name the module neither defines nor loads raises `AttributeError` naming it."""
+    # Arrange
+    module = _package(name)
+
+    # Act / Assert
+    with pytest.raises(AttributeError, match=f"module '{name}' has no attr"):
+        module.missing_name  # noqa: B018

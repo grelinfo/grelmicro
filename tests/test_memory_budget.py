@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from typing import Any, cast
 
 import pytest
 
@@ -40,6 +41,17 @@ _EXPECTED_SUBPACKAGES = {
         "task",
         "trace",
     },
+    "starlette": _COMMON
+    | {
+        "cache",
+        "clock",
+        "coordination",
+        "integrations",
+        "log",
+        "resilience",
+        "task",
+        "trace",
+    },
     "redis": _COMMON
     | {
         "cache",
@@ -61,6 +73,7 @@ _EXPECTED_SUBPACKAGES = {
 _MAX_MODULES = {
     "import": 23,
     "tasks": 167,
+    "starlette": 128,
     "redis": 161,
     "postgres": 102,
 }
@@ -171,3 +184,117 @@ def test_security_errors_load_no_settings(module: str) -> None:
     loaded = set(json.loads(result.stdout))
     assert "pydantic_settings" not in loaded
     assert "grelmicro.security.jwt" not in loaded
+
+
+def _run(code: str) -> object:
+    """Run `code` in a fresh interpreter and return the JSON it printed last."""
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", code],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    return json.loads(result.stdout.splitlines()[-1])
+
+
+def test_starlette_integration_loads_no_route_features() -> None:
+    """Importing the Starlette integration loads no authentication and no route gate."""
+    # Arrange
+    code = (
+        "import json, sys\n"
+        "import grelmicro.integrations.starlette\n"
+        "print(json.dumps(sorted(sys.modules)))"
+    )
+
+    # Act
+    loaded = set(cast("list[str]", _run(code)))
+
+    # Assert
+    assert "pydantic_settings" not in loaded
+    assert "grelmicro.integrations._route_gate" not in loaded
+    assert "grelmicro.http._authentication" not in loaded
+
+
+_SERVE = """\
+import json, sys
+from starlette.applications import Starlette
+from starlette.responses import PlainTextResponse
+from starlette.routing import Route
+from starlette.testclient import TestClient
+from grelmicro import Grelmicro
+from grelmicro.providers.memory import MemoryProvider
+{imports}
+async def hello(request):
+    return PlainTextResponse("hello")
+micro = Grelmicro(uses=[MemoryProvider(){components}])
+app = Starlette(routes=[Route("/hello", hello)])
+micro.install(app)
+with TestClient(app) as client:
+    client.get("/hello")
+    client.get("/missing")
+    before = set(sys.modules)
+    statuses = [client.get("/hello").status_code, client.get("/missing").status_code]
+    loaded = sorted(set(sys.modules) - before)
+print(json.dumps({{"statuses": statuses, "loaded": loaded}}))
+"""
+"""Serve a route and a missing path, then both again, and print what the second round loaded.
+
+The first round loads what the test client itself loads on its first
+request, so only the second round reads what answering loads.
+"""
+
+
+@pytest.mark.parametrize(
+    ("imports", "components"),
+    [
+        pytest.param("", "", id="plain"),
+        pytest.param(
+            "from grelmicro.http import ErrorResponses",
+            ", ErrorResponses()",
+            id="error-responses",
+        ),
+    ],
+)
+def test_starlette_requests_load_no_module(
+    imports: str, components: str
+) -> None:
+    """A Starlette app loads no module while it answers, an error response included."""
+    # Arrange
+    code = _SERVE.format(imports=imports, components=components)
+
+    # Act
+    printed = cast("dict[str, list[Any]]", _run(code))
+
+    # Assert
+    assert printed["statuses"] == [200, 404]
+    assert printed["loaded"] == []
+
+
+_FACADES = ("grelmicro.integrations.starlette",)
+"""Integration modules that load some public names on first access."""
+
+
+@pytest.mark.parametrize("module", _FACADES)
+def test_reading_facade_annotations_loads_nothing(module: str) -> None:
+    """Reading the annotations of each class a facade defines loads no grelmicro module.
+
+    Python 3.15 `dataclasses` reads each field annotation from the module, so
+    a name the lazy loader resolves would load its module at import.
+    """
+    # Arrange
+    code = (
+        "import importlib, json, sys\n"
+        f"module = importlib.import_module({module!r})\n"
+        "before = set(sys.modules)\n"
+        "for value in list(vars(module).values()):\n"
+        "    if isinstance(value, type) and value.__module__ == module.__name__:\n"
+        "        for annotation in vars(value).get('__annotations__', {}).values():\n"
+        "            getattr(module, str(annotation).split()[0], None)\n"
+        "print(json.dumps(sorted(set(sys.modules) - before)))"
+    )
+
+    # Act
+    loaded = _run(code)
+
+    # Assert
+    assert loaded == []
