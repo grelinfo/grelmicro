@@ -213,6 +213,9 @@ class Unmet:
     keyword: str = "requires"
     """The argument that accepts a smaller reach, `lock` on `@cached`."""
 
+    stand_in: bool = False
+    """Whether the backend stands for a component the app does not register."""
+
     @property
     def backend(self) -> str:
         """The backend names, read as a list."""
@@ -476,6 +479,7 @@ def unmet_requirements(
             slot=finding.slot,
             kind=finding.kind,
             keyword=finding.keyword,
+            stand_in=finding.stand_in,
         )
         for finding, names in grouped.items()
     ]
@@ -491,6 +495,7 @@ class _Finding(NamedTuple):
     slot: str | None
     kind: str | None
     keyword: str = "requires"
+    stand_in: bool = False
 
 
 def falls_short(backend: object, requires: object) -> BackendScope | None:
@@ -560,6 +565,7 @@ def _binding_findings(
     held: set[int] | None = None
     for binding in bindings:
         ridden: object | None = None
+        stand_in = False
         backend = binding.backend
         if backend is None:
             ridden = (
@@ -569,6 +575,7 @@ def _binding_findings(
             if backend is None:
                 backend = binding.absent
                 ridden = None
+                stand_in = True
             if backend is None:
                 continue
         elif binding.slot is not None:
@@ -590,6 +597,7 @@ def _binding_findings(
                 binding.slot,
                 binding.kind,
                 binding.keyword,
+                stand_in,
             )
             yield finding, backend
 
@@ -685,12 +693,32 @@ def strict_message(
     lines = [
         f"{entry.finding} in environment {environment!r}." for entry in unmet
     ]
+    short = [entry for entry in unmet if not entry.stand_in]
+    missing = [entry for entry in unmet if entry.stand_in]
+    fixes = []
+    if short:
+        fixes.append(f"use {_backend_names(short)} backend")
+    if missing:
+        fixes.append(
+            f"register a Coordination with {_backend_names(missing)} provider"
+        )
+    fix = ", or ".join(fixes)
+    remedies = " or ".join(dict.fromkeys(entry.remedy() for entry in unmet))
+    lines.append(
+        f"{fix[0].upper()}{fix[1:]}, or {remedies} to say what reach you want."
+    )
+    return " ".join(lines)
+
+
+def _backend_names(unmet: Sequence[Unmet]) -> str:
+    """Return the backends that reach far enough for every one of `unmet`.
+
+    SQLite is named when each requires `host`, and Kubernetes when each is
+    a coordination backend.
+    """
     names = ["Redis", "Valkey", "Postgres"]
     if all(entry.requires == "host" for entry in unmet):
         names.insert(0, "SQLite")
     if all(entry.kind == "coordination" for entry in unmet):
         names.append("Kubernetes")
-    backends = f"a {', '.join(names[:-1])}, or {names[-1]} backend"
-    remedies = " or ".join(dict.fromkeys(entry.remedy() for entry in unmet))
-    lines.append(f"Use {backends}, or {remedies} to say what reach you want.")
-    return " ".join(lines)
+    return f"a {', '.join(names[:-1])}, or {names[-1]}"

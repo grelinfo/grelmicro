@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+* 🐛 The `BackendScopeError` for `Idempotency` or `IdempotentRequests` with no lock backend says to register a `Coordination` with a Redis, Valkey, Postgres or Kubernetes provider, not to use one of those backends. ([#1168](https://github.com/grelinfo/grelmicro/pull/1168))
+
 ### Docs
 * 📝 The README and docs tagline is back to "Async-first toolkit. Microservice patterns inside." and the comparison page names no single framework. ([#1165](https://github.com/grelinfo/grelmicro/pull/1165))
 
