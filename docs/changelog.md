@@ -30,9 +30,6 @@
 * 🗑️ `HealthChecks(auto_health=True)` and `auto_health=False` warn with `GrelmicroFutureWarning` and are removed in 0.44.0. Type checkers report them as deprecated. Pass `provider_checks="require"` or `provider_checks="off"` instead. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 * 🗑️ `HealthChecks()` with no `provider_checks=` warns with `GrelmicroFutureWarning` when the app opens beside a Provider. From 0.44.0 it defaults to `"report"`. Pass `provider_checks=` to choose now. ([#1146](https://github.com/grelinfo/grelmicro/pull/1146))
 
-### Fixed
-* 🐛 A Kubernetes service link such as `REDIS_PORT=tcp://...`, set for a Service named `redis`, is ignored instead of crashing startup with a port parse error. The same holds for `GREL_OPS_PORT` and every other port variable. A value of that shape that Kubernetes did not set fails with an error naming the variable. ([#1147](https://github.com/grelinfo/grelmicro/pull/1147))
-
 ### Docs
 * 📝 Health, Metrics, Deployment and the FastAPI reference recommend `OpsServer` for the probes and `/metrics`, next to a web app too. `health_router()` and `metrics_router()` stay as the app-port alternative, with what they expose. ([#1132](https://github.com/grelinfo/grelmicro/pull/1132))
 * 📝 Deployment explains how to secure the ops endpoints: what `/healthz` and `/metrics` reveal, why `127.0.0.1` breaks probes and scrapes, and how to keep the port private on Kubernetes, Docker and behind a reverse proxy. ([#1132](https://github.com/grelinfo/grelmicro/pull/1132))
@@ -41,6 +38,11 @@
 ### Internal
 * ✅ `benchmarks/memory_benchmark.py` measures the modules and memory three reference apps load, and a test pins which grelmicro packages each one loads. ([#1127](https://github.com/grelinfo/grelmicro/issues/1127))
 * ✅ The tests set the root path on the test client, not with the deprecated `FastAPI(root_path=...)`, and no longer silence its warning. ([#1140](https://github.com/grelinfo/grelmicro/pull/1140))
+
+## 0.42.7 - 2026-10-24
+
+### Fixed
+* 🐛 A Kubernetes service link such as `REDIS_PORT=tcp://...`, set for a Service named `redis`, is ignored instead of crashing startup with a port parse error. The same holds for `GREL_OPS_PORT` and every other port variable. A value of that shape that Kubernetes did not set fails with an error naming the variable. ([#1147](https://github.com/grelinfo/grelmicro/pull/1147))
 
 ## 0.42.6 - 2026-10-23
 
