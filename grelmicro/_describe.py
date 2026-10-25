@@ -85,6 +85,16 @@ class ComponentReport:
         Mapping[str, Any],
         Doc("Resolved configuration, with credential-like values masked."),
     ] = field(default_factory=dict)
+    default_of: Annotated[
+        str | None,
+        Doc(
+            """
+            Class name of the bare Provider that registered this component
+            as its default for the kind, such as `"RedisProvider"`. `None`
+            for a component registered explicitly.
+            """,
+        ),
+    ] = None
 
 
 @dataclass(frozen=True)
@@ -315,7 +325,9 @@ def _provider_of(backends: Iterable[object]) -> str | None:
     return None
 
 
-def describe_component(component: Component) -> ComponentReport:
+def describe_component(
+    component: Component, default_of: str | None = None
+) -> ComponentReport:
     """Build the report entry for one registered component."""
     backends = _backends_of(component)
     return ComponentReport(
@@ -324,6 +336,7 @@ def describe_component(component: Component) -> ComponentReport:
         component=type(component).__name__,
         backends=tuple(type(backend).__name__ for backend in backends),
         provider=_provider_of(backends),
+        default_of=default_of,
         config=_config_of(component),
     )
 
@@ -1158,7 +1171,8 @@ def build_report(micro: Grelmicro, app: object = None) -> AppReport:
     open as well as while it runs. The app's routes are read once.
     """
     components = tuple(
-        describe_component(component) for component in micro.components
+        describe_component(component, micro._default_of(component))  # noqa: SLF001
+        for component in micro.components
     )
     providers = tuple(
         describe_provider(provider) for provider in micro.providers
@@ -1197,6 +1211,8 @@ def _render_components(report: AppReport) -> list[str]:
         suffix = f" <- {component.provider}" if component.provider else ""
         if component.config.get("enabled") is False:
             suffix += " (switched off)"
+        if component.default_of:
+            suffix += f" (default of {component.default_of})"
         lines.append(f"  {text.ljust(width)}  {backends}{suffix}")
     lines.append("")
     return lines

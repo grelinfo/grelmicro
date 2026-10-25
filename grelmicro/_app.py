@@ -440,6 +440,8 @@ class Grelmicro:
         """The kinds the pending default Components hold."""
         self._default_kinds: dict[str, str] = {}
         """The kinds a Provider default holds, with what registered it."""
+        self._provider_defaults: dict[int, tuple[Component, str]] = {}
+        """Each registered Provider default, keyed by `id`, with its Provider's class name."""
         self._defaults_registered = False
         """Whether the pending Provider defaults have been registered once."""
         if uses is not None:
@@ -684,7 +686,7 @@ class Grelmicro:
         self._bare_providers.append(provider)
         if self._defaults_registered:
             self._register_one_provider(
-                defaults, f"micro.use({name}) was called"
+                provider, defaults, f"micro.use({name}) was called"
             )
             return
         self._pending_providers.append((provider, defaults))
@@ -785,14 +787,17 @@ class Grelmicro:
             self._pending_kinds = set()
             self._defaults_registered = True
             return
-        _, defaults = pending[0]
+        provider, defaults = pending[0]
         self._pending_providers = []
         self._pending_kinds = set()
         self._defaults_registered = True
-        self._register_one_provider(defaults, registered_when)
+        self._register_one_provider(provider, defaults, registered_when)
 
     def _register_one_provider(
-        self, defaults: list[Component], registered_when: str
+        self,
+        provider: Provider,
+        defaults: list[Component],
+        registered_when: str,
     ) -> None:
         """Register every default Component whose kind nothing claims.
 
@@ -806,6 +811,20 @@ class Grelmicro:
                 continue
             self._register_component(component)
             self._default_kinds[component.kind] = registered_when
+            self._provider_defaults[id(component)] = (
+                component,
+                type(provider).__name__,
+            )
+
+    def _default_of(self, component: Component) -> str | None:
+        """Return the class name of the Provider `component` is the default of.
+
+        Returns `None` for a Component that was registered explicitly.
+        """
+        entry = self._provider_defaults.get(id(component))
+        if entry is None or entry[0] is not component:
+            return None
+        return entry[1]
 
     @overload
     def get[ComponentT: Component](
