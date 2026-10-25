@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.43.1 - 2026-10-25
 
 Re-cut of 0.43.0, which never reached PyPI. A memory budget test failed the release run on Python 3.15, so publishing was skipped. The 0.43.0 tag is immutable, so its changes ship here. See [0.43.0](#0430-2026-10-25) for them.
 
