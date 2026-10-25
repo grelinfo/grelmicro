@@ -1646,8 +1646,6 @@ class Grelmicro:
         Raises:
             RuntimeError: If a route the integration lists carries no gate.
         """
-        from grelmicro.http._gate import OpenGate  # noqa: PLC0415
-
         behind = {middleware for middleware, _ in routed}
         answering = [
             answer
@@ -1658,6 +1656,8 @@ class Grelmicro:
         ]
         if not answering:
             return
+        from grelmicro.http._gate import OpenGate  # noqa: PLC0415
+
         gate = OpenGate()
         wire(app, gate)
         gate.hold(listing=listing)

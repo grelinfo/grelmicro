@@ -8,40 +8,27 @@ router.
 
 from __future__ import annotations
 
-import functools
-import inspect
 import weakref
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Annotated, Any, Final, cast
+from typing import TYPE_CHECKING, Annotated, Any, Final
 
+import starlette
 from typing_extensions import Doc
 
 from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
 from grelmicro._paths import RouteReading
-from grelmicro._wrapping import refuse_registered
 from grelmicro.health._served import HealthEndpoint, health_endpoints_in
-from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
-from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
-from grelmicro.http._requirement import (
-    AUTHENTICATED,
-    Requirement,
-    declared_scopes,
-)
+from grelmicro.integrations._floor import STARLETTE_FLOOR, require
 from grelmicro.integrations._litestar_routes import (
     litestar_mount,
     litestar_route_handler,
 )
-from grelmicro.integrations._route_gate import (
-    declarations_of,
-    gate_routes,
-    shadowed_routes,
-)
 from grelmicro.integrations._starlette_routes import starlette_route
-from grelmicro.security.principal import VerifiedToken
-from grelmicro.trace._autoinstrument import request_spans
+
+require(starlette, STARLETTE_FLOOR, extra="starlette")
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -53,13 +40,15 @@ if TYPE_CHECKING:
     )
 
     from starlette.applications import Starlette
-    from starlette.exceptions import HTTPException
-    from starlette.requests import HTTPConnection, Request
-    from starlette.responses import Response
 
     from grelmicro import Grelmicro
     from grelmicro._paths import RouteReader
-    from grelmicro.http import Gate, RouteDeclaration
+    from grelmicro.http import ErrorResponses, Gate, RouteDeclaration
+    from grelmicro.integrations._starlette_auth import (
+        Authenticated,
+        current_token,
+    )
+    from grelmicro.integrations._starlette_errors import error_response
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -78,6 +67,31 @@ __all__ = [
     "is_bound",
     "route_declarations",
 ]
+
+_LAZY: dict[str, str] = {
+    "Authenticated": "grelmicro.integrations._starlette_auth",
+    "current_token": "grelmicro.integrations._starlette_auth",
+    "error_response": "grelmicro.integrations._starlette_errors",
+}
+"""The submodule each public name loads from."""
+
+
+def __getattr__(name: str) -> object:
+    """Load `name` from its submodule and cache it on the module."""
+    module = _LAZY.get(name)
+    if module is None:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    import importlib  # noqa: PLC0415
+
+    value = getattr(importlib.import_module(module), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Return the loaded attributes and every public name."""
+    return sorted({*globals(), *__all__})
 
 
 def install(
@@ -201,6 +215,8 @@ def _wire_request_telemetry(
     whose `instrument` leaves out `starlette`, turns the request spans off
     and keeps the metrics.
     """
+    from grelmicro.trace._autoinstrument import request_spans  # noqa: PLC0415
+
     tracing = request_spans(micro.components, "starlette")
     if tracing is None or app in _TELEMETRY_WIRED:
         return
@@ -338,77 +354,11 @@ def install_error_responses(
 
     Read more in the [Error Responses](../http/errors.md) docs.
     """
-    # Recorded so `error_response` reads the format the app actually
-    # answers in, rather than assuming RFC 9457.
-    app.state.grelmicro_error_responses = errors
+    from grelmicro.integrations._starlette_errors import (  # noqa: PLC0415
+        wire_error_responses,
+    )
 
-    async def handler(request: Request, exc: Exception) -> Response:
-        """Render one rejection, taking the occurrence from the request path."""
-        from starlette.responses import Response  # noqa: PLC0415
-
-        rendered = errors.render(exc, instance=request.url.path)
-        if rendered is None:  # pragma: no cover
-            raise exc
-        return Response(
-            content=rendered.body,
-            status_code=rendered.status,
-            media_type=rendered.media_type,
-            headers=merge_headers(rendered, getattr(exc, "headers", None)),
-        )
-
-    async def http_error(request: Request, exc: Exception) -> Response:
-        """Reshape the framework's own error into the registered format."""
-        from starlette.responses import Response  # noqa: PLC0415
-
-        http_exc = cast("HTTPException", exc)
-        headers = http_exc.headers or {}
-        if http_exc.status_code in BODYLESS_STATUSES:
-            # A `204` or a `304` carries no body by the protocol, whatever
-            # format the app answers in. Starlette guards this in its own
-            # handler and so must this one.
-            return Response(status_code=http_exc.status_code, headers=headers)
-        detail = http_exc.detail
-        rendered = errors.render_status(
-            http_exc.status_code,
-            detail=detail if isinstance(detail, str) else None,
-            extensions=_structured_detail(detail),
-            instance=request.url.path,
-        )
-        return Response(
-            content=rendered.body,
-            status_code=rendered.status,
-            media_type=rendered.media_type,
-            headers=merge_headers(rendered, headers),
-        )
-
-    async def validation_error(
-        request: Request,
-        exc: Exception,
-    ) -> Response:
-        """Reshape a request that did not match the endpoint's shape."""
-        from starlette.responses import Response  # noqa: PLC0415
-
-        rendered = errors.render_validation(
-            _field_errors(exc),
-            status=HTTP_422_UNPROCESSABLE_CONTENT,
-            instance=request.url.path,
-        )
-        return Response(
-            content=rendered.body,
-            status_code=rendered.status,
-            media_type=rendered.media_type,
-            headers=rendered.headers,
-        )
-
-    _install_framework_handlers(app, http_error, validation_error)
-
-    for klass in HANDLED:
-        # A handler the app registered first wins. Registering before
-        # `install` is the natural order (build the app, register handlers,
-        # wire grelmicro), and overwriting there would take a handler away
-        # from an app that upgrades, without saying so.
-        if klass not in app.exception_handlers:
-            app.add_exception_handler(klass, handler)
+    wire_error_responses(app, errors)
 
 
 def _refuse_replaced_flood(app: Starlette, components: Sequence[Any]) -> None:
@@ -423,17 +373,18 @@ def _refuse_replaced_flood(app: Starlette, components: Sequence[Any]) -> None:
         TypeError: If the app added `RateLimitMiddleware` and a component
             carries a flood limit.
     """
+    carried = [component.asgi_middleware() for component in components]
+    if not any(options.get("flood") is not None for _, options in carried):
+        return
+    from grelmicro.http import RateLimitMiddleware  # noqa: PLC0415
+
     limiting = [
         options
-        for middleware, options in (
-            component.asgi_middleware() for component in components
-        )
+        for middleware, options in carried
         if middleware is RateLimitMiddleware
     ]
-    if not any(options.get("flood") is not None for options in limiting):
-        return
     ours = {id(options.get("live")) for options in limiting}
-    if any(
+    if any(options.get("flood") is not None for options in limiting) and any(
         entry.cls is RateLimitMiddleware
         and id(entry.kwargs.get("live")) not in ours
         for entry in app.user_middleware
@@ -550,7 +501,13 @@ def install_middleware(
         read_routes = getattr(component, "read_routes", None)
         if read_routes is not None:
             read_routes(app)
-        _answer_for(app, component)
+        handled = getattr(component, "handled_exceptions", None)
+        if handled is not None:
+            from grelmicro.integrations._starlette_errors import (  # noqa: PLC0415
+                answer_for,
+            )
+
+            answer_for(app, handled())
 
 
 def install_route_gate(
@@ -588,6 +545,8 @@ def install_route_gate(
             `timedelta`.
         ValueError: If a declaration cannot hold, naming its route.
     """
+    from grelmicro.integrations._route_gate import gate_routes  # noqa: PLC0415
+
     gate_routes(app, gate)
 
 
@@ -617,6 +576,10 @@ def route_declarations(
     authentication on the app, is checked above. A mount serving any other
     app is listed as one authenticated route running checks of its own.
     """
+    from grelmicro.integrations._route_gate import (  # noqa: PLC0415
+        declarations_of,
+    )
+
     return declarations_of(app)
 
 
@@ -631,8 +594,17 @@ def _front_middleware(app: Starlette) -> list[tuple[Any, dict[str, Any]]]:
     return [(entry.cls, dict(entry.kwargs)) for entry in app.user_middleware]
 
 
-_shadowed_routes = shadowed_routes
-"""Each anonymous route another route declared before it serves, for reports and the schema."""
+def _shadowed_routes(app: Starlette) -> frozenset[tuple[str, str]]:
+    """Return each anonymous route another route declared before it serves.
+
+    By path and method, as the route gate reads the router. Reports and
+    the schema read it.
+    """
+    from grelmicro.integrations._route_gate import (  # noqa: PLC0415
+        shadowed_routes,
+    )
+
+    return shadowed_routes(app)
 
 
 HTTP_422_UNPROCESSABLE_CONTENT = 422
@@ -670,49 +642,6 @@ def _check_binding_outermost(app: Starlette) -> None:
             f"place it."
         )
         raise AmbientBindingError(msg)
-
-
-def _answer_for(app: Starlette, component: Any) -> None:  # noqa: ANN401
-    """Register a handler for what this component answers itself.
-
-    A component that carries `handled_exceptions()` names the rejections
-    its registration is the opt-in for, so a service that asked for them
-    gets the status on the wire rather than a `500`. The format is read
-    per request from whichever `ErrorResponses` the app registered, and is
-    RFC 9457 when it registered none.
-
-    A handler the app registered first wins, and so does the one
-    `install_error_responses` registered, which renders the same way.
-
-    A rejection carrying `headers` puts them on the answer, so what the
-    refusal has to tell the client, the quota it just spent above all,
-    travels with the status.
-    """
-    handled = getattr(component, "handled_exceptions", None)
-    if handled is None:
-        return
-
-    async def handler(request: Request, exc: Exception) -> Response:
-        """Render one rejection in the format the app answers in."""
-        from starlette.responses import Response  # noqa: PLC0415
-
-        errors = (
-            getattr(request.app.state, "grelmicro_error_responses", None)
-            or ErrorResponses()
-        )
-        rendered = errors.render(exc, instance=request.url.path)
-        if rendered is None:  # pragma: no cover
-            raise exc
-        return Response(
-            content=rendered.body,
-            status_code=rendered.status,
-            media_type=rendered.media_type,
-            headers=merge_headers(rendered, getattr(exc, "headers", None)),
-        )
-
-    for klass in handled():
-        if klass not in app.exception_handlers:
-            app.add_exception_handler(klass, handler)
 
 
 def _binding_first(
@@ -780,174 +709,6 @@ def _keep_binding_outermost(app: Starlette) -> None:
     app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
-def error_response(
-    request: Annotated[
-        Request,
-        Doc("The request being answered, which knows its app."),
-    ],
-    *,
-    status: Annotated[int, Doc("HTTP status code of the response.")],
-    detail: Annotated[
-        str | None,
-        Doc("Explanation of this occurrence, safe to show a client."),
-    ] = None,
-    extensions: Annotated[
-        dict[str, Any] | None,
-        Doc("Extra members to carry, where the format has room for them."),
-    ] = None,
-) -> Response:
-    """Answer from your own exception handler in the app's error format.
-
-    Writing a handler of your own is how one error opts out of the shape
-    grelmicro installs. This is for the other case: you want your own
-    handler and the same shape as everything else.
-
-    ```python
-    from grelmicro.integrations.fastapi import error_response
-
-
-    @app.exception_handler(InsufficientFunds)
-    async def handle(request: Request, exc: InsufficientFunds) -> Response:
-        return error_response(
-            request,
-            status=409,
-            detail="The account does not hold enough to cover this charge.",
-            extensions={"balance": exc.balance},
-        )
-    ```
-
-    The format is read from the app, so a service that registered
-    `ErrorResponses.tmf()` answers in TMF from here too, with no second
-    place to keep in step. An app that registered nothing gets RFC 9457.
-    """
-    from starlette.responses import Response  # noqa: PLC0415
-
-    errors = (
-        getattr(request.app.state, "grelmicro_error_responses", None)
-        or ErrorResponses()
-    )
-    rendered = errors.render_status(
-        status,
-        detail=detail,
-        instance=request.url.path,
-        extensions=extensions,
-    )
-    return Response(
-        content=rendered.body,
-        status_code=rendered.status,
-        media_type=rendered.media_type,
-        headers=rendered.headers,
-    )
-
-
-def _framework_errors() -> list[tuple[type[Exception], bool]]:
-    """Return the framework's own errors, paired with whether they validate.
-
-    Registering these is what makes the whole API answer in one shape. An
-    `HTTPException` a handler raises and a request that failed validation
-    are errors the client caused, so they belong in the same format as a
-    rejection.
-    """
-    from starlette.exceptions import HTTPException  # noqa: PLC0415
-
-    errors: list[tuple[type[Exception], bool]] = [(HTTPException, False)]
-    try:
-        from fastapi.exceptions import (  # noqa: PLC0415
-            RequestValidationError,
-        )
-    except ImportError:  # pragma: no cover
-        # A plain Starlette app validates nothing, so there is no such
-        # error to reshape.
-        return errors
-    errors.append((RequestValidationError, True))
-    return errors
-
-
-def _is_framework_default(app: Starlette, klass: type[Exception]) -> bool:
-    """Return whether the handler for `klass` is the one FastAPI installed.
-
-    FastAPI registers its own handlers in the constructor, so "already
-    registered" cannot mean "the app chose this". Only a handler the app
-    put there is left alone, which is how it opts one error back out of the
-    shared format.
-
-    A plain Starlette app registers nothing, so a missing entry is the same
-    answer as a default one.
-    """
-    registered = app.exception_handlers.get(klass)
-    if registered is None:
-        return True
-    try:
-        from fastapi.exception_handlers import (  # noqa: PLC0415
-            http_exception_handler,
-            request_validation_exception_handler,
-        )
-    except ImportError:  # pragma: no cover
-        return False
-    return registered in (
-        http_exception_handler,
-        request_validation_exception_handler,
-    )
-
-
-def _field_errors(exc: Exception) -> list[dict[str, Any]]:
-    """Return the field errors of a validation failure, without the input.
-
-    `loc`, `msg` and `type` tell a client which part of the request to fix.
-    `input` only repeats what the client just sent, and `ctx` carries an
-    exception object that serializes to nothing useful. Both are dropped.
-    """
-    raw = getattr(exc, "errors", None)
-    entries = raw() if callable(raw) else []
-    return [
-        {key: value for key, value in entry.items() if key in _FIELD_KEYS}
-        for entry in entries
-    ]
-
-
-_FIELD_KEYS = frozenset({"loc", "msg", "type"})
-"""Members of a field error that help a client fix its request."""
-
-
-def _install_framework_handlers(
-    app: Starlette,
-    http_error: Callable[..., Any],
-    validation_error: Callable[..., Any],
-) -> None:
-    """Reshape the framework's own errors into the registered format.
-
-    A handler the app registered itself is left alone. The one grelmicro
-    installs for validation is recorded, so anything that documents the
-    schema can tell whether grelmicro is still the one answering.
-    """
-    for klass, validates in _framework_errors():
-        if not _is_framework_default(app, klass):
-            continue
-        handler = validation_error if validates else http_error
-        app.add_exception_handler(klass, handler)
-        if validates:
-            app.state.grelmicro_validation_handler = handler
-
-
-def _structured_detail(detail: Any) -> dict[str, Any] | None:  # noqa: ANN401
-    """Return the extension members a non-string `detail` becomes.
-
-    FastAPI documents a dict or a list there, and dropping it would lose a
-    payload the app meant the client to read.
-
-    A mapping is what an extension member already is, so its entries are
-    carried as members in their own right. Anything else goes under
-    `errors`, the name RFC 9457 readers expect a list of sub-problems
-    under. A name that would displace one of the five standard members is
-    dropped by `build`, so merging is safe.
-    """
-    if detail is None or isinstance(detail, str):
-        return None
-    if isinstance(detail, dict):
-        return dict(detail)
-    return {"errors": detail}
-
-
 def is_bound(
     app: Annotated[
         Starlette,
@@ -964,134 +725,4 @@ def is_bound(
     return any(
         getattr(middleware, "cls", None) is GrelmicroMiddleware
         for middleware in getattr(app, "user_middleware", ())
-    )
-
-
-def Authenticated(  # noqa: N802
-    *,
-    scopes: Annotated[
-        Sequence[str],
-        Doc("Scopes the caller must hold, every one of them."),
-    ] = (),
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Require an authenticated caller holding every scope named.
-
-    A decorator for a Starlette endpoint: a function, sync or async, a
-    method of an `HTTPEndpoint`, or a websocket endpoint.
-
-    ```python
-    from grelmicro.integrations.starlette import Authenticated
-
-
-    @Authenticated(scopes=["orders:write"])
-    async def cancel(request: Request) -> JSONResponse: ...
-    ```
-
-    A caller with no credential is answered `401`, and one lacking a scope
-    `403`, whose `WWW-Authenticate` challenge names the scopes. It needs a
-    registered `AuthenticatedRequests`, which verifies the token before the
-    endpoint runs, and whose gate on the route refuses the caller first.
-
-    Read more in the [Authentication](../http/authentication.md) docs.
-
-    Raises:
-        TypeError: If `scopes` is a single string, or the endpoint takes no
-            `request` or `websocket` argument.
-        ValueError: If a scope is not an OAuth scope token.
-    """
-    own = Requirement(scopes).scopes
-
-    def decorate(endpoint: Callable[..., Any]) -> Callable[..., Any]:
-        refuse_registered(endpoint, "@Authenticated")
-        name, position = _connection_argument(endpoint)
-        # Stacked on another `@Authenticated`, it requires the scopes of both.
-        inner = declared_scopes(endpoint) or ()
-        requirement = Requirement(tuple(dict.fromkeys((*own, *inner))))
-
-        def check(args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
-            connection = kwargs[name] if name in kwargs else args[position]
-            requirement.caller(connection.scope)
-
-        if _is_async(endpoint):
-
-            @functools.wraps(endpoint)
-            async def asynchronous(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-                check(args, kwargs)
-                return await endpoint(*args, **kwargs)
-
-            wrapper: Callable[..., Any] = asynchronous
-        else:
-
-            @functools.wraps(endpoint)
-            def synchronous(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-                check(args, kwargs)
-                return endpoint(*args, **kwargs)
-
-            wrapper = synchronous
-        return requirement.declare(wrapper)
-
-    return decorate
-
-
-def current_token(
-    connection: Annotated[
-        HTTPConnection,
-        Doc("The request or websocket the endpoint was handed."),
-    ],
-) -> VerifiedToken:
-    """Return the bearer token the request presented, once it verified.
-
-    ```python
-    from grelmicro.integrations.starlette import current_token
-
-
-    async def create_order(request: Request) -> JSONResponse:
-        token = current_token(request)
-        response = await payments.post(
-            "/charges", auth=payments_for_user.auth(token)
-        )
-        return JSONResponse(response.json())
-    ```
-
-    `AuthenticatedRequests` leaves it on every request it authenticates.
-    Read it to act for the caller, such as exchanging it with a
-    `TokenExchange`. Its `repr` never shows the token.
-
-    Read more in the [Authentication](../http/authentication.md) docs.
-
-    Raises:
-        AuthenticationRequiredError: If the request carried no token that
-            `AuthenticatedRequests` verified, such as one on an excluded
-            path.
-    """
-    return AUTHENTICATED.token(connection.scope)
-
-
-def _connection_argument(endpoint: Callable[..., Any]) -> tuple[str, int]:
-    """Return the name and position of the argument the connection arrives in.
-
-    Raises:
-        TypeError: If the endpoint takes neither a `request` nor a
-            `websocket` argument.
-    """
-    parameters = inspect.signature(endpoint).parameters.values()
-    for position, parameter in enumerate(parameters):
-        if parameter.name in {"request", "websocket"}:
-            return parameter.name, position
-    msg = (
-        f"Authenticated() decorates an endpoint taking a request or a "
-        f"websocket argument, and {getattr(endpoint, '__qualname__', endpoint)!s} takes neither."
-    )
-    raise TypeError(msg)
-
-
-def _is_async(endpoint: Callable[..., Any]) -> bool:
-    """Return whether calling the endpoint returns a coroutine.
-
-    A function declared `async`, or an object whose `__call__` is, which
-    Starlette awaits the same way.
-    """
-    call = getattr(endpoint, "__call__", None)  # noqa: B004
-    return inspect.iscoroutinefunction(endpoint) or inspect.iscoroutinefunction(
-        call
     )

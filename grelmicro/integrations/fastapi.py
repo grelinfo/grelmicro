@@ -125,7 +125,6 @@ from grelmicro.integrations._route_gate import (
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
     _keep_watching_outside,
-    error_response,
     is_bound,
 )
 from grelmicro.integrations.starlette import (
@@ -178,6 +177,28 @@ __all__ = [
     "metrics_router",
     "route_declarations",
 ]
+
+if TYPE_CHECKING:
+    from grelmicro.integrations._starlette_errors import error_response
+
+
+def __getattr__(name: str) -> object:
+    """Load `error_response` on first access and cache it on the module."""
+    if name != "error_response":
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    from grelmicro.integrations.starlette import (  # noqa: PLC0415
+        error_response,
+    )
+
+    globals()[name] = error_response
+    return error_response
+
+
+def __dir__() -> list[str]:
+    """Return the loaded attributes and every public name."""
+    return sorted({*globals(), *__all__})
+
 
 _logger = logging.getLogger(__name__)
 

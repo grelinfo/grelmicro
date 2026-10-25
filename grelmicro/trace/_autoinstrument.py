@@ -39,8 +39,6 @@ def request_spans(components: Iterable[object], framework: str) -> bool | None:
     request telemetry. A `Trace` that is off, or whose `instrument` leaves
     out `framework`, turns the spans off and keeps the metrics.
     """
-    from grelmicro.trace._component import Trace  # noqa: PLC0415
-
     exporting = [
         component
         for component in components
@@ -48,6 +46,8 @@ def request_spans(components: Iterable[object], framework: str) -> bool | None:
     ]
     if not exporting:
         return None
+    from grelmicro.trace._component import Trace  # noqa: PLC0415
+
     trace = next((c for c in exporting if isinstance(c, Trace)), None)
     return trace is None or (
         trace.active and is_selected(framework, trace.instrument)
