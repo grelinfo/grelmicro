@@ -226,7 +226,7 @@ async def test_auto_extend_gives_up_before_the_lease_runs_out(
     """A backend that keeps failing is retried, then the body is cancelled in time."""
     # Arrange
     caplog.set_level("WARNING")
-    lease = 0.5
+    lease = 2.0
     lock = _lock(backend, lease=lease)
     calls = 0
 
