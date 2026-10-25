@@ -181,3 +181,26 @@ def test_log_import_loads_no_resilience_module() -> None:
 
     # Assert
     assert loaded == []
+
+
+def test_plain_context_manager_in_uses_loads_no_backend_kind() -> None:
+    """A plain async context manager in `uses=[...]` loads no backend Protocol."""
+    # Arrange
+    code = (
+        "import contextlib, json, sys\n"
+        "from grelmicro import Grelmicro\n"
+        "@contextlib.asynccontextmanager\n"
+        "async def plain():\n"
+        "    yield\n"
+        "Grelmicro(uses=[plain()])\n"
+        "print(json.dumps(sorted(name for name in sys.modules"
+        " if name.split('.')[:2] in (['grelmicro', 'cache'],"
+        " ['grelmicro', 'coordination'], ['grelmicro', 'outbox'],"
+        " ['grelmicro', 'resilience']))))"
+    )
+
+    # Act
+    loaded = json.loads(_run(code))
+
+    # Assert
+    assert loaded == []

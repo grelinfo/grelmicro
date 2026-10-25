@@ -68,9 +68,9 @@ COORDINATION_BACKENDS: Final = (
 """Every backend a `Coordination` holds, in wiring order.
 
 One list, read by everything that walks a `Coordination`: the component
-itself, the app's Provider discovery, the wrapping of a bare backend into its
-Component, and the backend scope check. A fifth backend added here reaches all
-four.
+itself, the app's Provider discovery, and the backend scope check. The
+wrapping of a bare backend into its Component names the same backends by
+import string, in the same order, in `grelmicro._backend_kinds`.
 """
 
 
