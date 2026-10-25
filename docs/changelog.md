@@ -9,6 +9,9 @@
 ### Docs
 * 📝 The README and docs tagline is back to "Async-first toolkit. Microservice patterns inside." and the comparison page names no single framework. ([#1165](https://github.com/grelinfo/grelmicro/pull/1165))
 
+### Internal
+* ✅ The multiprocess test harness serves its shared state over localhost TCP, so those tests run inside a sandbox that refuses Unix socket binds. ([#1171](https://github.com/grelinfo/grelmicro/pull/1171))
+
 ## 0.43.1 - 2026-10-25
 
 Re-cut of 0.43.0, which never reached PyPI. A memory budget test failed the release run on Python 3.15, so publishing was skipped. The 0.43.0 tag is immutable, so its changes ship here. See [0.43.0](#0430-2026-10-25) for them.

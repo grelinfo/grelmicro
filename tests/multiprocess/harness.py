@@ -17,6 +17,7 @@ check.
 from __future__ import annotations
 
 import multiprocessing
+from multiprocessing.managers import SyncManager
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -54,8 +55,9 @@ def run_workers(
     barrier = context.Barrier(count)
     # The manager runs in its own process. Hold it for the whole call and
     # shut it down here, rather than leaving a server process per call for
-    # the collector to reap somewhere later in the session.
-    with context.Manager() as manager:
+    # the collector to reap somewhere later in the session. It listens on
+    # localhost TCP, which a sandbox that refuses Unix socket binds allows.
+    with SyncManager(address=("127.0.0.1", 0), ctx=context) as manager:
         results = manager.list()
         processes = [
             # Typeshed types `get_context` as the abstract base, which does
