@@ -35,9 +35,8 @@ from grelmicro.resilience.errors import (
     DeadlineExceededError,
     RateLimitExceededError,
 )
-from grelmicro.security.bans import ClientBannedError
+from grelmicro.security._errors import ClientBannedError, TokenRejectedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
-from grelmicro.security.jwt import TokenRejectedError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

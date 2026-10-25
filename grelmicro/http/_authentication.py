@@ -89,14 +89,13 @@ from grelmicro.http._routes import (
     listed_routes,
     route_name,
 )
-from grelmicro.security._events import SCOPE_KEY, SecurityEvents
-from grelmicro.security.bans import ClientBannedError
-from grelmicro.security.jwks import SigningKeysUnavailableError
-from grelmicro.security.jwt import (
-    DiscoveryConfig,
+from grelmicro.security._errors import (
+    ClientBannedError,
     TokenRejectedError,
     TokenRejectedReason,
 )
+from grelmicro.security._events import SCOPE_KEY, SecurityEvents
+from grelmicro.security.jwks import SigningKeysUnavailableError
 from grelmicro.security.principal import _verified_token
 
 if TYPE_CHECKING:
@@ -651,6 +650,8 @@ def security_scheme(verifier: object) -> dict[str, Any]:
     before discovery has run. A provider publishing RFC 8414 metadata alone
     is described as a bearer token, which every client can send.
     """
+    from grelmicro.security.jwt import DiscoveryConfig  # noqa: PLC0415
+
     config = getattr(verifier, "config", None)
     if isinstance(config, DiscoveryConfig):
         url = f"{config.issuer[0].rstrip('/')}{_OPENID_CONFIGURATION}"
