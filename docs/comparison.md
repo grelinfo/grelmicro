@@ -69,7 +69,7 @@ All of them share:
 
 No focused library in the Python ecosystem covers more than two of these Patterns. The closest thing in other ecosystems is the resilience-pipeline class of libraries (Java, .NET), and none of those bundle distributed locks, caches, leader election, scheduled tasks, and health checks into the same toolkit.
 
-If your FastAPI service runs on more than one replica, grelmicro keeps these patterns correct across all of them.
+If your service runs on more than one replica, grelmicro keeps these patterns correct across all of them.
 
 ## Cache
 

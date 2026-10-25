@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <em>Your FastAPI service, correct on more than one replica.</em>
+  <em>Async-first toolkit. Microservice patterns inside.</em>
 </p>
 
 <p align="center">
