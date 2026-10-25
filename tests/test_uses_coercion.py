@@ -8,6 +8,7 @@ serves. The explicit forms stay legal and always win over the implicit ones.
 from __future__ import annotations
 
 import inspect
+import sys
 from contextlib import suppress
 from typing import TYPE_CHECKING, ClassVar, Self
 
@@ -30,9 +31,17 @@ from grelmicro import (
     Usable,
 )
 from grelmicro._app import _maybe_wrap_first_party_backend
+from grelmicro._backend_kinds import (
+    _KINDS,
+    _could_match,
+    _KindRef,
+    backend_kinds_of,
+    load,
+)
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination
+from grelmicro.coordination._component import COORDINATION_BACKENDS
 from grelmicro.coordination.memory import (
     MemoryLeaderElectionAdapter,
     MemoryLockAdapter,
@@ -973,3 +982,74 @@ def test_backend_matching_unrelated_protocols_raises() -> None:
         match=r"matches more than one backend protocol",
     ):
         _maybe_wrap_first_party_backend(LockAndElection())
+
+
+# --- Backend kinds by import string ---
+
+
+@pytest.mark.parametrize("ref", _KINDS, ids=lambda ref: ref.label)
+def test_backend_kind_members_match_its_protocol(ref: _KindRef) -> None:
+    """Each kind lists exactly the members its Protocol matches on."""
+    # Act
+    protocol = load(ref.protocol)
+
+    # Assert
+    assert ref.members == protocol.__protocol_attrs__
+
+
+def test_coordination_kinds_follow_the_coordination_slots() -> None:
+    """The coordination kinds name the slots' protocols, in slot order."""
+    # Act
+    protocols = [
+        load(ref.protocol)
+        for ref in _KINDS
+        if ref.label.startswith("Coordination(")
+    ]
+    labels = [
+        ref.label for ref in _KINDS if ref.label.startswith("Coordination(")
+    ]
+
+    # Assert
+    assert protocols == [slot.protocol for slot in COORDINATION_BACKENDS]
+    assert labels == [
+        f"Coordination({slot.keyword}=...)" for slot in COORDINATION_BACKENDS
+    ]
+
+
+@pytest.mark.parametrize(
+    ("item", "expected"),
+    [(object(), False), (MemoryRateLimiterAdapter(), True)],
+)
+def test_unloaded_protocol_matches_only_an_object_with_every_member(
+    monkeypatch: pytest.MonkeyPatch, item: object, *, expected: bool
+) -> None:
+    """Without its module loaded, a kind may match only an object with all its members."""
+    # Arrange
+    ref = next(ref for ref in _KINDS if ref.label == "RateLimiterComponent")
+    monkeypatch.delitem(sys.modules, ref.protocol.rpartition(".")[0])
+
+    # Act
+    could = _could_match(item, ref)
+
+    # Assert
+    assert could is expected
+
+
+def test_object_of_no_kind_loads_no_protocol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An object with none of the members matches no kind and loads no module."""
+    # Arrange
+    for ref in _KINDS:
+        monkeypatch.delitem(
+            sys.modules, ref.protocol.rpartition(".")[0], raising=False
+        )
+
+    # Act
+    kinds = backend_kinds_of(object())
+
+    # Assert
+    assert kinds == []
+    assert not any(
+        ref.protocol.rpartition(".")[0] in sys.modules for ref in _KINDS
+    )

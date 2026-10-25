@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+* ⚡️ `Grelmicro(uses=[...])` checks a backend against the first-party backend kinds without importing their packages. A Tasks app no longer loads `grelmicro.outbox`. ([#1166](https://github.com/grelinfo/grelmicro/pull/1166))
+
 ### Docs
 * 📝 The README and docs tagline is back to "Async-first toolkit. Microservice patterns inside." and the comparison page names no single framework. ([#1165](https://github.com/grelinfo/grelmicro/pull/1165))
 

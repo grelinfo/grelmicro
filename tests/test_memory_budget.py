@@ -35,7 +35,6 @@ _EXPECTED_SUBPACKAGES = {
         "idempotency",
         "integrations",
         "log",
-        "outbox",
         "resilience",
         "security",
         "task",
@@ -61,7 +60,7 @@ _EXPECTED_SUBPACKAGES = {
 
 _MAX_MODULES = {
     "import": 23,
-    "tasks": 169,
+    "tasks": 167,
     "redis": 161,
     "postgres": 102,
 }
