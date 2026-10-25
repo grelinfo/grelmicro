@@ -2,7 +2,8 @@
 
 Exposes:
 
-- `backend_kinds`: every backend Protocol with the Component that takes it.
+- `backend_kinds_of`: every backend kind an object satisfies.
+- `load`: import the object an import string names.
 - `most_specific_backend`: pick one kind for a backend matching several.
 - `resolve_source`: read a Component's first argument as a Provider or a
   backend of its own kind, and refuse anything else.
@@ -10,15 +11,17 @@ Exposes:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, NamedTuple
+import sys
+from functools import cache
+from importlib import import_module
+from inspect import getattr_static
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 from grelmicro._component import instantiate_if_class
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
-
-    from grelmicro._component import Component
+    from collections.abc import Sequence
 
 
 class BackendKind(NamedTuple):
@@ -30,56 +33,192 @@ class BackendKind(NamedTuple):
     label: str
     """How an error names the Component, `Coordination(lock=...)`."""
 
-    factory: Callable[[Any], Component] | None
-    """Build the Component around a bare backend, `None` when `uses=[...]`
-    does not wrap this kind.
+    factory: str | None
+    """Import string of the Component built around a bare backend, `None`
+    when `uses=[...]` does not wrap this kind.
 
-    Takes `Any` because the protocol match is what proves the backend fits,
-    and that proof is a runtime `isinstance` a type checker cannot follow.
+    `load` imports it when the kind is first built.
     """
 
 
-def backend_kinds() -> list[BackendKind]:
-    """Return every first-party backend kind.
+class _KindRef(NamedTuple):
+    """One first-party backend kind, named by import strings."""
 
-    Imports are lazy so unused submodules stay out of `import grelmicro`.
-    The user importing `RedisCacheAdapter` already loads `grelmicro.cache`,
-    so the lazy import here is a cache hit.
+    protocol: str
+    """Import string of the runtime-checkable Protocol."""
+
+    members: frozenset[str]
+    """The member names the Protocol matches on."""
+
+    label: str
+    """How an error names the Component."""
+
+    factory: str | None
+    """Import string of the Component that wraps a bare backend, or `None`."""
+
+
+_COORDINATION = "grelmicro.coordination._component.Coordination"
+"""Import string of the Component every coordination kind belongs to."""
+
+_KINDS: Final = (
+    _KindRef(
+        "grelmicro.cache._protocol.CacheBackend",
+        frozenset(
+            {
+                "__aenter__",
+                "__aexit__",
+                "_loop",
+                "clear",
+                "delete",
+                "delete_many",
+                "delete_tags",
+                "get",
+                "get_many",
+                "set",
+                "set_many",
+            }
+        ),
+        "Cache",
+        "grelmicro.cache._component.Cache",
+    ),
+    _KindRef(
+        "grelmicro.resilience._protocol.CircuitBreakerBackend",
+        frozenset({"__aenter__", "__aexit__", "_loop", "bind", "is_shared"}),
+        "CircuitBreakerComponent",
+        "grelmicro.resilience._components.CircuitBreakerComponent",
+    ),
+    _KindRef(
+        "grelmicro.resilience._protocol.RateLimiterBackend",
+        frozenset({"__aenter__", "__aexit__", "bind"}),
+        "RateLimiterComponent",
+        "grelmicro.resilience._components.RateLimiterComponent",
+    ),
+    _KindRef(
+        "grelmicro.coordination._protocol.LockBackend",
+        frozenset(
+            {
+                "__aenter__",
+                "__aexit__",
+                "_loop",
+                "acquire",
+                "locked",
+                "owned",
+                "release",
+            }
+        ),
+        "Coordination(lock=...)",
+        _COORDINATION,
+    ),
+    _KindRef(
+        "grelmicro.coordination._protocol.ReadWriteLockBackend",
+        frozenset(
+            {
+                "__aenter__",
+                "__aexit__",
+                "_loop",
+                "acquire_read",
+                "acquire_write",
+                "cancel_intent",
+                "downgrade",
+                "owned_read",
+                "owned_write",
+                "release_read",
+                "release_write",
+                "state",
+            }
+        ),
+        "Coordination(readwritelock=...)",
+        _COORDINATION,
+    ),
+    _KindRef(
+        "grelmicro.coordination._protocol.LeaderElectionBackend",
+        frozenset(
+            {"__aenter__", "__aexit__", "acquire_or_renew", "get", "release"}
+        ),
+        "Coordination(leaderelection=...)",
+        _COORDINATION,
+    ),
+    _KindRef(
+        "grelmicro.coordination._protocol.ScheduleBackend",
+        frozenset({"__aenter__", "__aexit__", "_loop", "claim", "last_fired"}),
+        "Coordination(schedule=...)",
+        _COORDINATION,
+    ),
+    _KindRef(
+        "grelmicro.outbox._protocol.OutboxBackend",
+        frozenset(
+            {
+                "__aenter__",
+                "__aexit__",
+                "claim",
+                "complete",
+                "enqueue",
+                "purge",
+                "redrive",
+                "reschedule",
+                "wait_notify",
+            }
+        ),
+        "Outbox",
+        None,
+    ),
+)
+"""Every first-party backend kind, in the order they are tested.
+
+The coordination kinds follow `COORDINATION_BACKENDS`, one per backend a
+`Coordination` holds.
+"""
+
+
+@cache
+def load(path: str) -> Any:  # noqa: ANN401
+    """Return the object `path` names, as `module.attribute`.
+
+    Imports the module on the first call and returns the cached object after.
     """
-    from grelmicro.cache._component import Cache  # noqa: PLC0415
-    from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
-    from grelmicro.coordination._component import (  # noqa: PLC0415
-        COORDINATION_BACKENDS,
-        Coordination,
-    )
-    from grelmicro.outbox._protocol import OutboxBackend  # noqa: PLC0415
-    from grelmicro.resilience._components import (  # noqa: PLC0415
-        CircuitBreakerComponent,
-        RateLimiterComponent,
-    )
-    from grelmicro.resilience._protocol import (  # noqa: PLC0415
-        CircuitBreakerBackend,
-        RateLimiterBackend,
-    )
+    module, _, name = path.rpartition(".")
+    return getattr(import_module(module), name)
 
-    return [
-        BackendKind(CacheBackend, "Cache", Cache),
-        BackendKind(
-            CircuitBreakerBackend,
-            "CircuitBreakerComponent",
-            CircuitBreakerComponent,
-        ),
-        BackendKind(
-            RateLimiterBackend, "RateLimiterComponent", RateLimiterComponent
-        ),
-        *[
-            BackendKind(
-                slot.protocol, f"Coordination({slot.keyword}=...)", Coordination
-            )
-            for slot in COORDINATION_BACKENDS
-        ],
-        BackendKind(OutboxBackend, "Outbox", None),
-    ]
+
+def _could_match(item: object, ref: _KindRef) -> bool:
+    """Return whether `item` may satisfy the Protocol `ref` names.
+
+    An object lacking one of the members cannot satisfy it structurally, and
+    cannot be a nominal subclass while the Protocol's module is not loaded,
+    so that module stays unloaded.
+    """
+    if ref.protocol.rpartition(".")[0] in sys.modules:
+        return True
+    for member in ref.members:
+        try:
+            getattr_static(item, member)
+        except AttributeError:
+            return False
+    return True
+
+
+def backend_kinds_of(
+    item: object, *, wrappable: bool = False
+) -> list[BackendKind]:
+    """Return every first-party backend kind `item` satisfies.
+
+    Loads the Protocol of a kind only when `item` has every member it
+    matches on, so an object of no kind loads none of them.
+
+    Args:
+        item: The object to classify.
+        wrappable: Only test the kinds `uses=[...]` wraps in a Component.
+    """
+    kinds = []
+    for ref in _KINDS:
+        if wrappable and ref.factory is None:
+            continue
+        if not _could_match(item, ref):
+            continue
+        protocol = load(ref.protocol)
+        if isinstance(item, protocol):
+            kinds.append(BackendKind(protocol, ref.label, ref.factory))
+    return kinds
 
 
 def _protocol_members(protocol: type) -> frozenset[str]:
@@ -162,9 +301,7 @@ def resolve_source(
         return resolved
     got = type(resolved).__name__
     msg = f"{owner} expects a Provider or {expects}, got {got}."
-    matches = [
-        kind for kind in backend_kinds() if isinstance(resolved, kind.protocol)
-    ]
+    matches = backend_kinds_of(resolved)
     if not matches:
         raise TypeError(msg)
     try:
