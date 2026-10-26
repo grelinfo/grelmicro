@@ -30,6 +30,7 @@
 
 ### Fixed
 * 🐛 The `BackendScopeError` for `Idempotency` or `IdempotentRequests` with no lock backend says to register a `Coordination` with a Redis, Valkey, Postgres or Kubernetes provider, not to use one of those backends. ([#1168](https://github.com/grelinfo/grelmicro/pull/1168))
+* 🐛 `micro.fake()` on an app that lists a `MemoryProvider` registers one `provider:memory` check and no longer logs that it is already registered. ([#1185](https://github.com/grelinfo/grelmicro/pull/1185))
 
 ### Docs
 * 📝 The wiring guide shows how to serve only some kinds of a provider by listing its components instead of the bare provider. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
