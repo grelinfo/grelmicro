@@ -19,9 +19,7 @@ from typing import (
     Literal,
     Self,
     cast,
-    overload,
 )
-from warnings import deprecated
 
 from pydantic import BaseModel, PositiveFloat, field_validator
 from typing_extensions import Doc
@@ -102,51 +100,17 @@ _PROVIDER_CHECKS: tuple[ProviderChecks, ...] = ("off", "report", "require")
 """Every `ProviderChecks` mode, in the order a refusal lists them."""
 
 
-def _resolve_provider_checks(
-    provider_checks: ProviderChecks | None, *, auto_health: bool | None
-) -> ProviderChecks | None:
+def _resolve_provider_checks(provider_checks: ProviderChecks) -> ProviderChecks:
     """Return the `provider_checks=` mode, matched in any case.
 
-    `auto_health=True` reads as `"require"` and `auto_health=False` as
-    `"off"`, each warning with `GrelmicroFutureWarning` at the line that
-    called the caller. `None` means neither was passed.
-
     Raises:
-        TypeError: If both `provider_checks` and `auto_health` were passed.
         SettingsValidationError: If `provider_checks` names no mode.
     """
-    if auto_health is not None:
-        if provider_checks is not None:
-            msg = (
-                "Pass either provider_checks= or auto_health=, not both. "
-                "auto_health= is renamed to provider_checks=."
-            )
-            raise TypeError(msg)
-        from grelmicro._deprecation import AUTO_HEALTH  # noqa: PLC0415
-
-        AUTO_HEALTH[bool(auto_health)].warn(stacklevel=3)
-        return "require" if auto_health else "off"
-    if provider_checks is None:
-        return None
     spelled = match_case(ProviderChecks, provider_checks)
     if spelled not in _PROVIDER_CHECKS:
         msg = f"provider_checks= must be one of {', '.join(_PROVIDER_CHECKS)}"
         raise SettingsValidationError(msg)
     return spelled
-
-
-def warns_providers_default(health: object, items: Iterable[object]) -> bool:
-    """Return whether `health` should warn that `provider_checks=` gets a default.
-
-    True when `health` is a `HealthChecks` built without `provider_checks=` or
-    `auto_health=`, and `"report"` would register a check for one of the
-    Providers in `items`.
-    """
-    return (
-        isinstance(health, HealthChecks)
-        and health._provider_checks is None  # noqa: SLF001
-        and any(map(health._discovers, items))  # noqa: SLF001
-    )
 
 
 class HealthChecksConfig(BaseModel, frozen=True, extra="forbid"):
@@ -267,39 +231,6 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
 
     kind: ClassVar[str] = "health"
 
-    @overload
-    def __init__(
-        self,
-        *,
-        name: str = "default",
-        timeout: PositiveFloat | None = None,
-        cache_ttl: int | timedelta | None = None,
-        liveness: Liveness | None = None,
-        provider_checks: ProviderChecks | None = None,
-        env_prefix: str | None = None,
-        env_load: bool | None = None,
-        auto_health: None = None,
-    ) -> None: ...
-
-    @overload
-    @deprecated(
-        "`auto_health=` is renamed to `provider_checks=`, "
-        "and removed in 0.44.0.",
-        category=None,
-    )
-    def __init__(
-        self,
-        *,
-        name: str = "default",
-        timeout: PositiveFloat | None = None,
-        cache_ttl: int | timedelta | None = None,
-        liveness: Liveness | None = None,
-        provider_checks: None = None,
-        env_prefix: str | None = None,
-        env_load: bool | None = None,
-        auto_health: bool,
-    ) -> None: ...
-
     def __init__(
         self,
         *,
@@ -355,24 +286,19 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             ),
         ] = None,
         provider_checks: Annotated[
-            ProviderChecks | None,
+            ProviderChecks,
             Doc(
                 """
                 Which check to register for each `Provider` active on the
-                app, on startup, matched in any case. `"report"` registers
-                a non-critical `provider:{short_name}` check, shown in
-                `/healthz` and left out of `/readyz`. `"require"` registers
-                a critical one, so a down backend fails `/readyz`. `"off"`
-                registers none. A Provider already added with
-                `add_provider` keeps that registration.
-
-                When None (the default), it registers none, and the app
-                warns with `GrelmicroFutureWarning` on startup when it has
-                a Provider with a readiness check. From 0.44.0 it defaults
-                to `"report"`.
+                app, on startup, matched in any case. `"report"` (the
+                default) registers a non-critical `provider:{short_name}`
+                check, shown in `/healthz` and left out of `/readyz`.
+                `"require"` registers a critical one, so a down backend
+                fails `/readyz`. `"off"` registers none. A Provider already
+                added with `add_provider` keeps that registration.
                 """
             ),
-        ] = None,
+        ] = "report",
         env_prefix: Annotated[
             str | None,
             Doc(
@@ -401,26 +327,13 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 """
             ),
         ] = None,
-        auto_health: Annotated[
-            bool | None,
-            Doc(
-                """
-                Renamed to `provider_checks`, and removed in 0.44.0. True reads
-                as `provider_checks="require"` and False as `provider_checks="off"`,
-                each warning with `GrelmicroFutureWarning`.
-                """
-            ),
-        ] = None,
     ) -> None:
         """Initialize the health checks.
 
         Raises:
-            TypeError: If both `provider_checks` and `auto_health` are passed.
             SettingsValidationError: If `provider_checks` names no mode.
         """
-        mode = _resolve_provider_checks(
-            provider_checks, auto_health=auto_health
-        )
+        mode = _resolve_provider_checks(provider_checks)
         resolved_env_prefix = env_prefix or default_env_prefix("HEALTH", name)
         config = resolve_config(
             HealthChecksConfig,
@@ -434,35 +347,6 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         # tracks: `from_config` takes a pre-built config and stays static,
         # matching every other reconfigurable component.
         self._track_reconfigure(resolved_env_prefix)
-
-    @overload
-    @classmethod
-    def from_config(
-        cls,
-        config: HealthChecksConfig,
-        *,
-        name: str = "default",
-        provider_checks: ProviderChecks | None = None,
-        liveness: Liveness | None = None,
-        auto_health: None = None,
-    ) -> Self: ...
-
-    @overload
-    @classmethod
-    @deprecated(
-        "`auto_health=` is renamed to `provider_checks=`, "
-        "and removed in 0.44.0.",
-        category=None,
-    )
-    def from_config(
-        cls,
-        config: HealthChecksConfig,
-        *,
-        name: str = "default",
-        provider_checks: None = None,
-        liveness: Liveness | None = None,
-        auto_health: bool,
-    ) -> Self: ...
 
     @classmethod
     def from_config(
@@ -487,13 +371,12 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             Doc("Registration name. Defaults to `'default'`."),
         ] = "default",
         provider_checks: Annotated[
-            ProviderChecks | None,
+            ProviderChecks,
             Doc(
                 "Which check to register for each active `Provider` on "
-                "startup, as in `HealthChecks`. When None (the default), "
-                "none, and it warns as in `HealthChecks`."
+                'startup, as in `HealthChecks`. Defaults to `"report"`.'
             ),
-        ] = None,
+        ] = "report",
         liveness: Annotated[
             Liveness | None,
             Doc(
@@ -501,23 +384,13 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 "replaced. `None` (the default) starts nothing."
             ),
         ] = None,
-        auto_health: Annotated[
-            bool | None,
-            Doc(
-                "Renamed to `provider_checks`, and removed in 0.44.0. Warns as "
-                "in `HealthChecks`."
-            ),
-        ] = None,
     ) -> Self:
         """Construct a `HealthChecks` from a pre-built `HealthChecksConfig`.
 
         Raises:
-            TypeError: If both `provider_checks` and `auto_health` are passed.
             SettingsValidationError: If `provider_checks` names no mode.
         """
-        mode = _resolve_provider_checks(
-            provider_checks, auto_health=auto_health
-        )
+        mode = _resolve_provider_checks(provider_checks)
         instance = cls.__new__(cls)
         instance._setup(  # noqa: SLF001
             config, name=name, provider_checks=mode, liveness=liveness
@@ -529,7 +402,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         config: HealthChecksConfig,
         *,
         name: str = "default",
-        provider_checks: ProviderChecks | None = None,
+        provider_checks: ProviderChecks = "report",
         liveness: Liveness | None = None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
@@ -540,7 +413,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         self._watchdog: Watchdog | None = None
         self._config = config
         self._provider_checks = provider_checks
-        """The `provider_checks=` mode, `None` when it was left unset."""
+        """The `provider_checks=` mode."""
         self._reconfigure_lock = asyncio.Lock()
         self._entries: dict[str, _Entry] = {}
         self._auto_registered: list[str] = []
@@ -883,11 +756,14 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         idempotent. A `provider:{short_name}` name held by a different
         provider (two providers of the same vendor) is skipped with a
         warning, pointing at the explicit `add_provider(provider, name=...)`
-        form.
+        form. Opened outside an app, it registers nothing.
         """
-        from grelmicro._app import Grelmicro  # noqa: PLC0415
+        from grelmicro._app import _current_micro  # noqa: PLC0415
 
-        for provider in Grelmicro.current().providers:
+        micro = _current_micro.get(None)
+        if micro is None:
+            return
+        for provider in micro.providers:
             if not self._discovers(provider):
                 continue
             check_name = f"provider:{provider.short_name}"

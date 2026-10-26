@@ -144,7 +144,7 @@ Register a provider's check with `add_provider`. It registers under `provider:{s
 
 The check is **critical** by default, so an unreachable backend fails `/readyz`. Pass `critical=False` for a degradable dependency such as a cache. Pass `name=` to disambiguate two providers of the same vendor, which registers `provider:{name}` instead.
 
-To register a check for every provider on the app at once, pass `provider_checks=` to the `HealthChecks`:
+A `HealthChecks` registers a check for every provider on the app at once. Pass `provider_checks=` to pick the check:
 
 ```python
 --8<-- "health/provider_checks.py"
@@ -154,11 +154,11 @@ On startup this discovers every active provider, including ones a Component borr
 
 | Mode | What it registers |
 |---|---|
-| `"report"` | A non-critical check per provider. It shows in `/healthz` and leaves `/readyz` alone. |
+| `"report"` (default) | A non-critical check per provider. It shows in `/healthz` and leaves `/readyz` alone. |
 | `"require"` | A critical check per provider. A down backend fails `/readyz`. |
 | `"off"` | Nothing. |
 
-Today the default is `"off"`, and leaving `provider_checks=` unset beside a provider warns with `GrelmicroFutureWarning` on startup. From 0.44.0 the default is `"report"`. A backend that every replica shares takes every replica out of rotation at once when it fails `/readyz`, so the default shows it without failing readiness.
+A backend that every replica shares takes every replica out of rotation at once when it fails `/readyz`, so the default shows it without failing readiness. Pass `"require"` when the service is useless without the backend.
 
 A provider with no built-in probe is skipped. A provider you already register with `add_provider` keeps that registration. When two providers share a `short_name`, the second is skipped with a warning: register it explicitly with `add_provider(provider, name=...)` to give it a distinct name.
 

@@ -2,6 +2,7 @@
 
 import asyncio
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Self, get_overloads
 
@@ -9,8 +10,8 @@ import httpx
 import pytest
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
-from grelmicro import Grelmicro
-from grelmicro._deprecation import AUTO_HEALTH, PENDING, PROVIDERS_DEFAULT
+from grelmicro import Grelmicro, _deprecation
+from grelmicro._deprecation import PENDING
 from grelmicro.cache import Cache
 from grelmicro.errors import GrelmicroFutureWarning, SettingsValidationError
 from grelmicro.health import ProviderChecks, health_asgi
@@ -18,7 +19,6 @@ from grelmicro.health._checks import HealthChecks, HealthChecksConfig
 from grelmicro.health._models import HealthStatus
 from grelmicro.providers._base import Provider
 from grelmicro.providers.sqlite import SQLiteProvider
-from tests._future import assert_future_warning
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -294,104 +294,34 @@ class TestProviders:
         assert "already registered" not in caplog.text
 
 
-class TestAutoHealthRename:
-    """`auto_health=` is renamed to `provider_checks=` and removed in 0.44.0."""
+class TestAutoHealthRemoved:
+    """`auto_health=` is removed in 0.44.0, so it is an unknown keyword."""
 
-    @pytest.mark.parametrize(
-        ("auto_health", "mode"),
-        [
-            pytest.param(True, "require", id="true"),
-            pytest.param(False, "off", id="false"),
-        ],
-    )
-    def test_maps_to_provider_checks_and_warns(
-        self, *, auto_health: bool, mode: ProviderChecks
-    ) -> None:
-        """`auto_health=` warns the rename and reads as its `provider_checks=` mode."""
-        entry = AUTO_HEALTH[auto_health]
-        assert_future_warning(
-            entry,
-            default=lambda: HealthChecks(auto_health=auto_health),  # type: ignore[deprecated]  # ty: ignore[deprecated]
-            explicit=lambda: HealthChecks(provider_checks=mode),
-        )
-        assert_future_warning(
-            entry,
-            default=lambda: HealthChecks.from_config(  # type: ignore[deprecated]  # ty: ignore[deprecated]
-                HealthChecksConfig(), auto_health=auto_health
-            ),
-            explicit=lambda: HealthChecks.from_config(
-                HealthChecksConfig(), provider_checks=mode
-            ),
-        )
-        with pytest.warns(GrelmicroFutureWarning):
-            health = HealthChecks(auto_health=auto_health)  # type: ignore[deprecated]  # ty: ignore[deprecated]
-        assert health._provider_checks == mode
-
-    async def test_true_registers_critical_checks(self) -> None:
-        """`auto_health=True` registers what `provider_checks="require"` does."""
-        with pytest.warns(GrelmicroFutureWarning):
-            health = HealthChecks(cache_ttl=0, auto_health=True)  # type: ignore[deprecated]  # ty: ignore[deprecated]
-        micro = Grelmicro(uses=[FakeProvider("redis"), health])
-
-        async with micro:
-            report = await health.run()
-
-        assert report["checks"]["provider:redis"]["critical"] is True
-
-    def test_messages(self) -> None:
-        """Each message names the new spelling and the removal release."""
-        assert AUTO_HEALTH[True].message == (
-            '`auto_health=True` is renamed to `provider_checks="require"`. '
-            "`auto_health=True` is removed in 0.44.0."
-        )
-        assert AUTO_HEALTH[False].message == (
-            '`auto_health=False` is renamed to `provider_checks="off"`. '
-            "`auto_health=False` is removed in 0.44.0."
-        )
-
-    def test_points_at_the_caller(self) -> None:
-        """The warning reports the line that built the `HealthChecks`."""
-        with pytest.warns(GrelmicroFutureWarning) as caught:
-            HealthChecks(auto_health=True)  # type: ignore[deprecated]  # ty: ignore[deprecated]
-        with pytest.warns(GrelmicroFutureWarning) as configured:
-            HealthChecks.from_config(HealthChecksConfig(), auto_health=True)  # type: ignore[deprecated]  # ty: ignore[deprecated]
-
-        assert caught[0].filename == __file__
-        assert configured[0].filename == __file__
-
-    def test_both_raise(self) -> None:
-        """Passing both `auto_health=` and `provider_checks=` names both."""
-        message = "provider_checks=.*auto_health="
-        with pytest.raises(TypeError, match=message):
-            HealthChecks(provider_checks="require", auto_health=True)  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
-        with pytest.raises(TypeError, match=message):
-            HealthChecks.from_config(  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
-                HealthChecksConfig(), provider_checks="off", auto_health=False
+    @pytest.mark.parametrize("value", [True, False])
+    def test_raises_type_error(self, *, value: bool) -> None:
+        """`auto_health=` raises `TypeError` like any unknown keyword."""
+        with pytest.raises(TypeError, match="auto_health"):
+            HealthChecks(auto_health=value)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+        with pytest.raises(TypeError, match="auto_health"):
+            HealthChecks.from_config(  # type: ignore[call-arg]
+                HealthChecksConfig(),
+                auto_health=value,  # ty: ignore[unknown-argument]
             )
-
-    def test_is_pending_until_0_44(self) -> None:
-        """The stale-entry guard covers the removal."""
-        for entry in AUTO_HEALTH.values():
-            assert entry in PENDING
-            assert entry.removed_in == "0.44.0"
 
     @pytest.mark.parametrize(
         "method", [HealthChecks.__init__, HealthChecks.from_config]
     )
-    def test_the_auto_health_overload_is_deprecated_for_checkers(
-        self, method: object
-    ) -> None:
-        """Only the overload taking `auto_health=` carries `@deprecated`."""
-        current, renamed = (
-            getattr(overload, "__func__", overload)
-            for overload in get_overloads(method)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-        )
+    def test_has_no_overloads(self, method: object) -> None:
+        """`HealthChecks` and `from_config` declare one signature each."""
+        assert get_overloads(method) == []  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
-        assert not hasattr(current, "__deprecated__")
-        assert getattr(renamed, "__deprecated__", None) == (
-            "`auto_health=` is renamed to `provider_checks=`, "
-            "and removed in 0.44.0."
-        )
+    def test_no_pending_entry(self) -> None:
+        """No pending entry warns about `auto_health=` or the default."""
+        assert not hasattr(_deprecation, "AUTO_HEALTH")
+        assert not hasattr(_deprecation, "PROVIDERS_DEFAULT")
+        assert not [
+            entry for entry in PENDING if "provider_checks" in entry.message
+        ]
 
 
 async def _open(micro: Grelmicro) -> None:
@@ -416,133 +346,140 @@ def _future_warnings(caught: list[warnings.WarningMessage]) -> list[str]:
     ]
 
 
+async def _checks(micro: Grelmicro, health: HealthChecks) -> dict[str, object]:
+    """Open `micro` and return the checks one run of `health` reports."""
+    async with micro:
+        return dict((await health.run())["checks"])
+
+
 class TestProvidersDefault:
-    """`provider_checks=` left unset warns it defaults to "report" in 0.44.0."""
+    """`provider_checks=` left unset reads as `"report"`."""
 
-    def test_left_unset_beside_a_provider_warns(self) -> None:
-        """Leaving `provider_checks` unset warns, and passing any mode does not."""
-        assert_future_warning(
-            PROVIDERS_DEFAULT,
-            default=lambda: _start(FakeProvider(), HealthChecks()),
-            explicit=lambda: [
-                _start(FakeProvider(), HealthChecks(provider_checks="off")),
-                _start(FakeProvider(), HealthChecks(provider_checks="report")),
-                _start(FakeProvider(), HealthChecks(provider_checks="require")),
-            ],
-        )
-
-    def test_message(self) -> None:
-        """The message names the switch release and both choices."""
-        assert PROVIDERS_DEFAULT.message == (
-            "`HealthChecks()` reports each Provider in `/healthz` by "
-            "default from 0.44.0. "
-            'Pass `provider_checks="off"` to keep the current behavior, '
-            'or `provider_checks="report"` to adopt the new one now.'
-        )
-
-    def test_points_at_the_line_that_opens_the_app(self) -> None:
-        """The warning reports the `async with micro:` line, not grelmicro's."""
-        with pytest.warns(GrelmicroFutureWarning) as caught:
-            _start(FakeProvider(), HealthChecks())
-
-        assert caught[0].filename == __file__
-
-    def test_from_config_left_unset_warns(self) -> None:
-        """`from_config` without `provider_checks` warns too."""
-        with pytest.warns(GrelmicroFutureWarning, match="provider_checks="):
-            _start(
-                FakeProvider(), HealthChecks.from_config(HealthChecksConfig())
-            )
-
-    def test_from_config_explicit_is_silent(self) -> None:
-        """`from_config(provider_checks="off")` warns nothing."""
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            _start(
-                FakeProvider(),
-                HealthChecks.from_config(
-                    HealthChecksConfig(), provider_checks="off"
+    @pytest.mark.parametrize(
+        "build",
+        [
+            pytest.param(lambda: HealthChecks(cache_ttl=0), id="init"),
+            pytest.param(
+                lambda: HealthChecks.from_config(
+                    HealthChecksConfig(cache_ttl=0)
                 ),
-            )
+                id="from-config",
+            ),
+        ],
+    )
+    async def test_registers_a_report_check_per_provider(
+        self, build: Callable[[], HealthChecks]
+    ) -> None:
+        """Each Provider gets a non-critical `provider:{short_name}` check."""
+        health = build()
+        micro = Grelmicro(
+            uses=[FakeProvider("redis"), FakeProvider("postgres"), health]
+        )
 
-        assert not _future_warnings(caught)
+        checks = await _checks(micro, health)
 
-    def test_auto_health_does_not_warn_the_default(self) -> None:
-        """`auto_health=` warns its rename only, not the default change."""
-        with pytest.warns(GrelmicroFutureWarning):
-            health = HealthChecks(auto_health=False)  # type: ignore[deprecated]  # ty: ignore[deprecated]
+        assert set(checks) == {"provider:redis", "provider:postgres"}
+        assert all(
+            check["critical"] is False  # type: ignore[index]  # ty: ignore[not-subscriptable]
+            for check in checks.values()
+        )
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            _start(FakeProvider(), health)
+    async def test_a_down_provider_shows_in_healthz_and_keeps_readyz_up(
+        self,
+    ) -> None:
+        """A down backend shows in `/healthz` and leaves `/readyz` at 200."""
+        health = HealthChecks(cache_ttl=0)
+        micro = Grelmicro(uses=[FakeProvider("redis", healthy=False), health])
 
-        assert not _future_warnings(caught)
+        async with micro, _client(health) as client:
+            readyz = await client.get("/readyz")
+            healthz = await client.get("/healthz")
 
-    def test_borrowed_provider_warns(self, tmp_path: Path) -> None:
-        """A Provider a Component borrows without listing counts."""
+        assert readyz.status_code == HTTP_200_OK
+        assert healthz.status_code == HTTP_200_OK
+        assert healthz.json()["checks"]["provider:redis"] == {
+            "status": "error",
+            "critical": False,
+            "error": "ConnectionError: backend down",
+        }
+
+    async def test_borrowed_provider_gets_a_check(self, tmp_path: Path) -> None:
+        """A Provider a Component borrows without listing gets a check."""
         sqlite = SQLiteProvider(path=str(tmp_path / "app.db"))
+        health = HealthChecks(cache_ttl=0)
 
-        with pytest.warns(GrelmicroFutureWarning, match="provider_checks="):
-            _start(Cache(sqlite), HealthChecks())
+        checks = await _checks(Grelmicro(uses=[Cache(sqlite), health]), health)
+
+        assert set(checks) == {"provider:sqlite"}
+
+    async def test_add_provider_keeps_its_registration(self) -> None:
+        """A Provider added with `add_provider` keeps its settings."""
+        redis = FakeProvider("redis")
+        health = HealthChecks(cache_ttl=0)
+        health.add_provider(redis)
+
+        checks = await _checks(Grelmicro(uses=[redis, health]), health)
+
+        assert checks["provider:redis"]["critical"] is True  # type: ignore[index]  # ty: ignore[not-subscriptable]
 
     @pytest.mark.parametrize(
         "uses",
         [
-            pytest.param((), id="no-provider"),
-            pytest.param((NoCheckProvider(),), id="provider-without-check"),
+            pytest.param(
+                lambda: (FakeProvider(), HealthChecks()), id="init-default"
+            ),
+            pytest.param(
+                lambda: (
+                    FakeProvider(),
+                    HealthChecks.from_config(HealthChecksConfig()),
+                ),
+                id="from-config-default",
+            ),
+            pytest.param(
+                lambda: (
+                    FakeProvider(),
+                    HealthChecks(),
+                    HealthChecks(name="other"),
+                ),
+                id="two-health-checks",
+            ),
+            pytest.param(
+                lambda: (FakeProvider(), HealthChecks(provider_checks="off")),
+                id="off",
+            ),
+            pytest.param(
+                lambda: (
+                    FakeProvider(),
+                    HealthChecks(provider_checks="require"),
+                ),
+                id="require",
+            ),
         ],
     )
-    def test_silent_without_a_checked_provider(
-        self, uses: tuple[Provider, ...]
+    def test_warns_nothing(
+        self, uses: Callable[[], tuple[object, ...]]
     ) -> None:
-        """Nothing warns when no Provider would get a check."""
+        """Opening an app beside a Provider warns nothing, set or unset."""
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            _start(*uses, HealthChecks())
+            _start(*uses())
 
         assert not _future_warnings(caught)
 
-    def test_silent_when_every_provider_is_added(self) -> None:
-        """A Provider already added with `add_provider` warns nothing."""
-        redis = FakeProvider("redis")
-        health = HealthChecks()
-        health.add_provider(redis, critical=False)
+    @pytest.mark.parametrize("mode", ["report", "require"])
+    async def test_opened_outside_an_app_registers_nothing(
+        self, mode: ProviderChecks
+    ) -> None:
+        """A `HealthChecks` opened on its own has no Provider to check."""
+        health = HealthChecks(cache_ttl=0, provider_checks=mode)
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            _start(redis, health)
+        async with health:
+            report = await health.run()
 
-        assert not _future_warnings(caught)
+        assert report["checks"] == {}
 
-    def test_silent_for_health_checks_opened_outside_an_app(self) -> None:
-        """A `HealthChecks` opened on its own, with no app, warns nothing."""
-
-        async def open_alone() -> None:
-            async with HealthChecks():
-                pass
-
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            asyncio.run(open_alone())
-
-        assert not _future_warnings(caught)
-
-    def test_silent_for_the_store_a_fake_swaps_in(self) -> None:
-        """Under `fake()`, the memory store that stands in warns nothing."""
-        micro = Grelmicro(uses=[HealthChecks()])
-
-        async def open_faked() -> None:
-            async with micro.fake(), micro:
-                pass
-
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            asyncio.run(open_faked())
-
-        assert not _future_warnings(caught)
-
-    def test_faked_app_counts_its_own_providers(self, tmp_path: Path) -> None:
-        """Under `fake()`, a Provider the app borrows still warns."""
+    def test_faked_app_warns_nothing(self, tmp_path: Path) -> None:
+        """Under `fake()`, an app that borrows a Provider warns nothing."""
         sqlite = SQLiteProvider(path=str(tmp_path / "app.db"))
         micro = Grelmicro(uses=[Cache(sqlite), HealthChecks()])
 
@@ -550,40 +487,11 @@ class TestProvidersDefault:
             async with micro.fake(), micro:
                 pass
 
-        with pytest.warns(GrelmicroFutureWarning, match="provider_checks="):
-            asyncio.run(open_faked())
-
-    def test_warns_once_per_app(self) -> None:
-        """Two `HealthChecks` and two opens of one app warn once."""
-        micro = Grelmicro(
-            uses=[FakeProvider(), HealthChecks(), HealthChecks(name="other")]
-        )
-
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            asyncio.run(_open(micro))
-            asyncio.run(_open(micro))
+            asyncio.run(open_faked())
 
-        assert _future_warnings(caught) == [PROVIDERS_DEFAULT.message]
-
-    def test_left_unset_registers_no_provider_check(self) -> None:
-        """The warning changes nothing: no `provider:` check is registered."""
-        health = HealthChecks(cache_ttl=0)
-        micro = Grelmicro(uses=[FakeProvider("redis"), health])
-
-        async def open_and_run() -> dict[str, object]:
-            async with micro:
-                return dict((await health.run())["checks"])
-
-        with pytest.warns(GrelmicroFutureWarning):
-            checks = asyncio.run(open_and_run())
-
-        assert checks == {}
-
-    def test_is_pending_until_0_44(self) -> None:
-        """The stale-entry guard covers the switch."""
-        assert PROVIDERS_DEFAULT in PENDING
-        assert PROVIDERS_DEFAULT.switch_in == "0.44.0"
+        assert not _future_warnings(caught)
 
 
 class TestProvidersProperty:
