@@ -14,11 +14,13 @@ from typing import Literal
 from grelmicro.errors import (
     EnvLoadDefaultWarning,
     Grelmicro044Warning,
+    Grelmicro045Warning,
     GrelmicroFutureWarning,
 )
 
 RELEASE_WARNINGS: dict[str, type[GrelmicroFutureWarning]] = {
-    category.switch_in: category for category in (Grelmicro044Warning,)
+    category.switch_in: category
+    for category in (Grelmicro044Warning, Grelmicro045Warning)
 }
 """The `GrelmicroFutureWarning` subclass of each switching release, by release."""
 

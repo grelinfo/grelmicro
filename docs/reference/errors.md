@@ -34,4 +34,5 @@ through. It reports a wiring mistake, and no fallback value stands in for one.
         - UnknownEnvironmentWarning
         - GrelmicroFutureWarning
         - Grelmicro044Warning
+        - Grelmicro045Warning
         - EnvLoadDefaultWarning
