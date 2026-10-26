@@ -34,6 +34,7 @@
       "()": "(*, uses=None, environment=None, strict=False, allow_multiple=False) -> 'None'",
       ".current": "() -> 'Grelmicro'"
     },
+    "Grelmicro044Warning": null,
     "GrelmicroConfigWarning": null,
     "GrelmicroError": null,
     "GrelmicroFutureWarning": null,

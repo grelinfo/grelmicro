@@ -33,4 +33,5 @@ through. It reports a wiring mistake, and no fallback value stands in for one.
         - SentinelPasswordWarning
         - UnknownEnvironmentWarning
         - GrelmicroFutureWarning
+        - Grelmicro044Warning
         - EnvLoadDefaultWarning

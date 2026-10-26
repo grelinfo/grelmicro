@@ -1,16 +1,26 @@
 """Pending behavior changes, renames and removals, each warned one release ahead.
 
 Declare each one here as a module constant, add it to `PENDING`, and call
-its `warn()` where the old behavior or the old name is reached. A test
-fails once the changelog reaches the release that should switch the
-default or remove the old name.
+its `warn()` where the old behavior or the old name is reached. Each one warns
+with the `GrelmicroFutureWarning` subclass of the release that switches
+it. A test fails once the changelog reaches the release that should switch
+the default or remove the old name.
 """
 
 import warnings
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from grelmicro.errors import EnvLoadDefaultWarning, GrelmicroFutureWarning
+from grelmicro.errors import (
+    EnvLoadDefaultWarning,
+    Grelmicro044Warning,
+    GrelmicroFutureWarning,
+)
+
+RELEASE_WARNINGS: dict[str, type[GrelmicroFutureWarning]] = {
+    category.switch_in: category for category in (Grelmicro044Warning,)
+}
+"""The `GrelmicroFutureWarning` subclass of each switching release, by release."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -44,8 +54,16 @@ class FutureChange:
     "Pass" for an argument and "Set" for an environment variable.
     """
 
-    category: type[GrelmicroFutureWarning] = GrelmicroFutureWarning
-    """The warning category `warn` emits."""
+    narrow: type[GrelmicroFutureWarning] | None = None
+    """A subclass of the release's category for this change alone.
+
+    Such as `EnvLoadDefaultWarning`. None warns with the release's category.
+    """
+
+    @property
+    def category(self) -> type[GrelmicroFutureWarning]:
+        """The warning category `warn` emits."""
+        return self.narrow or RELEASE_WARNINGS[self.switch_in]
 
     @property
     def message(self) -> str:
@@ -91,15 +109,18 @@ class Rename:
             f"`{self.old}` is removed in {self.removed_in}."
         )
 
+    @property
+    def category(self) -> type[GrelmicroFutureWarning]:
+        """The warning category `warn` emits, the one of `removed_in`."""
+        return RELEASE_WARNINGS[self.removed_in]
+
     def warn(self, stacklevel: int = 2) -> None:
-        """Emit a `GrelmicroFutureWarning` with `message`.
+        """Emit a `category` warning with `message`.
 
         `stacklevel` counts from the function that calls `warn`, so the
         default reports the line that called that function.
         """
-        warnings.warn(
-            self.message, GrelmicroFutureWarning, stacklevel=stacklevel + 1
-        )
+        warnings.warn(self.message, self.category, stacklevel=stacklevel + 1)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -126,15 +147,18 @@ class Removal:
             f"Use {self.use} instead."
         )
 
+    @property
+    def category(self) -> type[GrelmicroFutureWarning]:
+        """The warning category `warn` emits, the one of `removed_in`."""
+        return RELEASE_WARNINGS[self.removed_in]
+
     def warn(self, stacklevel: int = 2) -> None:
-        """Emit a `GrelmicroFutureWarning` with `message`.
+        """Emit a `category` warning with `message`.
 
         `stacklevel` counts from the function that calls `warn`, so the
         default reports the line that called that function.
         """
-        warnings.warn(
-            self.message, GrelmicroFutureWarning, stacklevel=stacklevel + 1
-        )
+        warnings.warn(self.message, self.category, stacklevel=stacklevel + 1)
 
 
 def _mode_enum(old: str, example: str, alias: str) -> Removal:
@@ -208,7 +232,7 @@ ENV_LOAD_DEFAULT = FutureChange(
     keep="GREL_ENV_LOAD=0",
     adopt="GREL_ENV_LOAD=1",
     verb="Set",
-    category=EnvLoadDefaultWarning,
+    narrow=EnvLoadDefaultWarning,
 )
 """Every `GREL_*` field is read unless `GREL_ENV_LOAD=0` or `env_load=False`."""
 

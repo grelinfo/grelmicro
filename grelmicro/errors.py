@@ -158,15 +158,37 @@ class GrelmicroFutureWarning(FutureWarning):
     ```toml
     filterwarnings = ["error::grelmicro.GrelmicroFutureWarning"]
     ```
+
+    Each switching release also has its own subclass, such as
+    `Grelmicro044Warning` for every change that lands in 0.44.0. The
+    `switch_in` attribute is that release.
     """
 
+    switch_in: ClassVar[str] = ""
+    """The release that brings the change, empty on the base category."""
 
-class EnvLoadDefaultWarning(GrelmicroFutureWarning, EnvLoadOffWarning):
+
+class Grelmicro044Warning(GrelmicroFutureWarning):
+    """Warned for a default that changes or a name that is removed in 0.44.0.
+
+    A filter on it promotes or silences every change that lands in 0.44.0
+    and leaves the other releases alone:
+
+    ```toml
+    filterwarnings = ["error::grelmicro.Grelmicro044Warning"]
+    ```
+    """
+
+    switch_in: ClassVar[str] = "0.44.0"
+
+
+class EnvLoadDefaultWarning(Grelmicro044Warning, EnvLoadOffWarning):
     """A `GREL_*` variable is set while `GREL_ENV_LOAD` is unset.
 
     The variable is not read today, and is read by default from 0.44.0.
-    A filter on `GrelmicroFutureWarning`, `FutureWarning`,
-    `EnvLoadOffWarning` or `GrelmicroConfigWarning` silences it. Set
+    A filter on `Grelmicro044Warning`, `GrelmicroFutureWarning`,
+    `FutureWarning`, `EnvLoadOffWarning` or `GrelmicroConfigWarning`
+    silences it. Set
     `GREL_ENV_LOAD` to choose, and it stops.
     """
 

@@ -35,10 +35,11 @@ def assert_future_warning(
 ) -> None:
     """Assert `default` warns with the message of `entry` and `explicit` warns nothing.
 
-    `default` leaves the argument at its default, or uses the old name.
-    `explicit` passes the argument, or uses the new name.
+    `default` leaves the argument at its default, or uses the old name, and
+    warns under the category of `entry`. `explicit` passes the argument, or
+    uses the new name.
     """
-    with pytest.warns(GrelmicroFutureWarning, match=re.escape(entry.message)):
+    with pytest.warns(entry.category, match=re.escape(entry.message)):
         default()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
