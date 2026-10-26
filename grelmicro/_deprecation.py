@@ -379,9 +379,30 @@ LITESTAR_MOVED = Moved(
 """The names `grelmicro.integrations.litestar` served in 0.43 without listing them."""
 
 
+SECURITY_MOVED: tuple[Moved, ...] = (
+    Moved(
+        module="grelmicro.security.bans",
+        homes={"AdmissionError": "grelmicro.errors"},
+        removed_in="0.45.0",
+    ),
+    Moved(
+        module="grelmicro.security.jwt",
+        homes={"GrelmicroError": "grelmicro.errors"},
+        removed_in="0.45.0",
+    ),
+)
+"""Error classes `grelmicro.security.bans` and `.jwt` served in 0.43."""
+
+
 FACADE_MOVES: Mapping[str, Moved] = {
     moved.module: moved
-    for moved in (FASTAPI_MOVED, STARLETTE_MOVED, LITESTAR_MOVED)
+    for moved in (
+        FASTAPI_MOVED,
+        *SECURITY_MOVED,
+        STARLETTE_MOVED,
+        LITESTAR_MOVED,
+        *SECURITY_MOVED,
+    )
 }
 """Each `Moved` entry, by the module the names leave."""
 
