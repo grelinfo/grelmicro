@@ -100,7 +100,7 @@ def test_gate_off_reports_another_algorithms_field(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With the gate off, a foreign field is reported rather than dropped."""
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_RATELIMITER_REPORTED_CAPACITY", str(_CAPACITY))
 
     with pytest.warns(EnvLoadOffWarning, match="CAPACITY"):
@@ -192,7 +192,7 @@ def test_gate_off_does_not_call_a_broadcast_variable_a_mistake(
         )
 
     message = str(caught[0].message)
-    assert "opt-in" in message
+    assert "GREL_ENV_LOAD=1" in message
     assert "different algorithm" not in message
 
 

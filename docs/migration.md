@@ -123,6 +123,7 @@ raises](#0-42-raising).
 | `TypeError: HealthChecks.__init__() got an unexpected keyword argument 'auto_health'` | 0.44 | [Pass `provider_checks=`](#0-44-provider-checks) |
 | `/healthz` lists `provider:` checks after upgrading | 0.44 | [Pick a mode](#0-44-provider-checks) |
 | `Grelmicro045Warning: Fold(...) is bound to InProcessLock` or `rides Coordination('default')` on startup | 0.44 | [Register a `Coordination`](#0-44-cached-lock-scope) |
+| A `GREL_*` variable applies after upgrading, where it used to warn and be ignored | 0.44 | [Set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
 
 ## 0.44
 
@@ -134,6 +135,8 @@ raises](#0-42-raising).
 - A `HealthChecks` with no `provider_checks=` beside a Provider shows each Provider in `/healthz` as a non-critical `provider:{short_name}` check. `/readyz` is unchanged. [Pick a mode](#0-44-provider-checks).
 - `LogConfig.format` still reads back in uppercase, such as `"JSON"`. Comparing it with a format name now warns with `Grelmicro045Warning`. From 0.45.0 it reads back in lowercase, such as `"json"`. [Compare in any case](#0-44-log-format-case).
 - `@cached(lock="host")` and `lock="cluster"` are checked when the app opens. In `staging` and `production`, a fold with no `Coordination`, or one whose lock backend falls short, now warns with `Grelmicro045Warning` on startup. From 0.45.0 the app raises `BackendScopeError` on startup. [Register a `Coordination`](#0-44-cached-lock-scope).
+- A `GREL_*` variable such as `GREL_OPS_PORT`, set while `GREL_ENV_LOAD` is unset, is now read. 0.43 ignored it and warned with `EnvLoadDefaultWarning`. [Set `GREL_ENV_LOAD=0` to keep it unread](#0-44-env-load-default).
+- `EnvLoadDefaultWarning` is no longer emitted. Reading it warns with `Grelmicro045Warning`, and it is removed in 0.45.0. [Filter on `EnvLoadOffWarning`](#0-44-env-load-default).
 
 ### Changes that raise {#0-44-raising}
 
@@ -234,6 +237,36 @@ micro = Grelmicro(uses=[Cache(redis), Coordination(redis)])
 ```
 
 Or pass `lock="process"` to fold misses in each process only.
+
+### `GREL_*` variables are read by default {#0-44-env-load-default}
+
+Every `GREL_*` field is read unless `GREL_ENV_LOAD=0`. A variable set while
+`GREL_ENV_LOAD` is unset now applies, with no warning. An app that already set
+`GREL_ENV_LOAD=1` or `GREL_ENV_LOAD=0` behaves as in 0.43.
+
+```sh
+# 0.43: warns, GREL_OPS_PORT is not read
+# 0.44: GREL_OPS_PORT is read
+GREL_OPS_PORT=9100
+
+# Keep ignoring every GREL_* field, in 0.43 and 0.44
+GREL_ENV_LOAD=0
+```
+
+`env_load=False` on one component keeps its fields unread. A keyword argument
+still beats the variable. Provider variables such as `POSTGRES_URL` are read
+as before.
+
+`GREL_ENV_LOAD=0` still reports each variable it leaves unread, with
+`EnvLoadOffWarning`. Filter on that category, not on `EnvLoadDefaultWarning`:
+
+```toml
+# Before
+filterwarnings = ["ignore::grelmicro.EnvLoadDefaultWarning"]
+
+# After
+filterwarnings = ["ignore::grelmicro.EnvLoadOffWarning"]
+```
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 

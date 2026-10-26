@@ -80,8 +80,8 @@ micro = Grelmicro(uses=[redis])
 Set `REDIS_URL` (or `REDIS_HOST` + `REDIS_PORT` + `REDIS_DB` +
 `REDIS_PASSWORD`) in the environment.
 
-These reads need no flag. `GREL_ENV_LOAD` gates the `GREL_*` variables that
-tune components, not a Provider's own connection variables. Pass
+`GREL_ENV_LOAD=0` turns off the `GREL_*` variables that tune components, not
+a Provider's own connection variables. Pass
 `env_load=False` to build a Provider from keyword arguments alone.
 
 ## Recipe 2: split pools by env prefix

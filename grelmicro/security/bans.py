@@ -131,7 +131,7 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
     the path of a request that succeeds.
 
     Built with keywords, it also reads `GREL_CLIENTBANS_`, or
-    `GREL_CLIENTBANS_{NAME}_` for a named table, once `GREL_ENV_LOAD` is set.
+    `GREL_CLIENTBANS_{NAME}_` for a named table, unless `GREL_ENV_LOAD=0`.
     Every setting can change while the service runs: a ban only ever costs
     capacity, never trust.
 

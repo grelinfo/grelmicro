@@ -124,9 +124,8 @@ class UvicornFormatter(_BaseFormatter):
     """Format-aware uvicorn formatter compatible with ``logging.config.dictConfig``.
 
     Reads ``GREL_LOG_FORMAT`` and produces the matching output (auto, json,
-    logfmt, text, pretty). Reading the environment is opt-in, so it happens
-    when ``GREL_ENV_LOAD`` is set, or when ``env_load=True`` is passed from
-    a process that cannot set it.
+    logfmt, text, pretty). The environment is read unless
+    ``GREL_ENV_LOAD=0``, and ``env_load=`` overrides that for one formatter.
 
     Pass ``config`` to format against an already-resolved ``LogConfig``
     instead of re-reading the environment. ``configure()`` uses that path so

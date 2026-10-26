@@ -115,7 +115,7 @@ def test_a_retired_variable_with_env_reads_off_is_left_alone(
 ) -> None:
     """With env reads off, the old variable changes nothing."""
     # Arrange
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     expected = build().config
     monkeypatch.setenv(variable, value)
 

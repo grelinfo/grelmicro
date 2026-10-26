@@ -934,7 +934,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
     parallel. Keys a provider publishes are fetched by `refresh`, a
     coroutine, and never on the request path.
 
-    `keys` and `jwks` also read the environment once `GREL_ENV_LOAD` is set,
+    `keys` and `jwks` also read the environment unless `GREL_ENV_LOAD=0`,
     under `GREL_JWTVERIFIER_`, or `GREL_JWTVERIFIER_{NAME}_` for a named
     verifier, and a keyword always wins. The environment may say whose tokens
     to trust, such as the issuer or the audience. It never chooses the key

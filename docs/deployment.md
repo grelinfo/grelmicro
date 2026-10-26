@@ -20,8 +20,8 @@ attribute, and grelmicro writes the declared value into that attribute on the
 tracer resource, so the same variable names your environment in every trace.
 
 Declaring `production` or `staging` turns on the backend check below. This is
-the one place to set it per environment, so unlike `GREL_ENV_LOAD` it belongs
-in the manifest rather than the image.
+the one place to set it per environment, so it belongs in the manifest
+rather than the image.
 
 Any other value names no tier grelmicro can act on, so it neither gates the
 check nor reaches the trace attribute. It reads as undeclared, and says so:
@@ -126,7 +126,7 @@ at startup.
 An undeclared environment still reports a backend that cannot keep its
 promise. The report is a `GrelmicroConfigWarning` and a `WARNING` on the
 `grelmicro` logger, once at startup, on both channels like the
-[ignored-variable report](#when-the-flag-is-missing):
+[ignored-variable report](#when-env-reads-are-off):
 
 ```
 GrelmicroConfigWarning: Coordination('default') is bound to MemoryLockAdapter,
@@ -161,43 +161,30 @@ def test_backends_hold_across_replicas() -> None:
 It checks against `production` by default. Pass `environment=` to ask about
 another one.
 
-## Turn on environment configuration
+## Environment configuration
 
-Set `GREL_ENV_LOAD=1` in the image:
+Every `GREL_*` variable that fills a component field is read by default. A pod
+that sets `GREL_LOG_LEVEL=DEBUG` logs at `DEBUG`, and a pod that sets
+`GREL_LOCK_CART_LEASE_DURATION=120` holds the lock for 120 seconds.
 
-```dockerfile
-ENV GREL_ENV_LOAD=1
-```
+`GREL_ENV_LOAD=0` turns these reads off for the whole process.
+`GREL_ENVIRONMENT` and the flag itself are still read, because neither fills a
+component field.
 
-Every `GREL_*` variable that fills a component field is read only when this
-flag is truthy (`1`, `true`, `yes`, `on`). Without it, a pod that sets
-`GREL_LOG_LEVEL=DEBUG` logs at `INFO`, and a pod that sets
-`GREL_LOCK_CART_LEASE_DURATION=120` keeps the 60 second default.
+Provider variables are never gated. `REDIS_URL`, `VALKEY_URL`, `POSTGRES_URL`
+and `SQLITE_PATH` are read whatever `GREL_ENV_LOAD` says, because those names
+belong to your environment rather than to grelmicro. A missing one fails at
+startup and names the variable it wanted.
 
-`GREL_ENVIRONMENT` is the exception, along with the flag itself. Neither
-fills a component field, and a safety check behind an opt-in flag would be
-off in the pods that need it most.
+### When env reads are off
 
-Provider variables are not gated. `REDIS_URL`, `VALKEY_URL`, `POSTGRES_URL`
-and `SQLITE_PATH` are read out of the box, because those names belong to your
-environment rather than to grelmicro, and a missing one fails at startup
-naming the variable it wanted. So a pod without the flag still connects to its
-backend and still ignores every `GREL_*` knob, which is what makes the flag
-easy to forget.
-
-Set it in the image, not in the manifest. A manifest gets copied from one
-environment to the next, and one copy will leave it out.
-
-### When the flag is missing
-
-grelmicro names the ignored variable on two channels. It warns with
-`GrelmicroFutureWarning`, since from 0.44.0 the variable is read by default,
-or with `EnvLoadOffWarning` when `GREL_ENV_LOAD=0`. Either fails a test suite
-running `-W error`. It also logs a `WARNING` on the `grelmicro` logger, so on the default backend
-the report is a normal record in the log stream:
+With `GREL_ENV_LOAD=0`, grelmicro names each ignored variable on two channels.
+It warns with `EnvLoadOffWarning`, which fails a test suite running
+`-W error`. It also logs a `WARNING` on the `grelmicro` logger, so on the
+default backend the report is a normal record in the log stream:
 
 ```json
-{"variable":"GREL_LOG_LEVEL","time":"2026-08-06T13:44:04.156560+00:00","level":"WARNING","msg":"GREL_LOG_LEVEL is set but was not applied: environment-driven configuration is opt-in. Set GREL_ENV_LOAD=1 to enable it, or pass the value directly.","logger":"grelmicro"}
+{"variable":"GREL_LOG_LEVEL","time":"2026-08-06T13:44:04.156560+00:00","level":"WARNING","msg":"GREL_LOG_LEVEL is set but was not applied: GREL_ENV_LOAD turns environment-driven configuration off. Unset it or set GREL_ENV_LOAD=1 to read the variable, or pass the value directly.","logger":"grelmicro"}
 ```
 
 The variable name is in the `variable` field, so an alert can match on the
@@ -531,15 +518,10 @@ spec:
                 seconds: 5
 ```
 
-`GREL_ENV_LOAD=1` is missing here on purpose: the image sets it, so no
-manifest can forget it. Put it in the `env` block only when you cannot
-change the image, and then put it in every copy of the manifest.
-
 ## Checklist
 
 - [ ] `GREL_ENVIRONMENT` is set in every deployed environment.
 - [ ] `micro.check_backends()` is asserted in a test.
-- [ ] `GREL_ENV_LOAD=1` is in the image.
 - [ ] The startup logs carry no `variable` field.
 - [ ] `GREL_LOG_LEVEL` is set per environment, and the format is left to `auto`.
 - [ ] `ProbeFilter` is attached to `uvicorn.access`.

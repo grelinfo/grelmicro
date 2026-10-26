@@ -2,12 +2,17 @@
 
 import re
 from collections.abc import Callable, Sequence
-from typing import Any, ClassVar, cast, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, cast, get_args
 
 from pydantic import ValidationError
 from pydantic_core import ErrorType
 
 from grelmicro._guards import is_instance
+
+if TYPE_CHECKING:
+    from grelmicro._env_load_warning import (
+        EnvLoadDefaultWarning as EnvLoadDefaultWarning,  # noqa: PLC0414
+    )
 
 
 class GrelmicroError(Exception):
@@ -194,19 +199,6 @@ class Grelmicro045Warning(GrelmicroFutureWarning):
     """
 
     switch_in: ClassVar[str] = "0.45.0"
-
-
-class EnvLoadDefaultWarning(Grelmicro044Warning, EnvLoadOffWarning):
-    """A `GREL_*` variable is set while `GREL_ENV_LOAD` is unset.
-
-    The variable is not read today, and is read by default from 0.44.0.
-    A filter on `Grelmicro044Warning`, `GrelmicroFutureWarning`,
-    `FutureWarning`, `EnvLoadOffWarning` or `GrelmicroConfigWarning`
-    silences it. Set
-    `GREL_ENV_LOAD` to choose, and it stops.
-    """
-
-    code: ClassVar[str] = "env-load-off"
 
 
 class MiddlewarePlacementError(GrelmicroError, RuntimeError):
@@ -770,3 +762,15 @@ Below this the value is as likely to be a word in the surrounding sentence
 as it is to be the rejected input, and removing it would garble the message
 without protecting anything.
 """
+
+
+def __getattr__(name: str) -> object:
+    """Return `EnvLoadDefaultWarning`, removed in 0.45.0, with a warning."""
+    if name == "EnvLoadDefaultWarning":
+        from grelmicro._env_load_warning import (  # noqa: PLC0415
+            env_load_default_warning,
+        )
+
+        return env_load_default_warning()
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

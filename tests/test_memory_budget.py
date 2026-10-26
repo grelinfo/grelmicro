@@ -296,11 +296,11 @@ def test_fastapi_integration_loads_no_route_features() -> None:
 
 
 def test_tasks_app_loads_no_settings() -> None:
-    """The Tasks reference app loads no `pydantic_settings` while it reads no environment."""
+    """The Tasks reference app loads no `pydantic_settings` with `GREL_ENV_LOAD=0`."""
     # Arrange
     code = (
         "import asyncio, json, os, sys\n"
-        "os.environ.pop('GREL_ENV_LOAD', None)\n"
+        "os.environ['GREL_ENV_LOAD'] = '0'\n"
         f"{APPS['tasks']}"
         "print(json.dumps(sorted(sys.modules)))"
     )

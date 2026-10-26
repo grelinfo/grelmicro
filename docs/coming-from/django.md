@@ -26,7 +26,7 @@ grelmicro is not a web framework and has no ORM. It runs inside FastAPI, Starlet
 
 ### Configuration covers grelmicro, not your app
 
-grelmicro reads `GREL_*` variables only for its own components, and only when `GREL_ENV_LOAD` is set. Keep your own settings in `pydantic-settings`, as [Advanced configuration](../advanced/config.md) shows. Django forbids changing settings at runtime. `ExternalConfig` applies a changed mounted file to running components on purpose.
+grelmicro reads `GREL_*` variables only for its own components, and `GREL_ENV_LOAD=0` turns those reads off. Keep your own settings in `pydantic-settings`, as [Advanced configuration](../advanced/config.md) shows. Django forbids changing settings at runtime. `ExternalConfig` applies a changed mounted file to running components on purpose.
 
 ### The response caps the cache entry
 

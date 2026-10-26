@@ -393,21 +393,14 @@ _ENV_LOAD_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
 def env_load_default() -> bool:
-    """Return True when env-driven configuration is opted in process-wide.
+    """Return False when env-driven configuration is turned off process-wide.
 
-    Reads ``GREL_ENV_LOAD`` and accepts ``1``, ``true``, ``yes``,
-    ``on`` (case-insensitive) as truthy.
+    Reads ``GREL_ENV_LOAD``. Unset or blank reads the ``GREL_*`` variables,
+    and so do ``1``, ``true``, ``yes`` and ``on`` (case-insensitive). Any
+    other value, such as ``0``, turns the reads off.
     """
-    return os.environ.get(_ENV_LOAD_VAR, "").strip().lower() in _ENV_LOAD_TRUTHY
-
-
-def env_load_chosen() -> bool:
-    """Return True when ``GREL_ENV_LOAD`` is set to a non-blank value.
-
-    Either value is a choice, so a variable left unread then reports
-    `EnvLoadOffWarning` instead of the 0.44.0 default change.
-    """
-    return bool(os.environ.get(_ENV_LOAD_VAR, "").strip())
+    value = os.environ.get(_ENV_LOAD_VAR, "").strip().lower()
+    return not value or value in _ENV_LOAD_TRUTHY
 
 
 def _union_arms(union: object) -> tuple[type[BaseModel], ...]:
@@ -520,9 +513,9 @@ def resolve_config[C: BaseModel](
     non-``None`` kwargs win over environment variables, and
     environment variables win over defaults declared on ``config_cls``.
 
-    The env path is opt-in. When ``env_load`` is ``None`` (the
-    default), the process-wide ``GREL_ENV_LOAD`` flag decides:
-    env reads run only when it is set to a truthy value. Pass
+    The env path is on by default. When ``env_load`` is ``None`` (the
+    default), the process-wide ``GREL_ENV_LOAD`` flag decides: env reads
+    run unless it is set to a falsy value such as ``0``. Pass
     ``env_load=True`` or ``env_load=False`` on the call to override
     the flag for that construction.
 
@@ -558,8 +551,8 @@ def resolve_config[C: BaseModel](
         return explicit
 
     # An explicit `env_load=False` is a deliberate opt-out and is never
-    # reported. Only the process-wide flag being unset is worth a warning,
-    # since that is the state a caller reaches without choosing it.
+    # reported. `GREL_ENV_LOAD=0` is process-wide, so a variable it leaves
+    # unread is reported.
     implicit = env_load is None
     if implicit:
         env_load = env_load_default()
@@ -668,8 +661,9 @@ _logging_configured = False
 """True while `grelmicro.log` has its handlers installed."""
 
 _IGNORED_ENV_MESSAGE = (
-    "%s is set but was not applied: environment-driven configuration is "
-    "opt-in. Set %s=1 to enable it, or pass the value directly."
+    "%s is set but was not applied: %s turns environment-driven "
+    "configuration off. Unset it or set %s=1 to read the variable, or pass "
+    "the value directly."
 )
 """Report text, shared by the `warnings` and the `logging` channel."""
 
@@ -684,6 +678,11 @@ Deliberately not the shared text above. Enabling the gate is the fix for
 an ordinary ignored variable and the wrong advice here, because with the
 gate on this same variable refuses the instance at construction.
 """
+
+
+def _ignored_env_message(name: str) -> str:
+    """Return the report text for the unread variable `name`."""
+    return _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR, _ENV_LOAD_VAR)
 
 
 def warn_ignored_env(
@@ -708,13 +707,10 @@ def warn_ignored_env(
 
     Each name is reported on both channels. `warnings` carries it under
     `EnvLoadOffWarning`, which a test suite can filter or turn into an
-    error. While `GREL_ENV_LOAD` is unset, the `warnings` channel carries a
-    `GrelmicroFutureWarning` instead, since the variable is read by default
-    from 0.44.0. `logging` carries it on the `grelmicro` logger with the
-    name in a `variable` field, so a pipeline can match the field instead of
-    the message text. The log record waits until logging is configured.
+    error. `logging` carries it on the `grelmicro` logger with the name in a
+    `variable` field, so a pipeline can match the field instead of the
+    message text. The log record waits until logging is configured.
     """
-    chosen = env_load_chosen()
     for field in (*config_cls.model_fields, *sorted(sibling)):
         if field in provided:
             continue
@@ -742,21 +738,16 @@ def warn_ignored_env(
                 and kind_env_prefix is not None
                 and name == instance_name
             )
-            if foreign or chosen:
-                message = (
-                    _FOREIGN_ENV_MESSAGE % (name, _running_kind(config_cls))
-                    if foreign
-                    else _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR)
-                )
-                warnings.warn(
-                    diagnostic(ENV_LOAD_OFF, message),
-                    EnvLoadOffWarning,
-                    stacklevel=4,
-                )
-            else:
-                from grelmicro._deprecation import unread_env  # noqa: PLC0415
-
-                unread_env(name).warn(stacklevel=4)
+            message = (
+                _FOREIGN_ENV_MESSAGE % (name, _running_kind(config_cls))
+                if foreign
+                else _ignored_env_message(name)
+            )
+            warnings.warn(
+                diagnostic(ENV_LOAD_OFF, message),
+                EnvLoadOffWarning,
+                stacklevel=4,
+            )
             if _logging_configured:
                 _log_ignored_env(name)
             else:
@@ -772,7 +763,7 @@ def _log_ignored_env(name: str) -> None:
     else. The code also travels as a structured field.
     """
     logger.warning(
-        diagnostic(ENV_LOAD_OFF, _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR)),
+        diagnostic(ENV_LOAD_OFF, _ignored_env_message(name)),
         extra={"variable": name, "diagnostic": ENV_LOAD_OFF},
     )
 

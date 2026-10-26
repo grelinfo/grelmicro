@@ -309,7 +309,6 @@ ClientCredentials("payments-api")
 ```
 
 ```bash
-GREL_ENV_LOAD=1
 GREL_OAUTHCLIENT_ISSUER=https://auth.example.com/
 GREL_OAUTHCLIENT_CLIENT_ID=orders-api
 GREL_OAUTHCLIENT_CLIENT_SECRET=...

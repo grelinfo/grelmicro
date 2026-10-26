@@ -12,7 +12,6 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 from grelmicro.errors import (
-    EnvLoadDefaultWarning,
     Grelmicro044Warning,
     Grelmicro045Warning,
     GrelmicroFutureWarning,
@@ -60,7 +59,7 @@ class FutureChange:
     narrow: type[GrelmicroFutureWarning] | None = None
     """A subclass of the release's category for this change alone.
 
-    Such as `EnvLoadDefaultWarning`. None warns with the release's category.
+    None warns with the release's category.
     """
 
     @property
@@ -164,26 +163,12 @@ class Removal:
         warnings.warn(self.message, self.category, stacklevel=stacklevel + 1)
 
 
-ENV_LOAD_DEFAULT = FutureChange(
-    change="A set `GREL_*` variable is read by default",
-    switch_in="0.44.0",
-    keep="GREL_ENV_LOAD=0",
-    adopt="GREL_ENV_LOAD=1",
-    verb="Set",
-    narrow=EnvLoadDefaultWarning,
+ENV_LOAD_DEFAULT_WARNING = Removal(
+    old="EnvLoadDefaultWarning",
+    use="`EnvLoadOffWarning`",
+    removed_in="0.45.0",
 )
-"""Every `GREL_*` field is read unless `GREL_ENV_LOAD=0` or `env_load=False`."""
-
-
-def unread_env(name: str) -> FutureChange:
-    """Return `ENV_LOAD_DEFAULT` worded for one unread variable `name`.
-
-    Names the variable, never its value.
-    """
-    return replace(
-        ENV_LOAD_DEFAULT,
-        change=f"`{name}` is set but not read today, and is read by default",
-    )
+"""`EnvLoadDefaultWarning`, no longer emitted since `GREL_*` is read by default."""
 
 
 FORMAT_CASE = FutureChange(
@@ -225,7 +210,7 @@ first miss.
 
 
 PENDING: tuple[FutureChange | Rename | Removal, ...] = (
-    ENV_LOAD_DEFAULT,
+    ENV_LOAD_DEFAULT_WARNING,
     FORMAT_CASE,
     CACHED_LOCK_SCOPE,
 )
