@@ -182,6 +182,20 @@ class Grelmicro044Warning(GrelmicroFutureWarning):
     switch_in: ClassVar[str] = "0.44.0"
 
 
+class Grelmicro045Warning(GrelmicroFutureWarning):
+    """Warned for a default that changes or a name that is removed in 0.45.0.
+
+    A filter on it promotes or silences every change that lands in 0.45.0
+    and leaves the other releases alone:
+
+    ```toml
+    filterwarnings = ["error::grelmicro.Grelmicro045Warning"]
+    ```
+    """
+
+    switch_in: ClassVar[str] = "0.45.0"
+
+
 class EnvLoadDefaultWarning(Grelmicro044Warning, EnvLoadOffWarning):
     """A `GREL_*` variable is set while `GREL_ENV_LOAD` is unset.
 

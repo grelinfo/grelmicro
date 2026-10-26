@@ -35,6 +35,7 @@
       ".current": "() -> 'Grelmicro'"
     },
     "Grelmicro044Warning": null,
+    "Grelmicro045Warning": null,
     "GrelmicroConfigWarning": null,
     "GrelmicroError": null,
     "GrelmicroFutureWarning": null,
