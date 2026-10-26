@@ -116,3 +116,6 @@ def metrics_router(
         )
 
     return router
+
+
+metrics_router.__module__ = "grelmicro.integrations.fastapi"

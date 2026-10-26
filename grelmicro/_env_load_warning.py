@@ -3,7 +3,7 @@
 from typing import ClassVar
 from warnings import deprecated
 
-from grelmicro.errors import EnvLoadOffWarning, Grelmicro044Warning
+from grelmicro.errors import EnvLoadOffWarning, Grelmicro045Warning
 
 
 @deprecated(
@@ -11,7 +11,7 @@ from grelmicro.errors import EnvLoadOffWarning, Grelmicro044Warning
     "Use `EnvLoadOffWarning` instead.",
     category=None,
 )
-class EnvLoadDefaultWarning(Grelmicro044Warning, EnvLoadOffWarning):
+class EnvLoadDefaultWarning(Grelmicro045Warning, EnvLoadOffWarning):
     """A `GREL_*` variable was set while `GREL_ENV_LOAD` was unset.
 
     No longer emitted: a `GREL_*` variable is read by default. A variable
@@ -20,6 +20,9 @@ class EnvLoadDefaultWarning(Grelmicro044Warning, EnvLoadOffWarning):
     """
 
     code: ClassVar[str] = "env-load-off"
+
+
+EnvLoadDefaultWarning.__module__ = "grelmicro.errors"
 
 
 def env_load_default_warning() -> type[EnvLoadDefaultWarning]:

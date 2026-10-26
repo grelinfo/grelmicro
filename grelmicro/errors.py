@@ -165,26 +165,12 @@ class GrelmicroFutureWarning(FutureWarning):
     ```
 
     Each switching release also has its own subclass, such as
-    `Grelmicro044Warning` for every change that lands in 0.44.0. The
+    `Grelmicro045Warning` for every change that lands in 0.45.0. The
     `switch_in` attribute is that release.
     """
 
     switch_in: ClassVar[str] = ""
     """The release that brings the change, empty on the base category."""
-
-
-class Grelmicro044Warning(GrelmicroFutureWarning):
-    """Warned for a default that changes or a name that is removed in 0.44.0.
-
-    A filter on it promotes or silences every change that lands in 0.44.0
-    and leaves the other releases alone:
-
-    ```toml
-    filterwarnings = ["error::grelmicro.Grelmicro044Warning"]
-    ```
-    """
-
-    switch_in: ClassVar[str] = "0.44.0"
 
 
 class Grelmicro045Warning(GrelmicroFutureWarning):

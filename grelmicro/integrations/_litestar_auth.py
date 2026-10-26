@@ -204,3 +204,8 @@ def _routes(app: Litestar, path: str) -> bool:
     except HTTPException:
         return False
     return True
+
+
+Anonymous.__module__ = "grelmicro.integrations.litestar"
+Authenticated.__module__ = "grelmicro.integrations.litestar"
+current_token.__module__ = "grelmicro.integrations.litestar"

@@ -82,3 +82,6 @@ def CachedResponse(  # noqa: N802
 
         raise DependencyNotFoundError(module="fastapi")
     return _Depends(declare_cached(ttl, shared=shared))
+
+
+CachedResponse.__module__ = "grelmicro.integrations.fastapi"

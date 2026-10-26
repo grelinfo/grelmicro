@@ -280,3 +280,7 @@ def Anonymous() -> Any:  # noqa: N802, ANN401
 
         raise DependencyNotFoundError(module="fastapi")
     return _Depends(declare_anonymous())
+
+
+Anonymous.__module__ = "grelmicro.integrations.fastapi"
+Authenticated.__module__ = "grelmicro.integrations.fastapi"

@@ -196,7 +196,7 @@ Passing `env_load=False` to a component is a decision, so it stays quiet.
 ## Logs
 
 A container needs no log configuration. The default `auto` format writes
-`TEXT` to a terminal and `JSON` everywhere else, so the same image gives a
+`text` to a terminal and `json` everywhere else, so the same image gives a
 readable stream in development and a parseable one in a pod. Uvicorn's own
 lines take the same format.
 

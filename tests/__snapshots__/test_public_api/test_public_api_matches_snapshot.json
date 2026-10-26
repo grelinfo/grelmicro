@@ -24,7 +24,6 @@
     "DependencyVersionError": {
       "()": "(*, module, version, floor, extra) -> None"
     },
-    "EnvLoadDefaultWarning": null,
     "EnvLoadOffWarning": null,
     "EventLoopDeadlockError": null,
     "ExternalConfig": {
@@ -34,7 +33,6 @@
       "()": "(*, uses=None, environment=None, strict=False, allow_multiple=False) -> 'None'",
       ".current": "() -> 'Grelmicro'"
     },
-    "Grelmicro044Warning": null,
     "Grelmicro045Warning": null,
     "GrelmicroConfigWarning": null,
     "GrelmicroError": null,

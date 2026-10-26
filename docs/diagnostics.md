@@ -93,8 +93,8 @@ Wire a backend that reaches far enough, or pass `requires=` to declare the
 reach you meant. A warning with no tier declared, a `BackendScopeError` in
 `staging` and `production`. See [the backend check](deployment.md#the-backend-check).
 
-A `@cached(lock=...)` fold is the exception until 0.45.0. In `staging` and
-`production` it warns with `Grelmicro045Warning` on startup instead.
+A `@cached(lock=...)` fold is the exception. It warns in every tier that
+reports it, `staging` and `production` included, and its first miss raises.
 
 ### `ambient-binding`
 
@@ -188,10 +188,10 @@ for an interval task. With none to resolve, every fire reports a
 [`Coordination`](coordination/index.md) that holds that backend, or pass
 `backend=` to the task or its `TaskLock`.
 
-`python -m grelmicro check` and `micro.describe()` report it as a failure in
-`staging` and `production`, so `grelmicro check` exits `1` there. It is a
-warning in every other tier, `development` and `test` included, since such a
-task runs nothing anywhere.
+`python -m grelmicro check` and `micro.describe()` report it as a warning in
+every tier, since such a task runs nothing anywhere. In `staging` and
+`production` the report says it fails there from 0.45.0, and building the
+report warns with `Grelmicro045Warning`.
 
 ### `health-not-served`
 

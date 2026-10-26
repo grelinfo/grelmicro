@@ -89,9 +89,9 @@ class ComponentReport:
         str | None,
         Doc(
             """
-            Class name of the bare Provider that registered this component
-            as its default for the kind, such as `"RedisProvider"`. `None`
-            for a component registered explicitly.
+            Short name of the bare Provider that registered this component
+            as its default for the kind, such as `"redis"`, as in
+            `provider`. `None` for a component registered explicitly.
             """,
         ),
     ] = None
@@ -409,7 +409,7 @@ def _scope_checks(
     return [
         CheckReport(
             name="backend-scope",
-            status="fail" if strict and entry.deferred is None else "warn",
+            status="fail" if strict and not entry.warn_only else "warn",
             detail=entry.finding,
         )
         for entry in unmet
@@ -1080,10 +1080,11 @@ def _gate_checks(
 ) -> list[CheckReport]:
     """Report each gated task that resolves no backend to claim through.
 
-    One entry per such task, `fail` in `staging` and `production` and
-    `warn` in every other tier, since such a task runs nothing anywhere.
-    One `ok` entry when every gated task resolves one. Nothing without a
-    gated task.
+    One `warn` entry per such task, since such a task runs nothing
+    anywhere. In `staging` and `production` the detail says the check fails
+    there from 0.45.0, and building the report warns with
+    `Grelmicro045Warning`. One `ok` entry when every gated task resolves one.
+    Nothing without a gated task.
     """
     from grelmicro._environment import STRICT_ENVIRONMENTS  # noqa: PLC0415
 
@@ -1099,12 +1100,17 @@ def _gate_checks(
                 detail="every gated task resolves its claim backend",
             )
         ]
-    status: CheckStatus = (
-        "fail" if environment in STRICT_ENVIRONMENTS else "warn"
-    )
+    suffix = ""
+    if environment in STRICT_ENVIRONMENTS:
+        from grelmicro._deprecation import GATE_BACKEND_STRICT  # noqa: PLC0415
+
+        GATE_BACKEND_STRICT.warn()
+        suffix = " It fails in staging and production from 0.45.0."
     return [
         CheckReport(
-            name=GATE_BACKEND, status=status, detail=_gate_finding(task)
+            name=GATE_BACKEND,
+            status="warn",
+            detail=_gate_finding(task) + suffix,
         )
         for task in missing
     ]
@@ -1217,8 +1223,12 @@ def _render_components(report: AppReport) -> list[str]:
         suffix = f" <- {component.provider}" if component.provider else ""
         if component.config.get("enabled") is False:
             suffix += " (switched off)"
-        if component.default_of:
-            suffix += f" (default of {component.default_of})"
+        if component.default_of is not None:
+            suffix += (
+                " (default)"
+                if component.default_of == component.provider
+                else f" (default of {component.default_of})"
+            )
         lines.append(f"  {text.ljust(width)}  {backends}{suffix}")
     lines.append("")
     return lines

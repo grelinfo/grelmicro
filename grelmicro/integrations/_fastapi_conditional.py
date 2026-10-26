@@ -224,3 +224,6 @@ elif HAS_FASTAPI:
 else:  # pragma: no cover - the reimport test walks this
     Conditional = ConditionalRequest
     ConditionalRequired = ConditionalRequest
+
+
+ConditionalRequest.__module__ = "grelmicro.integrations.fastapi"

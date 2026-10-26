@@ -122,7 +122,7 @@ raises](#0-42-raising).
 | `AttributeError: 'str' object has no attribute 'value'` on a mode field such as `config.exporter` | 0.44 | [Compare with the string](#0-44-mode-strings) |
 | `TypeError: HealthChecks.__init__() got an unexpected keyword argument 'auto_health'` | 0.44 | [Pass `provider_checks=`](#0-44-provider-checks) |
 | `/healthz` lists `provider:` checks after upgrading | 0.44 | [Pick a mode](#0-44-provider-checks) |
-| `Grelmicro045Warning: Fold(...) is bound to InProcessLock` or `rides Coordination('default')` on startup | 0.44 | [Register a `Coordination`](#0-44-cached-lock-scope) |
+| `BackendScopeWarning: Fold(...) is bound to InProcessLock` or `rides Coordination('default')` on startup | 0.44 | [Register a `Coordination`](#0-44-cached-lock-scope) |
 | A `GREL_*` variable applies after upgrading, where it used to warn and be ignored | 0.44 | [Set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
 
 ## 0.44
@@ -130,19 +130,21 @@ raises](#0-42-raising).
 ### Changes that do not raise {#0-44-silent}
 
 - A mode field such as `MetricsConfig.exporter` or `LogConfig.level` reads back as a plain `str`, not as its old enum member. `==`, `str()` and the JSON dump are unchanged. [Compare with the string](#0-44-mode-strings).
-- `GREL_ENVIRONMENT=Production`, or any tier in another case, declares that tier and no longer warns. In `staging` and `production` an unmet backend scope then raises `BackendScopeError` at startup. [Check the 0.43 warning](#0-43-environment-case).
-- `grelmicro check` and `micro.describe()` report `gate-backend` as `fail` in `staging` and `production`, so `grelmicro check` exits `1` there. [Give each gated task a backend](diagnostics.md#gate-backend).
 - A `HealthChecks` with no `provider_checks=` beside a Provider shows each Provider in `/healthz` as a non-critical `provider:{short_name}` check. `/readyz` is unchanged. [Pick a mode](#0-44-provider-checks).
 - `LogConfig.format` still reads back in uppercase, such as `"JSON"`. Comparing it with a format name now warns with `Grelmicro045Warning`. From 0.45.0 it reads back in lowercase, such as `"json"`. [Compare in any case](#0-44-log-format-case).
-- `@cached(lock="host")` and `lock="cluster"` are checked when the app opens. In `staging` and `production`, a fold with no `Coordination`, or one whose lock backend falls short, now warns with `Grelmicro045Warning` on startup. From 0.45.0 the app raises `BackendScopeError` on startup. [Register a `Coordination`](#0-44-cached-lock-scope).
+- The built-in log formats are spelled in lowercase. Type checkers still accept `LogFormat` values in uppercase, such as `"JSON"`, until 0.45.0. [Compare in any case](#0-44-log-format-case).
+- `HealthChecks(provider_checks=None)` still means the default `"report"`, and now warns with `Grelmicro045Warning`. From 0.45.0 it is refused. [Omit the argument or pass `"report"`](#0-44-provider-checks).
+- `@cached(lock="host")` and `lock="cluster"` are checked when the app opens. A fold with no `Coordination`, or one whose lock backend falls short, now warns with `BackendScopeWarning` on startup, in `staging` and `production` too. The first miss still raises. [Register a `Coordination`](#0-44-cached-lock-scope).
 - A `GREL_*` variable such as `GREL_OPS_PORT`, set while `GREL_ENV_LOAD` is unset, is now read. 0.43 ignored it and warned with `EnvLoadDefaultWarning`. [Set `GREL_ENV_LOAD=0` to keep it unread](#0-44-env-load-default).
 - `EnvLoadDefaultWarning` is no longer emitted. Reading it warns with `Grelmicro045Warning`, and it is removed in 0.45.0. [Filter on `EnvLoadOffWarning`](#0-44-env-load-default).
+- `gate-backend` stays a warning in `staging` and `production`. It says the check fails there from 0.45.0 and warns with `Grelmicro045Warning`. [Give each gated task a backend](diagnostics.md#gate-backend).
 
 ### Changes that raise {#0-44-raising}
 
 - `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` are removed. [Pass the string](#0-44-mode-strings).
 - `.value` and `.name` on a mode field raise `AttributeError`. [Compare with the string](#0-44-mode-strings).
 - `HealthChecks(auto_health=)` and `HealthChecks.from_config(auto_health=)` raise `TypeError`. [Pass `provider_checks=`](#0-44-provider-checks).
+- `GREL_ENVIRONMENT=Production`, or any tier in another case, declares that tier and no longer warns. In `staging` and `production` an unmet backend scope then raises `BackendScopeError` at startup. [Check the 0.43 warning](#0-43-environment-case).
 
 ### A mode field is a plain string {#0-44-mode-strings}
 
@@ -187,6 +189,9 @@ HealthChecks(provider_checks="off")
 HealthChecks(provider_checks="off")  # keeps no provider checks
 ```
 
+`provider_checks=None` still means `"report"` and warns with
+`Grelmicro045Warning`. Omit the argument or pass `"report"`.
+
 ### A log format is spelled in lowercase {#0-44-log-format-case}
 
 The built-in formats are spelled `auto`, `json`, `logfmt`, `text` and
@@ -216,6 +221,9 @@ A custom loguru template reads back as written and never warns.
 `config.format` is a `str` subclass in 0.44, so `isinstance(config.format, str)`
 holds but `type(config.format) is str` does not. From 0.45.0 it is a plain `str`.
 
+`LogFormat` lists both spellings until 0.45.0, so a value annotated
+`LogFormat` such as `"JSON"` still passes the type checker.
+
 ### `@cached(lock=...)` is checked on startup {#0-44-cached-lock-scope}
 
 `@cached(lock="host")` and `lock="cluster"` fold misses through the lock
@@ -223,10 +231,12 @@ backend of the app's `Coordination`. The backend check now reads that lock
 backend when the app opens, not on the first miss. `micro.describe()` and
 `grelmicro check` report it as `backend-scope`.
 
-In `staging` and `production`, a fold with no `Coordination`, or one whose
-lock backend reaches less far than `lock`, warns on startup. The first miss
-still raises, as before. From 0.45.0 the app refuses to start. Register a
-`Coordination` that reaches far enough:
+A fold with no `Coordination`, or one whose lock backend reaches less far
+than `lock`, warns with `BackendScopeWarning` on startup. That holds with no
+tier declared and in `staging` and `production`. The first miss still raises,
+as before. Any app opened in the process reports a decorated fold, and
+`lock="process"` or a `Coordination` that reaches far enough silences it.
+Register a `Coordination` that reaches far enough:
 
 ```python
 # Before: warns on startup, raises on the first miss
@@ -1789,10 +1799,10 @@ filterwarnings = ["error::grelmicro.GrelmicroFutureWarning"]
 ```
 
 Each switching release also has its own category, such as
-`Grelmicro044Warning` for the changes that land in 0.44.0. Filter on it to
+`Grelmicro045Warning` for the changes that land in 0.45.0. Filter on it to
 catch one release's changes and leave the others alone:
 
 ```toml
 [tool.pytest.ini_options]
-filterwarnings = ["error::grelmicro.Grelmicro044Warning"]
+filterwarnings = ["error::grelmicro.Grelmicro045Warning"]
 ```

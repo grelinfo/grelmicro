@@ -1,6 +1,6 @@
 """Logging Configuration."""
 
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Literal, Self, get_args
 
 from pydantic import AfterValidator, BaseModel, Field, PlainSerializer
 from typing_extensions import Doc
@@ -15,8 +15,25 @@ try:
 except ImportError:  # pragma: no cover
     opentelemetry: Any = None  # type: ignore[no-redef]
 
-type LogFormat = Literal["auto", "json", "logfmt", "text", "pretty"]
-"""Built-in log format, matched in any case."""
+type LogFormat = Literal[
+    "auto",
+    "json",
+    "logfmt",
+    "text",
+    "pretty",
+    "AUTO",
+    "JSON",
+    "LOGFMT",
+    "TEXT",
+    "PRETTY",
+]
+"""Built-in log format, matched in any case.
+
+Type checkers accept the uppercase spellings until 0.45.0.
+"""
+
+_BuiltinFormat = Literal["auto", "json", "logfmt", "text", "pretty"]
+"""The built-in formats, in the documented spelling."""
 
 type LogBackend = Literal["loguru", "structlog", "stdlib"]
 """Logging backend selection, matched in any case."""
@@ -25,7 +42,7 @@ type LogSerializer = Literal["auto", "stdlib", "orjson"]
 """JSON serializer selection, matched in any case."""
 
 
-_FORMAT_NAMES: frozenset[str] = frozenset(get_args(LogFormat.__value__))
+_FORMAT_NAMES: frozenset[str] = frozenset(get_args(_BuiltinFormat))
 """The built-in format names, in lowercase."""
 
 
@@ -50,9 +67,31 @@ class _UppercaseFormat(str):
 
     __hash__ = str.__hash__
 
+    def __reduce__(self) -> tuple[type[str], tuple[str]]:
+        """Pickle as the plain `str`."""
+        return (str, (str(self),))
+
+    def __copy__(self) -> Self:
+        """Return the same value, as `str` does."""
+        return self
+
+    def __deepcopy__(self, memo: dict[int, object]) -> Self:
+        """Return the same value, as `str` does."""
+        return self
+
+
+_DEFAULT_FORMAT: str = str(_UppercaseFormat("AUTO"))
+"""The `LogConfig.format` default, a plain `"AUTO"`.
+
+Comparing a read-back format with this object warns nothing, so a dump that
+excludes defaults stays silent.
+"""
+
 
 def _warn_on_format_name(other: object) -> None:
     """Warn at the comparison when `other` names a built-in format."""
+    if other is _DEFAULT_FORMAT:
+        return
     if isinstance(other, str) and not isinstance(other, _UppercaseFormat):
         name = other.lower()
         if name in _FORMAT_NAMES:
@@ -85,10 +124,10 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
         LogFormat | str,
         Doc("Log format. Built-in option or a custom template string."),
         Field(union_mode="left_to_right", validate_default=True),
-        any_case(LogFormat),
+        any_case(_BuiltinFormat),
         AfterValidator(_read_back_format),
-        PlainSerializer(str, return_type=str, when_used="json"),
-    ] = _UppercaseFormat("AUTO")
+        PlainSerializer(str, return_type=str, when_used="always"),
+    ] = _DEFAULT_FORMAT
     timezone: Annotated[
         TimeZoneName,
         Doc("IANA timezone for timestamps."),

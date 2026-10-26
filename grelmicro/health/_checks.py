@@ -100,12 +100,22 @@ _PROVIDER_CHECKS: tuple[ProviderChecks, ...] = ("off", "report", "require")
 """Every `ProviderChecks` mode, in the order a refusal lists them."""
 
 
-def _resolve_provider_checks(provider_checks: ProviderChecks) -> ProviderChecks:
+def _resolve_provider_checks(
+    provider_checks: ProviderChecks | None,
+) -> ProviderChecks:
     """Return the `provider_checks=` mode, matched in any case.
+
+    `None` reads as `"report"` and warns with `Grelmicro045Warning` at the
+    caller of `HealthChecks` or `HealthChecks.from_config`.
 
     Raises:
         SettingsValidationError: If `provider_checks` names no mode.
     """
+    if provider_checks is None:
+        from grelmicro._deprecation import PROVIDER_CHECKS_NONE  # noqa: PLC0415
+
+        PROVIDER_CHECKS_NONE.warn(stacklevel=3)
+        return "report"
     spelled = match_case(ProviderChecks, provider_checks)
     if spelled not in _PROVIDER_CHECKS:
         msg = f"provider_checks= must be one of {', '.join(_PROVIDER_CHECKS)}"
@@ -286,7 +296,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             ),
         ] = None,
         provider_checks: Annotated[
-            ProviderChecks,
+            ProviderChecks | None,
             Doc(
                 """
                 Which check to register for each `Provider` active on the
@@ -294,8 +304,12 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 default) registers a non-critical `provider:{short_name}`
                 check, shown in `/healthz` and left out of `/readyz`.
                 `"require"` registers a critical one, so a down backend
-                fails `/readyz`. `"off"` registers none. A Provider already
-                added with `add_provider` keeps that registration.
+                fails `/readyz`, and needs an active app on startup. `"off"`
+                registers none. A Provider already added with `add_provider`
+                keeps that registration.
+
+                `None` reads as `"report"` and warns with
+                `Grelmicro045Warning`. It is removed in 0.45.0.
                 """
             ),
         ] = "report",
@@ -371,10 +385,12 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             Doc("Registration name. Defaults to `'default'`."),
         ] = "default",
         provider_checks: Annotated[
-            ProviderChecks,
+            ProviderChecks | None,
             Doc(
                 "Which check to register for each active `Provider` on "
-                'startup, as in `HealthChecks`. Defaults to `"report"`.'
+                'startup, as in `HealthChecks`. Defaults to `"report"`. '
+                '`None` reads as `"report"` and warns with '
+                "`Grelmicro045Warning`. It is removed in 0.45.0."
             ),
         ] = "report",
         liveness: Annotated[
@@ -449,6 +465,10 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
 
         With `provider_checks="report"` or `"require"`, register one
         `provider:{short_name}` check per Provider active on the app.
+
+        Raises:
+            NoActiveAppError: If `provider_checks` is `"require"` and no app
+                is active.
         """
         self._depth += 1
         if self._provider_checks in ("report", "require"):
@@ -756,11 +776,14 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         idempotent. A `provider:{short_name}` name held by a different
         provider (two providers of the same vendor) is skipped with a
         warning, pointing at the explicit `add_provider(provider, name=...)`
-        form. Opened outside an app, it registers nothing.
-        """
-        from grelmicro._app import _current_micro  # noqa: PLC0415
+        form. Opened outside an app, `"report"` registers nothing.
 
-        micro = _current_micro.get(None)
+        Raises:
+            NoActiveAppError: If `critical` is set and no app is active.
+        """
+        from grelmicro._app import Grelmicro, _current_micro  # noqa: PLC0415
+
+        micro = Grelmicro.current() if critical else _current_micro.get(None)
         if micro is None:
             return
         for provider in micro.providers:

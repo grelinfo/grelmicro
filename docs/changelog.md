@@ -6,18 +6,14 @@
 * 💥 A mode field such as `MetricsConfig.exporter` reads back as a plain `str`, not as its old enum member. `.value` and `.name` raise `AttributeError`. Compare it with the string. ([#1175](https://github.com/grelinfo/grelmicro/pull/1175))
 * 💥 `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` are removed. Pass the string instead. ([#1175](https://github.com/grelinfo/grelmicro/pull/1175))
 * 💥 `GREL_ENVIRONMENT` matches the tier in any case, so `GREL_ENVIRONMENT=Production` declares `production` with no warning. ([#1176](https://github.com/grelinfo/grelmicro/pull/1176))
-* 💥 `grelmicro check` and `micro.describe()` fail `gate-backend` in `staging` and `production`, so `grelmicro check` exits `1` there. ([#1176](https://github.com/grelinfo/grelmicro/pull/1176))
 * 💥 `HealthChecks()` with no `provider_checks=` defaults to `"report"`. Each Provider on the app shows as a non-critical `provider:{short_name}` check in `/healthz`, and `/readyz` stays up while it is down. Pass `provider_checks="off"` to register none. ([#1180](https://github.com/grelinfo/grelmicro/pull/1180))
 * 💥 `HealthChecks(auto_health=)` and `HealthChecks.from_config(auto_health=)` are removed and raise `TypeError`. Pass `provider_checks="require"` or `provider_checks="off"`. ([#1180](https://github.com/grelinfo/grelmicro/pull/1180))
 * 💥 A `GREL_*` variable is read by default. A variable set while `GREL_ENV_LOAD` is unset now applies, with no warning. Set `GREL_ENV_LOAD=0` or pass `env_load=False` to keep it unread. ([#1183](https://github.com/grelinfo/grelmicro/pull/1183))
 
 ### Added
-* ✨ `micro.describe()` names the bare Provider each default component came from in `ComponentReport.default_of`, such as `"RedisProvider"`. `grelmicro check` adds `(default of RedisProvider)` to the line. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
-* ✨ Each switching release has its own `GrelmicroFutureWarning` subclass, such as `Grelmicro044Warning` for the changes that land in 0.44.0. `filterwarnings = ["error::grelmicro.Grelmicro044Warning"]` fails a test suite on those changes only. ([#1174](https://github.com/grelinfo/grelmicro/pull/1174))
+* ✨ `micro.describe()` names the bare Provider each default component came from in `ComponentReport.default_of`, by its short name such as `"redis"`. `grelmicro check` adds `(default)` to the line, or `(default of redis)` when the line names another provider or none. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
+* ✨ Each switching release has its own `GrelmicroFutureWarning` subclass, such as `Grelmicro045Warning` for the changes that land in 0.45.0. `filterwarnings = ["error::grelmicro.Grelmicro045Warning"]` fails a test suite on those changes only. ([#1174](https://github.com/grelinfo/grelmicro/pull/1174))
 * ✨ `Grelmicro045Warning` covers every change that lands in 0.45.0. ([#1178](https://github.com/grelinfo/grelmicro/pull/1178))
-
-### Deprecated
-* 🗑️ `EnvLoadDefaultWarning` is no longer emitted. Reading it warns with `Grelmicro045Warning`, and it is removed in 0.45.0. Type checkers report it as deprecated. Filter on `EnvLoadOffWarning` instead. ([#1183](https://github.com/grelinfo/grelmicro/pull/1183))
 
 ### Changed
 * ⚡️ `grelmicro.http` and the Starlette integration no longer load the JWT verifier or pydantic-settings at import. ([#1167](https://github.com/grelinfo/grelmicro/pull/1167))
@@ -25,12 +21,14 @@
 * ⚡️ The Starlette integration loads authentication, error responses and route gates only when the app uses them. A Starlette app with `Tasks` loads 30 fewer grelmicro modules. ([#1170](https://github.com/grelinfo/grelmicro/pull/1170))
 * ⚡️ The FastAPI integration loads authentication, route rate limits, conditional requests, the response cache and the metrics router only when the app uses them. Importing it no longer loads the JWT verifier or pydantic-settings. A FastAPI app with `Tasks` loads 36 fewer grelmicro modules. ([#1173](https://github.com/grelinfo/grelmicro/pull/1173))
 * ⚡️ The Litestar integration loads authentication, error responses and route gates only when the app uses them. Importing it loads 57 fewer grelmicro modules. A Litestar app with `Tasks` loads 21 fewer. ([#1177](https://github.com/grelinfo/grelmicro/pull/1177))
+* ✨ `micro.describe()`, `grelmicro check` and the app on startup report a `@cached(lock="host")` or `lock="cluster"` fold with no `Coordination`, or one whose lock backend falls short, and warn with `BackendScopeWarning`, in `staging` and `production` too. Any app opened in the process reports a decorated fold, and `lock="process"` or a `Coordination` that reaches far enough silences it. The first miss still raises. ([#1182](https://github.com/grelinfo/grelmicro/pull/1182))
+* ♻️ `grelmicro.integrations.fastapi`, `grelmicro.integrations.starlette` and `grelmicro.integrations.litestar` no longer expose the names they only imported and left out of `__all__`. Import such a name from its own module. ([#1186](https://github.com/grelinfo/grelmicro/pull/1186))
 
 ### Deprecated
-* 🗑️ The log formats are spelled `auto`, `json`, `logfmt`, `text` and `pretty`, and still match in any case. `LogConfig.format` reads back in uppercase until 0.45.0, then in lowercase. Comparing it with a format name warns with `Grelmicro045Warning`. ([#1181](https://github.com/grelinfo/grelmicro/pull/1181))
-
-### Deprecated
-* 🗑️ `@cached(lock="host")` and `lock="cluster"` are checked when the app opens. In `staging` and `production`, a fold with no `Coordination`, or one whose lock backend falls short, warns with `Grelmicro045Warning` and raises `BackendScopeError` from 0.45.0. Pass `uses=[Coordination(redis)]` or `lock="process"`. ([#1182](https://github.com/grelinfo/grelmicro/pull/1182))
+* 🗑️ `EnvLoadDefaultWarning` is no longer emitted. Reading it warns with `Grelmicro045Warning`, and it is removed in 0.45.0. Type checkers report it as deprecated. Filter on `EnvLoadOffWarning` instead. ([#1183](https://github.com/grelinfo/grelmicro/pull/1183))
+* 🗑️ The log formats are spelled `auto`, `json`, `logfmt`, `text` and `pretty`, and still match in any case. `LogConfig.format` reads back in uppercase until 0.45.0, then in lowercase. Comparing it with a format name warns with `Grelmicro045Warning`. Type checkers accept `LogFormat` values in uppercase until 0.45.0. ([#1181](https://github.com/grelinfo/grelmicro/pull/1181))
+* 🗑️ `HealthChecks(provider_checks=None)` and `HealthChecks.from_config(provider_checks=None)` read as `"report"` and warn with `Grelmicro045Warning`. `None` is refused from 0.45.0. Omit the argument or pass `"report"`. ([#1186](https://github.com/grelinfo/grelmicro/pull/1186))
+* 🗑️ `gate-backend` in `grelmicro check` and `micro.describe()` stays a warning in `staging` and `production`, says it fails there from 0.45.0, and warns with `Grelmicro045Warning`. Give each gated task a backend now. ([#1186](https://github.com/grelinfo/grelmicro/pull/1186))
 
 ### Fixed
 * 🐛 The `BackendScopeError` for `Idempotency` or `IdempotentRequests` with no lock backend says to register a `Coordination` with a Redis, Valkey, Postgres or Kubernetes provider, not to use one of those backends. ([#1168](https://github.com/grelinfo/grelmicro/pull/1168))
