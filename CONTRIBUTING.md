@@ -518,6 +518,14 @@ cannot drift away from what CI runs.
 `just release-notes 0.33.1` prints that version's changelog section, which
 is what the GitHub Release body should hold.
 
+Before every release, run `just release-audit 0.33.1` and paste the report
+into the release discussion. It checks the changelog against the patch
+policy: a patch has no Breaking, Added or Deprecated entries. It lists the
+public API changes since the last tag and fails a patch that removes or
+changes a name. It fails on a deprecation due at this version. It also
+needs a green nightly on `main` and a green dry run of `release.yml` at
+`HEAD`. It ends with READY or NOT READY.
+
 ### Cutting a release
 
 Pick the version first. Pre-1.0, `0.x.0` is the breaking position, so a

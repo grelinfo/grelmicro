@@ -28,6 +28,7 @@
 ### Internal
 * 👷 Pull request CI runs the unit tests on every supported Python, 3.14 and 3.15. The slow and integration tiers stay on 3.14 there and run on both nightly and before a release. ([#1172](https://github.com/grelinfo/grelmicro/pull/1172))
 * ✅ The multiprocess test harness serves its shared state over localhost TCP, so those tests run inside a sandbox that refuses Unix socket binds. ([#1171](https://github.com/grelinfo/grelmicro/pull/1171))
+* 👷 `just release-audit <version>` prints one report to read before a release: changelog policy, public API diff, due deprecations and CI health. ([#1179](https://github.com/grelinfo/grelmicro/pull/1179))
 
 ## 0.43.1 - 2026-10-25
 
