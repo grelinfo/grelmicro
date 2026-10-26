@@ -251,7 +251,7 @@ def test_describe_renders_the_provider_a_default_came_from() -> None:
 
 
 def test_describe_renders_a_default_on_its_own_provider_once() -> None:
-    """A default whose backends borrow its own Provider reads `(default)`."""
+    """A default whose backends borrow its own Provider reads `(provider default)`."""
     micro = Grelmicro(
         uses=[RedisProvider("redis://localhost:6379/0")],
         environment="development",
@@ -260,7 +260,7 @@ def test_describe_renders_a_default_on_its_own_provider_once() -> None:
     lines = micro.describe().render().splitlines()
 
     cache = next(line for line in lines if "cache/default" in line)
-    assert cache.endswith("<- redis (default)")
+    assert cache.endswith("<- redis (provider default)")
 
 
 def test_describe_names_the_provider_of_a_default_with_other_backends() -> None:

@@ -24,6 +24,7 @@
     "DependencyVersionError": {
       "()": "(*, module, version, floor, extra) -> None"
     },
+    "EnvLoadDefaultWarning": null,
     "EnvLoadOffWarning": null,
     "EventLoopDeadlockError": null,
     "ExternalConfig": {

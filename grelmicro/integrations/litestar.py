@@ -47,7 +47,43 @@ if TYPE_CHECKING:
 
     from grelmicro import Grelmicro
     from grelmicro._paths import RouteReader
-    from grelmicro.http import ErrorResponses, Gate, RouteDeclaration
+
+    # Each `X as X` import re-exports a name served with a warning until 0.45.0.
+    from grelmicro._paths import read_route as read_route
+    from grelmicro.http import (
+        AuthenticatedRequestsMiddleware as AuthenticatedRequestsMiddleware,
+    )
+    from grelmicro.http import ErrorResponses as ErrorResponses
+    from grelmicro.http import Gate
+    from grelmicro.http import RateLimitMiddleware as RateLimitMiddleware
+    from grelmicro.http import RouteDeclaration as RouteDeclaration
+    from grelmicro.http import merge_headers as merge_headers
+    from grelmicro.http._authentication import ANONYMOUS_OPT as ANONYMOUS_OPT
+    from grelmicro.http._authentication import (
+        METADATA_MARKER as METADATA_MARKER,
+    )
+    from grelmicro.http._authentication import (
+        describe_app_schema as describe_app_schema,
+    )
+    from grelmicro.http._authentication import (
+        refuse_anonymous_caller as refuse_anonymous_caller,
+    )
+    from grelmicro.http._authentication import (
+        refuse_routes_at_metadata as refuse_routes_at_metadata,
+    )
+    from grelmicro.http._authentication import (
+        resource_metadata_of as resource_metadata_of,
+    )
+    from grelmicro.http._authentication import (
+        template_under_root as template_under_root,
+    )
+    from grelmicro.http._kinds import BODYLESS_STATUSES as BODYLESS_STATUSES
+    from grelmicro.http._kinds import HANDLED as HANDLED
+    from grelmicro.http._openapi import add_error_schema as add_error_schema
+    from grelmicro.http._openapi import describing as describing
+    from grelmicro.http._requirement import AUTHENTICATED as AUTHENTICATED
+    from grelmicro.http._requirement import Requirement as Requirement
+    from grelmicro.http._requirement import declared_scopes as declared_scopes
     from grelmicro.http._unhandled import Unhandled
     from grelmicro.integrations._litestar_auth import (
         Anonymous,
@@ -55,6 +91,10 @@ if TYPE_CHECKING:
         current_token,
     )
     from grelmicro.integrations._litestar_errors import error_response
+    from grelmicro.integrations._litestar_openapi import (
+        add_openapi_edit as add_openapi_edit,
+    )
+    from grelmicro.trace._autoinstrument import request_spans as request_spans
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -85,9 +125,17 @@ _LAZY: dict[str, str] = {
 
 
 def __getattr__(name: str) -> object:
-    """Load `name` from its submodule and cache it on the module."""
+    """Load `name` from its submodule and cache it on the module.
+
+    A name the module served in 0.43 without listing it loads from its home
+    on each access and warns that it moves out in 0.45.0.
+    """
     module = _LAZY.get(name)
     if module is None:
+        if not name.startswith("_"):
+            from grelmicro._deprecation import LITESTAR_MOVED  # noqa: PLC0415
+
+            return LITESTAR_MOVED.load(name)
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg)
     import importlib  # noqa: PLC0415

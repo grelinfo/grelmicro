@@ -72,7 +72,7 @@ configuration it names. Each entry below says which.
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
 | `leader-not-running` | `LeaderNotRunningWarning` | none | A task is gated on a leader election that does not run, so it skips every fire. |
 | `ungated-cron` | `UngatedCronWarning` | none | A cron task with no `gate=` runs each fire on every worker, although a schedule backend is registered. |
-| `gate-backend` | none | none | A gated task resolves no backend to claim through, so every fire runs nothing. Reported by `grelmicro check` and `micro.describe()`. |
+| `gate-backend` | `Grelmicro045Warning` in `staging` and `production` | none | A gated task resolves no backend to claim through, so every fire runs nothing. Reported by `grelmicro check` and `micro.describe()`. |
 | `health-not-served` | `HealthNotServedWarning` | none | A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404. |
 | `routes-not-declared` | `RoutesNotDeclaredWarning` | none | `AuthenticatedRequests` is installed through an integration with no `install_route_gate`, so every route needs a credential, `Anonymous()` included. `grelmicro check` also reports an HTTP integration with no `route_declarations` when a component acting per endpoint is registered. |
 

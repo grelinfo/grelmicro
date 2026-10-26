@@ -429,6 +429,27 @@ def test_gate_backend_warns_it_fails_in_a_strict_tier_from_0_45(
     assert detail.endswith("It fails in staging and production from 0.45.0.")
 
 
+def test_gate_backend_strict_message_names_both_fixes() -> None:
+    """The warning names a `Coordination` with a backend, or `backend=`."""
+    assert GATE_BACKEND_STRICT.message == (
+        "`gate-backend` fails `grelmicro check` in `staging` and "
+        "`production` from 0.45.0. Register a `Coordination` with a lock or "
+        "schedule backend, or pass `backend=` to the task."
+    )
+
+
+def test_gate_backend_strict_warning_points_at_describe() -> None:
+    """The warning reports the line that called `micro.describe()`."""
+    tasks = Tasks()
+    tasks.every(interval=60, gate="claim", name="purge")(purge)
+    micro = _app(tasks, environment="production")
+
+    with pytest.warns(GATE_BACKEND_STRICT.category) as caught:
+        micro.describe()
+
+    assert caught[0].filename == __file__
+
+
 @pytest.mark.parametrize("environment", ["development", "test", None])
 def test_gate_backend_is_silent_outside_a_strict_tier(
     environment: Environment | None,

@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable
 
 import pytest
 
-from grelmicro._deprecation import FutureChange, Removal, Rename
+from grelmicro._deprecation import FutureChange, Moved, Removal, Rename
 from grelmicro.errors import GrelmicroFutureWarning
 from tools import changelog
 
@@ -74,8 +74,8 @@ def latest_release(text: str) -> str:
 
 
 def stale(
-    entries: Iterable[FutureChange | Rename | Removal], version: str
-) -> list[FutureChange | Rename | Removal]:
+    entries: Iterable[FutureChange | Rename | Removal | Moved], version: str
+) -> list[FutureChange | Rename | Removal | Moved]:
     """Return the entries that `version` should already have switched or removed."""
     current = _release(version)
     return [

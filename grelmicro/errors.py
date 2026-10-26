@@ -174,7 +174,10 @@ class GrelmicroFutureWarning(FutureWarning):
 
 
 class Grelmicro045Warning(GrelmicroFutureWarning):
-    """Warned for a default that changes or a name that is removed in 0.45.0.
+    """Warned for a change that lands in 0.45.0.
+
+    The change is a default, a read-back value, a check result, or a removed
+    name or value.
 
     A filter on it promotes or silences every change that lands in 0.45.0
     and leaves the other releases alone:

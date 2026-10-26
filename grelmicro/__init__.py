@@ -64,6 +64,7 @@ __all__ = [
     "ComponentNotRegisteredError",
     "DependencyNotFoundError",
     "DependencyVersionError",
+    "EnvLoadDefaultWarning",
     "EnvLoadOffWarning",
     "EventLoopDeadlockError",
     "ExternalConfig",

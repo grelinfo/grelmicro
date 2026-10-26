@@ -119,11 +119,12 @@ raises](#0-42-raising).
 | `SettingsValidationError: ... WAIT_TIMEOUT: is no longer read` | 0.42.2 | [Rename the variable to `_MAX_WAIT`](#0-42-max-wait) |
 | A dashboard on `http.server.duration` stopped receiving data on FastAPI | 0.42 | [Read `http.server.request.duration`, in seconds](changelog.md#0420-2026-10-19) |
 | `ImportError: cannot import name 'MetricsExporterType'`, or another mode enum such as `'LogLevelType'` | 0.44 | [Pass the string](#0-44-mode-strings) |
-| `AttributeError: 'str' object has no attribute 'value'` on a mode field such as `config.exporter` | 0.44 | [Compare with the string](#0-44-mode-strings) |
+| `AttributeError: 'str' object has no attribute 'value'` on a mode field such as `config.exporter`, or `'_UppercaseFormat' object has no attribute 'value'` on `LogConfig.format` | 0.44 | [Compare with the string](#0-44-mode-strings) |
 | `TypeError: HealthChecks.__init__() got an unexpected keyword argument 'auto_health'` | 0.44 | [Pass `provider_checks=`](#0-44-provider-checks) |
 | `/healthz` lists `provider:` checks after upgrading | 0.44 | [Pick a mode](#0-44-provider-checks) |
 | `BackendScopeWarning: Fold(...) is bound to InProcessLock` or `rides Coordination('default')` on startup | 0.44 | [Register a `Coordination`](#0-44-cached-lock-scope) |
 | A `GREL_*` variable applies after upgrading, where it used to warn and be ignored | 0.44 | [Set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
+| `SettingsValidationError` when a component is built, from a `GREL_*` variable with an invalid value such as `GREL_OPS_PORT=abc` | 0.44 | [Fix the variable or set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
 
 ## 0.44
 
@@ -131,12 +132,15 @@ raises](#0-42-raising).
 
 - A mode field such as `MetricsConfig.exporter` or `LogConfig.level` reads back as a plain `str`, not as its old enum member. `==`, `str()` and the JSON dump are unchanged. [Compare with the string](#0-44-mode-strings).
 - A `HealthChecks` with no `provider_checks=` beside a Provider shows each Provider in `/healthz` as a non-critical `provider:{short_name}` check. `/readyz` is unchanged. [Pick a mode](#0-44-provider-checks).
+- A `HealthChecks` with no `provider_checks=`, entered with `async with` inside an open app rather than listed in `uses=`, now registers a check for each Provider on that app. [Pick a mode](#0-44-provider-checks).
+- Under `micro.fake()`, a `HealthChecks` with no `provider_checks=` now shows one `provider:memory` check for the fake's store, whichever Provider the app lists. [Pick a mode](#0-44-provider-checks).
 - `LogConfig.format` still reads back in uppercase, such as `"JSON"`. Comparing it with a format name now warns with `Grelmicro045Warning`. From 0.45.0 it reads back in lowercase, such as `"json"`. [Compare in any case](#0-44-log-format-case).
 - The built-in log formats are spelled in lowercase. Type checkers still accept `LogFormat` values in uppercase, such as `"JSON"`, until 0.45.0. [Compare in any case](#0-44-log-format-case).
-- `HealthChecks(provider_checks=None)` still means the default `"report"`, and now warns with `Grelmicro045Warning`. From 0.45.0 it is refused. [Omit the argument or pass `"report"`](#0-44-provider-checks).
-- `@cached(lock="host")` and `lock="cluster"` are checked when the app opens. A fold with no `Coordination`, or one whose lock backend falls short, now warns with `BackendScopeWarning` on startup, in `staging` and `production` too. The first miss still raises. [Register a `Coordination`](#0-44-cached-lock-scope).
+- `HealthChecks(provider_checks=None)` now means `"report"` (0.43: none) and warns with `Grelmicro045Warning`. It is removed in 0.45.0. [Omit the argument for `"report"`, or pass `"off"` to register none](#0-44-provider-checks).
+- `@cached(lock="host")` and `lock="cluster"` are checked when the app opens. A fold with no `Coordination`, or one whose lock backend falls short, now warns with `BackendScopeWarning` on startup, in `staging` and `production` too. A miss behaves as in 0.43. [Register a `Coordination`](#0-44-cached-lock-scope).
 - A `GREL_*` variable such as `GREL_OPS_PORT`, set while `GREL_ENV_LOAD` is unset, is now read. 0.43 ignored it and warned with `EnvLoadDefaultWarning`. [Set `GREL_ENV_LOAD=0` to keep it unread](#0-44-env-load-default).
 - `EnvLoadDefaultWarning` is no longer emitted. Reading it warns with `Grelmicro045Warning`, and it is removed in 0.45.0. [Filter on `EnvLoadOffWarning`](#0-44-env-load-default).
+- A name that `grelmicro.integrations.fastapi`, `grelmicro.integrations.starlette` or `grelmicro.integrations.litestar` only imported in 0.43, such as `RateLimiter` or `ErrorResponses`, still imports and now warns with `Grelmicro045Warning`. It leaves the module in 0.45.0. Import it from the module the warning names, such as `grelmicro.resilience`.
 - `gate-backend` stays a warning in `staging` and `production`. It says the check fails there from 0.45.0 and warns with `Grelmicro045Warning`. [Give each gated task a backend](diagnostics.md#gate-backend).
 
 ### Changes that raise {#0-44-raising}
@@ -145,6 +149,7 @@ raises](#0-42-raising).
 - `.value` and `.name` on a mode field raise `AttributeError`. [Compare with the string](#0-44-mode-strings).
 - `HealthChecks(auto_health=)` and `HealthChecks.from_config(auto_health=)` raise `TypeError`. [Pass `provider_checks=`](#0-44-provider-checks).
 - `GREL_ENVIRONMENT=Production`, or any tier in another case, declares that tier and no longer warns. In `staging` and `production` an unmet backend scope then raises `BackendScopeError` at startup. [Check the 0.43 warning](#0-43-environment-case).
+- A `GREL_*` variable with an invalid value, such as `GREL_OPS_PORT=abc`, raises `SettingsValidationError` when the component is built, since the variable is now read. [Fix the variable or set `GREL_ENV_LOAD=0`](#0-44-env-load-default).
 
 ### A mode field is a plain string {#0-44-mode-strings}
 
@@ -182,15 +187,18 @@ from grelmicro.health import HealthChecks
 HealthChecks(auto_health=True)
 HealthChecks(auto_health=False)
 HealthChecks()  # no provider checks
+HealthChecks(provider_checks=None)  # no provider checks
 
 # After
 HealthChecks(provider_checks="require")
 HealthChecks(provider_checks="off")
 HealthChecks(provider_checks="off")  # keeps no provider checks
+HealthChecks(provider_checks="off")  # keeps no provider checks
 ```
 
-`provider_checks=None` still means `"report"` and warns with
-`Grelmicro045Warning`. Omit the argument or pass `"report"`.
+`provider_checks=None` now means `"report"` and warns with
+`Grelmicro045Warning`. It is removed in 0.45.0. Omit the argument for
+`"report"`, or pass `provider_checks="off"` to register none.
 
 ### A log format is spelled in lowercase {#0-44-log-format-case}
 
@@ -222,7 +230,27 @@ A custom loguru template reads back as written and never warns.
 holds but `type(config.format) is str` does not. From 0.45.0 it is a plain `str`.
 
 `LogFormat` lists both spellings until 0.45.0, so a value annotated
-`LogFormat` such as `"JSON"` still passes the type checker.
+`LogFormat` such as `"JSON"` still passes the type checker. An exhaustive
+`match` on a `LogFormat` that ends in `assert_never` now needs the lowercase
+cases too:
+
+```python
+from typing import assert_never
+
+from grelmicro.log import LogFormat
+
+
+def describe(value: LogFormat) -> str:
+    match value:
+        case "JSON" | "json":
+            return "one JSON object per line"
+        case "LOGFMT" | "logfmt":
+            return "key=value pairs"
+        case "TEXT" | "text" | "PRETTY" | "pretty" | "AUTO" | "auto":
+            return "for humans"
+        case _:
+            assert_never(value)
+```
 
 ### `@cached(lock=...)` is checked on startup {#0-44-cached-lock-scope}
 
@@ -233,13 +261,17 @@ backend when the app opens, not on the first miss. `micro.describe()` and
 
 A fold with no `Coordination`, or one whose lock backend reaches less far
 than `lock`, warns with `BackendScopeWarning` on startup. That holds with no
-tier declared and in `staging` and `production`. The first miss still raises,
-as before. Any app opened in the process reports a decorated fold, and
-`lock="process"` or a `Coordination` that reaches far enough silences it.
-Register a `Coordination` that reaches far enough:
+tier declared and in `staging` and `production`. A miss behaves as in 0.43.
+With no `Coordination` it raises `OutOfContextError`. With a lock backend that
+falls short, it raises `BackendScopeError` in `staging` and `production`, and
+warns and computes the value with no tier declared.
+
+Any app opened in the process reports a decorated fold, and `lock="process"`
+or a `Coordination` that reaches far enough silences it. Register a
+`Coordination` that reaches far enough:
 
 ```python
-# Before: warns on startup, raises on the first miss
+# Before: warns on startup, raises OutOfContextError on a miss
 micro = Grelmicro(uses=[Cache(redis)])
 
 # After
@@ -262,6 +294,10 @@ GREL_OPS_PORT=9100
 # Keep ignoring every GREL_* field, in 0.43 and 0.44
 GREL_ENV_LOAD=0
 ```
+
+A variable with an invalid value, such as `GREL_OPS_PORT=abc`, now raises
+`SettingsValidationError` when the component is built. Fix the value, or unset
+the variable.
 
 `env_load=False` on one component keeps its fields unread. A keyword argument
 still beats the variable. Provider variables such as `POSTGRES_URL` are read

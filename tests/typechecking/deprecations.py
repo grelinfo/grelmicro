@@ -18,9 +18,9 @@ def provider_checks() -> None:
 
 
 def provider_checks_none() -> None:
-    """Pass `provider_checks=None`, removed in 0.45.0, with nothing reported."""
-    HealthChecks(provider_checks=None)
-    HealthChecks.from_config(HealthChecksConfig(), provider_checks=None)
+    """Pass `provider_checks=None`, removed in 0.45.0."""
+    HealthChecks(provider_checks=None)  # type: ignore[deprecated]  # ty: ignore[deprecated]
+    HealthChecks.from_config(HealthChecksConfig(), provider_checks=None)  # type: ignore[deprecated]  # ty: ignore[deprecated]
 
 
 def env_load_default_warning() -> None:
