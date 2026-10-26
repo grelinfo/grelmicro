@@ -311,8 +311,7 @@ def test_the_variable_is_read_without_the_env_load_flag(
     assert Grelmicro().environment == "production"
 
 
-@pytest.mark.filterwarnings("ignore::grelmicro.GrelmicroFutureWarning")
-@pytest.mark.parametrize("value", ["preprod", "qa", "prodution", "PRODUCTION"])
+@pytest.mark.parametrize("value", ["preprod", "qa", "prodution", "prod"])
 def test_a_value_naming_no_tier_warns_and_reads_as_undeclared(
     value: str,
     monkeypatch: pytest.MonkeyPatch,

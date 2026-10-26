@@ -128,6 +128,8 @@ raises](#0-42-raising).
 ### Changes that do not raise {#0-44-silent}
 
 - A mode field such as `MetricsConfig.exporter` or `LogConfig.level` reads back as a plain `str`, not as its old enum member. `==`, `str()` and the JSON dump are unchanged. [Compare with the string](#0-44-mode-strings).
+- `GREL_ENVIRONMENT=Production`, or any tier in another case, declares that tier and no longer warns. In `staging` and `production` an unmet backend scope then raises `BackendScopeError` at startup. [Check the 0.43 warning](#0-43-environment-case).
+- `grelmicro check` and `micro.describe()` report `gate-backend` as `fail` in `staging` and `production`, so `grelmicro check` exits `1` there. [Give each gated task a backend](diagnostics.md#gate-backend).
 - A `HealthChecks` with no `provider_checks=` beside a Provider shows each Provider in `/healthz` as a non-critical `provider:{short_name}` check. `/readyz` is unchanged. [Pick a mode](#0-44-provider-checks).
 
 ### Changes that raise {#0-44-raising}
@@ -180,6 +182,7 @@ HealthChecks(provider_checks="off")  # keeps no provider checks
 ```
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
+
 
 ## 0.43
 

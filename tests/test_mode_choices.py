@@ -12,11 +12,6 @@ from pydantic import BaseModel, ValidationError
 
 from grelmicro import Grelmicro
 from grelmicro._config import resolve_config
-from grelmicro._deprecation import (
-    ENVIRONMENT_CASE,
-    PENDING,
-    environment_case,
-)
 from grelmicro.cache import Cache, cached
 from grelmicro.errors import (
     GrelmicroConfigWarning,
@@ -41,7 +36,6 @@ from grelmicro.task._cron import CronTask
 from grelmicro.task._interval import IntervalTask
 from grelmicro.trace import Trace
 from grelmicro.trace.config import TraceConfig
-from tests._future import assert_future_warning
 
 CHOICES = [
     (MetricsConfig, "exporter", "Prometheus", "prometheus"),
@@ -256,6 +250,8 @@ def test_a_mode_parameter_names_no_removed_enum(
 
 OTHER_CASE_TIERS = [
     ("Production", "production"),
+    ("PRODUCTION", "production"),
+    ("pRoDuction", "production"),
     ("STAGING", "staging"),
     ("Test", "test"),
     ("DEVELOPMENT", "development"),
@@ -264,44 +260,35 @@ OTHER_CASE_TIERS = [
 
 
 @pytest.mark.parametrize(("spelling", "tier"), OTHER_CASE_TIERS)
-def test_an_environment_variable_in_another_case_warns_ahead_of_the_switch(
+def test_an_environment_variable_in_another_case_reads_as_the_tier(
     monkeypatch: pytest.MonkeyPatch, spelling: str, tier: str
 ) -> None:
-    """`GREL_ENVIRONMENT=Production` reads as undeclared and warns it switches."""
-    # Arrange
-    entry = environment_case(spelling, tier)
-
-    def other_case() -> Grelmicro:
-        monkeypatch.setenv("GREL_ENVIRONMENT", spelling)
-        with pytest.warns(GrelmicroConfigWarning, match="is not one of"):
-            return Grelmicro()
-
-    def exact_case() -> Grelmicro:
-        monkeypatch.setenv("GREL_ENVIRONMENT", tier)
-        return Grelmicro()
-
-    # Act / Assert
-    assert_future_warning(entry, default=other_case, explicit=exact_case)
-    assert entry.message == (
-        f"`GREL_ENVIRONMENT={spelling}` reads as undeclared today and as "
-        f"`{tier}` from 0.44.0. Set `GREL_ENVIRONMENT={tier}` now."
-    )
-
-
-@pytest.mark.parametrize(("spelling", "tier"), OTHER_CASE_TIERS)
-def test_an_environment_variable_in_another_case_reads_as_undeclared(
-    monkeypatch: pytest.MonkeyPatch, spelling: str, tier: str
-) -> None:
-    """Until 0.44.0 the value still names no tier."""
+    """`GREL_ENVIRONMENT=Production` declares `production`, with no warning."""
     # Arrange
     monkeypatch.setenv("GREL_ENVIRONMENT", spelling)
 
     # Act
-    with (
-        pytest.warns(GrelmicroFutureWarning, match=f"`{tier}`"),
-        pytest.warns(GrelmicroConfigWarning),
-    ):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         micro = Grelmicro()
+
+    # Assert
+    assert micro.environment == tier
+
+
+@pytest.mark.parametrize("value", ["preprod", "Prod", "PRODUCTIONS"])
+def test_an_environment_variable_naming_no_tier_reads_as_undeclared(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """A value that names no tier in any case keeps today's warning only."""
+    # Arrange
+    monkeypatch.setenv("GREL_ENVIRONMENT", value)
+
+    # Act
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", GrelmicroFutureWarning)
+        with pytest.warns(GrelmicroConfigWarning, match="is not one of"):
+            micro = Grelmicro()
 
     # Assert
     assert micro.environment is None
@@ -350,13 +337,6 @@ def test_an_unknown_environment_argument_raises_without_a_future_warning(
         warnings.simplefilter("error", GrelmicroFutureWarning)
         with pytest.raises(SettingsValidationError, match="must be one of"):
             Grelmicro(environment=value)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-
-
-def test_the_environment_change_is_pending_until_0_44() -> None:
-    """The stale-entry guard covers the switch."""
-    # Assert
-    assert ENVIRONMENT_CASE in PENDING
-    assert ENVIRONMENT_CASE.switch_in == "0.44.0"
 
 
 def test_a_component_requirement_matches_any_case() -> None:

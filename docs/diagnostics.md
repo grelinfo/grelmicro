@@ -196,10 +196,10 @@ for an interval task. With none to resolve, every fire reports a
 [`Coordination`](coordination/index.md) that holds that backend, or pass
 `backend=` to the task or its `TaskLock`.
 
-`python -m grelmicro check` and `micro.describe()` report it as a warning in
-every tier, `development` and `test` included, since such a task runs nothing
-anywhere. From 0.44.0 it fails in `staging` and `production`,
-so `grelmicro check` exits `1` there.
+`python -m grelmicro check` and `micro.describe()` report it as a failure in
+`staging` and `production`, so `grelmicro check` exits `1` there. It is a
+warning in every other tier, `development` and `test` included, since such a
+task runs nothing anywhere.
 
 ### `health-not-served`
 

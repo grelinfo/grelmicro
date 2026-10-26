@@ -159,9 +159,8 @@ Each set of choices has a type of its own, such as `MetricsExporter` or
 `LogFormat`, for code that annotates a value.
 
 A name a standard spells, such as a JWT algorithm like `RS256`, keeps its
-case. `GREL_ENVIRONMENT` follows the rule from 0.44.0: until then
-`GREL_ENVIRONMENT=Production` reads as undeclared and warns, while
-`environment="Production"` already reads as `production`.
+case. `GREL_ENVIRONMENT=Production` and `environment="Production"` both read
+as `production`.
 
 A runtime state or outcome grelmicro returns for code to branch on stays an
 enum, such as `HealthStatus`, `CircuitBreakerState` or `FireOutcome`. The

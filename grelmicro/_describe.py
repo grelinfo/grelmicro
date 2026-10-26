@@ -1077,13 +1077,18 @@ def _gate_finding(task: TaskReport) -> str:
     )
 
 
-def _gate_checks(tasks: Sequence[TaskReport]) -> list[CheckReport]:
+def _gate_checks(
+    tasks: Sequence[TaskReport], environment: Environment | None
+) -> list[CheckReport]:
     """Report each gated task that resolves no backend to claim through.
 
-    One `warn` entry per such task, in every tier, since such a task runs
-    nothing anywhere. One `ok` entry when every gated task resolves one.
-    Nothing without a gated task.
+    One entry per such task, `fail` in `staging` and `production` and
+    `warn` in every other tier, since such a task runs nothing anywhere.
+    One `ok` entry when every gated task resolves one. Nothing without a
+    gated task.
     """
+    from grelmicro._environment import STRICT_ENVIRONMENTS  # noqa: PLC0415
+
     gated = [task for task in tasks if task.gate is not None]
     if not gated:
         return []
@@ -1096,9 +1101,12 @@ def _gate_checks(tasks: Sequence[TaskReport]) -> list[CheckReport]:
                 detail="every gated task resolves its claim backend",
             )
         ]
+    status: CheckStatus = (
+        "fail" if environment in STRICT_ENVIRONMENTS else "warn"
+    )
     return [
         CheckReport(
-            name=GATE_BACKEND, status="warn", detail=_gate_finding(task)
+            name=GATE_BACKEND, status=status, detail=_gate_finding(task)
         )
         for task in missing
     ]
@@ -1160,7 +1168,7 @@ def _task_reports(
     tasks = tuple(
         describe_task(micro, task, timezone) for task, timezone in scheduled
     )
-    checks = _gate_checks(tasks) + _leader_checks(scheduled)
+    checks = _gate_checks(tasks, micro.environment) + _leader_checks(scheduled)
     return tasks, checks
 
 
