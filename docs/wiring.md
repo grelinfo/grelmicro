@@ -21,6 +21,22 @@ micro = Grelmicro(uses=[redis])
 Now `Lock`, `Cache`, and `RateLimiter` all resolve the Redis backend with no
 extra wiring.
 
+To serve only some kinds, list the components instead of the provider:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache
+from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience import RateLimiterComponent
+
+redis = RedisProvider("redis://localhost:6379/0")
+
+micro = Grelmicro(uses=[Cache(redis), RateLimiterComponent(redis)])
+```
+
+A bare provider registers a default component for each kind nothing else
+claims. `micro.describe()` marks each one with the provider it came from.
+
 !!! warning
     Keep connection URLs in environment variables, not inline like the example
     above. The [Configuration](config.md) page shows the deployment story.

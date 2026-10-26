@@ -242,7 +242,7 @@
       "()": "(*args, **kwargs)"
     },
     "ComponentReport": {
-      "()": "(kind, name, component, backends=(), provider=None, config=<factory>) -> None"
+      "()": "(kind, name, component, backends=(), provider=None, config=<factory>, default_of=None) -> None"
     },
     "EndpointReport": {
       "()": "(method, path, applies=()) -> None"

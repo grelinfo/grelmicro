@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+* ✨ `micro.describe()` names the bare Provider each default component came from in `ComponentReport.default_of`, such as `"RedisProvider"`. `grelmicro check` adds `(default of RedisProvider)` to the line. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
+
 ### Changed
 * ⚡️ The Starlette integration loads authentication, error responses and route gates only when the app uses them. A Starlette app with `Tasks` loads 30 fewer grelmicro modules. ([#1170](https://github.com/grelinfo/grelmicro/pull/1170))
 * ⚡️ `grelmicro.http` and the Starlette integration no longer load the JWT verifier or pydantic-settings at import. ([#1167](https://github.com/grelinfo/grelmicro/pull/1167))
@@ -11,6 +14,7 @@
 * 🐛 The `BackendScopeError` for `Idempotency` or `IdempotentRequests` with no lock backend says to register a `Coordination` with a Redis, Valkey, Postgres or Kubernetes provider, not to use one of those backends. ([#1168](https://github.com/grelinfo/grelmicro/pull/1168))
 
 ### Docs
+* 📝 The wiring guide shows how to serve only some kinds of a provider by listing its components instead of the bare provider. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
 * 📝 The README and docs tagline is back to "Async-first toolkit. Microservice patterns inside." and the comparison page names no single framework. ([#1165](https://github.com/grelinfo/grelmicro/pull/1165))
 
 ### Internal

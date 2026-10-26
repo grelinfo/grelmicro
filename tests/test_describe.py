@@ -180,6 +180,75 @@ def test_describe_on_empty_app() -> None:
     assert "none registered" in text
 
 
+def test_describe_marks_a_bare_provider_defaults() -> None:
+    """Each Component a bare Provider registers names that Provider."""
+    micro = Grelmicro(uses=[MemoryProvider()], environment="development")
+
+    report = micro.describe()
+
+    assert {c.kind: c.default_of for c in report.components} == {
+        "coordination": "MemoryProvider",
+        "cache": "MemoryProvider",
+        "ratelimiter": "MemoryProvider",
+        "circuitbreaker": "MemoryProvider",
+    }
+
+
+def test_describe_does_not_mark_an_explicit_component() -> None:
+    """A Component listed in `uses=` is not a Provider default."""
+    micro = Grelmicro(uses=[Cache(MemoryProvider())], environment="development")
+
+    report = micro.describe()
+
+    [cache] = report.components
+    assert cache.default_of is None
+    assert "default of" not in report.render()
+
+
+def test_describe_marks_only_the_kinds_a_provider_fills() -> None:
+    """An explicit Component wins its kind, the Provider fills the rest."""
+    memory = MemoryProvider()
+    micro = Grelmicro(uses=[memory, Cache(memory)], environment="development")
+
+    report = micro.describe()
+
+    assert {c.kind: c.default_of for c in report.components} == {
+        "cache": None,
+        "coordination": "MemoryProvider",
+        "ratelimiter": "MemoryProvider",
+        "circuitbreaker": "MemoryProvider",
+    }
+
+
+def test_describe_marks_a_provider_used_after_open() -> None:
+    """A Provider passed to `micro.use()` late still names its defaults."""
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    micro.describe()
+
+    micro.use(MemoryProvider())
+
+    report = micro.describe()
+    assert {c.kind: c.default_of for c in report.components} == {
+        "cache": None,
+        "coordination": "MemoryProvider",
+        "ratelimiter": "MemoryProvider",
+        "circuitbreaker": "MemoryProvider",
+    }
+
+
+def test_describe_renders_the_provider_a_default_came_from() -> None:
+    """The text report notes which Provider filled each default."""
+    memory = MemoryProvider()
+    micro = Grelmicro(uses=[memory, Cache(memory)], environment="development")
+
+    lines = micro.describe().render().splitlines()
+
+    cache = next(line for line in lines if "cache/default" in line)
+    ratelimiter = next(line for line in lines if "ratelimiter/default" in line)
+    assert "default of" not in cache
+    assert ratelimiter.endswith("(default of MemoryProvider)")
+
+
 def test_load_target_requires_module_attribute_form() -> None:
     """A target without a colon says what to write instead."""
     with pytest.raises(TargetError, match=r"module:attribute"):
