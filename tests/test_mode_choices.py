@@ -43,11 +43,14 @@ CHOICES = [
     (TraceConfig, "processor", "Simple", "simple"),
     (TraceConfig, "sampler", "TraceIdRatio", "traceidratio"),
     (LogConfig, "level", "debug", "DEBUG"),
-    (LogConfig, "format", "logfmt", "LOGFMT"),
     (LogConfig, "backend", "StructLog", "structlog"),
     (LogConfig, "json_serializer", "STDLIB", "stdlib"),
 ]
-"""Each mode field, a spelling in another case, and the stored spelling."""
+"""Each mode field, a spelling in another case, and the stored spelling.
+
+`LogConfig.format` reads back in uppercase until 0.45.0, so
+`tests/logging/test_log_format_case.py` covers it.
+"""
 
 REMOVED_ENUMS = [
     ("grelmicro.metrics", "MetricsExporterType"),
@@ -127,17 +130,11 @@ def test_the_default_reads_back_as_a_plain_str(
     assert type(value) is str
 
 
-@pytest.mark.parametrize(
-    ("config", "field", "_any", "_stored"),
-    [choice for choice in CHOICES if choice[1] != "format"],
-)
+@pytest.mark.parametrize(("config", "field", "_any", "_stored"), CHOICES)
 def test_an_unknown_choice_is_refused(
     config: type[BaseModel], field: str, _any: str, _stored: str
 ) -> None:
-    """A string that matches no choice in any case fails validation.
-
-    `format` is left out, since it also takes a custom template.
-    """
+    """A string that matches no choice in any case fails validation."""
     # Act / Assert
     with pytest.raises(ValidationError):
         config(**{field: "no-such-choice"})

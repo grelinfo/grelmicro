@@ -123,8 +123,8 @@ def apply(config: LogConfig) -> None:
 class UvicornFormatter(_BaseFormatter):
     """Format-aware uvicorn formatter compatible with ``logging.config.dictConfig``.
 
-    Reads ``GREL_LOG_FORMAT`` and produces the matching output (AUTO, JSON,
-    LOGFMT, TEXT, PRETTY). Reading the environment is opt-in, so it happens
+    Reads ``GREL_LOG_FORMAT`` and produces the matching output (auto, json,
+    logfmt, text, pretty). Reading the environment is opt-in, so it happens
     when ``GREL_ENV_LOAD`` is set, or when ``env_load=True`` is passed from
     a process that cannot set it.
 
@@ -164,17 +164,17 @@ class UvicornFormatter(_BaseFormatter):
         # records do not land in JSON while the rest of the process reads
         # in something else.
         match resolve_template_format(resolved_format):
-            case "LOGFMT":
+            case "logfmt":
                 self._format_record = logfmt_dumps
-            case "PRETTY":
+            case "pretty":
                 self._format_record = lambda r: render_pretty_lines(
                     r, colors=colors
                 )
-            case "TEXT":
+            case "text":
                 self._format_record = lambda r: render_text_line(
                     r, colors=colors
                 )
-            case _:  # JSON
+            case _:  # json
                 self._format_record = json_dumps
 
     def format(self, record: logging.LogRecord) -> str:

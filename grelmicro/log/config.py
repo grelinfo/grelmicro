@@ -1,11 +1,12 @@
 """Logging Configuration."""
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, PlainSerializer
 from typing_extensions import Doc
 
 from grelmicro._config import any_case
+from grelmicro._deprecation import format_case
 from grelmicro._timezone import UTC_NAME
 from grelmicro.types import LogLevel, TimeZoneName
 
@@ -14,7 +15,7 @@ try:
 except ImportError:  # pragma: no cover
     opentelemetry: Any = None  # type: ignore[no-redef]
 
-type LogFormat = Literal["AUTO", "JSON", "LOGFMT", "TEXT", "PRETTY"]
+type LogFormat = Literal["auto", "json", "logfmt", "text", "pretty"]
 """Built-in log format, matched in any case."""
 
 type LogBackend = Literal["loguru", "structlog", "stdlib"]
@@ -22,6 +23,47 @@ type LogBackend = Literal["loguru", "structlog", "stdlib"]
 
 type LogSerializer = Literal["auto", "stdlib", "orjson"]
 """JSON serializer selection, matched in any case."""
+
+
+_FORMAT_NAMES: frozenset[str] = frozenset(get_args(LogFormat.__value__))
+"""The built-in format names, in lowercase."""
+
+
+class _UppercaseFormat(str):
+    """A built-in format read back in uppercase, such as `"JSON"`, until 0.45.0.
+
+    Comparing it with a built-in format name in any case warns with a
+    `Grelmicro045Warning`. Every other use behaves as the plain `str`.
+    """
+
+    __slots__ = ()
+
+    def __eq__(self, other: object) -> bool:
+        """Compare as a `str`, and warn when `other` names a built-in format."""
+        _warn_on_format_name(other)
+        return str.__eq__(self, other)
+
+    def __ne__(self, other: object) -> bool:
+        """Compare as a `str`, and warn when `other` names a built-in format."""
+        _warn_on_format_name(other)
+        return str.__ne__(self, other)
+
+    __hash__ = str.__hash__
+
+
+def _warn_on_format_name(other: object) -> None:
+    """Warn at the comparison when `other` names a built-in format."""
+    if isinstance(other, str) and not isinstance(other, _UppercaseFormat):
+        name = other.lower()
+        if name in _FORMAT_NAMES:
+            format_case(name).warn(stacklevel=3)
+
+
+def _read_back_format(value: str) -> str:
+    """Return a built-in format in uppercase, and a template as written."""
+    if value in _FORMAT_NAMES:
+        return _UppercaseFormat(value.upper())
+    return value
 
 
 class LogConfig(BaseModel, frozen=True, extra="forbid"):
@@ -44,7 +86,9 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("Log format. Built-in option or a custom template string."),
         Field(union_mode="left_to_right", validate_default=True),
         any_case(LogFormat),
-    ] = "AUTO"
+        AfterValidator(_read_back_format),
+        PlainSerializer(str, return_type=str, when_used="json"),
+    ] = _UppercaseFormat("AUTO")
     timezone: Annotated[
         TimeZoneName,
         Doc("IANA timezone for timestamps."),

@@ -50,10 +50,11 @@ class FutureChange:
     adopt: str
     """The setting that adopts the new behavior now."""
 
-    verb: Literal["Pass", "Set"] = "Pass"
+    verb: Literal["Pass", "Set", "Compare"] = "Pass"
     """How the message asks for `keep` and `adopt`.
 
-    "Pass" for an argument and "Set" for an environment variable.
+    "Pass" for an argument, "Set" for an environment variable, and
+    "Compare" for a value read back.
     """
 
     narrow: type[GrelmicroFutureWarning] | None = None
@@ -185,5 +186,32 @@ def unread_env(name: str) -> FutureChange:
     )
 
 
-PENDING: tuple[FutureChange | Rename | Removal, ...] = (ENV_LOAD_DEFAULT,)
+FORMAT_CASE = FutureChange(
+    change='`LogConfig.format` reads back in lowercase, such as `"json"` '
+    'rather than `"JSON"`',
+    switch_in="0.45.0",
+    keep=None,
+    adopt='config.format.lower() == "json"',
+    verb="Compare",
+)
+"""A built-in `LogConfig.format` reads back in lowercase."""
+
+
+def format_case(name: str) -> FutureChange:
+    """Return `FORMAT_CASE` worded for the built-in format `name`.
+
+    `name` is the format in lowercase, such as `json`.
+    """
+    return replace(
+        FORMAT_CASE,
+        change=f'`LogConfig.format` reads back as `"{name}"` '
+        f'rather than `"{name.upper()}"`',
+        adopt=f'config.format.lower() == "{name}"',
+    )
+
+
+PENDING: tuple[FutureChange | Rename | Removal, ...] = (
+    ENV_LOAD_DEFAULT,
+    FORMAT_CASE,
+)
 """Every behavior change, rename and removal that currently warns."""

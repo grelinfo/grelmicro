@@ -2,7 +2,7 @@ from loguru import logger
 
 from grelmicro.log import configure
 
-configure(backend="loguru", format="JSON")
+configure(backend="loguru", format="json")
 
 logger.debug("This is a debug message")
 logger.info("This is an info message")

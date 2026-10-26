@@ -149,7 +149,7 @@ from grelmicro.log import configure
 from grelmicro.metrics import Metrics
 
 Metrics(exporter="prometheus")
-configure(backend="loguru", format="JSON")
+configure(backend="loguru", format="json")
 ```
 
 grelmicro matches the string in any case and keeps the documented spelling,

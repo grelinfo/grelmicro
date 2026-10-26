@@ -10,7 +10,7 @@ from grelmicro.log import configure
 trace.set_tracer_provider(TracerProvider())
 
 # Configure logging (auto-detects OpenTelemetry)
-configure(backend="loguru", format="JSON")
+configure(backend="loguru", format="json")
 
 # Get a tracer
 tracer = trace.get_tracer(__name__)

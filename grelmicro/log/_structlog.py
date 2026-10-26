@@ -202,7 +202,7 @@ def configure(config: LogConfig | None = None) -> None:
 
     Environment Variables:
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
-        LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY). Default: AUTO
+        LOG_FORMAT: Log format (auto, json, logfmt, text, pretty). Default: auto
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
         LOG_CALLER_ENABLED: Include caller (function:line) in log records. Default: False
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
@@ -241,7 +241,7 @@ def configure(config: LogConfig | None = None) -> None:
     if settings.otel_enabled:
         processors.append(_add_otel_context)
 
-    if resolved_format == "JSON":
+    if resolved_format == "json":
         processors.append(_build_flat_record)
         if resolve_serializer(settings.json_serializer) == "orjson":
             # Decoded and written as text, not to the byte stream under
@@ -260,10 +260,10 @@ def configure(config: LogConfig | None = None) -> None:
         logger_factory: structlog.PrintLoggerFactory = (
             structlog.PrintLoggerFactory(file=get_stream())
         )
-    elif resolved_format == "LOGFMT":
+    elif resolved_format == "logfmt":
         processors.append(_render_logfmt)
         logger_factory = structlog.PrintLoggerFactory(file=get_stream())
-    elif resolved_format == "PRETTY":
+    elif resolved_format == "pretty":
         processors.append(_make_pretty_renderer(colors=colors))
         logger_factory = structlog.PrintLoggerFactory(file=get_stream())
     else:

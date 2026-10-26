@@ -66,7 +66,7 @@ populates `os.environ` works, and relative paths are fine:
 ```bash
 # .env
 GREL_ENV_LOAD=1
-GREL_LOG_FORMAT=PRETTY
+GREL_LOG_FORMAT=pretty
 GREL_LOCK_CART_LEASE_DURATION=60
 ```
 
@@ -82,7 +82,7 @@ option for logging:
 ```python
 from grelmicro.log import configure
 
-configure(format="PRETTY")
+configure(format="pretty")
 ```
 
 `ExternalConfig` reads a `.env` as well, but it feeds *reconfigurable*
