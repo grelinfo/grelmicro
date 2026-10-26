@@ -121,7 +121,7 @@ test-matrix:
 # release, because the only Python it tested was the primary one.
 [doc("Run everything the Release workflow will run, before the tag exists")]
 release-check version: (release-check-fast version) test-matrix demo-smoke
-    @echo "release-check passed for {{version}}"
+    @echo "release-check passed for {{version}}. Next: just release-audit {{version}}"
 
 # `release-check` without the demo tier, for iterating.
 [doc("release-check without the demo tier, for iterating")]
@@ -166,7 +166,13 @@ release version:
     fi
     just release-check "{{version}}"
     echo
-    echo "Preflight passed. The tag is immutable, so cutting it is yours:"
+    echo "Preflight passed. Dry run the release workflow on main, then audit"
+    echo "and paste the report into the release discussion:"
+    echo
+    echo "  gh workflow run release.yml --ref main -f version={{version}} -f dry_run=true"
+    echo "  just release-audit {{version}}"
+    echo
+    echo "The tag is immutable, so cutting it is yours:"
     echo
     echo "  just release-notes {{version}} > /tmp/notes-{{version}}.md"
     echo "  gh release create {{version}} --target main \\"
@@ -175,6 +181,14 @@ release version:
     echo "Then, once the workflow finishes:"
     echo
     echo "  just verify-release {{version}}"
+
+# One Markdown report to read before approving a release: the changelog
+# against the patch policy, the public API diff since the last tag, the
+# deprecations due, and the nightly and dry-run CI results. It reaches
+# GitHub through its public API with no token, so it runs in a sandbox.
+[doc("Print the pre-release report to read before approving a release")]
+release-audit version:
+    @uv run python tools/release_audit.py "{{version}}"
 
 # Print a version's changelog section, which is the GitHub Release body.
 release-notes version:
