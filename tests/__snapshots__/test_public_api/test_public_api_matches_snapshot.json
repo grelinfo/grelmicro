@@ -578,24 +578,12 @@
       ".from_config": "(config, *, name='default') -> 'Self'"
     },
     "LogBackend": null,
-    "LogBackendType": {
-      "()": "(*values)"
-    },
     "LogConfig": {
       "()": "(*, backend='stdlib', level='INFO', format='AUTO', timezone='UTC', json_serializer='auto', caller_enabled=False, otel_enabled=True, uvicorn_enabled=True, queue_enabled=False, queue_size=10000) -> None"
     },
     "LogError": null,
     "LogFormat": null,
-    "LogFormatType": {
-      "()": "(*values)"
-    },
-    "LogLevelType": {
-      "()": "(*values)"
-    },
     "LogSerializer": null,
-    "LogSerializerType": {
-      "()": "(*values)"
-    },
     "ProbeFilter": {
       "()": "(paths=None) -> None"
     },
@@ -635,9 +623,6 @@
     },
     "MetricsError": null,
     "MetricsExporter": null,
-    "MetricsExporterType": {
-      "()": "(*values)"
-    },
     "measure": {
       "()": "(func=None, *, name=None, record_in_flight=False) -> 'Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]'"
     },
@@ -1172,17 +1157,8 @@
     },
     "TraceError": null,
     "TraceExporter": null,
-    "TraceExporterType": {
-      "()": "(*values)"
-    },
     "TraceProcessor": null,
-    "TraceProcessorType": {
-      "()": "(*values)"
-    },
     "TraceSampler": null,
-    "TraceSamplerType": {
-      "()": "(*values)"
-    },
     "add_context": {
       "()": "(**fields) -> 'None'"
     },

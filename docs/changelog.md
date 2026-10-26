@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+* 💥 A mode field such as `MetricsConfig.exporter` reads back as a plain `str`, not as its old enum member. `.value` and `.name` raise `AttributeError`. Compare it with the string. ([#1175](https://github.com/grelinfo/grelmicro/pull/1175))
+* 💥 `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` are removed. Pass the string instead. ([#1175](https://github.com/grelinfo/grelmicro/pull/1175))
+
 ### Added
 * ✨ `micro.describe()` names the bare Provider each default component came from in `ComponentReport.default_of`, such as `"RedisProvider"`. `grelmicro check` adds `(default of RedisProvider)` to the line. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
 

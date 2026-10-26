@@ -137,46 +137,6 @@ class Removal:
         )
 
 
-def _mode_enum(old: str, example: str, alias: str) -> Removal:
-    """Return the removal of the mode enum `old` in favor of a string."""
-    return Removal(
-        old=old,
-        use=f'`"{example}"` and the `{alias}` type',
-        removed_in="0.44.0",
-    )
-
-
-MODE_ENUMS: dict[str, Removal] = {
-    removal.old: removal
-    for removal in (
-        _mode_enum("MetricsExporterType", "prometheus", "MetricsExporter"),
-        _mode_enum("TraceExporterType", "otlp-http", "TraceExporter"),
-        _mode_enum("TraceProcessorType", "batch", "TraceProcessor"),
-        _mode_enum("TraceSamplerType", "parentbased_always_on", "TraceSampler"),
-        _mode_enum("LogLevelType", "INFO", "LogLevel"),
-        _mode_enum("LogFormatType", "JSON", "LogFormat"),
-        _mode_enum("LogBackendType", "loguru", "LogBackend"),
-        _mode_enum("LogSerializerType", "orjson", "LogSerializer"),
-    )
-}
-"""The mode enums replaced by string literals, by name."""
-
-
-MEMBER_ATTRIBUTES: dict[tuple[str, str], Removal] = {
-    (name, attribute): Removal(
-        old=f"{name}.{attribute}",
-        use="the member as a plain `str`",
-        removed_in="0.44.0",
-    )
-    for name in MODE_ENUMS
-    for attribute in ("value", "name")
-}
-"""`.value` and `.name` of a mode enum member, by enum name and attribute.
-
-A mode field reads back as a plain `str` from 0.44.0, which has neither.
-"""
-
-
 ENVIRONMENT_CASE = FutureChange(
     change="A tier in another case, such as `GREL_ENVIRONMENT=Production`, "
     "reads as undeclared today and as that tier",
@@ -249,8 +209,6 @@ PROVIDERS_DEFAULT = FutureChange(
 
 
 PENDING: tuple[FutureChange | Rename | Removal, ...] = (
-    *MODE_ENUMS.values(),
-    *MEMBER_ATTRIBUTES.values(),
     ENVIRONMENT_CASE,
     ENV_LOAD_DEFAULT,
     *AUTO_HEALTH.values(),

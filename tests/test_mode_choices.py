@@ -1,16 +1,11 @@
 """An argument that picks a mode takes a string literal, matched in any case."""
 
 import annotationlib
-import copy
 import importlib
 import json
-import pickle
 import re
 import warnings
 from collections.abc import Callable
-from enum import StrEnum
-from types import SimpleNamespace
-from typing import Literal
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -19,8 +14,6 @@ from grelmicro import Grelmicro
 from grelmicro._config import resolve_config
 from grelmicro._deprecation import (
     ENVIRONMENT_CASE,
-    MEMBER_ATTRIBUTES,
-    MODE_ENUMS,
     PENDING,
     environment_case,
 )
@@ -62,41 +55,17 @@ CHOICES = [
 ]
 """Each mode field, a spelling in another case, and the stored spelling."""
 
-ENUMS = [
-    ("grelmicro.metrics.config", "MetricsExporterType", "PROMETHEUS"),
-    ("grelmicro.trace.config", "TraceExporterType", "OTLP_HTTP"),
-    ("grelmicro.trace.config", "TraceProcessorType", "SIMPLE"),
-    ("grelmicro.trace.config", "TraceSamplerType", "TRACEIDRATIO"),
-    ("grelmicro.log.config", "LogLevelType", "DEBUG"),
-    ("grelmicro.log.config", "LogFormatType", "LOGFMT"),
-    ("grelmicro.log.config", "LogBackendType", "STRUCTLOG"),
-    ("grelmicro.log.config", "LogSerializerType", "STDLIB"),
+REMOVED_ENUMS = [
+    ("grelmicro.metrics", "MetricsExporterType"),
+    ("grelmicro.trace", "TraceExporterType"),
+    ("grelmicro.trace", "TraceProcessorType"),
+    ("grelmicro.trace", "TraceSamplerType"),
+    ("grelmicro.log", "LogLevelType"),
+    ("grelmicro.log", "LogFormatType"),
+    ("grelmicro.log", "LogBackendType"),
+    ("grelmicro.log", "LogSerializerType"),
 ]
-"""Each mode enum, the config module it lived in, and a member, in `CHOICES` order."""
-
-
-NEW_TYPES = {
-    "MetricsExporterType": ("grelmicro.metrics", "MetricsExporter"),
-    "TraceExporterType": ("grelmicro.trace", "TraceExporter"),
-    "TraceProcessorType": ("grelmicro.trace", "TraceProcessor"),
-    "TraceSamplerType": ("grelmicro.trace", "TraceSampler"),
-    "LogLevelType": ("grelmicro.types", "LogLevel"),
-    "LogFormatType": ("grelmicro.log", "LogFormat"),
-    "LogBackendType": ("grelmicro.log", "LogBackend"),
-    "LogSerializerType": ("grelmicro.log", "LogSerializer"),
-}
-"""The `Literal` type that replaces each mode enum, and where it lives."""
-
-
-def _package(module: str) -> str:
-    """Return the package that re-exported the enums of `module`."""
-    return module.removesuffix(".config")
-
-
-def _enum(module: str, name: str) -> type[StrEnum]:
-    """Return a mode enum, silencing the warning it raises."""
-    with pytest.warns(GrelmicroFutureWarning):
-        return getattr(importlib.import_module(module), name)
+"""Each mode enum removed in 0.44.0, and the package that exported it."""
 
 
 @pytest.mark.parametrize(("config", "field", "_any", "stored"), CHOICES)
@@ -109,7 +78,7 @@ def test_the_stored_spelling_is_accepted(
 
     # Assert
     assert value == stored
-    assert isinstance(value, str)
+    assert type(value) is str
 
 
 @pytest.mark.parametrize(("config", "field", "spelling", "stored"), CHOICES)
@@ -122,7 +91,7 @@ def test_any_case_reads_as_the_stored_spelling(
 
     # Assert
     assert value == stored
-    assert isinstance(value, str)
+    assert type(value) is str
 
 
 @pytest.mark.parametrize(("config", "field", "spelling", "stored"), CHOICES)
@@ -149,50 +118,19 @@ def test_any_case_reads_from_the_environment(
     # Assert
     value = getattr(resolved, field)
     assert value == stored
-    assert isinstance(value, str)
+    assert type(value) is str
 
 
-@pytest.mark.parametrize(
-    ("choice", "enum"), list(zip(CHOICES, ENUMS, strict=True))
-)
-def test_an_enum_member_still_validates_as_a_string(
-    choice: tuple[type[BaseModel], str, str, str],
-    enum: tuple[str, str, str],
+@pytest.mark.parametrize(("config", "field", "_any", "_stored"), CHOICES)
+def test_the_default_reads_back_as_a_plain_str(
+    config: type[BaseModel], field: str, _any: str, _stored: str
 ) -> None:
-    """A member of the old enum is accepted and read back as that member."""
-    # Arrange
-    config, field, _, stored = choice
-    module, name, member = enum
-    value = _enum(module, name)[member]
-
+    """A mode field left at its default holds a plain `str`."""
     # Act
-    result = getattr(config(**{field: value}), field)
+    value = getattr(config(), field)
 
     # Assert
-    assert result == stored
-    assert result is value
-
-
-@pytest.mark.parametrize(
-    ("choice", "enum"), list(zip(CHOICES, ENUMS, strict=True))
-)
-def test_a_string_reads_back_as_the_old_enum_member_until_0_44(
-    choice: tuple[type[BaseModel], str, str, str],
-    enum: tuple[str, str, str],
-) -> None:
-    """A string reads back as its member, so `is` and `.value` still work."""
-    # Arrange
-    config, field, spelling, stored = choice
-    module, name, member = enum
-    expected = _enum(module, name)[member]
-
-    # Act
-    result = getattr(config(**{field: spelling}), field)
-
-    # Assert
-    assert result is expected
-    with pytest.warns(GrelmicroFutureWarning):
-        assert result.value == stored
+    assert type(value) is str
 
 
 @pytest.mark.parametrize(
@@ -240,275 +178,36 @@ def test_an_unknown_env_choice_reports_the_field() -> None:
         )
 
 
-@pytest.mark.parametrize(("module", "name", "_member"), ENUMS)
-def test_the_config_module_warns_on_each_access(
-    module: str, name: str, _member: str
-) -> None:
-    """Reading the enum from its config module warns every time, at the caller."""
-    # Arrange
-    source = importlib.import_module(module)
-    message = re.escape(MODE_ENUMS[name].message)
-
+@pytest.mark.parametrize(("package", "name"), REMOVED_ENUMS)
+def test_a_removed_enum_no_longer_imports(package: str, name: str) -> None:
+    """The old enum is gone from its package and its config module."""
     # Act / Assert
-    for _ in range(2):
-        with pytest.warns(GrelmicroFutureWarning, match=message) as caught:
-            getattr(source, name)
-        assert caught[0].filename == __file__
-
-
-@pytest.mark.parametrize(("module", "name", "_member"), ENUMS)
-def test_the_package_warns_on_each_access(
-    module: str, name: str, _member: str
-) -> None:
-    """Reading the enum from its package warns every time, at the caller."""
-    # Arrange
-    package = importlib.import_module(_package(module))
-    message = re.escape(MODE_ENUMS[name].message)
-
-    # Act / Assert
-    for _ in range(2):
-        with pytest.warns(GrelmicroFutureWarning, match=message) as caught:
-            getattr(package, name)
-        assert caught[0].filename == __file__
-    assert name not in vars(package)
-    assert name in package.__all__
+    for source in (package, f"{package}.config"):
+        with pytest.raises(ImportError, match=name):
+            exec(f"from {source} import {name}", {})  # noqa: S102
+        with pytest.raises(AttributeError, match=name):
+            getattr(importlib.import_module(source), name)
 
 
 @pytest.mark.parametrize(
     "package", ["grelmicro.metrics", "grelmicro.trace", "grelmicro.log"]
 )
-def test_star_import_binds_the_old_enums_and_warns(package: str) -> None:
-    """`from grelmicro.log import *` still binds each old enum, with a warning."""
+def test_a_removed_enum_is_off_the_public_surface(package: str) -> None:
+    """`__all__` and `dir()` no longer list the old enums."""
     # Arrange
-    names = {name for module, name, _ in ENUMS if _package(module) == package}
-    namespace: dict[str, object] = {}
-
-    # Act
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        exec(f"from {package} import *", namespace)  # noqa: S102
-
-    # Assert
-    future = [
-        warning
-        for warning in caught
-        if issubclass(warning.category, GrelmicroFutureWarning)
-    ]
-    assert {str(warning.message) for warning in future} == {
-        MODE_ENUMS[name].message for name in names
-    }
-    assert {warning.filename for warning in future} == {"<string>"}
-    for name in names:
-        assert namespace[name] is _enum(f"{package}.config", name)
-
-
-@pytest.mark.parametrize(("module", "name", "_member"), ENUMS)
-def test_from_import_warns(module: str, name: str, _member: str) -> None:
-    """`from ... import` of an old enum warns."""
-    # Act / Assert
-    for source in (module, _package(module)):
-        with pytest.warns(GrelmicroFutureWarning):
-            exec(f"from {source} import {name}", {})  # noqa: S102
-
-
-@pytest.mark.parametrize(("module", "name", "_member"), ENUMS)
-def test_the_package_and_the_module_serve_the_same_enum(
-    module: str, name: str, _member: str
-) -> None:
-    """Both locations return one class, so an `is` check keeps working."""
-    # Act
-    from_module = _enum(module, name)
-    from_package = _enum(_package(module), name)
-
-    # Assert
-    assert from_module is from_package
-
-
-@pytest.mark.parametrize(("module", "name", "member"), ENUMS)
-def test_an_old_enum_still_looks_up_in_any_case(
-    module: str, name: str, member: str
-) -> None:
-    """`MetricsExporterType("Prometheus")` keeps returning the member."""
-    # Arrange
-    enum = _enum(module, name)
-
-    # Act
-    found = enum(str(enum[member]).swapcase())
-
-    # Assert
-    assert found is enum[member]
-
-
-@pytest.mark.parametrize("value", [1, "no-such-choice"])
-@pytest.mark.parametrize(("module", "name", "_member"), ENUMS)
-def test_an_old_enum_refuses_an_unknown_value(
-    module: str, name: str, _member: str, value: object
-) -> None:
-    """A lookup by a non-string or an unknown string matches no member."""
-    # Arrange
-    enum = _enum(module, name)
+    module = importlib.import_module(package)
+    removed = {name for source, name in REMOVED_ENUMS if source == package}
 
     # Act / Assert
-    with pytest.raises(ValueError, match="is not a valid"):
-        enum(value)
-
-
-@pytest.mark.parametrize(
-    "module",
-    [
-        "grelmicro.log",
-        "grelmicro.log.config",
-        "grelmicro.metrics.config",
-        "grelmicro.trace.config",
-    ],
-)
-def test_an_unknown_name_still_raises_attribute_error(module: str) -> None:
-    """The module `__getattr__` serves the old enums and nothing else."""
-    # Arrange
-    source = importlib.import_module(module)
-
-    # Act / Assert
-    with pytest.raises(AttributeError, match=f"module '{module}' has no attr"):
-        source.missing_name  # noqa: B018
-
-
-@pytest.mark.parametrize(("module", "name", "_member"), ENUMS)
-def test_the_old_enum_warns_and_the_new_type_does_not(
-    module: str, name: str, _member: str
-) -> None:
-    """The removal named in the message is the one the old name warns with."""
-    # Arrange
-    package = importlib.import_module(_package(module))
-    new_module, new_name = NEW_TYPES[name]
-    new = importlib.import_module(new_module)
-
-    # Act / Assert
-    assert_future_warning(
-        MODE_ENUMS[name],
-        default=lambda: getattr(package, name),
-        explicit=lambda: getattr(new, new_name),
-    )
-    assert f"`{new_name}`" in MODE_ENUMS[name].message
-
-
-def test_every_old_enum_is_a_pending_removal() -> None:
-    """The stale-entry guard covers each alias, so none outlives 0.44.0."""
-    # Act
-    names = {name for _, name, _ in ENUMS}
-    removals = [*MODE_ENUMS.values(), *MEMBER_ATTRIBUTES.values()]
-
-    # Assert
-    assert set(MODE_ENUMS) == names
-    assert set(MEMBER_ATTRIBUTES) == {
-        (name, attribute) for name in names for attribute in ("value", "name")
-    }
-    assert all(removal in PENDING for removal in removals)
-    assert {removal.removed_in for removal in removals} == {"0.44.0"}
-
-
-@pytest.mark.parametrize(("module", "name", "_member"), ENUMS)
-def test_an_old_enum_is_deprecated_for_checkers(
-    module: str, name: str, _member: str
-) -> None:
-    """`@deprecated` carries the runtime message, and adds no warning of its own."""
-    # Arrange
-    enum = _enum(module, name)
-
-    # Act / Assert
-    assert enum.__deprecated__ == MODE_ENUMS[name].message  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        list(enum)
-
-
-@pytest.mark.parametrize(("module", "name", "member"), ENUMS)
-def test_reading_value_of_a_member_warns_at_the_caller(
-    module: str, name: str, member: str
-) -> None:
-    """`.value` returns the string and warns it is gone from 0.44.0."""
-    # Arrange
-    item = _enum(module, name)[member]
-    message = re.escape(MEMBER_ATTRIBUTES[name, "value"].message)
-
-    # Act
-    with pytest.warns(GrelmicroFutureWarning, match=message) as caught:
-        value = item.value
-
-    # Assert
-    assert value == item
-    assert type(value) is str
-    assert caught[0].filename == __file__
-
-
-@pytest.mark.parametrize(("module", "name", "member"), ENUMS)
-def test_reading_name_of_a_member_warns_at_the_caller(
-    module: str, name: str, member: str
-) -> None:
-    """`.name` returns the member name and warns it is gone from 0.44.0."""
-    # Arrange
-    item = _enum(module, name)[member]
-    message = re.escape(MEMBER_ATTRIBUTES[name, "name"].message)
-
-    # Act
-    with pytest.warns(GrelmicroFutureWarning, match=message) as caught:
-        found = item.name
-
-    # Assert
-    assert found == member
-    assert caught[0].filename == __file__
-
-
-def test_the_member_attribute_message() -> None:
-    """The message names the attribute and what to use instead."""
-    assert MEMBER_ATTRIBUTES["LogLevelType", "value"].message == (
-        "`LogLevelType.value` is removed in 0.44.0. "
-        "Use the member as a plain `str` instead."
-    )
-
-
-class _LevelModel(BaseModel):
-    """A model with a `Literal` field, as a user would declare one."""
-
-    level: Literal["DEBUG", "INFO"]
-
-
-def _silent_uses(enum: type[StrEnum], member: str) -> None:
-    """Use a member every way that does not read `.value` or `.name`."""
-    item = enum[member]
-    text = item._value_
-    assert item == text
-    assert hash(item) == hash(enum[member])
-    assert str(item) == text
-    assert f"{item}" == text
-    assert member in repr(item)
-    assert enum(text) is item
-    assert enum(text.swapcase()) is item
-    assert item in list(enum)
-    assert {text: 1}[item] == 1
-    assert json.dumps(item) == json.dumps(text)
-    assert pickle.loads(pickle.dumps(item)) is item  # noqa: S301
-    assert copy.deepcopy(item) is item
-
-
-@pytest.mark.parametrize(("module", "name", "member"), ENUMS)
-def test_every_other_use_of_a_member_is_silent(
-    module: str, name: str, member: str
-) -> None:
-    """Comparing, hashing, printing and serializing a member warn nothing."""
-    # Arrange
-    enum = _enum(module, name)
-
-    # Act / Assert
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        _silent_uses(enum, member)
+    assert removed.isdisjoint(module.__all__)
+    assert removed.isdisjoint(dir(module))
 
 
 @pytest.mark.parametrize(("config", "field", "_any", "stored"), CHOICES)
 def test_a_mode_field_dumps_to_json_silently(
     config: type[BaseModel], field: str, _any: str, stored: str
 ) -> None:
-    """A config dumps its mode fields as strings, without reading `.value`."""
+    """A config dumps its mode fields to JSON as plain strings, silently."""
     # Arrange
     model = config(**{field: stored})
 
@@ -524,26 +223,6 @@ def test_a_mode_field_dumps_to_json_silently(
     assert json.loads(text)[field] == stored
 
 
-def test_a_member_in_a_literal_field_is_silent() -> None:
-    """Pydantic and `match` take a member without reading `.value`."""
-    # Arrange
-    members = SimpleNamespace(
-        INFO=_enum("grelmicro.log.config", "LogLevelType")["INFO"]
-    )
-
-    # Act / Assert
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        model = _LevelModel(level=members.INFO)
-        assert model.model_dump() == {"level": "INFO"}
-        assert model.model_dump_json() == '{"level":"INFO"}'
-        match "INFO":
-            case members.INFO:
-                pass
-            case _:  # pragma: no cover
-                pytest.fail("match missed the member")
-
-
 def test_a_circuit_breaker_log_level_matches_any_case() -> None:
     """The breaker's `log_level` reads `error` as `ERROR`, like `LogConfig`."""
     # Act
@@ -554,15 +233,10 @@ def test_a_circuit_breaker_log_level_matches_any_case() -> None:
 
 
 @pytest.mark.parametrize("callable_", [Metrics, Trace, Log, configure])
-def test_a_widened_signature_names_only_pending_enums(
+def test_a_mode_parameter_names_no_removed_enum(
     callable_: Callable[..., object],
 ) -> None:
-    """A signature names an old enum only while its removal is pending.
-
-    Each mode parameter also takes the old enum for type checkers until
-    0.44.0. Once `MODE_ENUMS` drops an entry, a signature still naming it
-    fails here.
-    """
+    """Each mode parameter takes the `Literal` type, not an old enum."""
     # Arrange
     target = callable_.__init__ if isinstance(callable_, type) else callable_
 
@@ -570,15 +244,14 @@ def test_a_widened_signature_names_only_pending_enums(
     annotations = annotationlib.get_annotations(
         target, format=annotationlib.Format.STRING
     )
+
+    # Assert
     named = {
         name
         for annotation in annotations.values()
         for name in re.findall(r"\b\w+Type\b", annotation)
     }
-
-    # Assert
-    assert named
-    assert named <= set(MODE_ENUMS)
+    assert named == set()
 
 
 OTHER_CASE_TIERS = [
