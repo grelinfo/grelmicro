@@ -184,6 +184,18 @@ def test_resolved_name_is_cached_on_the_package(name: str) -> None:
 
 
 _LAZY_MODULES: dict[str, frozenset[str]] = {
+    "grelmicro.integrations.fastapi": frozenset(
+        {
+            "CheckResultResponse",
+            "HealthzResponse",
+            "health_router",
+            "install",
+            "install_error_responses",
+            "install_middleware",
+            "install_route_gate",
+            "route_declarations",
+        }
+    ),
     "grelmicro.integrations.starlette": frozenset(
         {
             "install",

@@ -824,6 +824,31 @@ def test_a_route_metering_nothing_says_so(
     assert len(records_of(caplog, "grelmicro.integrations")) == 1
 
 
+def test_a_route_metering_nothing_logs_as_the_fastapi_integration(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The warning names the FastAPI integration's logger."""
+    # Arrange
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    @app.get("/search", dependencies=[RateLimited(_limiter("search", 1))])
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.integrations"),
+        TestClient(app, client=CALLER) as client,
+    ):
+        client.get("/search")
+
+    # Assert
+    assert [
+        record.name for record in records_of(caplog, "grelmicro.integrations")
+    ] == ["grelmicro.integrations.fastapi"]
+
+
 def test_a_route_that_resolves_nobody_meters_nothing(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

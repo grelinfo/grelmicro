@@ -5,10 +5,8 @@ The lifespan, the binding, and the error responses are pure ASGI and live in
 the OpenAPI schema and the health and metrics routers.
 """
 
-import logging
 import weakref
 from collections.abc import Callable, Collection, Iterator, Sequence
-from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Final
 
 from grelmicro.integrations._floor import (
@@ -33,17 +31,7 @@ try:
     # imported here.
     from fastapi import APIRouter, FastAPI
     from fastapi import Depends as _Depends
-    from fastapi import Header as _Header
-    from fastapi import Request as _Request
-    from fastapi import Response as _Response
-    from fastapi import Security as _Security
     from fastapi.params import Depends
-    from fastapi.requests import (
-        HTTPConnection as _HTTPConnection,
-    )
-    from fastapi.security import (
-        SecurityScopes as _SecurityScopes,
-    )
     from opentelemetry import trace as _otel_trace
     from starlette.middleware import Middleware
     from starlette.types import ASGIApp, Receive, Scope, Send
@@ -61,7 +49,6 @@ from grelmicro import (
     Grelmicro,
     NoActiveAppError,
 )
-from grelmicro._caller import is_authenticated
 from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._endpoints import (
@@ -76,56 +63,12 @@ from grelmicro.health._served import (
     health_endpoints_in,
     mark_health_endpoint,
 )
-from grelmicro.http import (
-    ErrorResponses,
-    Gate,
-    PreconditionRequiredError,
-    RouteDeclaration,
-    check_freshness,
-)
-from grelmicro.http._authentication import (
-    declare_anonymous,
-    describe_app_schema,
-)
-from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
-from grelmicro.http._conditional import (
-    _check_sent_precondition,
-    declare_precondition_required,
-)
-from grelmicro.http._openapi import (
-    add_error_schema,
-    describing,
-    referenced,
-)
-from grelmicro.http._ratelimit import (
-    bucket_of,
-    check_route_limiters,
-    spend,
-    state_on,
-)
-from grelmicro.http._requirement import (
-    Requirement,
-    declare_from_request,
-    declare_optional,
-    requirement_for,
-)
-from grelmicro.http._response_cache import declare_cached
+from grelmicro.http import Gate, RouteDeclaration
 from grelmicro.integrations import _fastapi_internals as _fastapi
 from grelmicro.integrations._fastapi_internals import telemetry_of
-from grelmicro.integrations._request_telemetry import (
-    exceptions_on_spans,
-    excluding,
-    normal_close,
-)
-from grelmicro.integrations._route_gate import (
-    declarations_of,
-    gate_routes,
-    shadowed_routes,
-)
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
     _keep_watching_outside,
-    is_bound,
 )
 from grelmicro.integrations.starlette import (
     _front_middleware as _starlette_front_middleware,
@@ -140,18 +83,27 @@ from grelmicro.integrations.starlette import (
 from grelmicro.integrations.starlette import (
     install_middleware as _install_middleware_starlette,
 )
-from grelmicro.metrics._component import Metrics
-from grelmicro.metrics._endpoints import (
-    PROMETHEUS_MEDIA_TYPE,
-    render_prometheus,
-)
-from grelmicro.resilience.errors import RateLimitExceededError
-from grelmicro.resilience.ratelimiter import RateLimiter
-from grelmicro.security.clientip import TrustedProxies
-from grelmicro.security.jwt import JWTClaims
-from grelmicro.security.principal import Principal, VerifiedToken
-from grelmicro.trace._autoinstrument import is_selected
-from grelmicro.trace._component import Trace
+
+if TYPE_CHECKING:
+    from grelmicro.http import ErrorResponses
+    from grelmicro.integrations._fastapi_auth import (
+        Anonymous,
+        Authenticated,
+        Claims,
+        CurrentPrincipal,
+        CurrentToken,
+        OptionalPrincipal,
+    )
+    from grelmicro.integrations._fastapi_cache import CachedResponse
+    from grelmicro.integrations._fastapi_conditional import (
+        Conditional,
+        ConditionalRequest,
+        ConditionalRequired,
+    )
+    from grelmicro.integrations._fastapi_metrics import metrics_router
+    from grelmicro.integrations._fastapi_ratelimit import RateLimited
+    from grelmicro.integrations._starlette_errors import error_response
+    from grelmicro.integrations.starlette import is_bound
 
 __all__ = [
     "Anonymous",
@@ -178,29 +130,41 @@ __all__ = [
     "route_declarations",
 ]
 
-if TYPE_CHECKING:
-    from grelmicro.integrations._starlette_errors import error_response
+_LAZY: dict[str, str] = {
+    "Anonymous": "grelmicro.integrations._fastapi_auth",
+    "Authenticated": "grelmicro.integrations._fastapi_auth",
+    "CachedResponse": "grelmicro.integrations._fastapi_cache",
+    "Claims": "grelmicro.integrations._fastapi_auth",
+    "Conditional": "grelmicro.integrations._fastapi_conditional",
+    "ConditionalRequest": "grelmicro.integrations._fastapi_conditional",
+    "ConditionalRequired": "grelmicro.integrations._fastapi_conditional",
+    "CurrentPrincipal": "grelmicro.integrations._fastapi_auth",
+    "CurrentToken": "grelmicro.integrations._fastapi_auth",
+    "OptionalPrincipal": "grelmicro.integrations._fastapi_auth",
+    "RateLimited": "grelmicro.integrations._fastapi_ratelimit",
+    "error_response": "grelmicro.integrations._starlette_errors",
+    "is_bound": "grelmicro.integrations.starlette",
+    "metrics_router": "grelmicro.integrations._fastapi_metrics",
+}
+"""The submodule each public name loads from."""
 
 
 def __getattr__(name: str) -> object:
-    """Load `error_response` on first access and cache it on the module."""
-    if name != "error_response":
+    """Load `name` from its submodule and cache it on the module."""
+    module = _LAZY.get(name)
+    if module is None:
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg)
-    from grelmicro.integrations.starlette import (  # noqa: PLC0415
-        error_response,
-    )
+    import importlib  # noqa: PLC0415
 
-    globals()[name] = error_response
-    return error_response
+    value = getattr(importlib.import_module(module), name)
+    globals()[name] = value
+    return value
 
 
 def __dir__() -> list[str]:
     """Return the loaded attributes and every public name."""
     return sorted({*globals(), *__all__})
-
-
-_logger = logging.getLogger(__name__)
 
 
 def install(
@@ -298,7 +262,7 @@ def install_error_responses(
         Doc("The FastAPI application to wire."),
     ],
     errors: Annotated[
-        ErrorResponses,
+        "ErrorResponses",  # noqa: UP037
         Doc("The registered component that renders each rejection."),
     ],
 ) -> None:
@@ -374,6 +338,8 @@ def install_route_gate(
             `timedelta`.
         ValueError: If a declaration cannot hold, naming its route.
     """
+    from grelmicro.integrations._route_gate import gate_routes  # noqa: PLC0415
+
     gate_routes(app, gate)
 
 
@@ -404,14 +370,28 @@ def route_declarations(
     install. One on a router caches the reads under it that run no check of
     their own.
     """
+    from grelmicro.integrations._route_gate import (  # noqa: PLC0415
+        declarations_of,
+    )
+
     return declarations_of(app)
 
 
 _front_middleware = _starlette_front_middleware
 """The middleware the app runs in front of its router, as Starlette lists it."""
 
-_shadowed_routes = shadowed_routes
-"""Each anonymous route another route declared before it serves, for reports and the schema."""
+
+def _shadowed_routes(app: FastAPI) -> frozenset[tuple[str, str]]:
+    """Return each anonymous route another route declared before it serves.
+
+    By path and method, as the route gate reads the router. Reports and
+    the schema read it.
+    """
+    from grelmicro.integrations._route_gate import (  # noqa: PLC0415
+        shadowed_routes,
+    )
+
+    return shadowed_routes(app)
 
 
 def _wire_telemetry(app: FastAPI, micro: Grelmicro) -> None:
@@ -428,9 +408,17 @@ def _wire_telemetry(app: FastAPI, micro: Grelmicro) -> None:
         return
     _WIRED.add(app)
     kinds = {getattr(component, "kind", None) for component in micro.components}
-    if "trace" in kinds or "metrics" in kinds:
-        settings["auto_configure"] = False
-        settings["exclude"] = excluding("fastapi", settings["exclude"])
+    if "trace" not in kinds and "metrics" not in kinds:
+        return
+    from grelmicro.integrations._request_telemetry import (  # noqa: PLC0415
+        exceptions_on_spans,
+        excluding,
+    )
+    from grelmicro.trace._autoinstrument import is_selected  # noqa: PLC0415
+    from grelmicro.trace._component import Trace  # noqa: PLC0415
+
+    settings["auto_configure"] = False
+    settings["exclude"] = excluding("fastapi", settings["exclude"])
     trace = next((c for c in micro.components if isinstance(c, Trace)), None)
     if trace is None:
         return
@@ -455,7 +443,12 @@ class _ExceptionEvents:
     """
 
     def __init__(self, app: ASGIApp) -> None:
+        from grelmicro.integrations._request_telemetry import (  # noqa: PLC0415
+            normal_close,
+        )
+
         self.app = app
+        self._normal_close = normal_close
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
@@ -463,523 +456,9 @@ class _ExceptionEvents:
         try:
             await self.app(scope, receive, send)
         except Exception as exc:
-            if not normal_close(exc):
+            if not self._normal_close(exc):
                 _otel_trace.get_current_span().record_exception(exc)
             raise
-
-
-def CachedResponse(  # noqa: N802
-    *,
-    ttl: Annotated[
-        int | timedelta | None,
-        Doc(
-            "How long this route's response is served from the cache, in "
-            "whole seconds or as a `timedelta`. A float is refused. "
-            "Defaults to the `ttl` the registered `CachedResponses` "
-            "carries."
-        ),
-    ] = None,
-    shared: Annotated[
-        bool,
-        Doc(
-            "On a route that requires a caller, serve one stored response "
-            "to every caller the route admits, a credential included. Pass "
-            "it only when the response is the same for each of them. "
-            "Without it, a request carrying a credential is answered by "
-            "the handler."
-        ),
-    ] = False,
-) -> Any:  # noqa: ANN401
-    """Declare that this route's response is cached.
-
-    Declared on the route rather than called in the handler, because a hit
-    is answered before the handler runs. `micro.install(app)` reads it off
-    the dependency tree, so a repeated read is answered without the handler
-    running:
-
-    ```python
-    from grelmicro.integrations.fastapi import CachedResponse
-
-
-    @app.get("/products", dependencies=[CachedResponse(ttl=60)])
-    async def list_products() -> list[Product]: ...
-    ```
-
-    It needs a registered `CachedResponses()`, which holds the store and
-    the rules every route shares. Without one, nothing reads the
-    declaration and the route answers from its handler every time.
-
-    `@cached` caches what a function returns, which is not what the route
-    answers: the framework still has to serialize it, and a header the
-    handler set is not part of it. This caches the response.
-
-    Only `GET` routes take it. `micro.install(app)` refuses it on a route
-    that answers anything else, naming the path.
-
-    Starlette and Litestar resolve no dependencies to hang this on, so
-    they name their paths in `CachedResponses(include=...)` instead,
-    with how long each is kept for.
-
-    Read more in the [Response Cache](../http/cache.md) docs.
-    """
-    if not HAS_FASTAPI:  # pragma: no cover - the reimport test walks this
-        from grelmicro.errors import (  # noqa: PLC0415
-            DependencyNotFoundError,
-        )
-
-        raise DependencyNotFoundError(module="fastapi")
-    return _Depends(declare_cached(ttl, shared=shared))
-
-
-async def _current_principal(
-    connection: _HTTPConnection, security_scopes: _SecurityScopes
-) -> Any:  # noqa: ANN401
-    """Return the caller, holding every scope a `Security` around it names."""
-    return await _authenticated(connection, security_scopes)
-
-
-async def _current_claims(
-    connection: _HTTPConnection, security_scopes: _SecurityScopes
-) -> Any:  # noqa: ANN401
-    """Return the verified JWT claims of the caller.
-
-    Raises:
-        AuthenticationRequiredError: If the request carried no credential.
-        InsufficientScopeError: If the caller lacks a scope a `Security`
-            around it names.
-        TypeError: If the caller was authenticated by something other than
-            a JWT, which is a route asking for what its verifier never
-            produces.
-    """
-    caller = await _authenticated(connection, security_scopes)
-    if not isinstance(caller, JWTClaims):
-        msg = (
-            f"Claims reads a caller authenticated by a JWT, and this one is "
-            f"a {type(caller).__name__}. Read CurrentPrincipal instead."
-        )
-        raise TypeError(msg)
-    return caller
-
-
-async def _optional_principal(connection: _HTTPConnection) -> Any:  # noqa: ANN401
-    """Return the authenticated caller, or `None` for a request that sent no token."""
-    caller = connection.scope.get("user")
-    return caller if is_authenticated(caller) else None
-
-
-async def _current_token(
-    connection: _HTTPConnection, security_scopes: _SecurityScopes
-) -> Any:  # noqa: ANN401
-    """Return the bearer token the caller presented, once it verified.
-
-    Raises:
-        AuthenticationRequiredError: If the request carried no credential,
-            or its caller was authenticated by something other than
-            `AuthenticatedRequests`.
-        InsufficientScopeError: If the caller lacks a scope a `Security`
-            around it names.
-    """
-    return requirement_for(security_scopes.scopes).token(connection.scope)
-
-
-async def _authenticated(
-    connection: _HTTPConnection, security_scopes: _SecurityScopes
-) -> Any:  # noqa: ANN401
-    """Return the caller, holding every scope this declaration names."""
-    return requirement_for(security_scopes.scopes).caller(connection.scope)
-
-
-declare_from_request(_authenticated)
-declare_from_request(_current_principal)
-declare_from_request(_current_claims)
-declare_from_request(_current_token)
-declare_optional(_optional_principal)
-
-
-CurrentPrincipal = Annotated[
-    Principal, _Depends(_current_principal) if HAS_FASTAPI else None
-]
-"""The authenticated caller, whatever proved who it is.
-
-```python
-from grelmicro.integrations.fastapi import CurrentPrincipal
-
-
-@app.get("/orders")
-async def list_orders(principal: CurrentPrincipal) -> list[Order]:
-    return await orders_of(principal.issuer, principal.subject)
-```
-
-A request that reached the route without a credential is answered `401`.
-Read inside `Security(..., scopes=[...])`, it requires those scopes too,
-and a caller lacking one is answered `403`. It needs a registered
-`AuthenticatedRequests`, which verifies the token before the route runs.
-"""
-
-CurrentToken = Annotated[
-    VerifiedToken, _Depends(_current_token) if HAS_FASTAPI else None
-]
-"""The bearer token the caller presented, once `AuthenticatedRequests` verified it.
-
-```python
-from grelmicro.integrations.fastapi import CurrentToken
-
-
-@app.post("/orders")
-async def create_order(token: CurrentToken) -> dict[str, str]:
-    response = await payments.post(
-        "/charges", auth=payments_for_user.auth(token)
-    )
-    return response.json()
-```
-
-Read it to act for the caller, such as exchanging it with a `TokenExchange`.
-`token.value` is the token and `token.expires_at` when it expires, and its
-`repr` never shows the token. A request that reached the route without a
-credential is answered `401`, as `CurrentPrincipal` answers it.
-"""
-
-Claims = Annotated[
-    JWTClaims, _Depends(_current_claims) if HAS_FASTAPI else None
-]
-"""The verified JWT claims of the caller, typed.
-
-```python
-from grelmicro.integrations.fastapi import Claims
-
-
-@app.get("/me")
-async def me(claims: Claims) -> dict[str, str]:
-    return {"tenant": claims.claims["tenant"]}
-```
-
-Read `CurrentPrincipal` instead in a handler that should not care how the
-caller was authenticated.
-"""
-
-OptionalPrincipal = Annotated[
-    Principal | None, _Depends(_optional_principal) if HAS_FASTAPI else None
-]
-"""The caller when the request sent a valid token, and `None` when it sent none.
-
-```python
-from grelmicro.integrations.fastapi import Anonymous, OptionalPrincipal
-
-
-@app.get("/catalog", dependencies=[Anonymous()])
-async def catalog(principal: OptionalPrincipal) -> list[Product]:
-    if principal is None:
-        return await public_catalog()
-    return await catalog_for(principal.subject)
-```
-
-Read on a route declaring `Anonymous()`, where a credential is optional. A
-token that does not verify never reaches it: the request is answered `401`.
-"""
-
-
-def Authenticated(  # noqa: N802
-    *,
-    scopes: Annotated[
-        Sequence[str],
-        Doc(
-            "Scopes the caller must hold, every one of them. Declared on "
-            "a router and on its route, each applies its own."
-        ),
-    ] = (),
-) -> Any:  # noqa: ANN401
-    """Require an authenticated caller holding every scope named.
-
-    ```python
-    from grelmicro.integrations.fastapi import Authenticated
-
-
-    @app.delete(
-        "/orders/{order_id}",
-        dependencies=[Authenticated(scopes=["orders:write"])],
-    )
-    async def cancel(order_id: int) -> None: ...
-    ```
-
-    Built on `fastapi.Security`, so the scopes reach `SecurityScopes`, and
-    a handler can take the caller from it:
-
-    ```python
-    @app.get("/orders")
-    async def list_orders(
-        principal: Annotated[Principal, Authenticated(scopes=["orders:read"])],
-    ) -> list[Order]: ...
-    ```
-
-    A caller with no credential is answered `401`, and one lacking a scope
-    `403`, whose `WWW-Authenticate` challenge names the scopes.
-
-    It needs a registered `AuthenticatedRequests`, which verifies the token
-    before the route runs. Without one, every call is answered `401`.
-
-    Read more in the [Authentication](../http/authentication.md) docs.
-
-    Raises:
-        TypeError: If `scopes` is a single string.
-        ValueError: If a scope is not an OAuth scope token.
-    """
-    if not HAS_FASTAPI:  # pragma: no cover - the reimport test walks this
-        from grelmicro.errors import (  # noqa: PLC0415
-            DependencyNotFoundError,
-        )
-
-        raise DependencyNotFoundError(module="fastapi")
-    return _Security(_authenticated, scopes=list(Requirement(scopes).scopes))
-
-
-def Anonymous() -> Any:  # noqa: N802, ANN401
-    """Serve this route without a credential.
-
-    Every route is authenticated once `AuthenticatedRequests` is registered.
-    Declare this on the one that is public:
-
-    ```python
-    from grelmicro.integrations.fastapi import Anonymous
-
-
-    @app.get("/catalog", dependencies=[Anonymous()])
-    async def catalog() -> list[Product]: ...
-    ```
-
-    `micro.install(app)` reads it off the dependency tree, and off what the
-    router holding the route was included with. It applies per method, so a
-    path serving a public read keeps its writes authenticated. It is read off
-    the route FastAPI dispatches the request to, so a declaration never opens
-    a route it was not written on. A credential is optional there. A request
-    sending none is served with a caller that is not authenticated, and a
-    bearer token that is sent is verified, so a valid one hands the route its
-    caller through `OptionalPrincipal` and one that does not verify is
-    answered `401`.
-
-    Read more in the [Authentication](../http/authentication.md) docs.
-    """
-    if not HAS_FASTAPI:  # pragma: no cover - the reimport test walks this
-        from grelmicro.errors import (  # noqa: PLC0415
-            DependencyNotFoundError,
-        )
-
-        raise DependencyNotFoundError(module="fastapi")
-    return _Depends(declare_anonymous())
-
-
-def RateLimited(  # noqa: N802
-    *limiters: Annotated[
-        RateLimiter,
-        Doc("The limiters this route spends, in the order given."),
-    ],
-    cost: Annotated[
-        int,
-        Doc("Tokens one call of this route spends of each."),
-    ] = 1,
-    max_wait: Annotated[
-        float,
-        Doc(
-            "Seconds a throttled call waits before it is refused. `0.0` "
-            "refuses as soon as the budget is spent."
-        ),
-    ] = 0.0,
-    key: Annotated[
-        Callable[[Any], str | None] | None,
-        Doc(
-            "Builds the bucket key from the ASGI scope, replacing the "
-            "resolved caller, the same as the middleware takes. Return "
-            "`None` to leave a call unmetered."
-        ),
-    ] = None,
-    trusted: Annotated[
-        TrustedProxies | None,
-        Doc(
-            "The proxies whose forwarded entries may be believed. Not "
-            "needed when a middleware already resolved the caller."
-        ),
-    ] = None,
-    legacy_headers: Annotated[
-        bool,
-        Doc("Also send the superseded `X-RateLimit-*` fields."),
-    ] = False,
-) -> Any:  # noqa: ANN401
-    """Meter one route, on top of whatever the app meters.
-
-    `RateLimitedRequests(...)` meters the whole app. Declare this on the
-    route that costs more than the rest, or that has a quota of its own:
-
-    ```python
-    from grelmicro.integrations.fastapi import RateLimited
-
-
-    @app.post("/search", dependencies=[RateLimited(searches, cost=5)])
-    async def search(query: str) -> list[Hit]: ...
-    ```
-
-    Allowed or refused, the response states what the caller has left in
-    the `RateLimit` and `RateLimit-Policy` fields, and a refusal answers
-    `429` through the same path every other rejection takes.
-
-    A route that returns a `Response` of its own needs a registered
-    `RateLimitedRequests(...)` for those fields to reach the wire: a
-    framework merges what a dependency states into the response it
-    builds itself, and not into one a handler already built. The tokens
-    are spent either way.
-
-    The caller is the address a middleware already resolved, or the one
-    `trusted` resolves here. Without either, and without `key`, the call
-    is left unmetered rather than metered under the ingress.
-
-    Read more in the [Rate Limit](../http/rate-limit.md) docs.
-    """
-    if not HAS_FASTAPI:  # pragma: no cover - the reimport test walks this
-        from grelmicro.errors import (  # noqa: PLC0415
-            DependencyNotFoundError,
-        )
-
-        raise DependencyNotFoundError(module="fastapi")
-    if not limiters:
-        msg = (
-            "RateLimited() takes at least one limiter. Declaring it with "
-            "none would meter nothing while reporting that it does."
-        )
-        raise TypeError(msg)
-    check_route_limiters(limiters, cost=cost)
-    reported: list[bool] = []
-
-    async def metered(request: _Request, response: _Response) -> None:
-        """Spend this call's tokens, and state what is left."""
-        scope = request.scope
-        bucket = bucket_of(scope, key=key, trusted=trusted)
-        if bucket.key is None:
-            if not reported:
-                reported.append(True)
-                _logger.warning(
-                    "RateLimited() found no caller to meter on %s, so this "
-                    "route is metered not at all: %s",
-                    scope.get("path", "the route"),
-                    "trusted= names a proxy that forwarded no caller, so "
-                    "every caller behind it would share one budget"
-                    if bucket.degraded
-                    else "nothing resolved a client address, and neither "
-                    "trusted= nor key= names another bucket",
-                )
-            return
-        try:
-            stated = await spend(
-                limiters,
-                bucket.key,
-                cost=cost,
-                max_wait=max_wait,
-                legacy_headers=legacy_headers,
-            )
-        except RateLimitExceededError as refusal:
-            state_on(scope, getattr(refusal, "headers", {}))
-            raise
-        # The framework merges these into a response it builds itself,
-        # and not into one the handler returned, so the middleware is
-        # handed them too and states them whatever the route answered.
-        for name, value in state_on(scope, stated).items():
-            response.headers[name] = value
-
-    return _Depends(metered)
-
-
-class ConditionalRequest:
-    """The conditional guards, as a dependency FastAPI injects.
-
-    The same two calls as `check_freshness` and `check_precondition`, for a
-    handler that would rather have them injected than imported:
-
-    ```python
-    from grelmicro.integrations.fastapi import Conditional
-
-
-    @app.patch("/carts/{cart_id}")
-    async def update(cart_id: int, conditional: Conditional) -> Cart:
-        cart = await load(cart_id)
-        conditional.check(cart.version)
-        return await save(cart)
-    ```
-
-    It is the same implementation underneath, so a service can use
-    whichever reads better. The plain functions work on Starlette and
-    Litestar too, where there is no dependency injection to hang this on.
-
-    `check` reads the headers this was handed, so a route that injects it
-    is guarded whether or not `ConditionalRequests()` is registered.
-    `fresh` needs the component: recording a version is how the middleware
-    knows what tag to put on the response, and without one there is
-    nothing to record it in, so it raises `OutOfContextError`.
-
-    Declaring it puts `If-Match` and `If-None-Match` in the schema for
-    that operation alone, so Swagger offers the fields exactly where a
-    handler reads them, whatever the path-based rules say.
-    """
-
-    def __init__(
-        self,
-        if_match: Annotated[
-            str | None,
-            Doc("What the client sent in `If-Match`, if anything."),
-        ] = None,
-        if_none_match: Annotated[
-            str | None,
-            Doc("What the client sent in `If-None-Match`, if anything."),
-        ] = None,
-    ) -> None:
-        """Take what the client sent, so a handler can read it raw too."""
-        self.if_match = if_match
-        self.if_none_match = if_none_match
-
-    def check(
-        self,
-        version: Annotated[
-            object,
-            Doc("What identifies the version the resource carries now."),
-        ] = _UNSET_VERSION,
-        *,
-        etag: Annotated[
-            str | None,
-            Doc("An entity tag that is already one, quotes included."),
-        ] = None,
-        require: Annotated[
-            bool,
-            Doc("Answer `428` when the request carries no precondition."),
-        ] = True,
-    ) -> None:
-        """Refuse a write whose precondition no longer holds.
-
-        Raises:
-            PreconditionFailedError: If the resource is not in the state
-                the request's `If-Match` or `If-None-Match` asked for.
-            PreconditionRequiredError: If `require` and none was sent.
-        """
-        # From the headers this was handed, not from the request scope, so
-        # a route that injects it answers the same whether or not
-        # `ConditionalRequests()` is registered.
-        _check_sent_precondition(
-            self.if_match,
-            self.if_none_match,
-            version,
-            etag=etag,
-            require=require,
-        )
-
-    def fresh(
-        self,
-        version: Annotated[
-            object,
-            Doc("What identifies the version the resource carries now."),
-        ] = _UNSET_VERSION,
-        *,
-        etag: Annotated[
-            str | None,
-            Doc("An entity tag that is already one, quotes included."),
-        ] = None,
-    ) -> bool:
-        """Answer this read with an entity tag, and say whether it changed."""
-        return check_freshness(version, etag=etag)
 
 
 def _document_components(app: FastAPI, components: Sequence[Any]) -> None:
@@ -989,9 +468,15 @@ def _document_components(app: FastAPI, components: Sequence[Any]) -> None:
     object, so serving it again edits nothing, and a schema built anew is
     edited anew.
     """
+    from grelmicro.http._openapi import describing  # noqa: PLC0415
+
     documenting = describing(components)
     if not documenting:
         return
+    from grelmicro.http._authentication import (  # noqa: PLC0415
+        describe_app_schema,
+    )
+
     original = app.openapi
     edited: list[dict[str, Any]] = []
 
@@ -1010,7 +495,10 @@ def _document_components(app: FastAPI, components: Sequence[Any]) -> None:
     app.openapi_schema = None
 
 
-def _document_error_responses(app: FastAPI, errors: ErrorResponses) -> None:
+def _document_error_responses(
+    app: FastAPI,
+    errors: "ErrorResponses",  # noqa: UP037
+) -> None:
     """Republish the schema's error responses in the format now installed.
 
     FastAPI generates a `422` for every operation that validates, pointing
@@ -1020,6 +508,8 @@ def _document_error_responses(app: FastAPI, errors: ErrorResponses) -> None:
 
     A no-op on a plain Starlette app, which builds no schema.
     """
+    from grelmicro.http._openapi import add_error_schema  # noqa: PLC0415
+
     original = app.openapi
     applied: list[bool] = []
 
@@ -1129,6 +619,8 @@ def _drop_unreferenced_validation_schemas(schema: dict[str, Any]) -> None:
     Called only after every generated `422` was rewritten, so a candidate
     that is still referenced is one the app itself points at.
     """
+    from grelmicro.http._openapi import referenced  # noqa: PLC0415
+
     schemas = schema.get("components", {}).get("schemas", {})
     candidates = [
         name for name in _FASTAPI_VALIDATION_SCHEMAS if name in schemas
@@ -1411,96 +903,6 @@ def health_router(
     return router
 
 
-def metrics_router(
-    component: Annotated[
-        Metrics | None,
-        Doc(
-            "Metrics component whose Prometheus registry the endpoint "
-            "renders. When omitted, the router resolves the default "
-            "instance from the active `Grelmicro` app "
-            "(``Grelmicro(uses=[Metrics(...)])``)."
-        ),
-    ] = None,
-    *,
-    prefix: Annotated[
-        str,
-        Doc("URL prefix for the metrics endpoint (e.g. '/api/v1')."),
-    ] = "",
-    path: Annotated[
-        str,
-        Doc("Path of the metrics endpoint under the prefix."),
-    ] = "/metrics",
-    include_in_schema: Annotated[
-        bool,
-        Doc(
-            "Whether the endpoint appears in the OpenAPI schema:\n\n"
-            "- ``False`` (default): served, but absent from "
-            "``/openapi.json`` and the docs pages.\n"
-            "- ``True``: documented as returning the Prometheus "
-            "exposition, which is text and not JSON.\n\n"
-            "The endpoint answers the same either way. This decides "
-            "what the schema publishes, not what is reachable."
-        ),
-    ] = False,
-    dependencies: Annotated[
-        list[Depends] | None,
-        Doc(
-            "FastAPI dependencies applied to the metrics endpoint. A "
-            "failing dependency blocks the endpoint (``401``/``403``). "
-            "Use to gate ``/metrics`` behind authentication."
-        ),
-    ] = None,
-) -> APIRouter:
-    """Create a FastAPI router that serves Prometheus metrics.
-
-    Mounts ``GET {prefix}{path}`` (default ``GET /metrics``) returning the
-    Prometheus exposition format rendered from the component's collector
-    registry. The active component must use the ``prometheus`` exporter.
-    The endpoint stays out of the OpenAPI schema unless
-    ``include_in_schema=True``.
-
-    Raises:
-        DependencyNotFoundError: If ``fastapi`` is not installed.
-    """
-    if not HAS_FASTAPI:
-        from grelmicro.errors import (  # noqa: PLC0415
-            DependencyNotFoundError,
-        )
-
-        raise DependencyNotFoundError(module="fastapi")
-
-    def _resolve_component() -> Metrics:
-        return component or Grelmicro.current().get("metrics", "default")
-
-    router = APIRouter(
-        prefix=prefix, tags=["metrics"], include_in_schema=include_in_schema
-    )
-    deps = list(dependencies or ())
-
-    @router.get(
-        path,
-        dependencies=deps,
-        response_class=_Response,
-        responses={
-            200: {
-                "description": "Prometheus exposition of the active registry.",
-                "content": {
-                    PROMETHEUS_MEDIA_TYPE: {"schema": {"type": "string"}}
-                },
-            },
-        },
-    )
-    async def metrics() -> _Response:
-        """Render the Prometheus exposition for the active registry."""
-        return _Response(
-            content=render_prometheus(_resolve_component()),
-            media_type=PROMETHEUS_MEDIA_TYPE,
-            headers=NO_STORE_HEADERS,
-        )
-
-    return router
-
-
 def _resolve_show_details_dep(show_details: Any) -> Callable[..., Any]:  # noqa: ANN401
     """Return the FastAPI dependency callable for ``show_details``.
 
@@ -1525,104 +927,3 @@ def _resolve_show_details_dep(show_details: Any) -> Callable[..., Any]:  # noqa:
         f"bool, got {type(show_details).__name__}"
     )
     raise TypeError(msg)
-
-
-if TYPE_CHECKING:
-    # The runtime values are `Annotated` markers FastAPI reads. A checker
-    # only needs to know what the handler receives.
-    Conditional = ConditionalRequest
-    """The conditional guards, injected.
-
-    ```python
-    from grelmicro.integrations.fastapi import Conditional
-
-
-    @app.patch("/carts/{cart_id}")
-    async def update(cart_id: int, conditional: Conditional) -> Cart:
-        cart = await load(cart_id)
-        conditional.check(cart.version)
-        return await save(cart)
-    ```
-
-    A ready-made annotation, so a handler declares one word rather than
-    `Annotated[ConditionalRequest, Depends(...)]`.
-    """
-
-    ConditionalRequired = ConditionalRequest
-    """The conditional guards, injected, on a route that requires a precondition.
-
-    ```python
-    from grelmicro.integrations.fastapi import ConditionalRequired
-
-
-    @app.put("/carts/{cart_id}")
-    async def replace(cart_id: int, conditional: ConditionalRequired) -> Cart:
-        cart = await load(cart_id)
-        conditional.check(cart.version)
-        return await save(cart)
-    ```
-
-    A request carrying neither `If-Match` nor `If-None-Match` is answered
-    `428` before the handler runs. The route declares
-    `precondition_required`, so the OpenAPI schema marks `If-Match`
-    required on its methods, `POST` included.
-    """
-elif HAS_FASTAPI:
-
-    def _conditional(
-        if_match: Annotated[
-            str | None,
-            _Header(
-                alias="If-Match",
-                description=(
-                    "Entity tag of the version being updated, from the "
-                    "`ETag` of an earlier read. The write is refused if "
-                    "the resource changed since."
-                ),
-            ),
-        ] = None,
-        if_none_match: Annotated[
-            str | None,
-            _Header(
-                alias="If-None-Match",
-                description=(
-                    "Entity tag the client already holds. The service "
-                    "answers `304 Not Modified` while it still matches."
-                ),
-            ),
-        ] = None,
-    ) -> ConditionalRequest:
-        """Bind the guards to what this request carries.
-
-        The headers are declared here rather than read from the scope, so
-        the operation that injects this documents them, and Swagger offers
-        the fields exactly where a handler reads them.
-        """
-        return ConditionalRequest(if_match, if_none_match)
-
-    def _required_conditional(
-        conditional: Annotated[ConditionalRequest, _Depends(_conditional)],
-    ) -> ConditionalRequest:
-        """Refuse a request that carries no precondition at all.
-
-        Declared rather than called, so the schema marks `If-Match`
-        required on this operation, and the client is answered `428`
-        rather than a validation error.
-
-        Raises:
-            PreconditionRequiredError: If neither precondition header
-                arrived. Answers `428`.
-        """
-        if conditional.if_match is None and conditional.if_none_match is None:
-            raise PreconditionRequiredError
-        return conditional
-
-    declare_precondition_required(_required_conditional)
-
-    Conditional = Annotated[ConditionalRequest, _Depends(_conditional)]
-    ConditionalRequired = Annotated[
-        ConditionalRequest, _Depends(_required_conditional)
-    ]
-else:  # pragma: no cover - the reimport test walks this
-    Conditional = ConditionalRequest
-    ConditionalRequired = ConditionalRequest
