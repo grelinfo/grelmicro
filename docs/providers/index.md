@@ -280,8 +280,8 @@ Every connection provider ships a built-in `check()` readiness probe: Redis and
 Valkey run `PING`, Postgres and SQLite run `SELECT 1`, and Memory returns
 ready right away. A `HealthChecks` registers it as a
 `provider:{short_name}` check, one provider at a time with
-`health.add_provider(provider)` or for the whole app with
-`HealthChecks(provider_checks="require")`. See [Health Checks](../health.md#provider-readiness-checks).
+`health.add_provider(provider)` or for the whole app with `provider_checks=`,
+which defaults to a non-critical check per provider. See [Health Checks](../health.md#provider-readiness-checks).
 
 ## Lifecycle
 

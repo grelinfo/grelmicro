@@ -5,6 +5,8 @@
 ### Breaking
 * 💥 A mode field such as `MetricsConfig.exporter` reads back as a plain `str`, not as its old enum member. `.value` and `.name` raise `AttributeError`. Compare it with the string. ([#1175](https://github.com/grelinfo/grelmicro/pull/1175))
 * 💥 `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` are removed. Pass the string instead. ([#1175](https://github.com/grelinfo/grelmicro/pull/1175))
+* 💥 `HealthChecks()` with no `provider_checks=` defaults to `"report"`. Each Provider on the app shows as a non-critical `provider:{short_name}` check in `/healthz`, and `/readyz` stays up while it is down. Pass `provider_checks="off"` to register none. ([#1180](https://github.com/grelinfo/grelmicro/pull/1180))
+* 💥 `HealthChecks(auto_health=)` and `HealthChecks.from_config(auto_health=)` are removed and raise `TypeError`. Pass `provider_checks="require"` or `provider_checks="off"`. ([#1180](https://github.com/grelinfo/grelmicro/pull/1180))
 
 ### Added
 * ✨ `micro.describe()` names the bare Provider each default component came from in `ComponentReport.default_of`, such as `"RedisProvider"`. `grelmicro check` adds `(default of RedisProvider)` to the line. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))

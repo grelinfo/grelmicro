@@ -263,8 +263,8 @@
     "CheckResult": null,
     "HealthCheckFunc": null,
     "HealthChecks": {
-      "()": "(*, name='default', timeout=None, cache_ttl=None, liveness=None, provider_checks=None, env_prefix=None, env_load=None, auto_health=None) -> 'None'",
-      ".from_config": "(config, *, name='default', provider_checks=None, liveness=None, auto_health=None) -> 'Self'"
+      "()": "(*, name='default', timeout=None, cache_ttl=None, liveness=None, provider_checks='report', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default', provider_checks='report', liveness=None) -> 'Self'"
     },
     "HealthChecksConfig": {
       "()": "(*, timeout=5.0, cache_ttl=datetime.timedelta(seconds=1)) -> None"

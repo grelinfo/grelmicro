@@ -120,17 +120,21 @@ raises](#0-42-raising).
 | A dashboard on `http.server.duration` stopped receiving data on FastAPI | 0.42 | [Read `http.server.request.duration`, in seconds](changelog.md#0420-2026-10-19) |
 | `ImportError: cannot import name 'MetricsExporterType'`, or another mode enum such as `'LogLevelType'` | 0.44 | [Pass the string](#0-44-mode-strings) |
 | `AttributeError: 'str' object has no attribute 'value'` on a mode field such as `config.exporter` | 0.44 | [Compare with the string](#0-44-mode-strings) |
+| `TypeError: HealthChecks.__init__() got an unexpected keyword argument 'auto_health'` | 0.44 | [Pass `provider_checks=`](#0-44-provider-checks) |
+| `/healthz` lists `provider:` checks after upgrading | 0.44 | [Pick a mode](#0-44-provider-checks) |
 
 ## 0.44
 
 ### Changes that do not raise {#0-44-silent}
 
 - A mode field such as `MetricsConfig.exporter` or `LogConfig.level` reads back as a plain `str`, not as its old enum member. `==`, `str()` and the JSON dump are unchanged. [Compare with the string](#0-44-mode-strings).
+- A `HealthChecks` with no `provider_checks=` beside a Provider shows each Provider in `/healthz` as a non-critical `provider:{short_name}` check. `/readyz` is unchanged. [Pick a mode](#0-44-provider-checks).
 
 ### Changes that raise {#0-44-raising}
 
 - `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` are removed. [Pass the string](#0-44-mode-strings).
 - `.value` and `.name` on a mode field raise `AttributeError`. [Compare with the string](#0-44-mode-strings).
+- `HealthChecks(auto_health=)` and `HealthChecks.from_config(auto_health=)` raise `TypeError`. [Pass `provider_checks=`](#0-44-provider-checks).
 
 ### A mode field is a plain string {#0-44-mode-strings}
 
@@ -154,6 +158,26 @@ MetricsConfig().exporter == "auto"
 
 To annotate a value of your own, use the type that
 [replaces each enum](#0-43-mode-strings), such as `MetricsExporter`.
+
+### `provider_checks` defaults to `"report"` {#0-44-provider-checks}
+
+`HealthChecks()` registers a non-critical check for each Provider on the app.
+A down backend shows in `/healthz` and leaves `/readyz` at 200. The
+`auto_health=` argument is gone.
+
+```python
+from grelmicro.health import HealthChecks
+
+# Before
+HealthChecks(auto_health=True)
+HealthChecks(auto_health=False)
+HealthChecks()  # no provider checks
+
+# After
+HealthChecks(provider_checks="require")
+HealthChecks(provider_checks="off")
+HealthChecks(provider_checks="off")  # keeps no provider checks
+```
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 
