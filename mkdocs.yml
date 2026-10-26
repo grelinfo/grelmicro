@@ -190,6 +190,28 @@ nav:
 
 plugins:
   - search
+  - redirects:
+      redirect_maps:
+        architecture/postgres.md: architecture/backends.md
+        architecture/sync.md: architecture/coordination.md
+        cache.md: cache/index.md
+        clientip.md: security/clientip.md
+        coordination.md: coordination/index.md
+        http/problems.md: http/errors.md
+        idempotency.md: idempotency/index.md
+        idempotency/middleware.md: http/idempotency.md
+        json.md: index.md
+        logging.md: logging/index.md
+        outbox.md: outbox/index.md
+        providers.md: providers/index.md
+        reference/clientip.md: reference/security.md
+        reference/json.md: reference/types.md
+        reference/sync.md: reference/coordination.md
+        resilience.md: resilience/index.md
+        sync.md: coordination/index.md
+        sync/index.md: coordination/index.md
+        sync/leaderelection.md: coordination/leader-election.md
+        sync/lock.md: coordination/lock.md
   - mkdocstrings:
       handlers:
         python:
