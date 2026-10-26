@@ -239,6 +239,7 @@ docs = [
     "pygments>=2.18.0",
     "pymdown-extensions>=12.1",
     "mdx-include>=1.4.2",
+    "mkdocs-redirects>=1.2.2",
 ]
 mutation = [
     "mutmut>=3",
