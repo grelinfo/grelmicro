@@ -118,6 +118,44 @@ raises](#0-42-raising).
 | `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` no longer applies, with no error | 0.42.0, 0.42.1 | [Rename the variable to `_MAX_WAIT`](#0-42-max-wait) |
 | `SettingsValidationError: ... WAIT_TIMEOUT: is no longer read` | 0.42.2 | [Rename the variable to `_MAX_WAIT`](#0-42-max-wait) |
 | A dashboard on `http.server.duration` stopped receiving data on FastAPI | 0.42 | [Read `http.server.request.duration`, in seconds](changelog.md#0420-2026-10-19) |
+| `ImportError: cannot import name 'MetricsExporterType'`, or another mode enum such as `'LogLevelType'` | 0.44 | [Pass the string](#0-44-mode-strings) |
+| `AttributeError: 'str' object has no attribute 'value'` on a mode field such as `config.exporter` | 0.44 | [Compare with the string](#0-44-mode-strings) |
+
+## 0.44
+
+### Changes that do not raise {#0-44-silent}
+
+- A mode field such as `MetricsConfig.exporter` or `LogConfig.level` reads back as a plain `str`, not as its old enum member. `==`, `str()` and the JSON dump are unchanged. [Compare with the string](#0-44-mode-strings).
+
+### Changes that raise {#0-44-raising}
+
+- `MetricsExporterType`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, `LogLevelType`, `LogFormatType`, `LogBackendType` and `LogSerializerType` are removed. [Pass the string](#0-44-mode-strings).
+- `.value` and `.name` on a mode field raise `AttributeError`. [Compare with the string](#0-44-mode-strings).
+
+### A mode field is a plain string {#0-44-mode-strings}
+
+The mode enums are gone. Pass the string and compare with the string. A
+choice still matches in any case.
+
+```python
+from grelmicro.metrics import Metrics
+from grelmicro.metrics.config import MetricsConfig
+
+# Before
+from grelmicro.metrics import MetricsExporterType
+
+Metrics(exporter=MetricsExporterType.PROMETHEUS)
+MetricsConfig().exporter.value == "auto"
+
+# After
+Metrics(exporter="prometheus")
+MetricsConfig().exporter == "auto"
+```
+
+To annotate a value of your own, use the type that
+[replaces each enum](#0-43-mode-strings), such as `MetricsExporter`.
+
+Full list: [Unreleased in the changelog](changelog.md#unreleased)
 
 ## 0.43
 

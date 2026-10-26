@@ -51,7 +51,6 @@ import inspect
 import pkgutil
 import re
 import typing
-import warnings
 from asyncio import Lock
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAliasType
@@ -60,11 +59,9 @@ import pytest
 from syrupy.extensions.json import JSONSnapshotExtension
 
 import grelmicro
-from grelmicro.errors import GrelmicroFutureWarning
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from types import ModuleType
 
 PUBLIC_MODULES = [
     "grelmicro",
@@ -272,17 +269,6 @@ def _symbol_surface(obj: object) -> dict[str, str] | None:
     return surface or None
 
 
-def _export(module: ModuleType, symbol: str) -> Any:  # noqa: ANN401
-    """Return `module.symbol`, without the warning of a name due for removal.
-
-    A name in `__all__` that is removed in a coming release warns on access,
-    and it stays on the public surface until then.
-    """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GrelmicroFutureWarning)
-        return getattr(module, symbol, None)
-
-
 def build_public_api() -> dict[str, dict[str, Any]]:
     """Return ``{module: {symbol: signature_surface}}`` for every public module."""
     surface: dict[str, dict[str, Any]] = {}
@@ -293,7 +279,7 @@ def build_public_api() -> dict[str, dict[str, Any]]:
             msg = f"{name} has no __all__, so its public surface is undeclared"
             raise AssertionError(msg)
         surface[name] = {
-            symbol: _symbol_surface(_export(module, symbol))
+            symbol: _symbol_surface(getattr(module, symbol))
             for symbol in sorted(exported)
         }
     return surface
@@ -435,7 +421,7 @@ def test_public_api_hands_out_no_loop_bound_object() -> None:
     for module_name in PUBLIC_MODULES:
         module = importlib.import_module(module_name)
         for symbol in sorted(getattr(module, "__all__", ())):
-            obj = _export(module, symbol)
+            obj = getattr(module, symbol)
             for label, member in _public_members(obj):
                 qualified = f"{module_name}.{symbol}{label}"
                 if qualified in _LOOP_BOUND_ALLOWED:
@@ -605,7 +591,7 @@ def test_every_exported_symbol_resolves(module_name: str) -> None:
     """Every name in a module's ``__all__`` resolves to a real attribute."""
     module = importlib.import_module(module_name)
     for name in module.__all__:
-        assert _export(module, name) is not None, (
+        assert getattr(module, name, None) is not None, (
             f"{module_name}.{name} is listed in __all__ but does not resolve"
         )
 

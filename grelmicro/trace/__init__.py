@@ -19,15 +19,6 @@ if _typing.TYPE_CHECKING:
         TraceProcessor,
         TraceSampler,
     )
-    from grelmicro.trace.config import (
-        TraceExporterType as TraceExporterType,
-    )
-    from grelmicro.trace.config import (
-        TraceProcessorType as TraceProcessorType,
-    )
-    from grelmicro.trace.config import (
-        TraceSamplerType as TraceSamplerType,
-    )
     from grelmicro.trace.errors import TraceError
 
 __all__ = [
@@ -35,11 +26,8 @@ __all__ = [
     "TraceConfig",
     "TraceError",
     "TraceExporter",
-    "TraceExporterType",
     "TraceProcessor",
-    "TraceProcessorType",
     "TraceSampler",
-    "TraceSamplerType",
     "add_context",
     "get_context",
     "instrument",
@@ -60,22 +48,10 @@ _LAZY: dict[str, str] = {
 }
 """The submodule each public name loads from."""
 
-_MODE_ENUMS = frozenset(
-    {"TraceExporterType", "TraceProcessorType", "TraceSamplerType"}
-)
-"""The mode enums removed in 0.44.0."""
-
 
 def __getattr__(name: str) -> object:
-    """Load `name` from its submodule and cache it on the package.
-
-    A mode enum removed in 0.44.0 warns on every access and is not cached.
-    """
+    """Load `name` from its submodule and cache it on the package."""
     module = _LAZY.get(name)
-    if module is None and name in _MODE_ENUMS:
-        from grelmicro._mode_enums import deprecated_enum  # noqa: PLC0415
-
-        return deprecated_enum(name)
     if module is None:
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg)

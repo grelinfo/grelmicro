@@ -28,11 +28,6 @@ if TYPE_CHECKING:
 
     from opentelemetry.sdk.trace import TracerProvider
 
-    from grelmicro._mode_enums import (
-        TraceExporterType,
-        TraceProcessorType,
-        TraceSamplerType,
-    )
     from grelmicro.trace._autoinstrument import InstrumentDirective
     from grelmicro.types import Environment
 
@@ -91,7 +86,7 @@ class Trace:
             str | None, Doc("Service name resource attribute.")
         ] = None,
         exporter: Annotated[
-            TraceExporter | TraceExporterType | None,
+            TraceExporter | None,
             Doc("Span exporter."),
         ] = None,
         endpoint: Annotated[str | None, Doc("Exporter endpoint.")] = None,
@@ -112,11 +107,11 @@ class Trace:
             ),
         ] = None,
         processor: Annotated[
-            TraceProcessor | TraceProcessorType | None,
+            TraceProcessor | None,
             Doc("Span processor."),
         ] = None,
         sampler: Annotated[
-            TraceSampler | TraceSamplerType | None,
+            TraceSampler | None,
             Doc("Sampler."),
         ] = None,
         sample_ratio: Annotated[

@@ -36,9 +36,6 @@ if TYPE_CHECKING:
     from opentelemetry.sdk.metrics import MeterProvider
     from prometheus_client import CollectorRegistry
 
-    from grelmicro._mode_enums import MetricsExporterType
-
-
 _logger = logging.getLogger(__name__)
 
 
@@ -95,7 +92,7 @@ class Metrics:
             str | None, Doc("Service name resource attribute.")
         ] = None,
         exporter: Annotated[
-            MetricsExporter | MetricsExporterType | None,
+            MetricsExporter | None,
             Doc("Metric exporter."),
         ] = None,
         endpoint: Annotated[str | None, Doc("Exporter endpoint.")] = None,

@@ -27,11 +27,6 @@ from grelmicro.log.uvicorn import rebind_streams as _rebind_uvicorn_streams
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from grelmicro._mode_enums import (
-        LogBackendType,
-        LogLevelType,
-        LogSerializerType,
-    )
     from grelmicro.types import LogLevel, TimeZoneName
 
 
@@ -86,11 +81,11 @@ class Log:
             ),
         ] = "default",
         backend: Annotated[
-            LogBackend | LogBackendType | None,
+            LogBackend | None,
             Doc("Logging backend (`stdlib`, `loguru`, `structlog`)."),
         ] = None,
         level: Annotated[
-            LogLevel | LogLevelType | None,
+            LogLevel | None,
             Doc("Log level threshold."),
         ] = None,
         format: Annotated[  # noqa: A002
@@ -101,7 +96,7 @@ class Log:
             Doc("IANA timezone for timestamps."),
         ] = None,
         json_serializer: Annotated[
-            LogSerializer | LogSerializerType | None,
+            LogSerializer | None,
             Doc("JSON serializer."),
         ] = None,
         caller_enabled: Annotated[

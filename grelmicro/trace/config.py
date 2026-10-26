@@ -1,7 +1,7 @@
 """Tracing Configuration."""
 
 from base64 import b64encode
-from typing import TYPE_CHECKING, Annotated, Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -13,19 +13,7 @@ from pydantic import (
 from typing_extensions import Doc
 
 from grelmicro._config import any_case
-from grelmicro._mode_enums import member_of
 from grelmicro.types import SecretUrl
-
-if TYPE_CHECKING:
-    from grelmicro._mode_enums import (
-        TraceExporterType as TraceExporterType,  # noqa: PLC0414
-    )
-    from grelmicro._mode_enums import (
-        TraceProcessorType as TraceProcessorType,  # noqa: PLC0414
-    )
-    from grelmicro._mode_enums import (
-        TraceSamplerType as TraceSamplerType,  # noqa: PLC0414
-    )
 
 type TraceExporter = Literal[
     "auto", "otlp-http", "otlp-grpc", "console", "none"
@@ -39,11 +27,6 @@ type TraceSampler = Literal[
     "always_on", "always_off", "parentbased_always_on", "traceidratio"
 ]
 """Sampler selection, matched in any case."""
-
-_MODE_ENUMS = frozenset(
-    {"TraceExporterType", "TraceProcessorType", "TraceSamplerType"}
-)
-"""The mode enums removed in 0.44.0."""
 
 
 class TraceConfig(
@@ -61,7 +44,6 @@ class TraceConfig(
     exporter: Annotated[
         TraceExporter,
         any_case(TraceExporter),
-        member_of("TraceExporterType"),
         Field(validate_default=True),
         Doc(
             "Span exporter. The default `auto` resolves to `otlp-http` when "
@@ -108,14 +90,12 @@ class TraceConfig(
     processor: Annotated[
         TraceProcessor,
         any_case(TraceProcessor),
-        member_of("TraceProcessorType"),
         Field(validate_default=True),
         Doc("Span processor."),
     ] = "batch"
     sampler: Annotated[
         TraceSampler,
         any_case(TraceSampler),
-        member_of("TraceSamplerType"),
         Field(validate_default=True),
         Doc("Sampler."),
     ] = "parentbased_always_on"
@@ -175,13 +155,3 @@ class TraceConfig(
         raw = f"{self.basic_auth_username}:{password}"
         token = b64encode(raw.encode()).decode("ascii")
         return f"Basic {token}"
-
-
-def __getattr__(name: str) -> object:
-    """Return a mode enum removed in 0.44.0, with a warning."""
-    if name in _MODE_ENUMS:
-        from grelmicro._mode_enums import deprecated_enum  # noqa: PLC0415
-
-        return deprecated_enum(name)
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)

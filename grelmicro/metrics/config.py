@@ -1,7 +1,7 @@
 """Metrics Configuration."""
 
 from base64 import b64encode
-from typing import TYPE_CHECKING, Annotated, Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -13,13 +13,7 @@ from pydantic import (
 from typing_extensions import Doc
 
 from grelmicro._config import any_case
-from grelmicro._mode_enums import member_of
 from grelmicro.types import SecretUrl
-
-if TYPE_CHECKING:
-    from grelmicro._mode_enums import (
-        MetricsExporterType as MetricsExporterType,  # noqa: PLC0414
-    )
 
 type MetricsExporter = Literal[
     "auto", "otlp-http", "otlp-grpc", "prometheus", "console", "none"
@@ -42,7 +36,6 @@ class MetricsConfig(
     exporter: Annotated[
         MetricsExporter,
         any_case(MetricsExporter),
-        member_of("MetricsExporterType"),
         Field(validate_default=True),
         Doc(
             "Metric exporter. The default `auto` resolves to `otlp-http` when "
@@ -152,13 +145,3 @@ class MetricsConfig(
         raw = f"{self.basic_auth_username}:{password}"
         token = b64encode(raw.encode()).decode("ascii")
         return f"Basic {token}"
-
-
-def __getattr__(name: str) -> object:
-    """Return a mode enum removed in 0.44.0, with a warning."""
-    if name == "MetricsExporterType":
-        from grelmicro._mode_enums import deprecated_enum  # noqa: PLC0415
-
-        return deprecated_enum(name)
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
