@@ -4,6 +4,7 @@
 
 ### Added
 * ✨ `micro.describe()` names the bare Provider each default component came from in `ComponentReport.default_of`, such as `"RedisProvider"`. `grelmicro check` adds `(default of RedisProvider)` to the line. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
+* ✨ Each switching release has its own `GrelmicroFutureWarning` subclass, such as `Grelmicro044Warning` for the changes that land in 0.44.0. `filterwarnings = ["error::grelmicro.Grelmicro044Warning"]` fails a test suite on those changes only. ([#1174](https://github.com/grelinfo/grelmicro/pull/1174))
 
 ### Changed
 * ⚡️ The Starlette integration loads authentication, error responses and route gates only when the app uses them. A Starlette app with `Tasks` loads 30 fewer grelmicro modules. ([#1170](https://github.com/grelinfo/grelmicro/pull/1170))

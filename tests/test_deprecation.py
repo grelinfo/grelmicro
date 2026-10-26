@@ -6,8 +6,19 @@ from dataclasses import replace
 import pytest
 
 import grelmicro
-from grelmicro._deprecation import PENDING, FutureChange, Removal, Rename
-from grelmicro.errors import GrelmicroConfigWarning, GrelmicroFutureWarning
+from grelmicro._deprecation import (
+    PENDING,
+    RELEASE_WARNINGS,
+    FutureChange,
+    Removal,
+    Rename,
+)
+from grelmicro.errors import (
+    EnvLoadDefaultWarning,
+    Grelmicro044Warning,
+    GrelmicroConfigWarning,
+    GrelmicroFutureWarning,
+)
 from tests._future import assert_future_warning, latest_release, stale
 from tools import changelog
 
@@ -37,6 +48,51 @@ def test_category_is_a_future_warning_of_its_own() -> None:
     assert issubclass(GrelmicroFutureWarning, FutureWarning)
     assert not issubclass(GrelmicroFutureWarning, GrelmicroConfigWarning)
     assert grelmicro.GrelmicroFutureWarning is GrelmicroFutureWarning
+
+
+@pytest.mark.parametrize("entry", [GATE, OLD_NAME, OLD_ENUM])
+def test_entry_warns_under_its_release_category(
+    entry: FutureChange | Rename | Removal,
+) -> None:
+    """A filter on the release's category catches the warning."""
+    with pytest.warns(Grelmicro044Warning):
+        entry.warn()
+
+
+def test_release_category_names_its_release() -> None:
+    """Each release category is a `GrelmicroFutureWarning` exported at the top level."""
+    for release, category in RELEASE_WARNINGS.items():
+        assert category.switch_in == release
+        assert issubclass(category, GrelmicroFutureWarning)
+        assert getattr(grelmicro, category.__name__) is category
+
+
+def test_every_pending_release_has_a_category() -> None:
+    """A change pending for a new release needs that release's category first."""
+    releases = {
+        entry.switch_in if isinstance(entry, FutureChange) else entry.removed_in
+        for entry in PENDING
+    }
+    assert releases <= RELEASE_WARNINGS.keys()
+
+
+@pytest.mark.parametrize("entry", PENDING, ids=repr)
+def test_pending_entry_warns_under_its_release_category(
+    entry: FutureChange | Rename | Removal,
+) -> None:
+    """A per-change category is a subclass of its release's category."""
+    release = (
+        entry.switch_in if isinstance(entry, FutureChange) else entry.removed_in
+    )
+    assert issubclass(entry.category, RELEASE_WARNINGS[release])
+
+
+def test_env_load_default_keeps_both_bases() -> None:
+    """A filter on the release, the future warning or the config code silences it."""
+    assert issubclass(EnvLoadDefaultWarning, Grelmicro044Warning)
+    assert issubclass(EnvLoadDefaultWarning, GrelmicroFutureWarning)
+    assert issubclass(EnvLoadDefaultWarning, GrelmicroConfigWarning)
+    assert EnvLoadDefaultWarning.code == "env-load-off"
 
 
 def test_future_change_message() -> None:
@@ -74,11 +130,11 @@ def test_future_change_message_with_nothing_to_keep() -> None:
 def test_future_change_warns_under_its_category() -> None:
     """An entry with a narrower category warns under it, at the caller."""
 
-    class NarrowWarning(GrelmicroFutureWarning):
+    class NarrowWarning(Grelmicro044Warning):
         """A narrower future warning."""
 
     def example() -> None:
-        replace(GATE, category=NarrowWarning).warn()
+        replace(GATE, narrow=NarrowWarning).warn()
 
     with pytest.warns(NarrowWarning) as caught:
         example()

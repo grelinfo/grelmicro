@@ -1635,3 +1635,12 @@ error:
 [tool.pytest.ini_options]
 filterwarnings = ["error::grelmicro.GrelmicroFutureWarning"]
 ```
+
+Each switching release also has its own category, such as
+`Grelmicro044Warning` for the changes that land in 0.44.0. Filter on it to
+catch one release's changes and leave the others alone:
+
+```toml
+[tool.pytest.ini_options]
+filterwarnings = ["error::grelmicro.Grelmicro044Warning"]
+```
