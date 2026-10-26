@@ -65,18 +65,17 @@ from grelmicro._environment import (
     QUIET_ENVIRONMENTS,
     answer_for,
     label,
+    raise_or_warn_deferred,
     recorded_bindings,
     report_diagnostic,
     report_unmet_requirements,
     resolve_environment,
-    strict_message,
     unmet_requirements,
     with_sole_defaults,
 )
 from grelmicro.errors import (
     _AMBIENT_SCOPE_NOTE,
     AmbientBindingWarning,
-    BackendScopeError,
     GrelmicroError,
     HealthNotServedWarning,
     MiddlewarePlacementError,
@@ -498,6 +497,9 @@ class Grelmicro:
             micro.check_backends()
         ```
 
+        A `@cached(lock=...)` fold that falls short warns with
+        `Grelmicro045Warning` instead, until 0.45.0.
+
         Raises:
             BackendScopeError: If any bound backend reaches less far than its
                 component requires, naming every one of them.
@@ -506,11 +508,12 @@ class Grelmicro:
             self._register_provider_defaults(
                 "micro.check_backends() was called"
             )
-        unmet = unmet_requirements(
-            self._items, recorded_bindings(), components=self._resolved
+        raise_or_warn_deferred(
+            unmet_requirements(
+                self._items, recorded_bindings(), components=self._resolved
+            ),
+            environment,
         )
-        if unmet:
-            raise BackendScopeError(strict_message(unmet, environment))
 
     def _unmet_bindings(self, bindings: Iterable[Binding]) -> list[Unmet]:
         """Check `bindings` alone against the components this app holds."""

@@ -8,12 +8,16 @@ of the app's `Coordination`. `None` turns folding off.
 from __future__ import annotations
 
 import asyncio
+import re
 import warnings
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
 
 from grelmicro import Grelmicro
+from grelmicro._deprecation import CACHED_LOCK_SCOPE, FutureChange
+from grelmicro._environment import recorded_bindings
 from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
@@ -23,9 +27,12 @@ from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import (
     BackendScopeError,
     BackendScopeWarning,
+    Grelmicro045Warning,
     OutOfContextError,
     SettingsValidationError,
 )
+from grelmicro.metrics._naming import callable_name
+from tests._future import assert_future_warning
 from tests._logs import records_of
 
 if TYPE_CHECKING:
@@ -125,13 +132,18 @@ def test_cached_private_cache_refuses_a_scope_past_the_process(
 async def test_cached_lock_backend_short_of_the_scope_is_refused() -> None:
     """A deployed app refuses a lock backend that reaches less far than asked."""
     fetch = cached(_cache(), lock="host")(_double)
-
-    async with Grelmicro(
+    micro = Grelmicro(
         uses=[Coordination(lock=MemoryLockAdapter(), requires="process")],
         environment="production",
-    ):
+    )
+
+    with pytest.warns(Grelmicro045Warning, match="MemoryLockAdapter"):
+        await micro.__aenter__()
+    try:
         with pytest.raises(BackendScopeError, match="lock="):
             await fetch(5)
+    finally:
+        await micro.__aexit__(None, None, None)
 
 
 async def test_cached_failing_lock_backend_still_answers(
@@ -214,14 +226,19 @@ async def test_get_or_set_refuses_a_value_that_is_not_a_scope(
 async def test_cached_short_lock_backend_is_refused_on_every_miss() -> None:
     """The refusal holds for every miss, not only the first."""
     fetch = cached(_cache(), lock="host")(_double)
-
-    async with Grelmicro(
+    micro = Grelmicro(
         uses=[Coordination(lock=MemoryLockAdapter(), requires="process")],
         environment="production",
-    ):
+    )
+
+    with pytest.warns(Grelmicro045Warning, match="MemoryLockAdapter"):
+        await micro.__aenter__()
+    try:
         for x in (5, 6):
             with pytest.raises(BackendScopeError):
                 await fetch(x)
+    finally:
+        await micro.__aexit__(None, None, None)
 
 
 async def test_cached_failing_lock_backend_warns_once(
@@ -264,12 +281,17 @@ async def test_cached_short_lock_backend_warns_with_no_environment(
     """With no environment declared, a short lock backend only warns."""
     monkeypatch.delenv("GREL_ENVIRONMENT")
     fetch = cached(_cache(), lock="host")(_double)
-
-    async with Grelmicro(
+    micro = Grelmicro(
         uses=[Coordination(lock=MemoryLockAdapter(), requires="process")]
-    ):
+    )
+
+    with pytest.warns(BackendScopeWarning, match="lock="):
+        await micro.__aenter__()
+    try:
         with pytest.warns(BackendScopeWarning, match="lock="):
             assert await fetch(5) == VALUE
+    finally:
+        await micro.__aexit__(None, None, None)
 
 
 @pytest.mark.parametrize("environment", ["development", "test"])
@@ -330,3 +352,122 @@ async def test_get_or_set_none_never_folds() -> None:
     await asyncio.gather(*tasks)
 
     assert calls == len(tasks)
+
+
+def _scope_checks(micro: Grelmicro) -> list[tuple[str, str]]:
+    """Return the status and detail of each `backend-scope` check."""
+    return [
+        (check.status, check.detail)
+        for check in micro.describe().checks
+        if check.name == "backend-scope"
+    ]
+
+
+def _cached_lock_scope(name: str) -> FutureChange:
+    """Return the warning a short fold of `name` gives in a strict tier."""
+    return replace(
+        CACHED_LOCK_SCOPE,
+        change=f"Fold({name!r}) is bound to InProcessLock, which provides "
+        f"scope 'process', but requires scope 'cluster'. "
+        f"{CACHED_LOCK_SCOPE.change}",
+    )
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+async def test_cached_fold_with_no_lock_backend_warns_at_open(
+    environment: Environment,
+) -> None:
+    """The fold is checked when the app opens, before any call, and does not raise yet."""
+    fetch = cached(_cache(), lock="cluster")(_double)
+    micro = Grelmicro(environment=environment)
+    entry = _cached_lock_scope(callable_name(_double))
+
+    with pytest.warns(Grelmicro045Warning, match=re.escape(entry.message)):
+        await micro.__aenter__()
+    try:
+        assert _scope_checks(micro) == [
+            (
+                "warn",
+                (
+                    f"Fold({callable_name(_double)!r}) is bound to "
+                    "InProcessLock, which provides scope 'process', but "
+                    "requires scope 'cluster'"
+                ),
+            )
+        ]
+    finally:
+        await micro.__aexit__(None, None, None)
+    del fetch
+
+
+async def test_cached_fold_with_no_lock_backend_warns_with_no_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no tier declared, the open warns as for any other backend."""
+    monkeypatch.delenv("GREL_ENVIRONMENT")
+    fetch = cached(_cache(), lock="cluster")(_double)
+    micro = Grelmicro()
+
+    with pytest.warns(BackendScopeWarning, match="InProcessLock"):
+        await micro.__aenter__()
+    try:
+        assert [status for status, _ in _scope_checks(micro)] == ["warn"]
+    finally:
+        await micro.__aexit__(None, None, None)
+    del fetch
+
+
+def test_cached_fold_with_no_lock_backend_warns_in_check_backends() -> None:
+    """`check_backends()` warns for the fold too, and raises nothing yet."""
+    fetch = cached(_cache(), lock="cluster")(_double)
+
+    assert_future_warning(
+        _cached_lock_scope(callable_name(_double)),
+        default=lambda: Grelmicro().check_backends(),
+        explicit=lambda: Grelmicro(
+            uses=[Coordination(lock=_ClusterLockAdapter())]
+        ).check_backends(),
+    )
+    del fetch
+
+
+async def test_cached_fold_on_a_lock_backend_that_reaches_far_enough_is_ok() -> (
+    None
+):
+    """A `Coordination` on a cluster backend passes the check at open."""
+    fetch = cached(_cache(), lock="cluster")(_double)
+    micro = Grelmicro(
+        uses=[Coordination(lock=_ClusterLockAdapter())],
+        environment="production",
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        async with micro:
+            assert [status for status, _ in _scope_checks(micro)] == ["ok"]
+    del fetch
+
+
+@pytest.mark.parametrize("environment", ["development", "test"])
+async def test_cached_fold_with_no_lock_backend_is_quiet_in_development(
+    environment: Environment,
+) -> None:
+    """A development or test app opens quietly, and the miss raises as before."""
+    fetch = cached(_cache(), lock="cluster")(_double)
+    micro = Grelmicro(environment=environment)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        async with micro:
+            assert [status for status, _ in _scope_checks(micro)] == ["ok"]
+            with pytest.raises(OutOfContextError):
+                await fetch(5)
+
+
+def test_cached_process_fold_records_nothing() -> None:
+    """Only a fold past the process rides the lock backend."""
+    fetch = cached(_cache())(_double)
+    unfolded = cached(_cache(), lock=None)(_double)
+
+    assert recorded_bindings() == []
+    del fetch, unfolded

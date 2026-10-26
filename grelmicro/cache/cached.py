@@ -623,7 +623,7 @@ def cached(  # noqa: PLR0913, C901
                 "functools.lru_cache for pure sync memoization."
             )
             raise TypeError(msg)
-        fold = None if scope is None else Fold(callable_name(func), scope)
+        fold = _declared_fold(func, scope)
         tag_spec = _TagSpec(tags, inspect.signature(func) if tags else None)
         resolved_key_function = key
         if key_template is not None and "{" in key_template:
@@ -685,6 +685,20 @@ def cached(  # noqa: PLR0913, C901
         return wrapper
 
     return decorator
+
+
+def _declared_fold(
+    func: Callable[..., Any], scope: BackendScope | None
+) -> Fold | None:
+    """Return the fold of `func`, recorded for the backend check.
+
+    `None` turns folding off.
+    """
+    if scope is None:
+        return None
+    fold = Fold(callable_name(func), scope)
+    fold.declare()
+    return fold
 
 
 # --- Stampede helpers ---

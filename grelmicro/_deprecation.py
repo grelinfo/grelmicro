@@ -210,8 +210,23 @@ def format_case(name: str) -> FutureChange:
     )
 
 
+CACHED_LOCK_SCOPE = FutureChange(
+    change="`@cached(lock=...)` on a lock backend that falls short raises "
+    "`BackendScopeError` when the app opens in `staging` or `production`",
+    switch_in="0.45.0",
+    keep=None,
+    adopt='uses=[Coordination(redis)]` or `lock="process"',
+)
+"""`@cached(lock="host")` and `lock="cluster"` are checked when the app opens.
+
+Until 0.45.0 a strict tier warns when the app opens, and raises on the
+first miss.
+"""
+
+
 PENDING: tuple[FutureChange | Rename | Removal, ...] = (
     ENV_LOAD_DEFAULT,
     FORMAT_CASE,
+    CACHED_LOCK_SCOPE,
 )
 """Every behavior change, rename and removal that currently warns."""

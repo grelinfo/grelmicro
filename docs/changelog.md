@@ -25,6 +25,9 @@
 ### Deprecated
 * 🗑️ The log formats are spelled `auto`, `json`, `logfmt`, `text` and `pretty`, and still match in any case. `LogConfig.format` reads back in uppercase until 0.45.0, then in lowercase. Comparing it with a format name warns with `Grelmicro045Warning`. ([#1181](https://github.com/grelinfo/grelmicro/pull/1181))
 
+### Deprecated
+* 🗑️ `@cached(lock="host")` and `lock="cluster"` are checked when the app opens. In `staging` and `production`, a fold with no `Coordination`, or one whose lock backend falls short, warns with `Grelmicro045Warning` and raises `BackendScopeError` from 0.45.0. Pass `uses=[Coordination(redis)]` or `lock="process"`. ([#1182](https://github.com/grelinfo/grelmicro/pull/1182))
+
 ### Fixed
 * 🐛 The `BackendScopeError` for `Idempotency` or `IdempotentRequests` with no lock backend says to register a `Coordination` with a Redis, Valkey, Postgres or Kubernetes provider, not to use one of those backends. ([#1168](https://github.com/grelinfo/grelmicro/pull/1168))
 

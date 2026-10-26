@@ -405,13 +405,11 @@ def _scope_checks(
                 ),
             )
         ]
-    status: CheckStatus = (
-        "fail" if environment in STRICT_ENVIRONMENTS else "warn"
-    )
+    strict = environment in STRICT_ENVIRONMENTS
     return [
         CheckReport(
             name="backend-scope",
-            status=status,
+            status="fail" if strict and entry.deferred is None else "warn",
             detail=entry.finding,
         )
         for entry in unmet

@@ -22,7 +22,7 @@ import warnings
 from collections import Counter
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from itertools import chain
 from pathlib import Path
@@ -52,6 +52,8 @@ if TYPE_CHECKING:
         Mapping,
         Sequence,
     )
+
+    from grelmicro._deprecation import FutureChange
 
 logger = logging.getLogger("grelmicro")
 
@@ -159,6 +161,12 @@ class Binding:
     keyword: str = "requires"
     """The argument that accepts a smaller reach, `lock` on `@cached`."""
 
+    deferred: FutureChange | None = None
+    """The pending change that makes a strict tier raise for it.
+
+    Until its `switch_in` release, a strict tier warns with it instead.
+    """
+
 
 _recorded: WeakKeyDictionary[object, Binding] = WeakKeyDictionary()
 """The binding of every live pattern no app registers, by pattern.
@@ -215,6 +223,9 @@ class Unmet:
 
     stand_in: bool = False
     """Whether the backend stands for a component the app does not register."""
+
+    deferred: FutureChange | None = None
+    """The pending change that makes a strict tier raise for it, if any."""
 
     @property
     def backend(self) -> str:
@@ -463,6 +474,7 @@ def unmet_requirements(
             kind=finding.kind,
             keyword=finding.keyword,
             stand_in=finding.stand_in,
+            deferred=finding.deferred,
         )
         for finding, names in grouped.items()
     ]
@@ -479,6 +491,7 @@ class _Finding(NamedTuple):
     kind: str | None
     keyword: str = "requires"
     stand_in: bool = False
+    deferred: FutureChange | None = None
 
 
 def falls_short(backend: object, requires: object) -> BackendScope | None:
@@ -581,6 +594,7 @@ def _binding_findings(
                 binding.kind,
                 binding.keyword,
                 stand_in,
+                binding.deferred,
             )
             yield finding, backend
 
@@ -626,13 +640,17 @@ def report_unmet_requirements(
 ) -> None:
     """Raise in a strict tier, warn when no tier is declared, else stay quiet.
 
+    In a strict tier, a finding whose raise is deferred warns with the
+    category of its pending change instead, when no other finding raises.
+
     Raises:
         BackendScopeError: If the tier is `staging` or `production`.
     """
     if not unmet or environment in QUIET_ENVIRONMENTS:
         return
     if environment in STRICT_ENVIRONMENTS:
-        raise BackendScopeError(strict_message(unmet, environment))
+        raise_or_warn_deferred(unmet, environment)
+        return
     entry = unmet[0]
     message = diagnostic(
         BACKEND_SCOPE,
@@ -658,6 +676,30 @@ def report_unmet_requirements(
             },
         )
     )
+
+
+def raise_or_warn_deferred(
+    unmet: Sequence[Unmet], environment: Environment | str
+) -> None:
+    """Raise for every finding that raises, else warn for each deferred one.
+
+    Raises:
+        BackendScopeError: If a finding is not deferred.
+    """
+    enforced = [entry for entry in unmet if entry.deferred is None]
+    if enforced:
+        raise BackendScopeError(strict_message(enforced, environment))
+    deferred = [
+        replace(
+            entry.deferred, change=f"{entry.finding}. {entry.deferred.change}"
+        )
+        for entry in unmet
+        if entry.deferred is not None
+    ]
+    for change in deferred:
+        warnings.warn(
+            change.message, change.category, skip_file_prefixes=(_PACKAGE_DIR,)
+        )
 
 
 def _others(count: int) -> str:
