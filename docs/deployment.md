@@ -13,6 +13,7 @@ GREL_ENVIRONMENT=production
 ```
 
 Four values name a tier: `development`, `test`, `staging`, and `production`.
+They match in any case, so `Production` reads as `production`.
 They are the well-known values of the OpenTelemetry
 [`deployment.environment.name`](https://opentelemetry.io/docs/specs/semconv/resource/deployment-environment/)
 attribute, and grelmicro writes the declared value into that attribute on the

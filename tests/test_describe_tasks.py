@@ -379,13 +379,21 @@ def _gate_backend(micro: Grelmicro) -> list[tuple[str, str]]:
 
 
 @pytest.mark.parametrize(
-    "environment", ["production", "staging", "development", "test", None]
+    ("environment", "status"),
+    [
+        ("production", "fail"),
+        ("staging", "fail"),
+        ("development", "warn"),
+        ("test", "warn"),
+        (None, "warn"),
+    ],
 )
-def test_gate_backend_warns_on_a_gated_task_with_no_backend(
+def test_gate_backend_reports_a_gated_task_with_no_backend(
     environment: Environment | None,
+    status: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A gated task with no claim backend warns in every tier, never fails."""
+    """A gated task with no claim backend fails in `staging` and `production`."""
     monkeypatch.delenv("GREL_ENVIRONMENT", raising=False)
     tasks = Tasks()
     tasks.every(interval=60, gate="claim", name="purge")(purge)
@@ -394,15 +402,15 @@ def test_gate_backend_warns_on_a_gated_task_with_no_backend(
 
     found = _gate_backend(micro)
 
-    assert [status for status, _ in found] == ["warn", "warn"]
+    assert [found_status for found_status, _ in found] == [status, status]
     assert "'purge'" in found[0][1]
     assert "lock backend" in found[0][1]
     assert "'nightly'" in found[1][1]
     assert "schedule backend" in found[1][1]
-    assert micro.describe().ok
+    assert micro.describe().ok is (status == "warn")
 
 
-def test_gate_backend_warns_when_coordination_lacks_the_kind() -> None:
+def test_gate_backend_fails_when_coordination_lacks_the_kind() -> None:
     """A `Coordination` with no schedule backend leaves a cron claim unresolved."""
     tasks = Tasks()
     tasks.cron("0 3 * * *", gate="claim", name="nightly")(nightly)
@@ -412,7 +420,7 @@ def test_gate_backend_warns_when_coordination_lacks_the_kind() -> None:
         _app(coordination, tasks, environment="production")
     )
 
-    assert status == "warn"
+    assert status == "fail"
     assert "'nightly'" in detail
 
 

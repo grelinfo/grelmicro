@@ -163,31 +163,6 @@ class Removal:
         warnings.warn(self.message, self.category, stacklevel=stacklevel + 1)
 
 
-ENVIRONMENT_CASE = FutureChange(
-    change="A tier in another case, such as `GREL_ENVIRONMENT=Production`, "
-    "reads as undeclared today and as that tier",
-    switch_in="0.44.0",
-    keep=None,
-    adopt="GREL_ENVIRONMENT=production",
-    verb="Set",
-)
-"""`GREL_ENVIRONMENT` matches the tier in any case."""
-
-
-def environment_case(value: str, tier: str) -> FutureChange:
-    """Return `ENVIRONMENT_CASE` worded for one `GREL_ENVIRONMENT` value.
-
-    `value` is the spelling given, and `tier` the tier it names in another
-    case.
-    """
-    return replace(
-        ENVIRONMENT_CASE,
-        change=f"`GREL_ENVIRONMENT={value}` reads as undeclared today "
-        f"and as `{tier}`",
-        adopt=f"GREL_ENVIRONMENT={tier}",
-    )
-
-
 ENV_LOAD_DEFAULT = FutureChange(
     change="A set `GREL_*` variable is read by default",
     switch_in="0.44.0",
@@ -210,8 +185,5 @@ def unread_env(name: str) -> FutureChange:
     )
 
 
-PENDING: tuple[FutureChange | Rename | Removal, ...] = (
-    ENVIRONMENT_CASE,
-    ENV_LOAD_DEFAULT,
-)
+PENDING: tuple[FutureChange | Rename | Removal, ...] = (ENV_LOAD_DEFAULT,)
 """Every behavior change, rename and removal that currently warns."""

@@ -362,7 +362,7 @@ route.
 | `path-patterns` | An `include=` pattern that names no route, which turns its rule off without a word. Needs `--app`. | `warn` |
 | `ambient-binding` | An app or mounted sub-app that `micro.install(app)` never saw. Needs `--app`. | `FAIL`, or `warn` for a framework it does not recognize |
 | `health-not-served` | A registered `HealthChecks` whose endpoints nothing serves, once an app is installed. | `warn` |
-| `gate-backend` | A gated task that resolves no backend to claim through, so every fire runs nothing. | `warn` in every environment. `FAIL` in `staging` and `production` from 0.44.0. |
+| `gate-backend` | A gated task that resolves no backend to claim through, so every fire runs nothing. | `FAIL` in `staging` and `production`, `warn` otherwise. |
 | `leader-not-running` | A task gated on a `LeaderElection` that no registered `Tasks` holds. | `warn` |
 | `routes-not-declared` | An integration that lists no routes while a component acting per endpoint is registered, so no endpoint row is shown and no `include=` pattern is checked. Needs `--app`. | `warn` |
 
