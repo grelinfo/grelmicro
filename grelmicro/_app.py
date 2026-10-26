@@ -967,11 +967,12 @@ class Grelmicro:
         Each registered `Coordination`, `Cache`, `RateLimiterComponent`, and
         `CircuitBreakerComponent` opens on a fresh `MemoryProvider`, under the
         same name. A Provider only those components use is left closed, so
-        the test connects to nothing and no readiness check probes it. One
-        that a component left as is still borrows, such as the Postgres an
-        `Outbox` stores in, opens as usual. The real components come back
-        when the app closes, and the backend scope check does not run on the
-        faked ones.
+        the test connects to nothing and no readiness check probes it. A
+        listed `MemoryProvider` is left closed too, as the fresh one takes its
+        place. One that a component left as is still borrows, such as the
+        Postgres an `Outbox` stores in, opens as usual. The real components
+        come back when the app closes, and the backend scope check does not
+        run on the faked ones.
 
         `Log`, `Trace`, `Metrics`, and `HealthChecks` have no backend to fake,
         and `Outbox` carries handlers and a relay that a swap would drop.
@@ -1017,9 +1018,15 @@ class Grelmicro:
         items = [replacements.get(id(item), item) for item in self._items]
         in_use = {id(p) for item in items for p in _borrowed_providers(item)}
         # Only a Provider a faked component used is the fake's to close. One
-        # the app's own code reaches directly stays open.
+        # the app's own code reaches directly stays open. A listed
+        # `MemoryProvider` is the fake's too, as its store takes the place.
         candidates = [
-            p for original in originals for p in _borrowed_providers(original)
+            *(
+                p
+                for original in originals
+                for p in _borrowed_providers(original)
+            ),
+            *(item for item in items if isinstance(item, MemoryProvider)),
         ]
         skipped = list(
             {

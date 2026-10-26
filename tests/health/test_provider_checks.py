@@ -18,6 +18,8 @@ from grelmicro.health import ProviderChecks, health_asgi
 from grelmicro.health._checks import HealthChecks, HealthChecksConfig
 from grelmicro.health._models import HealthStatus
 from grelmicro.providers._base import Provider
+from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -492,6 +494,81 @@ class TestProvidersDefault:
             asyncio.run(open_faked())
 
         assert not _future_warnings(caught)
+
+
+class TestFakedMemoryProvider:
+    """A faked app that lists a bare `MemoryProvider` checks one memory store."""
+
+    async def test_fake_before_open_registers_one_memory_check(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """`with micro.fake():` before the open warns nothing."""
+        health = HealthChecks(cache_ttl=0)
+        micro = Grelmicro(uses=[MemoryProvider(), health])
+
+        with (
+            caplog.at_level("WARNING", logger="grelmicro.health"),
+            micro.fake(),
+        ):
+            checks = await _checks(micro, health)
+
+        assert list(checks) == ["provider:memory"]
+        assert "already registered" not in caplog.text
+
+    async def test_fake_on_open_app_registers_one_memory_check(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """`async with micro.fake():` on an open app warns nothing."""
+        health = HealthChecks(cache_ttl=0)
+        micro = Grelmicro(uses=[MemoryProvider(), health])
+
+        with caplog.at_level("WARNING", logger="grelmicro.health"):
+            async with micro, micro.fake():
+                checks = dict((await health.run())["checks"])
+
+        assert list(checks) == ["provider:memory"]
+        assert "already registered" not in caplog.text
+
+    async def test_fake_lists_the_fake_store_once(self) -> None:
+        """Under `fake()`, `micro.providers` holds only the fake's store."""
+        memory = MemoryProvider()
+        micro = Grelmicro(uses=[memory, HealthChecks()])
+
+        with micro.fake():
+            async with micro:
+                providers = micro.providers
+
+        assert len(providers) == 1
+        assert isinstance(providers[0], MemoryProvider)
+        assert providers[0] is not memory
+        assert micro.providers == (memory,)
+
+    async def test_fake_keeps_a_kept_memory_provider(self) -> None:
+        """A `MemoryProvider` passed to `keep=` stays listed under `fake()`."""
+        memory = MemoryProvider()
+        micro = Grelmicro(uses=[memory, HealthChecks()])
+
+        with micro.fake(keep=[memory]):
+            async with micro:
+                assert memory in micro.providers
+
+    async def test_redis_app_under_fake_checks_the_fake_store(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A faked Redis app checks the fake's memory store, not Redis."""
+        health = HealthChecks(cache_ttl=0)
+        micro = Grelmicro(
+            uses=[Cache(RedisProvider("redis://localhost:6379/0")), health]
+        )
+
+        with (
+            caplog.at_level("WARNING", logger="grelmicro.health"),
+            micro.fake(),
+        ):
+            checks = await _checks(micro, health)
+
+        assert list(checks) == ["provider:memory"]
+        assert "already registered" not in caplog.text
 
 
 class TestProvidersProperty:
