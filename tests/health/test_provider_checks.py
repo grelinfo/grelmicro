@@ -194,10 +194,10 @@ class TestProviders:
     )
     def test_matches_any_case(self, spelling: str, mode: str) -> None:
         """A mode in another case reads as that mode."""
-        health = HealthChecks(provider_checks=spelling)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-        configured = HealthChecks.from_config(
+        health = HealthChecks(provider_checks=spelling)  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
+        configured = HealthChecks.from_config(  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
             HealthChecksConfig(),
-            provider_checks=spelling,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            provider_checks=spelling,
         )
 
         assert health._provider_checks == mode
@@ -208,7 +208,7 @@ class TestProviders:
         with pytest.raises(
             SettingsValidationError, match="off, report, require"
         ):
-            HealthChecks(provider_checks="on")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            HealthChecks(provider_checks="on")  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
 
     async def test_report_keeps_readyz_up_while_a_backend_is_down(
         self,
@@ -307,26 +307,22 @@ class TestAutoHealthRemoved:
     def test_raises_type_error(self, *, value: bool) -> None:
         """`auto_health=` raises `TypeError` like any unknown keyword."""
         with pytest.raises(TypeError, match="auto_health"):
-            HealthChecks(auto_health=value)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+            HealthChecks(auto_health=value)  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
         with pytest.raises(TypeError, match="auto_health"):
-            HealthChecks.from_config(  # type: ignore[call-arg]
+            HealthChecks.from_config(  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
                 HealthChecksConfig(),
-                auto_health=value,  # ty: ignore[unknown-argument]
+                auto_health=value,
             )
-
-    @pytest.mark.parametrize(
-        "method", [HealthChecks.__init__, HealthChecks.from_config]
-    )
-    def test_has_no_overloads(self, method: object) -> None:
-        """`HealthChecks` and `from_config` declare one signature each."""
-        assert get_overloads(method) == []  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
     def test_no_pending_entry(self) -> None:
         """No pending entry warns about `auto_health=` or the default."""
         assert not hasattr(_deprecation, "AUTO_HEALTH")
         assert not hasattr(_deprecation, "PROVIDERS_DEFAULT")
         assert [
-            entry for entry in PENDING if "provider_checks" in entry.message
+            entry
+            for entry in PENDING
+            if not isinstance(entry, _deprecation.Moved)
+            and "provider_checks" in entry.message
         ] == [_deprecation.PROVIDER_CHECKS_NONE]
 
 
@@ -337,11 +333,11 @@ class TestProviderChecksNone:
         "build",
         [
             pytest.param(
-                lambda: HealthChecks(cache_ttl=0, provider_checks=None),
+                lambda: HealthChecks(cache_ttl=0, provider_checks=None),  # ty: ignore[deprecated]
                 id="init",
             ),
             pytest.param(
-                lambda: HealthChecks.from_config(
+                lambda: HealthChecks.from_config(  # ty: ignore[deprecated]
                     HealthChecksConfig(cache_ttl=0), provider_checks=None
                 ),
                 id="from-config",
@@ -367,13 +363,31 @@ class TestProviderChecksNone:
         assert set(checks) == {"provider:redis"}
         assert checks["provider:redis"]["critical"] is False  # type: ignore[index]  # ty: ignore[not-subscriptable]
 
-    def test_message_names_the_way_out(self) -> None:
-        """The warning tells the user to pass `"report"` or omit the argument."""
+    def test_message_names_both_ways_out(self) -> None:
+        """The warning offers `"off"` to register none, or omitting the argument."""
         entry = _deprecation.PROVIDER_CHECKS_NONE
         assert entry.removed_in == "0.45.0"
         assert entry.message == (
             "`provider_checks=None` is removed in 0.45.0. "
-            'Use `provider_checks="report"` or no `provider_checks=` instead.'
+            'Use `provider_checks="off"` to register no provider checks, '
+            'or omit the argument for `"report"` instead.'
+        )
+
+    @pytest.mark.parametrize(
+        "method", [HealthChecks.__init__, HealthChecks.from_config]
+    )
+    def test_only_the_none_overload_is_deprecated_for_checkers(
+        self, method: object
+    ) -> None:
+        """Type checkers report `None`, and the runtime warning stays the one."""
+        current, removed = (
+            getattr(overload, "__func__", overload)
+            for overload in get_overloads(method)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        )
+
+        assert not hasattr(current, "__deprecated__")
+        assert getattr(removed, "__deprecated__", None) == (
+            _deprecation.PROVIDER_CHECKS_NONE.message
         )
 
 

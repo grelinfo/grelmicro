@@ -85,7 +85,38 @@ from grelmicro.integrations.starlette import (
 )
 
 if TYPE_CHECKING:
-    from grelmicro.http import ErrorResponses
+    # Each `X as X` import re-exports a name served with a warning until 0.45.0.
+    from grelmicro._caller import is_authenticated as is_authenticated
+    from grelmicro.http import ErrorResponses as ErrorResponses
+    from grelmicro.http import (
+        PreconditionRequiredError as PreconditionRequiredError,
+    )
+    from grelmicro.http import check_freshness as check_freshness
+    from grelmicro.http._authentication import (
+        declare_anonymous as declare_anonymous,
+    )
+    from grelmicro.http._authentication import (
+        describe_app_schema as describe_app_schema,
+    )
+    from grelmicro.http._conditional import (
+        declare_precondition_required as declare_precondition_required,
+    )
+    from grelmicro.http._openapi import add_error_schema as add_error_schema
+    from grelmicro.http._openapi import describing as describing
+    from grelmicro.http._openapi import referenced as referenced
+    from grelmicro.http._ratelimit import bucket_of as bucket_of
+    from grelmicro.http._ratelimit import (
+        check_route_limiters as check_route_limiters,
+    )
+    from grelmicro.http._ratelimit import spend as spend
+    from grelmicro.http._ratelimit import state_on as state_on
+    from grelmicro.http._requirement import Requirement as Requirement
+    from grelmicro.http._requirement import (
+        declare_from_request as declare_from_request,
+    )
+    from grelmicro.http._requirement import declare_optional as declare_optional
+    from grelmicro.http._requirement import requirement_for as requirement_for
+    from grelmicro.http._response_cache import declare_cached as declare_cached
     from grelmicro.integrations._fastapi_auth import (
         Anonymous,
         Authenticated,
@@ -102,8 +133,39 @@ if TYPE_CHECKING:
     )
     from grelmicro.integrations._fastapi_metrics import metrics_router
     from grelmicro.integrations._fastapi_ratelimit import RateLimited
+    from grelmicro.integrations._request_telemetry import (
+        exceptions_on_spans as exceptions_on_spans,
+    )
+    from grelmicro.integrations._request_telemetry import excluding as excluding
+    from grelmicro.integrations._request_telemetry import (
+        normal_close as normal_close,
+    )
+    from grelmicro.integrations._route_gate import (
+        declarations_of as declarations_of,
+    )
+    from grelmicro.integrations._route_gate import gate_routes as gate_routes
+    from grelmicro.integrations._route_gate import (
+        shadowed_routes as shadowed_routes,
+    )
     from grelmicro.integrations._starlette_errors import error_response
     from grelmicro.integrations.starlette import is_bound
+    from grelmicro.metrics import Metrics as Metrics
+    from grelmicro.metrics._endpoints import (
+        PROMETHEUS_MEDIA_TYPE as PROMETHEUS_MEDIA_TYPE,
+    )
+    from grelmicro.metrics._endpoints import (
+        render_prometheus as render_prometheus,
+    )
+    from grelmicro.resilience import RateLimiter as RateLimiter
+    from grelmicro.resilience import (
+        RateLimitExceededError as RateLimitExceededError,
+    )
+    from grelmicro.security import JWTClaims as JWTClaims
+    from grelmicro.security import Principal as Principal
+    from grelmicro.security import TrustedProxies as TrustedProxies
+    from grelmicro.security import VerifiedToken as VerifiedToken
+    from grelmicro.trace import Trace as Trace
+    from grelmicro.trace._autoinstrument import is_selected as is_selected
 
 __all__ = [
     "Anonymous",
@@ -150,9 +212,17 @@ _LAZY: dict[str, str] = {
 
 
 def __getattr__(name: str) -> object:
-    """Load `name` from its submodule and cache it on the module."""
+    """Load `name` from its submodule and cache it on the module.
+
+    A name the module served in 0.43 without listing it loads from its home
+    on each access and warns that it moves out in 0.45.0.
+    """
     module = _LAZY.get(name)
     if module is None:
+        if not name.startswith("_"):
+            from grelmicro._deprecation import FASTAPI_MOVED  # noqa: PLC0415
+
+            return FASTAPI_MOVED.load(name)
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg)
     import importlib  # noqa: PLC0415

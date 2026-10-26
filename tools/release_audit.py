@@ -49,9 +49,9 @@ from tools import changelog  # noqa: E402
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
-    from grelmicro._deprecation import FutureChange, Removal, Rename
+    from grelmicro._deprecation import FutureChange, Moved, Removal, Rename
 
-    type Entry = FutureChange | Rename | Removal
+    type Entry = FutureChange | Rename | Removal | Moved
     """A `PENDING` entry, from this tree or from the last tag's file."""
 
 REPO = "grelinfo/grelmicro"

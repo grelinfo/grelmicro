@@ -36,7 +36,7 @@ micro = Grelmicro(uses=[Cache(redis), RateLimiterComponent(redis)])
 
 A bare provider registers a default component for each kind nothing else
 claims. `micro.describe()` names the provider each one came from, such as
-`"redis"`. `grelmicro check` marks its line `(default)`, or
+`"redis"`. `grelmicro check` marks its line `(provider default)`, or
 `(default of redis)` when the line names another provider or none.
 
 !!! warning

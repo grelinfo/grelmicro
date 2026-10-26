@@ -43,12 +43,32 @@ if TYPE_CHECKING:
 
     from grelmicro import Grelmicro
     from grelmicro._paths import RouteReader
-    from grelmicro.http import ErrorResponses, Gate, RouteDeclaration
+
+    # Each `X as X` import re-exports a name served with a warning until 0.45.0.
+    from grelmicro._wrapping import refuse_registered as refuse_registered
+    from grelmicro.http import ErrorResponses as ErrorResponses
+    from grelmicro.http import Gate, RouteDeclaration
+    from grelmicro.http import RateLimitMiddleware as RateLimitMiddleware
+    from grelmicro.http import merge_headers as merge_headers
+    from grelmicro.http._kinds import BODYLESS_STATUSES as BODYLESS_STATUSES
+    from grelmicro.http._kinds import HANDLED as HANDLED
+    from grelmicro.http._requirement import AUTHENTICATED as AUTHENTICATED
+    from grelmicro.http._requirement import Requirement as Requirement
+    from grelmicro.http._requirement import declared_scopes as declared_scopes
+    from grelmicro.integrations._route_gate import (
+        declarations_of as declarations_of,
+    )
+    from grelmicro.integrations._route_gate import gate_routes as gate_routes
+    from grelmicro.integrations._route_gate import (
+        shadowed_routes as shadowed_routes,
+    )
     from grelmicro.integrations._starlette_auth import (
         Authenticated,
         current_token,
     )
     from grelmicro.integrations._starlette_errors import error_response
+    from grelmicro.security import VerifiedToken as VerifiedToken
+    from grelmicro.trace._autoinstrument import request_spans as request_spans
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -77,9 +97,17 @@ _LAZY: dict[str, str] = {
 
 
 def __getattr__(name: str) -> object:
-    """Load `name` from its submodule and cache it on the module."""
+    """Load `name` from its submodule and cache it on the module.
+
+    A name the module served in 0.43 without listing it loads from its home
+    on each access and warns that it moves out in 0.45.0.
+    """
     module = _LAZY.get(name)
     if module is None:
+        if not name.startswith("_"):
+            from grelmicro._deprecation import STARLETTE_MOVED  # noqa: PLC0415
+
+            return STARLETTE_MOVED.load(name)
         msg = f"module {__name__!r} has no attribute {name!r}"
         raise AttributeError(msg)
     import importlib  # noqa: PLC0415

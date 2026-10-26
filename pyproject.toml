@@ -361,6 +361,9 @@ ignore = [
 "docs/snippets/logging/basic.py" = ["EM101", "TRY"]
 "docs/snippets/resilience/shield_giveup.py" = ["EM101", "TRY"]
 "docs/snippets/task/router.py" = ["I001", "E402"]
+# `import X as X` re-exports the names served with a warning until 0.45.0,
+# so type checkers keep reading them. Delete with `FASTAPI_MOVED` and the rest.
+"grelmicro/integrations/{fastapi,litestar,starlette}.py" = ["PLC0414"]
 "tests/*" = [
     "S101",
     "S105",

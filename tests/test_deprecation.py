@@ -10,6 +10,7 @@ from grelmicro._deprecation import (
     PENDING,
     RELEASE_WARNINGS,
     FutureChange,
+    Moved,
     Removal,
     Rename,
 )
@@ -77,7 +78,7 @@ def test_every_pending_release_has_a_category() -> None:
 
 @pytest.mark.parametrize("entry", PENDING, ids=repr)
 def test_pending_entry_warns_under_its_release_category(
-    entry: FutureChange | Rename | Removal,
+    entry: FutureChange | Rename | Removal | Moved,
 ) -> None:
     """A per-change category is a subclass of its release's category."""
     release = (
@@ -115,6 +116,18 @@ def test_future_change_message_with_nothing_to_keep() -> None:
     assert entry.message == (
         "`Example(gate=)` defaults to `leader` from 0.45.0. "
         "Pass `gate=leader` now."
+    )
+
+
+def test_future_change_message_with_a_remedy() -> None:
+    """A remedy sentence replaces the `keep` and `adopt` advice."""
+    entry = replace(
+        GATE, remedy="Give each task a backend, or pass `gate=None`."
+    )
+
+    assert entry.message == (
+        "`Example(gate=)` defaults to `leader` from 0.45.0. "
+        "Give each task a backend, or pass `gate=None`."
     )
 
 
@@ -252,3 +265,37 @@ def test_latest_release_needs_a_dated_section() -> None:
     """A changelog with nothing released yet cannot anchor the guard."""
     with pytest.raises(AssertionError, match="no dated release"):
         latest_release("# Changelog\n\n## Unreleased\n")
+
+
+MOVED = Moved(
+    module="example.facade",
+    homes={"Grelmicro045Warning": "grelmicro.errors"},
+    removed_in="0.45.0",
+)
+
+
+def test_moved_names_what_changes() -> None:
+    """The change names the module the names leave."""
+    assert MOVED.change == "names `example.facade` served without listing them"
+
+
+def test_moved_load_returns_the_home_object_and_warns_at_the_caller() -> None:
+    """`load` reports the line that called the function that called it."""
+
+    def facade_getattr(name: str) -> object:
+        return MOVED.load(name)
+
+    with pytest.warns(Grelmicro045Warning, match="moves out of") as caught:
+        value = facade_getattr("Grelmicro045Warning")
+
+    assert value is Grelmicro045Warning
+    assert caught[0].filename == __file__
+
+
+def test_moved_load_refuses_a_name_the_module_never_served() -> None:
+    """An unknown name raises `AttributeError` naming the module."""
+    with pytest.raises(
+        AttributeError,
+        match=r"module 'example\.facade' has no attribute 'missing'",
+    ):
+        MOVED.load("missing")

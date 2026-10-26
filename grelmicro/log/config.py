@@ -175,3 +175,23 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("How many rendered records the queue holds before dropping."),
         Field(gt=0),
     ] = 10_000
+
+    def __eq__(self, other: object) -> bool:
+        """Compare as a pydantic model, with `format` read as a plain `str`.
+
+        A config from `model_construct` or from a pickle holds a plain `str`
+        format, and comparing it with a validated one warns nothing.
+        """
+        if not isinstance(other, LogConfig):
+            return super().__eq__(other)
+        if str(self.format) != str(other.format):
+            return False
+        if self.format is not other.format:
+            other = other.model_copy(update={"format": self.format})
+        return super().__eq__(other)
+
+    def __hash__(self) -> int:
+        """Hash the field values, as a frozen pydantic model does."""
+        return hash(
+            tuple(self.__dict__[name] for name in type(self).model_fields)
+        )

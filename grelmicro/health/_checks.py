@@ -19,7 +19,9 @@ from typing import (
     Literal,
     Self,
     cast,
+    overload,
 )
+from warnings import deprecated
 
 from pydantic import BaseModel, PositiveFloat, field_validator
 from typing_extensions import Doc
@@ -241,6 +243,38 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
 
     kind: ClassVar[str] = "health"
 
+    @overload
+    def __init__(
+        self,
+        *,
+        name: str = "default",
+        timeout: PositiveFloat | None = None,
+        cache_ttl: int | timedelta | None = None,
+        liveness: Liveness | None = None,
+        provider_checks: ProviderChecks = "report",
+        env_prefix: str | None = None,
+        env_load: bool | None = None,
+    ) -> None: ...
+
+    @overload
+    @deprecated(
+        "`provider_checks=None` is removed in 0.45.0. "
+        'Use `provider_checks="off"` to register no provider checks, '
+        'or omit the argument for `"report"` instead.',
+        category=None,
+    )
+    def __init__(
+        self,
+        *,
+        name: str = "default",
+        timeout: PositiveFloat | None = None,
+        cache_ttl: int | timedelta | None = None,
+        liveness: Liveness | None = None,
+        provider_checks: None,
+        env_prefix: str | None = None,
+        env_load: bool | None = None,
+    ) -> None: ...
+
     def __init__(
         self,
         *,
@@ -361,6 +395,34 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         # tracks: `from_config` takes a pre-built config and stays static,
         # matching every other reconfigurable component.
         self._track_reconfigure(resolved_env_prefix)
+
+    @overload
+    @classmethod
+    def from_config(
+        cls,
+        config: HealthChecksConfig,
+        *,
+        name: str = "default",
+        provider_checks: ProviderChecks = "report",
+        liveness: Liveness | None = None,
+    ) -> Self: ...
+
+    @overload
+    @classmethod
+    @deprecated(
+        "`provider_checks=None` is removed in 0.45.0. "
+        'Use `provider_checks="off"` to register no provider checks, '
+        'or omit the argument for `"report"` instead.',
+        category=None,
+    )
+    def from_config(
+        cls,
+        config: HealthChecksConfig,
+        *,
+        name: str = "default",
+        provider_checks: None,
+        liveness: Liveness | None = None,
+    ) -> Self: ...
 
     @classmethod
     def from_config(

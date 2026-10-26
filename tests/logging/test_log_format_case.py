@@ -295,3 +295,64 @@ def test_a_dump_excluding_defaults_drops_the_default_format(mode: str) -> None:
     # Assert
     assert "format" not in excluded
     assert str.__eq__(kept["format"], "JSON")
+
+
+def _plain(config: LogConfig) -> LogConfig:
+    """Return `config` built with `model_construct`, its format a plain `str`."""
+    return LogConfig.model_construct(**config.model_dump())
+
+
+def _unpickled(config: LogConfig) -> LogConfig:
+    """Return `config` through pickle, its format a plain `str`."""
+    return pickle.loads(pickle.dumps(config))  # noqa: S301
+
+
+@pytest.mark.parametrize("rebuild", [_plain, _unpickled])
+@pytest.mark.parametrize("other_format", ["json", "auto", "text", "{message}"])
+def test_comparing_two_configs_never_warns(
+    rebuild: Callable[[LogConfig], LogConfig], other_format: str
+) -> None:
+    """A validated config compares with an unvalidated one, either way, silently."""
+    # Arrange
+    validated = LogConfig(format="json")
+    other = rebuild(LogConfig(format=other_format))
+    assert type(other.format) is str
+
+    # Act
+    with _silent():
+        results = {
+            validated == other,
+            other == validated,
+            validated != other,
+            other != validated,
+        }
+
+    # Assert
+    assert results == {True, False}
+    assert (validated == other) is (other_format == "json")
+    assert (hash(validated) == hash(other)) is (other_format == "json")
+
+
+def test_comparing_with_an_unvalidated_default_never_warns() -> None:
+    """`LogConfig.model_construct()` holds the plain default and compares silently."""
+    # Act
+    with _silent():
+        equal = LogConfig() == LogConfig.model_construct()
+
+    # Assert
+    assert equal
+
+
+def test_a_config_compares_with_its_copy_and_with_other_objects() -> None:
+    """A copy shares the format, and a non-config is never equal."""
+    # Arrange
+    config = LogConfig(format="json")
+
+    # Act
+    with _silent():
+        same = config == config.model_copy()
+        other = config == "JSON"
+
+    # Assert
+    assert same
+    assert not other

@@ -701,24 +701,31 @@ it in `grelmicro/_deprecation.py` and add it to `PENDING`.
 - **A changed default** is a `FutureChange`. Call its `warn()` only while the
   setting is left at its default, so choosing a value silences it. Give it
   `verb="Set"` when the setting is an environment variable, and `keep=None`
-  when no value keeps the current behavior. There is no global flag to opt
-  into future behavior.
+  when no value keeps the current behavior. Give it `remedy=` only when no
+  single setting names the fix. There is no global flag to opt into future
+  behavior.
 - **A rename** is a `Rename`. Ship the new name beside the old one, and call
   `warn()` where the old name is used. Remove the old name in the next minor.
 - **A removal** is a `Removal`, for a name that goes with no one-to-one
   replacement, such as an enum replaced by string literals. Keep the old name
   importable, call `warn()` where it is read, and remove it in the next minor.
+- **Names a module served without listing them** are a `Moved`, one per
+  module, with each name's home. The module `__getattr__` calls its `load()`,
+  and the names stay out of `__all__` and `dir()`.
 - Mark a removed class, or the overload that takes an old argument, with
   `@deprecated(..., category=None)` so type checkers report it too. The
   `warn()` call stays the runtime warning.
 - Each entry warns with the category of its release, such as
-  `Grelmicro045Warning` for 0.45.0. The first entry for a new release adds
-  that class to `grelmicro/errors.py`, exports it from `grelmicro`, and lists
-  it in `RELEASE_WARNINGS`. A release's warning class ships in the minor
-  before that release. It stays importable after that release, so a
-  `filterwarnings` line that names it keeps working. Give a `FutureChange` its own `narrow=` subclass
-  only when a user would silence that one change, such as
-  `EnvLoadDefaultWarning`.
+  `Grelmicro045Warning` for 0.45.0. The class name is the major plus a
+  two-digit minor: 0.45 is `Grelmicro045Warning`, 1.0 is
+  `Grelmicro100Warning` and 1.2 is `Grelmicro102Warning`. The first entry for
+  a new release adds that class to `grelmicro/errors.py`, exports it from
+  `grelmicro`, and lists it in `RELEASE_WARNINGS`. A release's warning class
+  ships in the minor before that release. It stays importable after that
+  release, so a `filterwarnings` line that names it keeps working, and
+  `__all__` grows by one class per switching release.
+- Give a `FutureChange` its own `narrow=` subclass of the release's category
+  only when a user would silence that one change and keep the others.
 - Test each entry with `tests._future.assert_future_warning`: the default
   call warns and the explicit call emits nothing.
 - Put the entry under `### Deprecated` in the minor that adds the warning,
