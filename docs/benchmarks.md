@@ -73,10 +73,11 @@ A JWT signature check in the compiled core is about four times faster than in a 
 
 ## Memory
 
-`benchmarks/memory_benchmark.py` runs four reference apps, each in a fresh interpreter:
+`benchmarks/memory_benchmark.py` runs five reference apps, each in a fresh interpreter:
 
 - **tasks**: FastAPI with `Grelmicro(uses=[MemoryProvider(), Log(), HealthChecks(provider_checks="require"), tasks])`, one task on `@tasks.every(interval=60, gate="claim")` and `health_router()`. The app opens and closes.
 - **starlette**: the same app on Starlette, without `health_router()`. The app opens and closes.
+- **litestar**: the same app on Litestar, without `health_router()`. The app opens and closes.
 - **redis**: FastAPI with `RedisProvider`, a `RateLimiter` and a `CircuitBreaker`.
 - **postgres**: `PostgresProvider` and `Outbox`, without FastAPI.
 
