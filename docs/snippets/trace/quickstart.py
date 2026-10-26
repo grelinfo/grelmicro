@@ -4,7 +4,7 @@ import logging
 from grelmicro.log import configure
 from grelmicro.trace import add_context, instrument, span
 
-configure(format="JSON")
+configure(format="json")
 logger = logging.getLogger(__name__)
 
 

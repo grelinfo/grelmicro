@@ -131,6 +131,7 @@ raises](#0-42-raising).
 - `GREL_ENVIRONMENT=Production`, or any tier in another case, declares that tier and no longer warns. In `staging` and `production` an unmet backend scope then raises `BackendScopeError` at startup. [Check the 0.43 warning](#0-43-environment-case).
 - `grelmicro check` and `micro.describe()` report `gate-backend` as `fail` in `staging` and `production`, so `grelmicro check` exits `1` there. [Give each gated task a backend](diagnostics.md#gate-backend).
 - A `HealthChecks` with no `provider_checks=` beside a Provider shows each Provider in `/healthz` as a non-critical `provider:{short_name}` check. `/readyz` is unchanged. [Pick a mode](#0-44-provider-checks).
+- `LogConfig.format` still reads back in uppercase, such as `"JSON"`. Comparing it with a format name now warns with `Grelmicro045Warning`. From 0.45.0 it reads back in lowercase, such as `"json"`. [Compare in any case](#0-44-log-format-case).
 
 ### Changes that raise {#0-44-raising}
 
@@ -180,6 +181,35 @@ HealthChecks(provider_checks="require")
 HealthChecks(provider_checks="off")
 HealthChecks(provider_checks="off")  # keeps no provider checks
 ```
+
+### A log format is spelled in lowercase {#0-44-log-format-case}
+
+The built-in formats are spelled `auto`, `json`, `logfmt`, `text` and
+`pretty`. Input still matches in any case, so `format="JSON"` and
+`GREL_LOG_FORMAT=JSON` keep working.
+
+`LogConfig.format` reads back as `"JSON"` in 0.44 and as `"json"` from
+0.45.0. A comparison with a format name, such as `config.format == "JSON"`,
+warns. Compare in any case, and the code works in both releases:
+
+```python
+from grelmicro.log import configure
+
+config = configure(format="json")
+
+# Before: warns, and turns false in 0.45.0
+if config.format == "JSON":
+    ...
+
+# After
+if config.format.lower() == "json":
+    ...
+```
+
+A custom loguru template reads back as written and never warns.
+
+`config.format` is a `str` subclass in 0.44, so `isinstance(config.format, str)`
+holds but `type(config.format) is str` does not. From 0.45.0 it is a plain `str`.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 

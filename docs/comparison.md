@@ -54,7 +54,7 @@ What you get from a single import:
 | In-process resilience | `Bulkhead`, `Fallback`, `Timeout`, `Shield` | n/a (in-process) |
 | Health checks | `HealthChecks` + `/livez` `/readyz` `/healthz` router | n/a |
 | Scheduled tasks | `Tasks`, `TaskRouter`, `@every`, `@cron` | n/a |
-| Structured logging | `grelmicro.log` (JSON, LOGFMT, PRETTY, AUTO) | n/a |
+| Structured logging | `grelmicro.log` (json, logfmt, pretty, auto) | n/a |
 | Tracing | `grelmicro.trace` (`@instrument`, `span`, `add_context`) | OpenTelemetry |
 | Metrics | `Metrics`, `@measure`, `metrics_router` | OpenTelemetry, Prometheus |
 | Externalized config | `ExternalConfig` | ConfigMap, Secret, .env, JSON, YAML, TOML |

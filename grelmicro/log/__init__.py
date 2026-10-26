@@ -48,7 +48,7 @@ def configure(  # noqa: PLR0913
     ] = None,
     format: Annotated[  # noqa: A002
         LogFormat | str | None,
-        Doc("Log format. Default: `AUTO`."),
+        Doc("Log format. Default: `auto`."),
     ] = None,
     timezone: Annotated[
         TimeZoneName | None,

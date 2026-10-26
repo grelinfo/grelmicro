@@ -26,7 +26,7 @@ One page per module. Each one links the rest of its section.
 - [Health](https://grelmicro.grel.info/health/): liveness, readiness, and aggregate health endpoints.
 - [HTTP](https://grelmicro.grel.info/http/): error responses, authentication, conditional requests, idempotency, caching, and rate limits on the wire.
 - [Security](https://grelmicro.grel.info/security/): checks on an inbound request and tokens for an outbound one. [JWT](https://grelmicro.grel.info/security/jwt/) is the usual start.
-- [Logging](https://grelmicro.grel.info/logging/): 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output.
+- [Logging](https://grelmicro.grel.info/logging/): 12-factor logging with json, logfmt, text, or pretty output.
 - [Tracing](https://grelmicro.grel.info/tracing/): OpenTelemetry spans and log context through `@instrument`.
 - [Metrics](https://grelmicro.grel.info/metrics/): OpenTelemetry metrics and a Prometheus endpoint.
 - [Configuration](https://grelmicro.grel.info/config/): build with keyword arguments, tune with environment variables.

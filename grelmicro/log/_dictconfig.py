@@ -128,8 +128,8 @@ def dict_config(
     Fields resolve from `GREL_LOG_*` when the document is built, and the
     document carries them, so build it where the process starts rather
     than where an image does. Two answers are still worked out where the
-    document is applied: `AUTO` is carried as `AUTO` and reads the format
-    from the process that renders, and whether to colorize follows the
+    document is applied: the `auto` format is carried unresolved and reads
+    the format from the process that renders, and whether to colorize follows the
     stream that process writes to. Reading the environment is opt-in, the
     same as everywhere else: set `GREL_ENV_LOAD=1`, or pass
     `env_load=True` from a process that cannot set it. To render against

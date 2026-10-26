@@ -208,7 +208,7 @@ Passing `env_load=False` to a component is a decision, so it stays quiet.
 
 ## Logs
 
-A container needs no log configuration. The default `AUTO` format writes
+A container needs no log configuration. The default `auto` format writes
 `TEXT` to a terminal and `JSON` everywhere else, so the same image gives a
 readable stream in development and a parseable one in a pod. Uvicorn's own
 lines take the same format.
@@ -541,7 +541,7 @@ change the image, and then put it in every copy of the manifest.
 - [ ] `micro.check_backends()` is asserted in a test.
 - [ ] `GREL_ENV_LOAD=1` is in the image.
 - [ ] The startup logs carry no `variable` field.
-- [ ] `GREL_LOG_LEVEL` is set per environment, and the format is left to `AUTO`.
+- [ ] `GREL_LOG_LEVEL` is set per environment, and the format is left to `auto`.
 - [ ] `ProbeFilter` is attached to `uvicorn.access`.
 - [ ] `/livez` and `/readyz` are served by `OpsServer`, with readiness the faster of the two.
 - [ ] The ops port is in no public Service, no published port and no proxy route.

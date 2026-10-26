@@ -219,7 +219,7 @@ def configure(config: LogConfig | None = None) -> None:
 
     Environment Variables:
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
-        LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY). Default: AUTO
+        LOG_FORMAT: Log format (auto, json, logfmt, text, pretty). Default: auto
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
         LOG_CALLER_ENABLED: Include caller (function:line) in log records. Default: False
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
@@ -265,20 +265,20 @@ def build_formatter(
     resolved_format = resolve_template_format(resolved_format)
 
     formatter: logging.Formatter
-    if resolved_format == "JSON":
+    if resolved_format == "json":
         formatter = _JSONFormatter(
             timezone=timezone,
             json_dumps=json_dumps,
             caller_enabled=caller_enabled,
             otel_enabled=otel_enabled,
         )
-    elif resolved_format == "LOGFMT":
+    elif resolved_format == "logfmt":
         formatter = _LogfmtFormatter(
             timezone=timezone,
             caller_enabled=caller_enabled,
             otel_enabled=otel_enabled,
         )
-    elif resolved_format == "PRETTY":
+    elif resolved_format == "pretty":
         formatter = _PrettyFormatter(
             timezone=timezone,
             caller_enabled=caller_enabled,

@@ -197,10 +197,10 @@ def resolve_template_format(
         return resolved_format
     template = resolved_format.strip()
     if template == LOGURU_JSON_FORMAT:
-        return "JSON"
+        return "json"
     if template == LOGURU_LOGFMT_FORMAT:
-        return "LOGFMT"
-    return "TEXT"
+        return "logfmt"
+    return "text"
 
 
 def should_colorize() -> bool:
@@ -259,8 +259,8 @@ def resolve_use_colors(
     if use_colors is None:
         return colors
     return use_colors and resolve_template_format(resolved_format) in (
-        "TEXT",
-        "PRETTY",
+        "text",
+        "pretty",
     )
 
 
@@ -508,12 +508,19 @@ def render_pretty_lines(
 
 
 def _resolve_format(
-    log_format: LogFormat | str,
+    log_format: str,
 ) -> LogFormat | str:
-    """Resolve AUTO format based on TTY and color environment detection."""
-    if log_format == "AUTO":
-        return "TEXT" if should_colorize() else "JSON"
-    return log_format
+    """Return a built-in format in lowercase, with `auto` resolved.
+
+    `auto` resolves from TTY and color environment detection. A template
+    is returned as written.
+    """
+    name = log_format.lower()
+    if not _is_format(name):
+        return log_format
+    if name == "auto":
+        return "text" if should_colorize() else "json"
+    return name
 
 
 def resolve_serializer(
@@ -585,13 +592,13 @@ def load_settings(
     timezone = resolve_timezone(str(settings.timezone))
     resolved_format = _resolve_format(settings.format)
     # Read through `resolve_template_format`, so a loguru template that
-    # renders text is colorized the way `TEXT` is. Every writer takes this
+    # renders text is colorized the way `text` is. Every writer takes this
     # one answer rather than deciding again from the spelling.
     colors = (
         resolve_template_format(resolved_format)
         in (
-            "TEXT",
-            "PRETTY",
+            "text",
+            "pretty",
         )
         and should_colorize()
     )

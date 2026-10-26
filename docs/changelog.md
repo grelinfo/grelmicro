@@ -22,6 +22,9 @@
 * ⚡️ The FastAPI integration loads authentication, route rate limits, conditional requests, the response cache and the metrics router only when the app uses them. Importing it no longer loads the JWT verifier or pydantic-settings. A FastAPI app with `Tasks` loads 36 fewer grelmicro modules. ([#1173](https://github.com/grelinfo/grelmicro/pull/1173))
 * ⚡️ The Litestar integration loads authentication, error responses and route gates only when the app uses them. Importing it loads 57 fewer grelmicro modules. A Litestar app with `Tasks` loads 21 fewer. ([#1177](https://github.com/grelinfo/grelmicro/pull/1177))
 
+### Deprecated
+* 🗑️ The log formats are spelled `auto`, `json`, `logfmt`, `text` and `pretty`, and still match in any case. `LogConfig.format` reads back in uppercase until 0.45.0, then in lowercase. Comparing it with a format name warns with `Grelmicro045Warning`. ([#1181](https://github.com/grelinfo/grelmicro/pull/1181))
+
 ### Fixed
 * 🐛 The `BackendScopeError` for `Idempotency` or `IdempotentRequests` with no lock backend says to register a `Coordination` with a Redis, Valkey, Postgres or Kubernetes provider, not to use one of those backends. ([#1168](https://github.com/grelinfo/grelmicro/pull/1168))
 

@@ -28,7 +28,7 @@ def strings() -> None:
     MetricsConfig(exporter="otlp-grpc")
     Trace(exporter="console", processor="simple", sampler="traceidratio")
     TraceConfig(sampler="parentbased_always_on")
-    configure(backend="loguru", level="DEBUG", format="JSON")
+    configure(backend="loguru", level="DEBUG", format="json")
     Log(backend="stdlib", level="INFO")
     LogConfig(json_serializer="orjson", format="{level} | {message}")
 

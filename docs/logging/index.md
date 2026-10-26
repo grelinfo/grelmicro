@@ -30,7 +30,7 @@ With no environment variables set, `configure()` detects your terminal:
 - **Terminal (TTY)**: human-readable colored text
 - **Piped / CI / container**: structured JSON
 
-This is the `AUTO` format (the default). Most users never need to set `GREL_LOG_FORMAT`.
+This is the `auto` format (the default). Most users never need to set `GREL_LOG_FORMAT`.
 
 ## Backends
 
@@ -50,8 +50,8 @@ httpx, SQLAlchemy and redis among them. One process, one format.
 `configure()` owns the root logger, so a handler attached to it beforehand is
 replaced. Attach yours afterwards, or to a logger of its own.
 
-The exception is a loguru format template of your own. `JSON`, `LOGFMT`,
-`TEXT` and `PRETTY` are formats grelmicro renders on both sides, and a
+The exception is a loguru format template of your own. `json`, `logfmt`,
+`text` and `pretty` are formats grelmicro renders on both sides, and a
 template asking for the serialized record is read as one of them. Any other
 template is loguru's alone, so records from the standard library are written
 in grelmicro's text format instead.
@@ -141,13 +141,13 @@ JSON output:
 {"operation":"divide","time":"2026-04-01T10:30:00.123456+00:00","level":"ERROR","msg":"Operation failed","logger":"__main__","error":{"type":"ZeroDivisionError","message":"division by zero","stack":"..."}}
 ```
 
-??? note "LOGFMT and PRETTY output"
-    The same record in LOGFMT:
+??? note "logfmt and pretty output"
+    The same record in `logfmt`:
     ```text
     time=... level=ERROR msg="Operation failed" logger=__main__ error.type=ZeroDivisionError error.message="division by zero" error.stack="Traceback..." operation=divide
     ```
 
-    And in PRETTY:
+    And in `pretty`:
     ```text
       ... ERROR Operation failed
         at __main__
@@ -166,22 +166,22 @@ grelmicro provides **five format options**, following common structured-logging 
 
 | Format | Use Case | Machine-Parseable |
 |--------|----------|-------------------|
-| `AUTO` | **Default**. Adapts to environment | Depends |
-| `JSON` | Production, log aggregation | Yes |
-| `LOGFMT` | Structured + human-readable | Yes |
-| `TEXT` | Local development | No |
-| `PRETTY` | Verbose debugging | No |
+| `auto` | **Default**. Adapts to environment | Depends |
+| `json` | Production, log aggregation | Yes |
+| `logfmt` | Structured + human-readable | Yes |
+| `text` | Local development | No |
+| `pretty` | Verbose debugging | No |
 
-### AUTO (Default)
+### `auto` (default)
 
 Detects the output target and selects the best format automatically:
 
 | Condition | Selected Format |
 |-----------|-----------------|
-| `stdout` is a TTY (terminal) | `TEXT` (colored) |
-| `stdout` is piped or redirected | `JSON` |
-| `FORCE_COLOR` env var set | `TEXT` (colored) |
-| `NO_COLOR` env var set | `JSON` |
+| `stdout` is a TTY (terminal) | `text` (colored) |
+| `stdout` is piped or redirected | `json` |
+| `FORCE_COLOR` env var set | `text` (colored) |
+| `NO_COLOR` env var set | `json` |
 
 ```python
 --8<-- "log/auto_format.py"
@@ -197,13 +197,13 @@ In a container or CI:
 {"version":"1.0.0","time":"2026-04-01T08:30:00.123456+00:00","level":"INFO","msg":"Application started","logger":"__main__"}
 ```
 
-??? note "JSON, LOGFMT, TEXT, and PRETTY formats"
-    #### JSON
+??? note "json, logfmt, text, and pretty formats"
+    #### json
 
     Structured newline-delimited JSON. Ideal for production, log aggregation (Datadog, Loki, ELK).
 
     ```
-    GREL_LOG_FORMAT=JSON
+    GREL_LOG_FORMAT=json
     ```
 
     ```python
@@ -215,12 +215,12 @@ In a container or CI:
     {"version":"1.0.0","environment":"production","time":"2026-04-01T10:30:00.123456+00:00","level":"INFO","msg":"Application started","logger":"__main__"}
     ```
 
-    #### LOGFMT
+    #### logfmt
 
     Key-value pairs following the [logfmt](https://brandur.org/logfmt) convention. 30-40% smaller than JSON, grep-friendly, parseable by Grafana Loki and most log tools.
 
     ```
-    GREL_LOG_FORMAT=LOGFMT
+    GREL_LOG_FORMAT=logfmt
     ```
 
     ```python
@@ -237,12 +237,12 @@ In a container or CI:
     error.type=ValueError error.message="invalid input"
     ```
 
-    #### TEXT
+    #### text
 
     Single-line, human-readable output. Includes extra fields as `key=value` pairs. Colors are enabled when output is a TTY.
 
     ```
-    GREL_LOG_FORMAT=TEXT
+    GREL_LOG_FORMAT=text
     ```
 
     ```python
@@ -254,12 +254,12 @@ In a container or CI:
     2026-04-01 10:30:00.123Z INFO     __main__ - Application started version=1.0.0
     ```
 
-    #### PRETTY
+    #### pretty
 
     Multi-line format with indented fields. Best for debugging with low log volume.
 
     ```
-    GREL_LOG_FORMAT=PRETTY
+    GREL_LOG_FORMAT=pretty
     ```
 
     ```python
@@ -320,7 +320,7 @@ environment:
 |----------|--------|---------|
 | `GREL_LOG_BACKEND` | `stdlib`, `loguru`, `structlog` | `stdlib` |
 | `GREL_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
-| `GREL_LOG_FORMAT` | `AUTO`, `JSON`, `LOGFMT`, `TEXT`, `PRETTY` | `AUTO` |
+| `GREL_LOG_FORMAT` | `auto`, `json`, `logfmt`, `text`, `pretty` | `auto` |
 | `GREL_LOG_TIMEZONE` | IANA timezone (e.g., `UTC`, `Europe/Zurich`) | `UTC` |
 | `GREL_LOG_JSON_SERIALIZER` | `auto`, `stdlib`, `orjson` | `auto` |
 | `GREL_LOG_CALLER_ENABLED` | `true`, `false` | `false` |
@@ -333,7 +333,7 @@ environment:
 
 !!! note "Color Support"
     Colors follow the [NO_COLOR](https://no-color.org) and [FORCE_COLOR](https://force-color.org) standards.
-    When `NO_COLOR` is set, `AUTO` resolves to `JSON` and colors are disabled.
+    When `NO_COLOR` is set, `auto` resolves to `json` and colors are disabled.
     `FORCE_COLOR` takes precedence over `NO_COLOR`.
 
 ### Timezone
@@ -344,12 +344,12 @@ The `GREL_LOG_TIMEZONE` setting controls timestamps in all formats:
 GREL_LOG_TIMEZONE=Europe/Zurich
 ```
 
-**JSON / LOGFMT**: ISO 8601 with timezone offset
+**`json` / `logfmt`**: ISO 8601 with timezone offset
 ```
 "time":"2026-04-01T15:56:36.066922+02:00"
 ```
 
-**TEXT / PRETTY**: local time with its offset, `Z` when that is UTC
+**`text` / `pretty`**: local time with its offset, `Z` when that is UTC
 ```
 2026-04-01 15:56:36.066+02:00
 2026-04-01 13:56:36.066Z
