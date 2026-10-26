@@ -794,8 +794,8 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
     `ClientCredentials` and `TokenExchange` find it through the app, the way
     `Lock` finds its backend.
 
-    `discover` and `endpoint` also read the environment once `GREL_ENV_LOAD`
-    is set, under `GREL_OAUTHCLIENT_`, or `GREL_OAUTHCLIENT_{NAME}_` for a
+    `discover` and `endpoint` also read the environment unless
+    `GREL_ENV_LOAD=0`, under `GREL_OAUTHCLIENT_`, or `GREL_OAUTHCLIENT_{NAME}_` for a
     named client, and a keyword always wins. The environment supplies the
     issuer, the client ID, a secret or an assertion file path. It never
     chooses how the service authenticates.

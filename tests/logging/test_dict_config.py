@@ -295,8 +295,8 @@ def test_caller_reads_the_same_on_a_server_record(
 def test_the_environment_is_read_when_it_is_asked_for(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A bare server process cannot reach `GREL_ENV_LOAD`, so it says so here."""
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    """`env_load=True` reads the environment even with `GREL_ENV_LOAD=0`."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
@@ -357,7 +357,7 @@ def test_a_factory_reads_the_environment_when_it_is_asked_to(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A `dictConfig` of your own names these, from a process like any other."""
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
     record = logging.LogRecord(
@@ -378,7 +378,7 @@ def test_a_second_handler_joins_the_running_queue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Two handlers in one document must not end up with two writers."""
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     config = LogConfig(queue_enabled=True)
 
     first = cast("logging.StreamHandler[Any]", handler(config))
@@ -418,7 +418,7 @@ def test_the_uvicorn_formatter_reads_the_environment_when_asked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A hand-written document names it from a process like any other."""
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
     record = logging.LogRecord(

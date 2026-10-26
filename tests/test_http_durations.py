@@ -144,7 +144,7 @@ def test_idempotent_requests_env_load_reads_the_ttl_from_environment(
 ) -> None:
     """`env_load=True` reads the TTL whatever the process-wide flag says."""
     # Arrange
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_IDEMPOTENCY_HTTP_TTL", "PT0.5S")
 
     # Act

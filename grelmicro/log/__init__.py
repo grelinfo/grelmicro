@@ -122,8 +122,8 @@ def configure(  # noqa: PLR0913
     Two paths:
 
     - Programmatic: pass any of the per-field kwargs. Unset fields
-      resolve from `GREL_LOG_*` env vars (when `env_load=True`),
-      then from `LogConfig` defaults.
+      resolve from `GREL_LOG_*` env vars (unless `env_load=False` or
+      `GREL_ENV_LOAD=0`), then from `LogConfig` defaults.
     - Environmental: omit all kwargs. `GREL_LOG_*` env vars populate
       every field.
 

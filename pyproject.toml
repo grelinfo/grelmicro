@@ -396,6 +396,19 @@ exclude = [
     "tools/run_mutmut.py",
 ]
 
+# `EnvLoadDefaultWarning`, removed in 0.45.0, carries `@deprecated`. The
+# modules that define and serve it use it on purpose. Delete this override
+# with the class.
+[[tool.ty.overrides]]
+include = [
+    "grelmicro/__init__.py",
+    "grelmicro/_env_load_warning.py",
+    "grelmicro/errors.py",
+]
+
+[tool.ty.overrides.rules]
+deprecated = "ignore"
+
 # A type-checking test asserts a diagnostic with an ignore comment, so an
 # ignore that no longer matches anything fails the check.
 [[tool.ty.overrides]]
@@ -459,6 +472,13 @@ module = [
     "grelmicro.resilience.fallback",
 ]
 ignore_errors = true
+
+# `EnvLoadDefaultWarning`, removed in 0.45.0, carries `@deprecated`. The
+# modules that define and serve it use it on purpose. Delete this override
+# with the class.
+[[tool.mypy.overrides]]
+module = ["grelmicro", "grelmicro._env_load_warning", "grelmicro.errors"]
+disable_error_code = ["deprecated"]
 
 [tool.coverage.run]
 source = ["grelmicro"]

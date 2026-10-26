@@ -322,8 +322,7 @@ def formatter(
             the document when it is started with `--use-colors` or
             `--no-use-colors`.
         env_load: Whether to read `GREL_LOG_*`. When None (default),
-            follow `GREL_ENV_LOAD`. Pass True from a process that cannot
-            set it.
+            follow `GREL_ENV_LOAD`. Pass True or False to override.
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
@@ -371,8 +370,7 @@ def handler(
         config: A resolved `LogConfig`, or the mapping a document carries
             it as. Omit it to read `GREL_LOG_*`.
         env_load: Whether to read `GREL_LOG_*`. When None (default),
-            follow `GREL_ENV_LOAD`. Pass True from a process that cannot
-            set it.
+            follow `GREL_ENV_LOAD`. Pass True or False to override.
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.

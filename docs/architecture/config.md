@@ -31,7 +31,8 @@ One sentence governs every environment variable grelmicro reads:
 !!! quote ""
     Every value field of a named grelmicro object resolves once at
     construction, in the fixed order keyword argument, `GREL_{KIND}_{NAME}_{FIELD}`,
-    `GREL_{KIND}_{FIELD}`, app-wide variable, default, gated by `GREL_ENV_LOAD`.
+    `GREL_{KIND}_{FIELD}`, app-wide variable, default. `GREL_ENV_LOAD=0` turns the
+    environment off.
     The environment tunes any value. It never chooses a name, an algorithm, or a
     backend, and it never fails silently.
 
@@ -45,8 +46,9 @@ vendor's own namespace instead (`REDIS_*`, `VALKEY_*`, `POSTGRES_*`,
 `SQLITE_*`), ungated, because those names belong to the deployment rather than
 to grelmicro. A missing required connection value fails at construction.
 
-**R2 Gate.** Every `GREL_*` field read is gated by `GREL_ENV_LOAD`. A variable
-that fills no field, such as `GREL_ENV_LOAD` itself, is read ungated.
+**R2 Gate.** Every `GREL_*` field is read by default, and `GREL_ENV_LOAD=0`
+turns those reads off. A variable that fills no field, such as `GREL_ENV_LOAD`
+itself, is read ungated.
 
 **R3 Address.** The environment addresses identity: `GREL_{KIND}_{NAME}_{FIELD}`,
 with the name segment dropped for the `default` instance. A kind is what makes
@@ -73,7 +75,7 @@ in any of its algorithms, is always accounted for:
 
 | Situation | What happens |
 |---|---|
-| Gate off, variable set | `EnvLoadOffWarning` naming the variable. While `GREL_ENV_LOAD` is unset, an `EnvLoadDefaultWarning` (a `GrelmicroFutureWarning`) instead, until 0.44.0 reads the variable by default |
+| Gate off, variable set | `EnvLoadOffWarning` naming the variable |
 | Instance address, field of another algorithm | Error at construction, naming the algorithm that is running |
 | Kind address, field of another algorithm | Applied where it fits, ignored where it does not, silently, because the kind address is a broadcast |
 | Live reload, field of another algorithm | Skipped for that instance and counted at debug, never a crash. Key names stay out of the logs because a mounted Secret's key can itself be sensitive. A warning naming sibling fields follows with config provenance ([#664](https://github.com/grelinfo/grelmicro/issues/664)). |
@@ -249,7 +251,7 @@ component segment and read `GREL_{NAME}`.
 
 | Variable | Meaning |
 |---|---|
-| `GREL_ENV_LOAD` | Turns the environment path on for every component. |
+| `GREL_ENV_LOAD` | `0` turns the environment path off for every component. |
 | `GREL_TIMEZONE` | The wall clock the service's business rules run on. |
 
 A variable qualifies as app-wide only when it meets all four rules.
@@ -278,8 +280,8 @@ keyword argument
   > field default
 ```
 
-`GREL_ENV_LOAD` gates the app-wide layer too. A `GREL_TIMEZONE` set without it
-is ignored and reported like any other variable.
+`GREL_ENV_LOAD=0` turns the app-wide layer off too. A `GREL_TIMEZONE` set with
+it is ignored and reported like any other variable.
 
 The mechanism is `shared_env` on `resolve_config`. It passes the shared variable
 name to `_build_settings_cls`, which redeclares the field on the dynamic

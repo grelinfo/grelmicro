@@ -9,11 +9,15 @@
 * 💥 `grelmicro check` and `micro.describe()` fail `gate-backend` in `staging` and `production`, so `grelmicro check` exits `1` there. ([#1176](https://github.com/grelinfo/grelmicro/pull/1176))
 * 💥 `HealthChecks()` with no `provider_checks=` defaults to `"report"`. Each Provider on the app shows as a non-critical `provider:{short_name}` check in `/healthz`, and `/readyz` stays up while it is down. Pass `provider_checks="off"` to register none. ([#1180](https://github.com/grelinfo/grelmicro/pull/1180))
 * 💥 `HealthChecks(auto_health=)` and `HealthChecks.from_config(auto_health=)` are removed and raise `TypeError`. Pass `provider_checks="require"` or `provider_checks="off"`. ([#1180](https://github.com/grelinfo/grelmicro/pull/1180))
+* 💥 A `GREL_*` variable is read by default. A variable set while `GREL_ENV_LOAD` is unset now applies, with no warning. Set `GREL_ENV_LOAD=0` or pass `env_load=False` to keep it unread. ([#1183](https://github.com/grelinfo/grelmicro/pull/1183))
 
 ### Added
 * ✨ `micro.describe()` names the bare Provider each default component came from in `ComponentReport.default_of`, such as `"RedisProvider"`. `grelmicro check` adds `(default of RedisProvider)` to the line. ([#1169](https://github.com/grelinfo/grelmicro/pull/1169))
 * ✨ Each switching release has its own `GrelmicroFutureWarning` subclass, such as `Grelmicro044Warning` for the changes that land in 0.44.0. `filterwarnings = ["error::grelmicro.Grelmicro044Warning"]` fails a test suite on those changes only. ([#1174](https://github.com/grelinfo/grelmicro/pull/1174))
 * ✨ `Grelmicro045Warning` covers every change that lands in 0.45.0. ([#1178](https://github.com/grelinfo/grelmicro/pull/1178))
+
+### Deprecated
+* 🗑️ `EnvLoadDefaultWarning` is no longer emitted. Reading it warns with `Grelmicro045Warning`, and it is removed in 0.45.0. Type checkers report it as deprecated. Filter on `EnvLoadOffWarning` instead. ([#1183](https://github.com/grelinfo/grelmicro/pull/1183))
 
 ### Changed
 * ⚡️ `grelmicro.http` and the Starlette integration no longer load the JWT verifier or pydantic-settings at import. ([#1167](https://github.com/grelinfo/grelmicro/pull/1167))

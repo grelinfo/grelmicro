@@ -19,7 +19,7 @@ def apply(config: LogConfig) -> None:
     to nor a working queue torn down by a call that failed.
 
     Flushes the queued ignored-variable reports last, so a `GREL_*`
-    variable set without `GREL_ENV_LOAD` is named on the `grelmicro`
+    variable left unread by `GREL_ENV_LOAD=0` is named on the `grelmicro`
     logger once the handlers are installed.
 
     Stopping the replaced writer waits for it, bounded by the join

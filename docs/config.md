@@ -8,7 +8,7 @@ environment variables. No code change between the two.
 A field takes the first of these that supplies it:
 
 1. **A keyword argument.** Always wins, always available, needs nothing enabled.
-2. **A `GREL_*` environment variable**, when `GREL_ENV_LOAD` is truthy. Off by
+2. **A `GREL_*` environment variable**, unless `GREL_ENV_LOAD=0`. On by
    default.
 3. **A file**, through
    [`ExternalConfig`](configuration/reconfigure-from-configmap.md), which also
@@ -29,32 +29,23 @@ the app runs, which decides how a backend that cannot keep a promise across
 replicas is reported: see
 [the backend check](deployment.md#the-backend-check).
 
-Step 2 is the one that surprises people. `GREL_ENV_LOAD` is a single
-process-wide switch, so a variable set without it is ignored and the default
-applies. That situation reports at startup instead of passing silently, naming
-the variable:
+`GREL_ENV_LOAD` is a single process-wide switch. Unset, or set to `1`, every
+`GREL_*` field is read. Set to `0`, none is: a variable that is set is ignored,
+the default applies, and startup reports it by name:
 
 ```
-EnvLoadDefaultWarning: `GREL_LOG_FORMAT` is set but not read today, and is
-read by default from 0.44.0. Set `GREL_ENV_LOAD=0` to keep the current
-behavior, or `GREL_ENV_LOAD=1` to adopt the new one now.
+EnvLoadOffWarning: GREL_LOG_FORMAT is set but was not applied: GREL_ENV_LOAD
+turns environment-driven configuration off. Unset it or set GREL_ENV_LOAD=1 to
+read the variable, or pass the value directly.
 ```
-
-Today a `GREL_*` field is read only with `GREL_ENV_LOAD=1`. From 0.44.0 it is
-read by default, and `GREL_ENV_LOAD=0` turns that off. Set `GREL_ENV_LOAD` to
-choose now. With `GREL_ENV_LOAD=0` the variable is still reported, as an
-`EnvLoadOffWarning`. See [the migration guide](migration.md#0-43-env-load-default).
 
 The same report is logged on the `grelmicro` logger once logging is configured,
 so on the default backend it also lands in the JSON log stream, where a warning
-on stderr would be lost. [Deployment](deployment.md) covers where to set the
-switch in a container.
+on stderr would be lost.
 
-The switch exists because step 2 fills *every* field you did not pass, not only
-the ones with no default. An app that passes some settings from its own config
-object and leaves the rest would otherwise split one component's configuration
-across two sources without saying so. Opting in makes that a decision rather
-than an accident. [Config resolution](advanced/config.md) has the full contract.
+Step 2 fills *every* field you did not pass, not only the ones with no default.
+Pass `env_load=False` to a component when the values in code are the whole
+truth. [Config resolution](advanced/config.md) has the full contract.
 
 ### Local development without exporting variables
 
@@ -65,7 +56,6 @@ populates `os.environ` works, and relative paths are fine:
 
 ```bash
 # .env
-GREL_ENV_LOAD=1
 GREL_LOG_FORMAT=pretty
 GREL_LOCK_CART_LEASE_DURATION=60
 ```
@@ -73,8 +63,6 @@ GREL_LOCK_CART_LEASE_DURATION=60
 ```bash
 uv run --env-file .env python -m myapp
 ```
-
-`GREL_ENV_LOAD=1` has to be in the file too, or nothing else in it is read.
 
 **Or pass the values in code**, which needs no switch at all and is the only
 option for logging:
@@ -213,7 +201,6 @@ grel:
 Most services run on a single wall clock. `GREL_TIMEZONE` says which one:
 
 ```bash
-export GREL_ENV_LOAD=1
 export GREL_TIMEZONE=Europe/Zurich
 ```
 

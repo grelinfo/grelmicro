@@ -109,10 +109,11 @@ def test_grelmicro_import_does_not_load_pydantic_settings() -> None:
     assert "pydantic_settings" not in loaded
 
 
-def test_config_without_env_load_does_not_load_pydantic_settings() -> None:
+def test_config_with_env_load_off_does_not_load_pydantic_settings() -> None:
     """A component built with environment reads off never loads pydantic-settings."""
     # Arrange
     env = _without_env_load()
+    env["GREL_ENV_LOAD"] = "0"
     env["GREL_HEALTH_TIMEOUT"] = "3"
 
     # Act
@@ -123,11 +124,13 @@ def test_config_without_env_load_does_not_load_pydantic_settings() -> None:
     assert loaded is False
 
 
-def test_config_with_env_load_reads_the_environment() -> None:
-    """With `GREL_ENV_LOAD=1`, pydantic-settings loads and reads the variable."""
+@pytest.mark.parametrize("flag", [None, "1"])
+def test_config_with_env_load_reads_the_environment(flag: str | None) -> None:
+    """With `GREL_ENV_LOAD` unset or `1`, pydantic-settings loads and reads the variable."""
     # Arrange
     env = _without_env_load()
-    env["GREL_ENV_LOAD"] = "1"
+    if flag is not None:
+        env["GREL_ENV_LOAD"] = flag
     env["GREL_HEALTH_TIMEOUT"] = "3"
 
     # Act

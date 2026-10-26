@@ -18,8 +18,8 @@ Install the `redis` extra first: `pip install "grelmicro[redis]"`.
 ## Environment variables
 
 Construct the provider with no arguments and it reads its connection from the
-environment. These reads need no `GREL_ENV_LOAD`, they are the provider's own
-connection variables:
+environment. `GREL_ENV_LOAD=0` leaves these reads on, because they are the
+provider's own connection variables:
 
 | Environment variable | Description | Default |
 |---|---|---|

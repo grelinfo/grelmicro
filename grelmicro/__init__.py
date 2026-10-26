@@ -1,5 +1,7 @@
 """grelmicro is a lightweight framework/toolkit which is ideal for building async microservices in Python."""  # noqa: E501
 
+import typing as _typing
+
 from grelmicro._app import (
     AmbientBindingError,
     AmbiguousBackendError,
@@ -22,7 +24,6 @@ from grelmicro.errors import (
     BackendScopeWarning,
     DependencyNotFoundError,
     DependencyVersionError,
-    EnvLoadDefaultWarning,
     EnvLoadOffWarning,
     EventLoopDeadlockError,
     Grelmicro044Warning,
@@ -43,6 +44,11 @@ from grelmicro.errors import (
     UngatedCronWarning,
     UnknownEnvironmentWarning,
 )
+
+if _typing.TYPE_CHECKING:
+    from grelmicro._env_load_warning import (
+        EnvLoadDefaultWarning as EnvLoadDefaultWarning,
+    )
 
 __all__ = [
     "AdapterNotRegisteredError",
@@ -86,3 +92,15 @@ __all__ = [
     "UnknownEnvironmentWarning",
     "Usable",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Return `EnvLoadDefaultWarning`, removed in 0.45.0, with a warning."""
+    if name == "EnvLoadDefaultWarning":
+        from grelmicro._env_load_warning import (  # noqa: PLC0415
+            env_load_default_warning,
+        )
+
+        return env_load_default_warning()
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

@@ -305,8 +305,8 @@ def test_the_argument_wins_over_the_variable(
 def test_the_variable_is_read_without_the_env_load_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A safety check behind an opt-in flag would be off where it matters."""
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    """`GREL_ENV_LOAD=0` never turns the safety check off."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv("GREL_ENVIRONMENT", "production")
     assert Grelmicro().environment == "production"
 

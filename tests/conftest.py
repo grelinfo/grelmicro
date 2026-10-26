@@ -29,13 +29,10 @@ async def clock() -> AsyncIterator[VirtualClock]:
 def _opt_in_env_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """Enable the Environmental config path for all tests by default.
 
-    Production code requires ``GREL_ENV_LOAD=true`` to read
-    env-driven config. The test suite was written before that opt-in
-    existed and assumes env reads run by default. This fixture
-    preserves that assumption. Tests that exercise the OFF behavior
-    set it to ``0``, or delete it with
-    ``monkeypatch.delenv("GREL_ENV_LOAD", raising=False)`` for the unset
-    default, which warns of the 0.44.0 change on a set variable.
+    Env reads run by default, so this pins the flag against a
+    ``GREL_ENV_LOAD=0`` inherited from the shell. Tests that exercise the
+    OFF behavior set it to ``0``. Tests of the unset default delete it with
+    ``monkeypatch.delenv("GREL_ENV_LOAD", raising=False)``.
     """
     monkeypatch.setenv("GREL_ENV_LOAD", "true")
 

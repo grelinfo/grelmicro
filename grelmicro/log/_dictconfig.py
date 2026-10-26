@@ -130,9 +130,9 @@ def dict_config(
     than where an image does. Two answers are still worked out where the
     document is applied: the `auto` format is carried unresolved and reads
     the format from the process that renders, and whether to colorize follows the
-    stream that process writes to. Reading the environment is opt-in, the
-    same as everywhere else: set `GREL_ENV_LOAD=1`, or pass
-    `env_load=True` from a process that cannot set it. To render against
+    stream that process writes to. The environment is read unless
+    `GREL_ENV_LOAD=0`, the same as everywhere else, and `env_load=` overrides
+    that for one call. To render against
     settings that never reach the environment, use
     [`dict_config_with()`][grelmicro.log.dict_config_with].
 

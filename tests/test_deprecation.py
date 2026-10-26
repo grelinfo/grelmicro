@@ -14,7 +14,6 @@ from grelmicro._deprecation import (
     Rename,
 )
 from grelmicro.errors import (
-    EnvLoadDefaultWarning,
     Grelmicro044Warning,
     GrelmicroConfigWarning,
     GrelmicroFutureWarning,
@@ -85,14 +84,6 @@ def test_pending_entry_warns_under_its_release_category(
         entry.switch_in if isinstance(entry, FutureChange) else entry.removed_in
     )
     assert issubclass(entry.category, RELEASE_WARNINGS[release])
-
-
-def test_env_load_default_keeps_both_bases() -> None:
-    """A filter on the release, the future warning or the config code silences it."""
-    assert issubclass(EnvLoadDefaultWarning, Grelmicro044Warning)
-    assert issubclass(EnvLoadDefaultWarning, GrelmicroFutureWarning)
-    assert issubclass(EnvLoadDefaultWarning, GrelmicroConfigWarning)
-    assert EnvLoadDefaultWarning.code == "env-load-off"
 
 
 def test_future_change_message() -> None:

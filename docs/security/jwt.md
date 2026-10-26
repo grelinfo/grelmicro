@@ -301,7 +301,7 @@ To test your routes without real tokens, swap the verifier for a fake, as
 ## Configure from the deployment
 
 A verifier built by `keys`, `jwks` or `discover` also reads its settings from the
-environment once `GREL_ENV_LOAD` is set, under `GREL_JWTVERIFIER_`, or
+environment, under `GREL_JWTVERIFIER_`, or
 `GREL_JWTVERIFIER_{NAME}_` for one built with `name=`. A keyword always wins,
 so leave a setting out of the code for the deployment to supply it:
 
@@ -310,7 +310,6 @@ verifier = JWTVerifier.discover()
 ```
 
 ```bash
-GREL_ENV_LOAD=1
 GREL_JWTVERIFIER_ISSUER=https://auth.example.com/
 GREL_JWTVERIFIER_AUDIENCE=orders-api
 ```

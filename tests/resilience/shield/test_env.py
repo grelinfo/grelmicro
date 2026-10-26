@@ -177,7 +177,7 @@ def test_shield_profile_variable_with_env_reads_off_builds_the_code_preset(
 ) -> None:
     """With env reads off, a `PROFILE` variable is left alone."""
     # Arrange
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     monkeypatch.setenv(variable, "internal")
 
     # Act
@@ -247,9 +247,9 @@ def test_shield_factory_env_tunes_the_code_preset(
 
 def test_env_load_default_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """`env_load=None` falls through to `env_load_default()`."""
-    # The root conftest sets `GREL_ENV_LOAD=true`, so the default is True.
-    # Disable it for this test to exercise the off-path.
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    # The root conftest sets `GREL_ENV_LOAD=true`. Turn it off for this test
+    # to exercise the off-path.
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
     s = Shield("autoload", when=TimeoutError, max_rate=2.0)
     assert s.config.max_rate == 2.0  # noqa: PLR2004
 
@@ -306,7 +306,7 @@ def test_gate_off_keeps_every_passed_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With the gate off, each field passed in code reaches the config."""
-    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_ENV_LOAD", "0")
 
     def _key(*_args: object, **_kwargs: object) -> str:
         return "k"

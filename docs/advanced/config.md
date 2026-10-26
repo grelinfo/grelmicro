@@ -129,8 +129,8 @@ When `__init__` runs, the final value of each field is picked from the first
 source that has it:
 
 1. Caller `**kwargs`.
-2. Env var matching the component prefix (when `env_load=True`, or when
-   `env_load` is unset and `GREL_ENV_LOAD` is truthy).
+2. Env var matching the component prefix (unless `env_load=False`, or
+   `env_load` is unset and `GREL_ENV_LOAD=0`).
 3. `Config` class default.
 
 ### The hazard in step 2
