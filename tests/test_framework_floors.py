@@ -6,6 +6,7 @@ version, so no module another test already loaded hides the check.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -130,6 +131,66 @@ def test_fastapi_integration_imports_without_fastapi() -> None:
 
     # Assert
     assert printed == "imported"
+
+
+_WITHOUT_FASTAPI = """\
+import json, sys
+sys.modules["fastapi"] = None
+import grelmicro.integrations.fastapi as module
+from grelmicro.errors import DependencyNotFoundError
+resolved = {name: getattr(module, name) for name in module.__all__}
+refused = []
+for name in ("Anonymous", "Authenticated", "CachedResponse", "RateLimited",
+             "health_router", "metrics_router"):
+    try:
+        resolved[name]()
+    except DependencyNotFoundError:
+        refused.append(name)
+print(json.dumps({
+    "resolved": sorted(resolved),
+    "public": sorted(module.__all__),
+    "refused": refused,
+    "markers": {
+        name: list(resolved[name].__metadata__)
+        for name in ("Claims", "CurrentPrincipal", "CurrentToken", "OptionalPrincipal")
+    },
+    "conditional": [
+        resolved[name] is module.ConditionalRequest
+        for name in ("Conditional", "ConditionalRequired")
+    ],
+}))
+"""
+"""Resolve every public name with FastAPI hidden, and print how each behaves."""
+
+
+def test_fastapi_integration_names_resolve_without_fastapi() -> None:
+    """Without FastAPI, every public name resolves and each route feature refuses on use."""
+    # Act
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", _WITHOUT_FASTAPI],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    printed = json.loads(result.stdout.splitlines()[-1])
+
+    # Assert
+    assert printed["resolved"] == printed["public"]
+    assert printed["refused"] == [
+        "Anonymous",
+        "Authenticated",
+        "CachedResponse",
+        "RateLimited",
+        "health_router",
+        "metrics_router",
+    ]
+    assert printed["markers"] == {
+        "Claims": [None],
+        "CurrentPrincipal": [None],
+        "CurrentToken": [None],
+        "OptionalPrincipal": [None],
+    }
+    assert printed["conditional"] == [True, True]
 
 
 @pytest.mark.parametrize(

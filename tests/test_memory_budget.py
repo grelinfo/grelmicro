@@ -33,13 +33,10 @@ _EXPECTED_SUBPACKAGES = {
         "clock",
         "coordination",
         "http",
-        "idempotency",
         "integrations",
         "log",
         "resilience",
-        "security",
         "task",
-        "trace",
     },
     "starlette": _COMMON
     | {
@@ -58,12 +55,8 @@ _EXPECTED_SUBPACKAGES = {
         "clock",
         "coordination",
         "http",
-        "idempotency",
         "integrations",
-        "log",
         "resilience",
-        "security",
-        "trace",
     },
     "postgres": _COMMON
     | {"cache", "clock", "coordination", "outbox", "resilience"},
@@ -72,9 +65,9 @@ _EXPECTED_SUBPACKAGES = {
 
 _MAX_MODULES = {
     "import": 23,
-    "tasks": 167,
+    "tasks": 131,
     "starlette": 128,
-    "redis": 161,
+    "redis": 106,
     "postgres": 102,
 }
 """The most grelmicro modules each case may load, by case."""
@@ -270,7 +263,164 @@ def test_starlette_requests_load_no_module(
     assert printed["loaded"] == []
 
 
-_FACADES = ("grelmicro.integrations.starlette",)
+def test_fastapi_integration_loads_no_route_features() -> None:
+    """Importing the FastAPI integration loads no authentication, no route gate and no settings."""
+    # Arrange
+    code = (
+        "import json, sys\n"
+        "import grelmicro.integrations.fastapi\n"
+        "print(json.dumps(sorted(sys.modules)))"
+    )
+
+    # Act
+    loaded = set(cast("list[str]", _run(code)))
+
+    # Assert
+    assert "pydantic_settings" not in loaded
+    assert "grelmicro.security.jwt" not in loaded
+    assert "grelmicro.integrations._route_gate" not in loaded
+    assert "grelmicro.http._authentication" not in loaded
+
+
+def test_tasks_app_loads_no_settings() -> None:
+    """The Tasks reference app loads no `pydantic_settings` while it reads no environment."""
+    # Arrange
+    code = (
+        "import asyncio, json, os, sys\n"
+        "os.environ.pop('GREL_ENV_LOAD', None)\n"
+        f"{APPS['tasks']}"
+        "print(json.dumps(sorted(sys.modules)))"
+    )
+
+    # Act
+    loaded = set(cast("list[str]", _run(code)))
+
+    # Assert
+    assert "pydantic_settings" not in loaded
+
+
+_SERVE_FASTAPI = """\
+import json, sys
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache
+from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.http import AuthenticatedRequests, CachedResponses, ErrorResponses
+from grelmicro.integrations.fastapi import (
+    Anonymous,
+    CachedResponse,
+    Claims,
+    Conditional,
+    CurrentPrincipal,
+    RateLimited,
+)
+from grelmicro.resilience import RateLimiter
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+from grelmicro.testing import FakeVerifier, fake_claims
+limiter = RateLimiter.sliding_window(
+    "search", limit=1, window=3600, backend=MemoryRateLimiterAdapter()
+)
+micro = Grelmicro(uses=[
+    ErrorResponses(),
+    AuthenticatedRequests(FakeVerifier(alice=fake_claims("alice"))),
+    Cache(MemoryCacheAdapter()),
+    CachedResponses(),
+])
+app = FastAPI()
+micro.install(app)
+@app.get("/me")
+async def me(principal: CurrentPrincipal, claims: Claims) -> dict:
+    return {"sub": principal.subject, "claims": claims.subject}
+@app.get(
+    "/search", dependencies=[Anonymous(), RateLimited(limiter, key=lambda scope: "k")]
+)
+async def search() -> dict:
+    return {}
+@app.put("/carts/1", dependencies=[Anonymous()])
+async def update(conditional: Conditional) -> dict:
+    conditional.check("v2")
+    return {}
+@app.get("/feed", dependencies=[Anonymous(), CachedResponse(ttl=60)])
+async def feed() -> dict:
+    return {}
+def serve():
+    return [
+        client.get("/me", headers={"Authorization": "Bearer alice"}).status_code,
+        client.get("/me").status_code,
+        client.get("/search").status_code,
+        client.put("/carts/1", headers={"If-Match": '"v1"'}).status_code,
+        client.get("/feed").status_code,
+    ]
+with TestClient(app) as client:
+    client.get("/search")
+    serve()
+    before = set(sys.modules)
+    statuses = serve()
+    loaded = sorted(set(sys.modules) - before)
+print(json.dumps({"statuses": statuses, "loaded": loaded}))
+"""
+"""Serve each route feature twice, and print what the second round loaded.
+
+The first round loads what the test client and each answer load on first
+use, so only the second round reads what answering loads.
+"""
+
+
+def test_fastapi_requests_load_no_module() -> None:
+    """A FastAPI app loads no module while its route features answer."""
+    # Act
+    printed = cast("dict[str, list[Any]]", _run(_SERVE_FASTAPI))
+
+    # Assert
+    assert printed["statuses"] == [200, 401, 429, 412, 200]
+    assert printed["loaded"] == []
+
+
+def test_fastapi_route_added_after_install_is_gated() -> None:
+    """A route declaring `CurrentPrincipal` after `install` is authenticated."""
+    # Arrange
+    code = """\
+import json, sys
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from grelmicro import Grelmicro
+from grelmicro.http import AuthenticatedRequests, ErrorResponses
+from grelmicro.testing import FakeVerifier, fake_claims
+micro = Grelmicro(uses=[
+    ErrorResponses(),
+    AuthenticatedRequests(FakeVerifier(alice=fake_claims("alice"))),
+])
+app = FastAPI()
+micro.install(app)
+installed = "grelmicro.integrations._fastapi_auth" in sys.modules
+from grelmicro.integrations.fastapi import Anonymous, CurrentPrincipal
+@app.get("/me")
+async def me(principal: CurrentPrincipal) -> dict:
+    return {"sub": principal.subject}
+@app.get("/catalog", dependencies=[Anonymous()])
+async def catalog() -> dict:
+    return {}
+with TestClient(app) as client:
+    statuses = [
+        client.get("/me").status_code,
+        client.get("/me", headers={"Authorization": "Bearer alice"}).status_code,
+        client.get("/catalog").status_code,
+    ]
+print(json.dumps({"installed": installed, "statuses": statuses}))
+"""
+
+    # Act
+    printed = cast("dict[str, Any]", _run(code))
+
+    # Assert
+    assert printed == {"installed": False, "statuses": [401, 200, 200]}
+
+
+_FACADES = (
+    "grelmicro.integrations.fastapi",
+    "grelmicro.integrations.starlette",
+)
 """Integration modules that load some public names on first access."""
 
 
