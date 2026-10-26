@@ -136,12 +136,12 @@ class Fold:
 
         The fold rides the lock backend of the app's `Coordination`, and an
         `InProcessLock` when the app has none. A fold in the process records
-        nothing. In `staging` and `production` a lock backend that falls
-        short warns with `Grelmicro045Warning` when the app opens.
+        nothing. A lock backend that falls short warns with
+        `BackendScopeWarning` when the app opens, in every tier that reports
+        it, and the first miss raises.
         """
         if self._lock is None or self._checked:
             return
-        from grelmicro._deprecation import CACHED_LOCK_SCOPE  # noqa: PLC0415
 
         record(
             self,
@@ -153,7 +153,7 @@ class Fold:
                 absent=IN_PROCESS_LOCK,
                 kind="coordination",
                 keyword="lock",
-                deferred=CACHED_LOCK_SCOPE,
+                warn_only=True,
             ),
         )
 

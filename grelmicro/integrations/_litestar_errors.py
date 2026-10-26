@@ -260,3 +260,6 @@ def error_response(
         media_type=rendered.media_type,
         headers=rendered.headers,
     )
+
+
+error_response.__module__ = "grelmicro.integrations.litestar"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-from types import ModuleType
+from types import FunctionType, ModuleType
 
 import pytest
 
@@ -276,3 +276,32 @@ def test_module_unknown_name_raises_attribute_error(name: str) -> None:
     # Act / Assert
     with pytest.raises(AttributeError, match=f"module '{name}' has no attr"):
         module.missing_name  # noqa: B018
+
+
+_SHARED_HOMES: dict[str, str] = {
+    "grelmicro.integrations._starlette_errors": (
+        "grelmicro.integrations.starlette"
+    ),
+}
+"""The public module of a private one that several modules load from."""
+
+
+@pytest.mark.parametrize("name", sorted(_LAZY_MODULES))
+def test_module_lazy_names_report_a_public_module(name: str) -> None:
+    """Each lazy function or class names the public module it is served from."""
+    # Arrange
+    module = _package(name)
+
+    # Act
+    reported = {
+        attr: (source, value.__module__)
+        for attr, source in module._LAZY.items()
+        if isinstance(value := getattr(module, attr), (type, FunctionType))
+    }
+
+    # Assert
+    assert reported
+    for attr, (source, home) in reported.items():
+        private = any(part.startswith("_") for part in source.split("."))
+        expected = _SHARED_HOMES.get(source, name) if private else source
+        assert home == expected, attr

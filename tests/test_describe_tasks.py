@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import re
+import warnings
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 
 from grelmicro import Grelmicro
+from grelmicro._deprecation import GATE_BACKEND_STRICT
 from grelmicro.coordination import Coordination, LeaderElection, TaskLock
 from grelmicro.coordination.memory import (
     MemoryLockAdapter,
     MemoryScheduleAdapter,
 )
 from grelmicro.describe import TaskGate, TaskReport
+from grelmicro.errors import GrelmicroFutureWarning
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.task import TaskRouter, Tasks
 from grelmicro.task._cron import CronTask
@@ -379,48 +383,82 @@ def _gate_backend(micro: Grelmicro) -> list[tuple[str, str]]:
 
 
 @pytest.mark.parametrize(
-    ("environment", "status"),
-    [
-        ("production", "fail"),
-        ("staging", "fail"),
-        ("development", "warn"),
-        ("test", "warn"),
-        (None, "warn"),
-    ],
+    "environment",
+    ["production", "staging", "development", "test", None],
 )
-def test_gate_backend_reports_a_gated_task_with_no_backend(
+def test_gate_backend_warns_on_a_gated_task_with_no_backend(
     environment: Environment | None,
-    status: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A gated task with no claim backend fails in `staging` and `production`."""
+    """A gated task with no claim backend warns in every tier."""
     monkeypatch.delenv("GREL_ENVIRONMENT", raising=False)
     tasks = Tasks()
     tasks.every(interval=60, gate="claim", name="purge")(purge)
     tasks.cron("0 3 * * *", gate="claim", name="nightly")(nightly)
     micro = _app(tasks, environment=environment)
 
-    found = _gate_backend(micro)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", GrelmicroFutureWarning)
+        found = _gate_backend(micro)
+        ok = micro.describe().ok
 
-    assert [found_status for found_status, _ in found] == [status, status]
+    assert [found_status for found_status, _ in found] == ["warn", "warn"]
     assert "'purge'" in found[0][1]
     assert "lock backend" in found[0][1]
     assert "'nightly'" in found[1][1]
     assert "schedule backend" in found[1][1]
-    assert micro.describe().ok is (status == "warn")
+    assert ok is True
 
 
-def test_gate_backend_fails_when_coordination_lacks_the_kind() -> None:
+@pytest.mark.parametrize("environment", ["production", "staging"])
+def test_gate_backend_warns_it_fails_in_a_strict_tier_from_0_45(
+    environment: Environment,
+) -> None:
+    """In a strict tier the report says the check fails from 0.45.0, and warns."""
+    tasks = Tasks()
+    tasks.every(interval=60, gate="claim", name="purge")(purge)
+    micro = _app(tasks, environment=environment)
+
+    with pytest.warns(
+        GATE_BACKEND_STRICT.category,
+        match=re.escape(GATE_BACKEND_STRICT.message),
+    ):
+        [(status, detail)] = _gate_backend(micro)
+
+    assert status == "warn"
+    assert detail.endswith("It fails in staging and production from 0.45.0.")
+
+
+@pytest.mark.parametrize("environment", ["development", "test", None])
+def test_gate_backend_is_silent_outside_a_strict_tier(
+    environment: Environment | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outside `staging` and `production` the check warns nothing at runtime."""
+    monkeypatch.delenv("GREL_ENVIRONMENT", raising=False)
+    tasks = Tasks()
+    tasks.every(interval=60, gate="claim", name="purge")(purge)
+    micro = _app(tasks, environment=environment)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", GrelmicroFutureWarning)
+        [(_, detail)] = _gate_backend(micro)
+
+    assert "0.45.0" not in detail
+
+
+def test_gate_backend_warns_when_coordination_lacks_the_kind() -> None:
     """A `Coordination` with no schedule backend leaves a cron claim unresolved."""
     tasks = Tasks()
     tasks.cron("0 3 * * *", gate="claim", name="nightly")(nightly)
     coordination = Coordination(lock=MemoryLockAdapter())
 
-    [(status, detail)] = _gate_backend(
-        _app(coordination, tasks, environment="production")
-    )
+    with pytest.warns(GATE_BACKEND_STRICT.category):
+        [(status, detail)] = _gate_backend(
+            _app(coordination, tasks, environment="production")
+        )
 
-    assert status == "fail"
+    assert status == "warn"
     assert "'nightly'" in detail
 
 

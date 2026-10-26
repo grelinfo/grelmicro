@@ -44,3 +44,17 @@ def annotated(
 def unknown() -> None:
     """Refuse a string outside the choices."""
     Metrics(exporter="jaeger")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def log_format_spellings() -> None:
+    """Annotate a format in the documented spelling or in uppercase."""
+    documented: LogFormat = "json"
+    uppercase: LogFormat = "JSON"
+    configure(format=documented)
+    configure(format=uppercase)
+
+
+def log_format_unknown() -> None:
+    """Refuse a format name in neither spelling."""
+    mixed: LogFormat = "Json"  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    configure(format=mixed)

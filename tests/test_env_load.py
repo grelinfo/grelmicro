@@ -17,7 +17,6 @@ from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import (
     EnvLoadOffWarning,
-    Grelmicro044Warning,
     Grelmicro045Warning,
     GrelmicroFutureWarning,
 )
@@ -489,7 +488,8 @@ def test_env_load_default_warning_still_imports_and_warns(module: str) -> None:
     with pytest.warns(Grelmicro045Warning, match="EnvLoadDefaultWarning"):
         category = package.EnvLoadDefaultWarning
 
-    assert issubclass(category, Grelmicro044Warning)
+    assert issubclass(category, Grelmicro045Warning)
     assert issubclass(category, EnvLoadOffWarning)
     assert issubclass(category, GrelmicroFutureWarning)
     assert category.code == EnvLoadOffWarning.code
+    assert category.__module__ == "grelmicro.errors"

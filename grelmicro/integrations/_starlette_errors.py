@@ -309,3 +309,6 @@ def _structured_detail(detail: Any) -> dict[str, Any] | None:  # noqa: ANN401
     if isinstance(detail, dict):
         return dict(detail)
     return {"errors": detail}
+
+
+error_response.__module__ = "grelmicro.integrations.starlette"

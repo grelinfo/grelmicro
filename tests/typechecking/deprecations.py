@@ -17,6 +17,12 @@ def provider_checks() -> None:
     HealthChecks.from_config(HealthChecksConfig(), provider_checks="off")
 
 
+def provider_checks_none() -> None:
+    """Pass `provider_checks=None`, removed in 0.45.0, with nothing reported."""
+    HealthChecks(provider_checks=None)
+    HealthChecks.from_config(HealthChecksConfig(), provider_checks=None)
+
+
 def env_load_default_warning() -> None:
     """Use `EnvLoadDefaultWarning`, removed in 0.45.0."""
     print(EnvLoadDefaultWarning.code)  # ty: ignore[deprecated]  # noqa: T201

@@ -22,6 +22,7 @@ from grelmicro import Grelmicro
 from grelmicro.__main__ import TargetError, load_target, main
 from grelmicro._describe import (
     AppReport,
+    ComponentReport,
     _mask,
     describe_provider,
 )
@@ -187,10 +188,10 @@ def test_describe_marks_a_bare_provider_defaults() -> None:
     report = micro.describe()
 
     assert {c.kind: c.default_of for c in report.components} == {
-        "coordination": "MemoryProvider",
-        "cache": "MemoryProvider",
-        "ratelimiter": "MemoryProvider",
-        "circuitbreaker": "MemoryProvider",
+        "coordination": "memory",
+        "cache": "memory",
+        "ratelimiter": "memory",
+        "circuitbreaker": "memory",
     }
 
 
@@ -214,9 +215,9 @@ def test_describe_marks_only_the_kinds_a_provider_fills() -> None:
 
     assert {c.kind: c.default_of for c in report.components} == {
         "cache": None,
-        "coordination": "MemoryProvider",
-        "ratelimiter": "MemoryProvider",
-        "circuitbreaker": "MemoryProvider",
+        "coordination": "memory",
+        "ratelimiter": "memory",
+        "circuitbreaker": "memory",
     }
 
 
@@ -230,9 +231,9 @@ def test_describe_marks_a_provider_used_after_open() -> None:
     report = micro.describe()
     assert {c.kind: c.default_of for c in report.components} == {
         "cache": None,
-        "coordination": "MemoryProvider",
-        "ratelimiter": "MemoryProvider",
-        "circuitbreaker": "MemoryProvider",
+        "coordination": "memory",
+        "ratelimiter": "memory",
+        "circuitbreaker": "memory",
     }
 
 
@@ -245,8 +246,42 @@ def test_describe_renders_the_provider_a_default_came_from() -> None:
 
     cache = next(line for line in lines if "cache/default" in line)
     ratelimiter = next(line for line in lines if "ratelimiter/default" in line)
-    assert "default of" not in cache
-    assert ratelimiter.endswith("(default of MemoryProvider)")
+    assert "(default" not in cache
+    assert ratelimiter.endswith("MemoryRateLimiterAdapter (default of memory)")
+
+
+def test_describe_renders_a_default_on_its_own_provider_once() -> None:
+    """A default whose backends borrow its own Provider reads `(default)`."""
+    micro = Grelmicro(
+        uses=[RedisProvider("redis://localhost:6379/0")],
+        environment="development",
+    )
+
+    lines = micro.describe().render().splitlines()
+
+    cache = next(line for line in lines if "cache/default" in line)
+    assert cache.endswith("<- redis (default)")
+
+
+def test_describe_names_the_provider_of_a_default_with_other_backends() -> None:
+    """A default whose backends borrow another provider names its own."""
+    report = AppReport(
+        components=(
+            ComponentReport(
+                kind="cache",
+                name="default",
+                component="Cache",
+                backends=("RedisCacheAdapter",),
+                provider="redis",
+                default_of="valkey",
+            ),
+        ),
+    )
+
+    [line] = [
+        line for line in report.render().splitlines() if "cache/default" in line
+    ]
+    assert line.endswith("<- redis (default of valkey)")
 
 
 def test_load_target_requires_module_attribute_form() -> None:

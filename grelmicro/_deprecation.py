@@ -11,15 +11,10 @@ import warnings
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from grelmicro.errors import (
-    Grelmicro044Warning,
-    Grelmicro045Warning,
-    GrelmicroFutureWarning,
-)
+from grelmicro.errors import Grelmicro045Warning, GrelmicroFutureWarning
 
 RELEASE_WARNINGS: dict[str, type[GrelmicroFutureWarning]] = {
-    category.switch_in: category
-    for category in (Grelmicro044Warning, Grelmicro045Warning)
+    category.switch_in: category for category in (Grelmicro045Warning,)
 }
 """The `GrelmicroFutureWarning` subclass of each switching release, by release."""
 
@@ -195,23 +190,28 @@ def format_case(name: str) -> FutureChange:
     )
 
 
-CACHED_LOCK_SCOPE = FutureChange(
-    change="`@cached(lock=...)` on a lock backend that falls short raises "
-    "`BackendScopeError` when the app opens in `staging` or `production`",
+PROVIDER_CHECKS_NONE = Removal(
+    old="provider_checks=None",
+    use='`provider_checks="report"` or no `provider_checks=`',
+    removed_in="0.45.0",
+)
+"""`HealthChecks(provider_checks=None)`, which reads as `"report"`."""
+
+
+GATE_BACKEND_STRICT = FutureChange(
+    change="`gate-backend` fails `grelmicro check` in `staging` and "
+    "`production`",
     switch_in="0.45.0",
     keep=None,
-    adopt='uses=[Coordination(redis)]` or `lock="process"',
+    adopt="uses=[Coordination(redis)]",
 )
-"""`@cached(lock="host")` and `lock="cluster"` are checked when the app opens.
-
-Until 0.45.0 a strict tier warns when the app opens, and raises on the
-first miss.
-"""
+"""A gated task that resolves no backend fails the check in a strict tier."""
 
 
 PENDING: tuple[FutureChange | Rename | Removal, ...] = (
+    GATE_BACKEND_STRICT,
     ENV_LOAD_DEFAULT_WARNING,
     FORMAT_CASE,
-    CACHED_LOCK_SCOPE,
+    PROVIDER_CHECKS_NONE,
 )
 """Every behavior change, rename and removal that currently warns."""

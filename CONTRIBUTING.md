@@ -710,9 +710,11 @@ it in `grelmicro/_deprecation.py` and add it to `PENDING`.
   `@deprecated(..., category=None)` so type checkers report it too. The
   `warn()` call stays the runtime warning.
 - Each entry warns with the category of its release, such as
-  `Grelmicro044Warning` for 0.44.0. The first entry for a new release adds
+  `Grelmicro045Warning` for 0.45.0. The first entry for a new release adds
   that class to `grelmicro/errors.py`, exports it from `grelmicro`, and lists
-  it in `RELEASE_WARNINGS`. Give a `FutureChange` its own `narrow=` subclass
+  it in `RELEASE_WARNINGS`. A release's warning class ships in the minor
+  before that release. It stays importable after that release, so a
+  `filterwarnings` line that names it keeps working. Give a `FutureChange` its own `narrow=` subclass
   only when a user would silence that one change, such as
   `EnvLoadDefaultWarning`.
 - Test each entry with `tests._future.assert_future_warning`: the default

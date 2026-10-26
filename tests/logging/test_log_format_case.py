@@ -186,6 +186,7 @@ def test_every_other_use_of_the_format_is_silent() -> None:
         assert hash(config.format) == hash("JSON")
         assert str(pickle.loads(pickle.dumps(config.format))) == "JSON"  # noqa: S301
         assert str(copy.deepcopy(config.format)) == "JSON"
+        assert copy.copy(config.format) is config.format
         assert config == LogConfig(format="JSON")
         assert hash(config) == hash(LogConfig(format="JSON"))
         assert config.format != 1
@@ -234,3 +235,63 @@ def test_the_warning_names_the_lowercase_comparison() -> None:
         '`LogConfig.format` reads back as `"json"` rather than `"JSON"` '
         'from 0.45.0. Compare `config.format.lower() == "json"` now.'
     )
+
+
+def test_the_json_schema_carries_a_plain_default() -> None:
+    """The schema keeps the `"AUTO"` default, and building it warns nothing."""
+    # Act
+    with _silent():
+        schema = LogConfig.model_json_schema()
+
+    # Assert
+    default = schema["properties"]["format"]["default"]
+    assert type(default) is str
+    assert str.__eq__(default, "AUTO")
+
+
+def test_a_pickled_format_loads_as_a_plain_str() -> None:
+    """A pickle holds a plain `str`, so it loads on a release without the read-back."""
+    # Arrange
+    value = LogConfig(format="json").format
+
+    # Act
+    with _silent():
+        loaded = pickle.loads(pickle.dumps(value))  # noqa: S301
+
+    # Assert
+    assert type(loaded) is str
+    assert str.__eq__(loaded, "JSON")
+    assert b"_UppercaseFormat" not in pickle.dumps(value)
+
+
+@pytest.mark.parametrize("mode", ["python", "json"])
+def test_a_dump_holds_a_plain_str_in_every_mode(mode: str) -> None:
+    """`model_dump()` returns a plain `str`, and the dump rebuilds an equal config."""
+    # Arrange
+    config = LogConfig(format="json")
+
+    # Act
+    with _silent():
+        dumped = config.model_dump(mode=mode)
+        rebuilt = LogConfig(**dumped)
+        equal = rebuilt == config
+
+    # Assert
+    assert type(dumped["format"]) is str
+    assert str.__eq__(dumped["format"], "JSON")
+    assert equal
+
+
+@pytest.mark.parametrize("mode", ["python", "json"])
+def test_a_dump_excluding_defaults_drops_the_default_format(mode: str) -> None:
+    """Left at its default, the format is dropped, and the dump warns nothing."""
+    # Act
+    with _silent():
+        excluded = LogConfig().model_dump(mode=mode, exclude_defaults=True)
+        kept = LogConfig(format="json").model_dump(
+            mode=mode, exclude_defaults=True
+        )
+
+    # Assert
+    assert "format" not in excluded
+    assert str.__eq__(kept["format"], "JSON")

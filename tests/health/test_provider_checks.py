@@ -10,10 +10,14 @@ import httpx
 import pytest
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
-from grelmicro import Grelmicro, _deprecation
+from grelmicro import Grelmicro, NoActiveAppError, _deprecation
 from grelmicro._deprecation import PENDING
 from grelmicro.cache import Cache
-from grelmicro.errors import GrelmicroFutureWarning, SettingsValidationError
+from grelmicro.errors import (
+    Grelmicro045Warning,
+    GrelmicroFutureWarning,
+    SettingsValidationError,
+)
 from grelmicro.health import ProviderChecks, health_asgi
 from grelmicro.health._checks import HealthChecks, HealthChecksConfig
 from grelmicro.health._models import HealthStatus
@@ -321,9 +325,56 @@ class TestAutoHealthRemoved:
         """No pending entry warns about `auto_health=` or the default."""
         assert not hasattr(_deprecation, "AUTO_HEALTH")
         assert not hasattr(_deprecation, "PROVIDERS_DEFAULT")
-        assert not [
+        assert [
             entry for entry in PENDING if "provider_checks" in entry.message
-        ]
+        ] == [_deprecation.PROVIDER_CHECKS_NONE]
+
+
+class TestProviderChecksNone:
+    """`provider_checks=None` reads as `"report"` and warns until 0.45.0."""
+
+    @pytest.mark.parametrize(
+        "build",
+        [
+            pytest.param(
+                lambda: HealthChecks(cache_ttl=0, provider_checks=None),
+                id="init",
+            ),
+            pytest.param(
+                lambda: HealthChecks.from_config(
+                    HealthChecksConfig(cache_ttl=0), provider_checks=None
+                ),
+                id="from-config",
+            ),
+        ],
+    )
+    async def test_none_registers_report_checks_and_warns_once(
+        self, build: Callable[[], HealthChecks]
+    ) -> None:
+        """`None` is the default mode, with one `Grelmicro045Warning` at the call."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            health = build()
+
+        assert [warning.category for warning in caught] == [Grelmicro045Warning]
+        assert str(caught[0].message) == (
+            _deprecation.PROVIDER_CHECKS_NONE.message
+        )
+        assert caught[0].filename == __file__
+        checks = await _checks(
+            Grelmicro(uses=[FakeProvider("redis"), health]), health
+        )
+        assert set(checks) == {"provider:redis"}
+        assert checks["provider:redis"]["critical"] is False  # type: ignore[index]  # ty: ignore[not-subscriptable]
+
+    def test_message_names_the_way_out(self) -> None:
+        """The warning tells the user to pass `"report"` or omit the argument."""
+        entry = _deprecation.PROVIDER_CHECKS_NONE
+        assert entry.removed_in == "0.45.0"
+        assert entry.message == (
+            "`provider_checks=None` is removed in 0.45.0. "
+            'Use `provider_checks="report"` or no `provider_checks=` instead.'
+        )
 
 
 async def _open(micro: Grelmicro) -> None:
@@ -468,7 +519,7 @@ class TestProvidersDefault:
 
         assert not _future_warnings(caught)
 
-    @pytest.mark.parametrize("mode", ["report", "require"])
+    @pytest.mark.parametrize("mode", ["report", "off"])
     async def test_opened_outside_an_app_registers_nothing(
         self, mode: ProviderChecks
     ) -> None:
@@ -479,6 +530,13 @@ class TestProvidersDefault:
             report = await health.run()
 
         assert report["checks"] == {}
+
+    async def test_require_opened_outside_an_app_raises(self) -> None:
+        """`"require"` needs an app to name the Providers it requires."""
+        health = HealthChecks(cache_ttl=0, provider_checks="require")
+
+        with pytest.raises(NoActiveAppError):
+            await health.__aenter__()
 
     def test_faked_app_warns_nothing(self, tmp_path: Path) -> None:
         """Under `fake()`, an app that borrows a Provider warns nothing."""

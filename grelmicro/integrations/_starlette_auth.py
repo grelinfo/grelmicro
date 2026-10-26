@@ -156,3 +156,7 @@ def _is_async(endpoint: Callable[..., Any]) -> bool:
     return inspect.iscoroutinefunction(endpoint) or inspect.iscoroutinefunction(
         call
     )
+
+
+Authenticated.__module__ = "grelmicro.integrations.starlette"
+current_token.__module__ = "grelmicro.integrations.starlette"

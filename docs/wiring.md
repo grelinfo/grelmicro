@@ -35,7 +35,9 @@ micro = Grelmicro(uses=[Cache(redis), RateLimiterComponent(redis)])
 ```
 
 A bare provider registers a default component for each kind nothing else
-claims. `micro.describe()` marks each one with the provider it came from.
+claims. `micro.describe()` names the provider each one came from, such as
+`"redis"`. `grelmicro check` marks its line `(default)`, or
+`(default of redis)` when the line names another provider or none.
 
 !!! warning
     Keep connection URLs in environment variables, not inline like the example
@@ -362,7 +364,7 @@ route.
 | `path-patterns` | An `include=` pattern that names no route, which turns its rule off without a word. Needs `--app`. | `warn` |
 | `ambient-binding` | An app or mounted sub-app that `micro.install(app)` never saw. Needs `--app`. | `FAIL`, or `warn` for a framework it does not recognize |
 | `health-not-served` | A registered `HealthChecks` whose endpoints nothing serves, once an app is installed. | `warn` |
-| `gate-backend` | A gated task that resolves no backend to claim through, so every fire runs nothing. | `FAIL` in `staging` and `production`, `warn` otherwise. |
+| `gate-backend` | A gated task that resolves no backend to claim through, so every fire runs nothing. | `warn`. Fails in `staging` and `production` from 0.45.0. |
 | `leader-not-running` | A task gated on a `LeaderElection` that no registered `Tasks` holds. | `warn` |
 | `routes-not-declared` | An integration that lists no routes while a component acting per endpoint is registered, so no endpoint row is shown and no `include=` pattern is checked. Needs `--app`. | `warn` |
 

@@ -65,7 +65,7 @@ from grelmicro._environment import (
     QUIET_ENVIRONMENTS,
     answer_for,
     label,
-    raise_or_warn_deferred,
+    raise_or_warn,
     recorded_bindings,
     report_diagnostic,
     report_unmet_requirements,
@@ -498,7 +498,7 @@ class Grelmicro:
         ```
 
         A `@cached(lock=...)` fold that falls short warns with
-        `Grelmicro045Warning` instead, until 0.45.0.
+        `BackendScopeWarning` instead, and its first miss raises.
 
         Raises:
             BackendScopeError: If any bound backend reaches less far than its
@@ -508,7 +508,7 @@ class Grelmicro:
             self._register_provider_defaults(
                 "micro.check_backends() was called"
             )
-        raise_or_warn_deferred(
+        raise_or_warn(
             unmet_requirements(
                 self._items, recorded_bindings(), components=self._resolved
             ),
@@ -818,11 +818,11 @@ class Grelmicro:
             self._default_kinds[component.kind] = registered_when
             self._provider_defaults[id(component)] = (
                 component,
-                type(provider).__name__,
+                provider.short_name,
             )
 
     def _default_of(self, component: Component) -> str | None:
-        """Return the class name of the Provider `component` is the default of.
+        """Return the short name of the Provider `component` is the default of.
 
         Returns `None` for a Component that was registered explicitly.
         """

@@ -60,7 +60,6 @@ import pytest
 from syrupy.extensions.json import JSONSnapshotExtension
 
 import grelmicro
-from grelmicro.errors import GrelmicroFutureWarning
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -273,14 +272,8 @@ def _symbol_surface(obj: object) -> dict[str, str] | None:
 
 
 def _export(module: ModuleType, symbol: str) -> Any:  # noqa: ANN401
-    """Return `module.symbol`, without the warning of a name due for removal.
-
-    A name in `__all__` that is removed in a coming release warns on access,
-    and it stays on the public surface until then.
-    """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GrelmicroFutureWarning)
-        return getattr(module, symbol, None)
+    """Return `module.symbol`, or None when it does not resolve."""
+    return getattr(module, symbol, None)
 
 
 def build_public_api() -> dict[str, dict[str, Any]]:
@@ -598,6 +591,17 @@ def test_every_documented_module_is_snapshotted() -> None:
     assert not missing, (
         f"documented in docs/reference/ but absent from PUBLIC_MODULES: {missing}"
     )
+
+
+@pytest.mark.parametrize("module_name", PUBLIC_MODULES)
+def test_star_import_emits_no_warning(module_name: str) -> None:
+    """A star import reads every name in `__all__` and warns for none.
+
+    A name due for removal warns on access, so it stays out of `__all__`.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        exec(f"from {module_name} import *", {})  # noqa: S102
 
 
 @pytest.mark.parametrize("module_name", PUBLIC_MODULES)

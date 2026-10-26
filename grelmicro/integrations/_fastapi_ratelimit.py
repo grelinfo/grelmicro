@@ -152,3 +152,6 @@ def RateLimited(  # noqa: N802
             response.headers[name] = value
 
     return _Depends(metered)
+
+
+RateLimited.__module__ = "grelmicro.integrations.fastapi"
