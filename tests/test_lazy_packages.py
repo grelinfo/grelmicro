@@ -177,6 +177,16 @@ _LAZY_MODULES: dict[str, frozenset[str]] = {
             "route_declarations",
         }
     ),
+    "grelmicro.integrations.litestar": frozenset(
+        {
+            "install",
+            "install_error_responses",
+            "install_middleware",
+            "install_route_gate",
+            "is_bound",
+            "route_declarations",
+        }
+    ),
     "grelmicro.integrations.starlette": frozenset(
         {
             "install",

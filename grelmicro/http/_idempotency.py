@@ -70,10 +70,8 @@ from grelmicro.http._kinds import (
     IDEMPOTENCY_KEY_INVALID,
     IDEMPOTENCY_KEY_REUSED,
     REQUEST_BODY_TOO_LARGE,
-    UNHANDLED_KEY,
     Kind,
     Occurrence,
-    Unhandled,
 )
 from grelmicro.http._openapi import (
     add_error_schema,
@@ -83,6 +81,7 @@ from grelmicro.http._openapi import (
     operations_of,
 )
 from grelmicro.http._routes import RouteDeclaration, runs_checks
+from grelmicro.http._unhandled import UNHANDLED_KEY, Unhandled
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,

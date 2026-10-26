@@ -195,6 +195,25 @@ def test_fastapi_integration_names_resolve_without_fastapi() -> None:
 
 @pytest.mark.parametrize(
     "module",
+    [
+        "grelmicro.integrations.litestar",
+        "grelmicro.integrations._litestar_auth",
+        "grelmicro.integrations._litestar_errors",
+        "grelmicro.integrations._litestar_gate",
+    ],
+)
+def test_litestar_integration_needs_litestar(module: str) -> None:
+    """Without Litestar, the Litestar integration and its parts refuse to import."""
+    # Act
+    printed = _import_with(module, {}, hidden=("litestar",))
+
+    # Assert
+    assert printed.startswith("ModuleNotFoundError ")
+    assert "litestar" in printed
+
+
+@pytest.mark.parametrize(
+    "module",
     ["grelmicro.integrations.starlette", "grelmicro.integrations._route_gate"],
 )
 def test_starlette_imports_refuse_an_older_starlette(module: str) -> None:

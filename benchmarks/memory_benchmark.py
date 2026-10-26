@@ -1,4 +1,4 @@
-"""Benchmark the memory and modules four reference apps load.
+"""Benchmark the memory and modules five reference apps load.
 
 Each app runs in a fresh interpreter. The interpreter imports `fastapi` first,
 and that state is the baseline. The script reports the grelmicro modules the
@@ -65,6 +65,26 @@ APPS = {
         "        await asyncio.sleep(0)\n"
         "asyncio.run(_open())\n"
     ),
+    "litestar": (
+        "from litestar import Litestar\n"
+        "from grelmicro import Grelmicro\n"
+        "from grelmicro.health import HealthChecks\n"
+        "from grelmicro.log import Log\n"
+        "from grelmicro.providers.memory import MemoryProvider\n"
+        "from grelmicro.task import Tasks\n"
+        "tasks = Tasks()\n"
+        "micro = Grelmicro(\n"
+        "    uses=[MemoryProvider(), Log(), HealthChecks(provider_checks='require'), tasks]\n"
+        ")\n"
+        "@tasks.every(interval=60, gate='claim')\n"
+        "async def job() -> None: ...\n"
+        "app = Litestar(route_handlers=[])\n"
+        "micro.install(app)\n"
+        "async def _open() -> None:\n"
+        "    async with micro:\n"
+        "        await asyncio.sleep(0)\n"
+        "asyncio.run(_open())\n"
+    ),
     "redis": (
         "from fastapi import FastAPI\n"
         "from grelmicro import Grelmicro\n"
@@ -86,7 +106,7 @@ APPS = {
 }
 """The reference apps, by name.
 
-`tasks` and `starlette` open and close the app. `redis` and `postgres` stop before the
+`tasks`, `starlette` and `litestar` open and close the app. `redis` and `postgres` stop before the
 first connection, so they need no server.
 """
 

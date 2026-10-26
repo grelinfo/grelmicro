@@ -16,6 +16,7 @@
 * ⚡️ `Grelmicro(uses=[...])` checks a backend against the first-party backend kinds without importing their packages. A Tasks app no longer loads `grelmicro.outbox`. ([#1166](https://github.com/grelinfo/grelmicro/pull/1166))
 * ⚡️ The Starlette integration loads authentication, error responses and route gates only when the app uses them. A Starlette app with `Tasks` loads 30 fewer grelmicro modules. ([#1170](https://github.com/grelinfo/grelmicro/pull/1170))
 * ⚡️ The FastAPI integration loads authentication, route rate limits, conditional requests, the response cache and the metrics router only when the app uses them. Importing it no longer loads the JWT verifier or pydantic-settings. A FastAPI app with `Tasks` loads 36 fewer grelmicro modules. ([#1173](https://github.com/grelinfo/grelmicro/pull/1173))
+* ⚡️ The Litestar integration loads authentication, error responses and route gates only when the app uses them. Importing it loads 57 fewer grelmicro modules. A Litestar app with `Tasks` loads 21 fewer. ([#1177](https://github.com/grelinfo/grelmicro/pull/1177))
 
 ### Fixed
 * 🐛 The `BackendScopeError` for `Idempotency` or `IdempotentRequests` with no lock backend says to register a `Coordination` with a Redis, Valkey, Postgres or Kubernetes provider, not to use one of those backends. ([#1168](https://github.com/grelinfo/grelmicro/pull/1168))

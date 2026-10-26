@@ -49,6 +49,18 @@ _EXPECTED_SUBPACKAGES = {
         "task",
         "trace",
     },
+    "litestar": _COMMON
+    | {
+        "cache",
+        "clock",
+        "coordination",
+        "http",
+        "integrations",
+        "log",
+        "resilience",
+        "task",
+        "trace",
+    },
     "redis": _COMMON
     | {
         "cache",
@@ -67,6 +79,7 @@ _MAX_MODULES = {
     "import": 23,
     "tasks": 131,
     "starlette": 128,
+    "litestar": 127,
     "redis": 106,
     "postgres": 102,
 }
@@ -417,8 +430,137 @@ print(json.dumps({"installed": installed, "statuses": statuses}))
     assert printed == {"installed": False, "statuses": [401, 200, 200]}
 
 
+def test_litestar_integration_loads_no_route_features() -> None:
+    """Importing the Litestar integration loads no authentication, no route gate and no settings."""
+    # Arrange
+    code = (
+        "import json, sys\n"
+        "import grelmicro.integrations.litestar\n"
+        "print(json.dumps(sorted(sys.modules)))"
+    )
+
+    # Act
+    loaded = set(cast("list[str]", _run(code)))
+
+    # Assert
+    assert "pydantic_settings" not in loaded
+    assert "grelmicro.integrations._route_gate" not in loaded
+    assert "grelmicro.http._authentication" not in loaded
+
+
+_SERVE_LITESTAR = """\
+import json, sys
+from litestar import Litestar, Request, get
+from litestar.testing import TestClient
+from grelmicro import Grelmicro
+from grelmicro.providers.memory import MemoryProvider
+{imports}
+{handlers}
+micro = Grelmicro(uses=[MemoryProvider(){components}])
+app = Litestar(route_handlers=[{routes}])
+micro.install(app)
+def serve():
+    return [{requests}]
+with TestClient(app) as client:
+    serve()
+    before = set(sys.modules)
+    statuses = serve()
+    loaded = sorted(set(sys.modules) - before)
+print(json.dumps({{"statuses": statuses, "loaded": loaded}}))
+"""
+"""Serve each route twice, and print what the second round loaded.
+
+The first round loads what the test client and each answer load on first
+use, so only the second round reads what answering loads.
+"""
+
+_PLAIN_LITESTAR = {
+    "imports": "",
+    "handlers": """\
+@get('/hello')
+async def hello() -> str:
+    return 'hello'
+""",
+    "components": "",
+    "routes": "hello",
+    "requests": (
+        "client.get('/hello').status_code, client.get('/missing').status_code"
+    ),
+}
+"""A Litestar app that uses no route feature."""
+
+_FEATURED_LITESTAR = {
+    "imports": (
+        "from grelmicro.http import AuthenticatedRequests, ErrorResponses, "
+        "RateLimitedRequests\n"
+        "from grelmicro.integrations.litestar import Anonymous, "
+        "Authenticated, current_token\n"
+        "from grelmicro.resilience import RateLimiter\n"
+        "from grelmicro.resilience.ratelimiter.memory import "
+        "MemoryRateLimiterAdapter\n"
+        "from grelmicro.testing import FakeVerifier, fake_claims\n"
+        "limiter = RateLimiter.sliding_window(\n"
+        "    'search', limit=1, window=3600, backend=MemoryRateLimiterAdapter()\n"
+        ")\n"
+    ),
+    "handlers": (
+        "@get('/hello', opt=Anonymous())\n"
+        "async def hello() -> str:\n"
+        "    return 'hello'\n"
+        "@get('/me', guards=[Authenticated()])\n"
+        "async def me(request: Request) -> dict:\n"
+        "    return {'sub': request.user.subject, "
+        "'token': current_token(request).value}\n"
+        "@get('/search', opt=Anonymous())\n"
+        "async def search() -> dict:\n"
+        "    return {}\n"
+    ),
+    "components": (
+        ", ErrorResponses()"
+        ", AuthenticatedRequests(FakeVerifier(alice=fake_claims('alice')))"
+        ", RateLimitedRequests(limiter, key=lambda scope: 'k', "
+        "include=('/search',))"
+    ),
+    "routes": "hello, me, search",
+    "requests": (
+        "client.get('/hello').status_code, "
+        "client.get('/missing').status_code, "
+        "client.get('/me', headers={'Authorization': 'Bearer alice'})"
+        ".status_code, "
+        "client.get('/me').status_code, "
+        "client.get('/search').status_code"
+    ),
+}
+"""A Litestar app with error responses, authentication and a rate limit."""
+
+
+@pytest.mark.parametrize(
+    ("app", "statuses"),
+    [
+        pytest.param(_PLAIN_LITESTAR, [200, 404], id="plain"),
+        pytest.param(
+            _FEATURED_LITESTAR, [200, 401, 200, 401, 429], id="features"
+        ),
+    ],
+)
+def test_litestar_requests_load_no_module(
+    app: dict[str, str], statuses: list[int]
+) -> None:
+    """A Litestar app loads no module while it answers, its route features included."""
+    # Arrange
+    code = _SERVE_LITESTAR.format(**app)
+
+    # Act
+    printed = cast("dict[str, list[Any]]", _run(code))
+
+    # Assert
+    assert printed["statuses"] == statuses
+    assert printed["loaded"] == []
+
+
 _FACADES = (
     "grelmicro.integrations.fastapi",
+    "grelmicro.integrations.litestar",
     "grelmicro.integrations.starlette",
 )
 """Integration modules that load some public names on first access."""
