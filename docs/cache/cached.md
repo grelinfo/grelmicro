@@ -203,6 +203,7 @@ async def get_homepage_feed() -> Feed:
 
 - **The backend must reach that far.** It goes through the same [backend check](../deployment.md#the-backend-check) as `requires=`. In `staging` and `production`, a lock backend whose scope falls short raises `BackendScopeError`. With no environment declared it logs a warning, and in `development` and `test` it stays quiet.
 - **No lock backend raises `OutOfContextError`.** Register a `Coordination` on the app, or keep `lock="process"`.
+- **The check runs when the app opens.** A fold with no `Coordination`, or one whose lock backend falls short, is reported by `micro.describe()` and `grelmicro check` before any call. In `staging` and `production` it warns with `Grelmicro045Warning` on startup, and raises `BackendScopeError` from 0.45.0.
 - **A failing lock backend does not fail the call.** The error is logged and the misses fold in the process only.
 - **A lock lost before release is logged**, for example when the function runs past the lease. The value is still returned.
 

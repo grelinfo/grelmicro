@@ -9,7 +9,6 @@ from typing import (
     Annotated,
     Any,
     ClassVar,
-    Final,
     Generic,
     Self,
     TypeVar,
@@ -26,6 +25,7 @@ from grelmicro._config import (
 )
 from grelmicro._environment import Binding, falls_short, label, record
 from grelmicro.cache._stampede import (
+    IN_PROCESS_LOCK,
     AsyncStampedeGuard,
     _has_lock_backend,
     _stampede_lock_name,
@@ -309,20 +309,6 @@ class _Block(Generic[T]):
                 self._local_lock = None
 
 
-class InProcessLock:
-    """The lock a duplicate waits on when the app has no lock backend.
-
-    It holds in this process only, so a duplicate sent to another replica
-    runs the operation again.
-    """
-
-    scope: ClassVar[BackendScope] = "process"
-
-
-_IN_PROCESS_LOCK: Final = InProcessLock()
-"""What the scope check sees when no `Coordination` holds a lock backend."""
-
-
 class _LockRequirement:
     """Stands for the lock an `Idempotency` needs, in the scope check."""
 
@@ -600,7 +586,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             self._requires,
             rides=("coordination", "default"),
             attribute="_lock_backend",
-            absent=_IN_PROCESS_LOCK,
+            absent=IN_PROCESS_LOCK,
             kind="coordination",
         )
         return store, lock

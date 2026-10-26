@@ -104,6 +104,9 @@ Wire a backend that reaches far enough, or pass `requires=` to declare the
 reach you meant. A warning with no tier declared, a `BackendScopeError` in
 `staging` and `production`. See [the backend check](deployment.md#the-backend-check).
 
+A `@cached(lock=...)` fold is the exception until 0.45.0. In `staging` and
+`production` it warns with `Grelmicro045Warning` on startup instead.
+
 ### `ambient-binding`
 
 Call `micro.install(app)`, including on every mounted sub-application. Raises

@@ -17,7 +17,7 @@ import logging
 from collections import OrderedDict
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, cast, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Final, cast, get_args
 
 from grelmicro._app import resolve_ambient
 from grelmicro._config import match_case
@@ -43,6 +43,20 @@ _SENTINEL = object()
 _PER_KEY_LOCK_BUDGET = 1024
 
 _SCOPES: frozenset[object] = frozenset(get_args(BackendScope.__value__))
+
+
+class InProcessLock:
+    """The lock that holds when the app has no lock backend.
+
+    It holds in this process only, so a caller on another replica does
+    not wait on it.
+    """
+
+    scope: ClassVar[BackendScope] = "process"
+
+
+IN_PROCESS_LOCK: Final = InProcessLock()
+"""What the scope check sees when no `Coordination` holds a lock backend."""
 
 
 def _has_lock_backend() -> bool:
@@ -116,6 +130,32 @@ class Fold:
     def crosses(self) -> bool:
         """Whether misses also fold through the app's lock backend."""
         return self.scope != "process"
+
+    def declare(self) -> None:
+        """Record the lock backend this fold rides, for the next app to check.
+
+        The fold rides the lock backend of the app's `Coordination`, and an
+        `InProcessLock` when the app has none. A fold in the process records
+        nothing. In `staging` and `production` a lock backend that falls
+        short warns with `Grelmicro045Warning` when the app opens.
+        """
+        if self._lock is None or self._checked:
+            return
+        from grelmicro._deprecation import CACHED_LOCK_SCOPE  # noqa: PLC0415
+
+        record(
+            self,
+            Binding(
+                label(self),
+                self.scope,
+                rides=("coordination", "default"),
+                attribute="_lock_backend",
+                absent=IN_PROCESS_LOCK,
+                kind="coordination",
+                keyword="lock",
+                deferred=CACHED_LOCK_SCOPE,
+            ),
+        )
 
     @asynccontextmanager
     async def across(self, key: str) -> AsyncGenerator[bool]:

@@ -122,6 +122,7 @@ raises](#0-42-raising).
 | `AttributeError: 'str' object has no attribute 'value'` on a mode field such as `config.exporter` | 0.44 | [Compare with the string](#0-44-mode-strings) |
 | `TypeError: HealthChecks.__init__() got an unexpected keyword argument 'auto_health'` | 0.44 | [Pass `provider_checks=`](#0-44-provider-checks) |
 | `/healthz` lists `provider:` checks after upgrading | 0.44 | [Pick a mode](#0-44-provider-checks) |
+| `Grelmicro045Warning: Fold(...) is bound to InProcessLock` or `rides Coordination('default')` on startup | 0.44 | [Register a `Coordination`](#0-44-cached-lock-scope) |
 
 ## 0.44
 
@@ -132,6 +133,7 @@ raises](#0-42-raising).
 - `grelmicro check` and `micro.describe()` report `gate-backend` as `fail` in `staging` and `production`, so `grelmicro check` exits `1` there. [Give each gated task a backend](diagnostics.md#gate-backend).
 - A `HealthChecks` with no `provider_checks=` beside a Provider shows each Provider in `/healthz` as a non-critical `provider:{short_name}` check. `/readyz` is unchanged. [Pick a mode](#0-44-provider-checks).
 - `LogConfig.format` still reads back in uppercase, such as `"JSON"`. Comparing it with a format name now warns with `Grelmicro045Warning`. From 0.45.0 it reads back in lowercase, such as `"json"`. [Compare in any case](#0-44-log-format-case).
+- `@cached(lock="host")` and `lock="cluster"` are checked when the app opens. In `staging` and `production`, a fold with no `Coordination`, or one whose lock backend falls short, now warns with `Grelmicro045Warning` on startup. From 0.45.0 the app raises `BackendScopeError` on startup. [Register a `Coordination`](#0-44-cached-lock-scope).
 
 ### Changes that raise {#0-44-raising}
 
@@ -210,6 +212,28 @@ A custom loguru template reads back as written and never warns.
 
 `config.format` is a `str` subclass in 0.44, so `isinstance(config.format, str)`
 holds but `type(config.format) is str` does not. From 0.45.0 it is a plain `str`.
+
+### `@cached(lock=...)` is checked on startup {#0-44-cached-lock-scope}
+
+`@cached(lock="host")` and `lock="cluster"` fold misses through the lock
+backend of the app's `Coordination`. The backend check now reads that lock
+backend when the app opens, not on the first miss. `micro.describe()` and
+`grelmicro check` report it as `backend-scope`.
+
+In `staging` and `production`, a fold with no `Coordination`, or one whose
+lock backend reaches less far than `lock`, warns on startup. The first miss
+still raises, as before. From 0.45.0 the app refuses to start. Register a
+`Coordination` that reaches far enough:
+
+```python
+# Before: warns on startup, raises on the first miss
+micro = Grelmicro(uses=[Cache(redis)])
+
+# After
+micro = Grelmicro(uses=[Cache(redis), Coordination(redis)])
+```
+
+Or pass `lock="process"` to fold misses in each process only.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 
