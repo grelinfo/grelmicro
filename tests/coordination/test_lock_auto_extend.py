@@ -258,6 +258,43 @@ async def test_auto_extend_gives_up_before_the_lease_runs_out(
     assert "orders" in warned[0].getMessage()
 
 
+@pytest.mark.parametrize("failure", ["error", "hang", "lost"])
+async def test_auto_extend_cancels_the_body_before_it_warns(
+    backend: MemoryLockAdapter,
+    mocker: MockerFixture,
+    caplog: pytest.LogCaptureFixture,
+    failure: str,
+) -> None:
+    """A lost lease reaches the body before its warning is written."""
+    # Arrange
+    caplog.set_level("WARNING")
+    lock = _lock(backend)
+
+    async def fail(_token: str, _duration: timedelta) -> int | None:
+        if failure == "hang":
+            await asyncio.Event().wait()
+        if failure == "error":
+            raise LockExtendError(name="orders")
+        return None
+
+    _extend_with(lock, mocker, fail)
+    warned_before_cancel = True
+
+    # Act
+    with pytest.raises(LockNotOwnedError):  # noqa: PT012
+        async with lock.hold(timeout=WAIT, auto_extend=True):
+            try:
+                await asyncio.sleep(LEASE * 10)
+            finally:
+                warned_before_cancel = bool(caplog.records)
+
+    # Assert
+    assert not warned_before_cancel
+    [warned] = caplog.records
+    assert "orders" in warned.getMessage()
+    assert (warned.exc_info is not None) is (failure != "lost")
+
+
 async def test_auto_extend_transient_error_keeps_the_lock(
     backend: MemoryLockAdapter,
     mocker: MockerFixture,
