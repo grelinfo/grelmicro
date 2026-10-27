@@ -62,8 +62,10 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload Unit Test Results to Codecov
         continue-on-error: true
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
+          report_type: test_results
+          files: junit.xml
           flags: "unit,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Run Slow Tests
@@ -88,8 +90,10 @@ jobs:
       - name: Upload Slow Test Results to Codecov
         if: ${{ inputs.full || (inputs.coverage && matrix.python == '3.14') }}
         continue-on-error: true
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
+          report_type: test_results
+          files: junit.xml
           flags: "slow,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Run Integration Tests
@@ -105,8 +109,10 @@ jobs:
       - name: Upload Integration Test Results to Codecov
         if: ${{ inputs.full || (inputs.coverage && matrix.python == '3.14') }}
         continue-on-error: true
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
+          report_type: test_results
+          files: junit.xml
           flags: "integration,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Enforce Combined Coverage

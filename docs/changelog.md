@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+* 👷 CI uploads test results with `codecov/codecov-action` and `report_type: test_results`, replacing the deprecated `codecov/test-results-action` that ran on Node 20. ([#1196](https://github.com/grelinfo/grelmicro/pull/1196))
+
 ## 0.44.0 - 2026-10-27
 
 ### Breaking
