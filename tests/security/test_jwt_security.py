@@ -535,7 +535,11 @@ extra, and refusing a malformed one is the verdict working.
 class TestInvariants:
     """The two properties the module rests on, stated over arbitrary input."""
 
-    @settings(max_examples=300, suppress_health_check=[HealthCheck.too_slow])
+    @settings(
+        max_examples=300,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
     @given(st.text(max_size=512))
     def test_arbitrary_text_never_yields_claims(self, token: str) -> None:
         """Only a validly signed token produces claims. Everything else raises."""
@@ -546,7 +550,11 @@ class TestInvariants:
         # Reached only if the input happened to be a token we issued.
         assert token == VALID
 
-    @settings(max_examples=300, suppress_health_check=[HealthCheck.too_slow])
+    @settings(
+        max_examples=300,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
     @given(st.binary(max_size=256))
     def test_arbitrary_bytes_raise_only_the_documented_error(
         self, raw: bytes
@@ -560,7 +568,11 @@ class TestInvariants:
         except Exception as error:  # noqa: BLE001
             pytest.fail(f"undocumented error {type(error).__name__}: {error}")
 
-    @settings(max_examples=200, suppress_health_check=[HealthCheck.too_slow])
+    @settings(
+        max_examples=200,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
     @given(st.integers(min_value=0, max_value=len(VALID) - 1))
     def test_mutating_any_byte_breaks_the_token(self, index: int) -> None:
         """No single-character edit of a valid token survives verification."""
@@ -576,7 +588,11 @@ class TestInvariants:
         # the same signature, which is a property of base64 and not a defect.
         assert claims_out.claims == verifier().verify(VALID).claims
 
-    @settings(max_examples=150, suppress_health_check=[HealthCheck.too_slow])
+    @settings(
+        max_examples=150,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
     @given(
         st.dictionaries(
             st.text(min_size=1, max_size=12).filter(

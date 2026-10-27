@@ -12,6 +12,7 @@
 ### Internal
 * 👷 `just release-audit` fails a patch with a Breaking or Deprecated entry, a changed default that switches less than 4 weeks after its first warning, and a Python floor raised in a patch or above the newest supported Python minus two. ([#1200](https://github.com/grelinfo/grelmicro/pull/1200))
 * 👷 CI uploads test results with `codecov/codecov-action` and `report_type: test_results`, replacing the deprecated `codecov/test-results-action` that ran on Node 20. ([#1196](https://github.com/grelinfo/grelmicro/pull/1196))
+* ✅ The signer and JWT property tests run with no Hypothesis deadline, so a cold first signature under load no longer fails them. ([#1205](https://github.com/grelinfo/grelmicro/pull/1205))
 
 ## 0.44.0 - 2026-10-27
 

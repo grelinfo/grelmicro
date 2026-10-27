@@ -183,7 +183,11 @@ class TestSignatures:
         assert pkcs1.sign(b"data") == pkcs1.sign(b"data")
 
     @pytest.mark.parametrize("algorithm", ["RS256", "PS256", "ES256", "EdDSA"])
-    @settings(max_examples=60, suppress_health_check=[HealthCheck.too_slow])
+    @settings(
+        max_examples=60,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
     @given(data=st.binary(max_size=4096))
     def test_any_bytes_sign_and_verify(
         self, algorithm: str, data: bytes
