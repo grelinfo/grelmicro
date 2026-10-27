@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.44.1 - 2026-10-27
 
 ### Fixed
 * 🐛 `lock.hold(auto_extend=True)` cancels the body before it logs the lost lease, so writing the warning no longer delays the cancel. The warning text is unchanged. ([#1197](https://github.com/grelinfo/grelmicro/pull/1197))
