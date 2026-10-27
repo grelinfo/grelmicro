@@ -30,7 +30,7 @@ Filling the [capability matrix](capabilities.md) is permanent work, not a featur
 
 ## Background work you can reason about
 
-Work that happens without a request should be as easy to state as work that answers one. Common schedules should read at a glance rather than arrive as five cron fields, and a task should pause without a redeploy. The outbox should state its delivery guarantee in one sentence, which means strict per-key ordering with explicit head-of-line semantics.
+Work that happens without a request should be as easy to state as work that answers one. Common schedules should read at a glance rather than arrive as five cron fields, and a task should pause without a redeploy. A job started on demand should report its progress, not only run on a schedule. An app that only schedules tasks should install and load nothing else. The outbox should state its delivery guarantee in one sentence, which means strict per-key ordering with explicit head-of-line semantics.
 
 ## A shorter first hour
 
@@ -38,7 +38,11 @@ Reading the guide should not be the only way to start. A starter template wires 
 
 ## The runtime underneath
 
-grelmicro follows where CPython goes. Free-threaded builds are the near one: state lives in per-process structures that assume one interpreter lock, and that should be fixed before anyone hits it in production. Driving components from more than one event loop is the same class of problem. Hot paths stay measured, with the [benchmarks](benchmarks.md) as the record.
+grelmicro follows where CPython goes, and supports up to three Python versions at once so following it never strands a service. Free-threaded builds are the near one: state lives in per-process structures that assume one interpreter lock, and that should be fixed before anyone hits it in production. Driving components from more than one event loop is the same class of problem. Hot paths stay measured, with the [benchmarks](benchmarks.md) as the record.
+
+## Upgrades you can plan
+
+Upgrading grelmicro should not mean rereading the changelog. A patch never breaks. A breaking change warns in your code first and lands only after a published waiting period, which grows as the API settles. 1.0 comes when the API holds still, and from then nothing breaks before 2.0.
 
 ______________________________________________________________________
 
