@@ -1,18 +1,22 @@
 """Print the Markdown report the maintainer reads before approving a release.
 
-The report has four checks and a summary. Each check opens with a PASS,
+The report has five checks and a summary. Each check opens with a PASS,
 WARN or FAIL line:
 
 1. Version and changelog. Runs `tools/changelog.py check`, counts the
-   entries per section, and holds a patch to fixes only. A patch with any
-   Breaking, Added or Deprecated entry fails.
+   entries per section, and holds a patch to changes that never break. A
+   patch with any Breaking or Deprecated entry fails.
 2. Public API diff. Builds the public surface the way
    `tests/test_public_api.py` does and compares it with the snapshot at the
    last released tag. A patch that removes or changes a name fails.
 3. Deprecations. Lists every `PENDING` entry in `grelmicro/_deprecation.py`.
    An entry due at this version fails. An entry gone since the last tag
-   needs a `### Breaking` changelog line.
-4. CI health. Reads the latest nightly `ci.yml` run on `main` and the
+   needs a `### Breaking` changelog line. A changed default that switches
+   less than `WARNING_WINDOW` after the release that first warned fails.
+4. Python versions. Compares the `requires-python` floor with the last
+   tag. A floor raised in a patch, or above the newest supported Python
+   minus two, fails.
+5. CI health. Reads the latest nightly `ci.yml` run on `main` and the
    `release.yml` dry runs for `HEAD` from the public GitHub REST API. It
    sends no token, makes one call per check and reports a rate limit as
    such rather than retrying.
@@ -33,6 +37,7 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 import types
 import urllib.error
 import urllib.request
@@ -60,8 +65,17 @@ SNAPSHOT = (
     "tests/__snapshots__/test_public_api/test_public_api_matches_snapshot.json"
 )
 DEPRECATION = "grelmicro/_deprecation.py"
+PYPROJECT = "pyproject.toml"
 
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+FLOOR = re.compile(r">=\s*3\.(\d+)")
+CLASSIFIER = re.compile(r"^Programming Language :: Python :: 3\.(\d+)$")
+
+WARNING_WINDOW = dt.timedelta(weeks=4)
+"""How long a changed default warns before the release that switches it."""
+
+SUPPORTED_PYTHONS = 3
+"""How many Python versions are kept, counted back from the newest."""
 
 SECTIONS = (
     "Breaking",
@@ -77,8 +91,8 @@ SECTIONS = (
 ALIASES = {"Breaking Changes": "Breaking"}
 """Older heading spellings, counted under the current name."""
 
-NOT_IN_PATCH = ("Breaking", "Added", "Deprecated")
-"""The sections a patch release may not carry."""
+NOT_IN_PATCH = ("Breaking", "Deprecated")
+"""The sections a patch release may not carry: a break or a new warning."""
 
 FAILED = frozenset({"failure", "timed_out", "startup_failure"})
 """The run conclusions that mean the code failed, not that the run stopped."""
@@ -258,7 +272,8 @@ def changelog_check(
     for name in patch_violations(kind, counts):
         check.fail(
             f"a patch carries {counts[name]} {name} entries. "
-            f"CONTRIBUTING.md holds a patch to fixes only."
+            f"A patch never breaks or announces a change "
+            f"(docs/versioning.md)."
         )
     return check
 
@@ -356,8 +371,6 @@ def api_check(
                 f"a patch removes {len(diff.removed)} and changes "
                 f"{len(diff.changed)} public names or signatures"
             )
-        if diff.added:
-            check.warn(f"a patch adds {len(diff.added)} public names")
     elif (diff.removed or diff.changed) and not breaking:
         check.warn(
             "public names are removed or changed, and the changelog has "
@@ -431,14 +444,50 @@ def has_breaking_line(entry: Entry, breaking: Iterable[str]) -> bool:
     return any(needle in line for line in breaking for needle in needles)
 
 
+def window_failures(
+    switched_on: Iterable[tuple[Entry, dt.date | None]], today: dt.date
+) -> list[str]:
+    """Return a failure for each changed default that switches too soon.
+
+    Each pair is an entry that switches in this release and the date of the
+    release that first warned about it, or None when no such release was
+    found. Only a changed default (a `FutureChange`) is held to
+    `WARNING_WINDOW`: a removed name fails at import, so it may switch in
+    the next minor.
+    """
+    failures: list[str] = []
+    for entry, warned in switched_on:
+        if getattr(entry, "switch_in", None) is None:
+            continue
+        label = _code(entry_label(entry))
+        if warned is None:
+            failures.append(
+                f"{label} switches, and no release that first warned about "
+                f"it was found"
+            )
+        elif today < warned + WARNING_WINDOW:
+            failures.append(
+                f"{label} was first warned on {warned.isoformat()}, so it may "
+                f"switch from {(warned + WARNING_WINDOW).isoformat()}"
+            )
+    return failures
+
+
 def deprecation_check(
     version: str,
     last: str | None,
     pending: Iterable[Entry],
     previous: Iterable[Entry] | None,
     breaking: list[str],
+    *,
+    warned_on: Callable[[Entry], dt.date | None] | None = None,
+    today: dt.date | None = None,
 ) -> Check:
-    """Check the pending deprecations against the release."""
+    """Check the pending deprecations against the release.
+
+    With `warned_on` and `today`, a changed default that switched since the
+    last tag is also held to `WARNING_WINDOW`.
+    """
     check = Check("3. Deprecations")
     pending = list(pending)
     overdue = due(pending, version)
@@ -478,6 +527,85 @@ def deprecation_check(
                 f"no Breaking line names {_code(entry_label(entry))}. "
                 f"Check by hand."
             )
+    if warned_on is not None and today is not None:
+        for failure in window_failures(
+            [(entry, warned_on(entry)) for entry in gone], today
+        ):
+            check.fail(failure)
+    return check
+
+
+def python_floor(requires: str) -> tuple[int, int] | None:
+    """Return the lowest `>=3.N` bound of `requires`, or None without one."""
+    minors = [int(minor) for minor in FLOOR.findall(requires)]
+    return (3, min(minors)) if minors else None
+
+
+def pyproject_python(
+    text: str,
+) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
+    """Return `(floor, newest)`: the `requires-python` floor and newest classifier."""
+    project = tomllib.loads(text).get("project", {})
+    minors = [
+        int(match[1])
+        for classifier in project.get("classifiers", [])
+        if (match := CLASSIFIER.match(classifier))
+    ]
+    newest = (3, max(minors)) if minors else None
+    return python_floor(project.get("requires-python", "")), newest
+
+
+def python_failures(
+    kind: Kind,
+    old: tuple[int, int],
+    new: tuple[int, int],
+    newest: tuple[int, int],
+) -> list[str]:
+    """Return why a raised Python floor may not ship, empty when it may.
+
+    The floor rises only in a minor or a major, and only while the newest
+    supported Python and the two before it stay supported.
+    """
+    if new <= old:
+        return []
+    failures: list[str] = []
+    if kind == "patch":
+        failures.append(
+            f"a patch raises the Python floor from {old[0]}.{old[1]} to "
+            f"{new[0]}.{new[1]}"
+        )
+    lowest = (newest[0], newest[1] - SUPPORTED_PYTHONS + 1)
+    if new > lowest:
+        failures.append(
+            f"the Python floor rises to {new[0]}.{new[1]}, but "
+            f"{lowest[0]}.{lowest[1]} is one of the {SUPPORTED_PYTHONS} newest "
+            f"Python versions up to {newest[0]}.{newest[1]}"
+        )
+    return failures
+
+
+def python_check(
+    kind: Kind, last: str | None, old: str | None, new: str
+) -> Check:
+    """Check the Python floor at HEAD against the one at the last tag."""
+    check = Check("4. Python versions")
+    floor, newest = pyproject_python(new)
+    if floor is None or newest is None:
+        check.fail(
+            f"`{PYPROJECT}` names no `requires-python` floor or no "
+            f"Python classifier"
+        )
+        return check
+    check.lines.append(
+        f"- Floor {floor[0]}.{floor[1]}, newest classifier "
+        f"{newest[0]}.{newest[1]}."
+    )
+    previous = pyproject_python(old)[0] if old is not None else None
+    if previous is None:
+        check.warn(f"could not read the Python floor at tag {last}")
+        return check
+    for failure in python_failures(kind, previous, floor, newest):
+        check.fail(failure)
     return check
 
 
@@ -599,7 +727,7 @@ def ci_check(fetch: Callable[[str], Any], sha: str) -> Check:
     Makes one `fetch` call for each. A third call looks for open
     Dependabot alerts.
     """
-    check = Check("4. CI health")
+    check = Check("5. CI health")
     _check_nightly(check, fetch)
     _check_dry_runs(check, fetch, sha)
     _check_alerts(check, fetch)
@@ -657,6 +785,31 @@ def _load_pending(source: str | None) -> tuple[Entry, ...] | None:
     return tuple(module.__dict__.get("PENDING", ()))
 
 
+def _first_warned(entry: Entry, text: str) -> dt.date | None:
+    """Return the date of the first release whose `PENDING` held `entry`.
+
+    Finds the commit that added the start of the entry's text to
+    `_deprecation.py`, the oldest release tag that contains it, and that
+    release's date in the changelog. None when any step finds nothing.
+    """
+    needle = entry_label(entry)[:30]
+    added = _git(
+        "log", "--reverse", "--format=%H", f"-S{needle}", "--", DEPRECATION
+    ).stdout.split()
+    if not added:
+        return None
+    tags = _git("tag", "--contains", added[0]).stdout.split()
+    released = sorted(
+        (parsed, tag)
+        for tag in tags
+        if (parsed := parse_version(tag)) is not None
+    )
+    if not released:
+        return None
+    date = changelog.sections(text).get(released[0][1], (None, ""))[0]
+    return dt.date.fromisoformat(date) if date else None
+
+
 def audit(version: str, fetch: Callable[[str], Any] = github) -> int:
     """Print the report for `version`. Returns an exit code."""
     from grelmicro._deprecation import PENDING  # noqa: PLC0415
@@ -687,6 +840,14 @@ def audit(version: str, fetch: Callable[[str], Any] = github) -> int:
             PENDING,
             _load_pending(_at_tag(last, DEPRECATION)),
             breaking,
+            warned_on=lambda entry: _first_warned(entry, text),
+            today=dt.date.fromisoformat(today),
+        ),
+        python_check(
+            release_kind(version),
+            last,
+            _at_tag(last, PYPROJECT),
+            (ROOT / PYPROJECT).read_text(encoding="utf-8"),
         ),
         ci_check(fetch, sha),
     ]

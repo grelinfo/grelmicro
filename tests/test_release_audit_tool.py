@@ -1,9 +1,10 @@
 """The release audit reports what would make a release wrong.
 
 A release tag is immutable, so the audit is read before one is cut. These
-hold its pure parts to the release policy: a patch carries fixes only and
-keeps the public API, a deprecation due at the version blocks it, and the
-CI checks read the GitHub answers they are given.
+hold its pure parts to the release policy: a patch never breaks and keeps
+the public API, a deprecation due at the version blocks it, a changed
+default waits four weeks after its first warning, the Python floor keeps
+three versions, and the CI checks read the GitHub answers they are given.
 """
 
 import datetime as dt
@@ -102,25 +103,32 @@ def test_count_entries_keeps_an_unexpected_heading() -> None:
 @pytest.mark.parametrize(
     ("kind", "expected"),
     [
-        ("patch", ["Breaking", "Added"]),
+        ("patch", ["Breaking"]),
         ("minor", []),
         ("major", []),
     ],
 )
-def test_patch_violations_hold_a_patch_to_fixes(
+def test_patch_violations_hold_a_patch_to_no_break(
     kind: release_audit.Kind, expected: list[str]
 ) -> None:
-    """A patch may not carry Breaking, Added or Deprecated entries."""
+    """A patch may not carry Breaking or Deprecated entries."""
     counts = release_audit.count_entries(BODY)
     assert release_audit.patch_violations(kind, counts) == expected
 
 
-def test_a_patch_of_fixes_only_passes_the_policy() -> None:
-    """Fixed, Docs and Internal entries are what a patch is for."""
+def test_a_patch_of_features_and_fixes_passes_the_policy() -> None:
+    """Added, Changed, Fixed, Docs and Internal entries may ship in a patch."""
     counts = release_audit.count_entries(
-        "### Fixed\n* 🐛 x\n### Internal\n* y\n"
+        "### Added\n* ✨ w\n### Changed\n* ⚡️ v\n### Fixed\n* 🐛 x\n"
+        "### Internal\n* y\n"
     )
     assert release_audit.patch_violations("patch", counts) == []
+
+
+def test_a_patch_with_a_new_warning_fails_the_policy() -> None:
+    """A Deprecated entry announces a change, so it waits for a minor."""
+    counts = release_audit.count_entries("### Deprecated\n* 🗑️ x\n")
+    assert release_audit.patch_violations("patch", counts) == ["Deprecated"]
 
 
 @pytest.fixture
@@ -133,7 +141,7 @@ def changelog_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     return text
 
 
-def test_changelog_check_fails_a_patch_with_added_entries(
+def test_changelog_check_fails_a_patch_with_breaking_entries(
     changelog_file: str,
 ) -> None:
     """The cut section passes the date check and still fails the policy."""
@@ -141,10 +149,7 @@ def test_changelog_check_fails_a_patch_with_added_entries(
         "0.43.2", "0.43.1", changelog_file, TODAY
     )
     assert check.status == "FAIL"
-    assert [message.split()[4] for message in check.failures] == [
-        "Breaking",
-        "Added",
-    ]
+    assert [message.split()[4] for message in check.failures] == ["Breaking"]
     assert any("changelog ready" in line for line in check.lines)
 
 
@@ -267,6 +272,123 @@ def test_deprecation_check_fails_a_switch_with_no_breaking_entry() -> None:
         "0.44.0", "0.43.1", [NAME], [ENUM, NAME], ["* 💥 `OldEnum` is gone."]
     )
     assert named.status == "PASS"
+
+
+def test_a_default_switched_within_four_weeks_of_its_warning_fails() -> None:
+    """A changed default ships at least four weeks after its first warning."""
+    failures = release_audit.window_failures(
+        [(GATE, dt.date(2026, 10, 27))], dt.date(2026, 11, 23)
+    )
+    assert len(failures) == 1
+    assert "`Cron(gate=)` defaults to `leader`" in failures[0]
+    assert "2026-11-24" in failures[0]
+
+
+def test_a_default_switched_four_weeks_after_its_warning_passes() -> None:
+    """Four weeks to the day is enough."""
+    assert (
+        release_audit.window_failures(
+            [(GATE, dt.date(2026, 10, 27))], dt.date(2026, 11, 24)
+        )
+        == []
+    )
+
+
+def test_a_rename_or_removal_is_not_held_to_the_window() -> None:
+    """A removed name fails loudly at import, so it may ship in the next minor."""
+    assert (
+        release_audit.window_failures(
+            [(NAME, dt.date(2026, 11, 1)), (ENUM, dt.date(2026, 11, 1))],
+            dt.date(2026, 11, 2),
+        )
+        == []
+    )
+
+
+def test_a_default_with_no_known_warning_release_fails() -> None:
+    """A changed default whose first warning cannot be dated is not trusted."""
+    failures = release_audit.window_failures(
+        [(GATE, None)], dt.date(2026, 12, 1)
+    )
+    assert len(failures) == 1
+    assert "first warned" in failures[0]
+
+
+@pytest.mark.parametrize(
+    ("requires", "expected"),
+    [(">=3.14", (3, 14)), (">=3.14,<4", (3, 14)), ("<4", None), ("", None)],
+)
+def test_python_floor_reads_requires_python(
+    requires: str, expected: tuple[int, int] | None
+) -> None:
+    """The floor is the lowest `>=3.N` bound."""
+    assert release_audit.python_floor(requires) == expected
+
+
+PYPROJECT = """[project]
+requires-python = ">=3.14"
+classifiers = [
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+]
+"""
+
+
+def test_pyproject_python_reads_the_floor_and_the_newest_classifier() -> None:
+    """The floor comes from `requires-python`, the newest from the classifiers."""
+    assert release_audit.pyproject_python(PYPROJECT) == ((3, 14), (3, 15))
+
+
+@pytest.mark.parametrize(
+    ("kind", "old", "new", "newest", "fails"),
+    [
+        ("minor", (3, 14), (3, 14), (3, 15), False),
+        ("minor", (3, 14), (3, 15), (3, 15), True),
+        ("minor", (3, 14), (3, 15), (3, 16), True),
+        ("minor", (3, 14), (3, 15), (3, 17), False),
+        ("patch", (3, 14), (3, 15), (3, 17), True),
+    ],
+)
+def test_python_failures_keep_three_versions_from_the_newest(
+    kind: release_audit.Kind,
+    old: tuple[int, int],
+    new: tuple[int, int],
+    newest: tuple[int, int],
+    *,
+    fails: bool,
+) -> None:
+    """The floor rises only in a minor, and never above the newest minus two."""
+    failures = release_audit.python_failures(kind, old, new, newest)
+    assert bool(failures) is fails
+
+
+def test_python_check_fails_a_patch_that_raises_the_floor() -> None:
+    """The section reads both pyproject files and names the raised floor."""
+    raised = PYPROJECT.replace(">=3.14", ">=3.15")
+    check = release_audit.python_check("patch", "0.44.0", PYPROJECT, raised)
+    assert check.status == "FAIL"
+    assert check.lines == ["- Floor 3.15, newest classifier 3.15."]
+
+
+def test_python_check_passes_a_kept_floor() -> None:
+    """The same floor as the last tag passes."""
+    check = release_audit.python_check("minor", "0.44.0", PYPROJECT, PYPROJECT)
+    assert check.status == "PASS"
+
+
+def test_python_check_warns_without_the_tag_file() -> None:
+    """No pyproject at the tag leaves nothing to compare."""
+    check = release_audit.python_check("minor", None, None, PYPROJECT)
+    assert check.status == "WARN"
+
+
+def test_python_check_fails_without_a_floor() -> None:
+    """A pyproject with no floor or no classifier cannot be held to the policy."""
+    check = release_audit.python_check(
+        "minor", "0.44.0", PYPROJECT, "[project]\n"
+    )
+    assert check.status == "FAIL"
 
 
 def _fetch(answers: dict[str, Any]) -> Any:  # noqa: ANN401

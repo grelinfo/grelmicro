@@ -520,11 +520,14 @@ is what the GitHub Release body should hold.
 
 Before every release, run `just release-audit 0.33.1` and paste the report
 into the release discussion. It checks the changelog against the patch
-policy: a patch has no Breaking, Added or Deprecated entries. It lists the
+policy: a patch has no Breaking or Deprecated entries. It lists the
 public API changes since the last tag and fails a patch that removes or
-changes a name. It fails on a deprecation due at this version. It also
-needs a green nightly on `main` and a green dry run of `release.yml` at
-`HEAD`. It ends with READY or NOT READY.
+changes a name. It fails on a deprecation due at this version, and on a
+changed default that switches less than 4 weeks after the release that
+first warned about it. It fails a Python floor raised in a patch or above
+the newest supported Python minus two. It also needs a green nightly on
+`main` and a green dry run of `release.yml` at `HEAD`. It ends with READY
+or NOT READY.
 
 ### Cutting a release
 
@@ -665,17 +668,16 @@ change the public API, and a `0.x.y` release is a safe patch.
 
 | Release | What it may ship |
 |---|---|
-| Patch (`0.x.y`) | Bug fixes, docs, performance work that changes no behavior, and support for a new Python version. No new public API and no new warning. |
-| Minor (`0.x.0`) | New features and new public API, the `GrelmicroFutureWarning` for an upcoming change, the switches warned in the minor before, and dropping a Python version. |
+| Patch (`0.x.y`) | Bug fixes, new features and new public API, docs, performance work, and support for a new Python version. Never a removal, a changed default or behavior, or a new warning. |
+| Minor (`0.x.0`) | Breaking changes, the `GrelmicroFutureWarning` for an upcoming change, the switches it warned about, and dropping a Python version. |
 
-A change that is not a fix waits for the next minor, even when it is
-additive. A patch upgrade then never changes what an app does or what
-its test suite sees.
+A patch upgrade never changes what an app relied on or what its test suite
+sees. [Versions and upgrades](docs/versioning.md) is the promise to users,
+and `just release-audit` enforces it.
 
-When `main` already holds features for the next minor, a patch is tagged
-on a `release/0.x` branch that holds the fixes without those features.
-`main` keeps the features for the minor. The
-public API is feature-complete and guarded by a snapshot test
+Every release is cut from `main`. A breaking change waits on `main` behind its
+warning until the release that switches it. The
+public API is guarded by a snapshot test
 (`tests/test_public_api.py`), so an accidental change to the public
 surface fails CI. Every intentional break appears under **Breaking** in
 [`docs/changelog.md`](docs/changelog.md) with a migration note.
@@ -692,9 +694,11 @@ because time has passed.
 
 ### Deprecations
 
-A change in behavior or a rename warns for one minor release before it
-lands: the warning ships in one minor (`0.43.0`) and the switch in the next
-(`0.44.0`). A patch never adds a warning, because a test suite that turns
+A changed default or behavior warns before it lands: the warning ships in one
+minor (`0.44.0`), and the switch ships in a later minor at least 4 weeks
+after it. A rename or removal fails at import, so it may switch in the next
+minor. A fix for wrong behavior or a security fix may break at once, in the
+next minor. A patch never adds a warning, because a test suite that turns
 warnings into errors would fail on a patch upgrade. Declare
 it in `grelmicro/_deprecation.py` and add it to `PENDING`.
 
@@ -730,7 +734,7 @@ it in `grelmicro/_deprecation.py` and add it to `PENDING`.
   call warns and the explicit call emits nothing.
 - Put the entry under `### Deprecated` in the minor that adds the warning,
   and under `### Breaking` with a note in
-  [`docs/migration.md`](docs/migration.md) in the next minor, which switches.
+  [`docs/migration.md`](docs/migration.md) in the minor that switches.
 
 A test fails once the changelog reaches the release named on an entry, so a
 stale warning or alias cannot ship. Switch the default or remove the old name,

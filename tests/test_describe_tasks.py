@@ -429,12 +429,13 @@ def test_gate_backend_warns_it_fails_in_a_strict_tier_from_0_45(
     assert detail.endswith("It fails in staging and production from 0.45.0.")
 
 
-def test_gate_backend_strict_message_names_both_fixes() -> None:
-    """The warning names a `Coordination` with a backend, or `backend=`."""
+def test_gate_backend_strict_message_names_who_and_both_fixes() -> None:
+    """The warning names the affected task, what fails, and both fixes."""
     assert GATE_BACKEND_STRICT.message == (
         "`gate-backend` fails `grelmicro check` in `staging` and "
-        "`production` from 0.45.0. Register a `Coordination` with a lock or "
-        "schedule backend, or pass `backend=` to the task."
+        "`production` from 0.45.0. Only a gated task with no backend is "
+        "affected, and the running app is not. Register a `Coordination` "
+        "with a lock or schedule backend, or pass `backend=` to the task."
     )
 
 

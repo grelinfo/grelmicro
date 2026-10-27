@@ -4,8 +4,13 @@
 
 ### Fixed
 * 🐛 `lock.hold(auto_extend=True)` cancels the body before it logs the lost lease, so writing the warning no longer delays the cancel. The warning text is unchanged. ([#1197](https://github.com/grelinfo/grelmicro/pull/1197))
+* 🐛 The 0.45 `gate-backend` warning says only a gated task with no backend is affected, and the running app is not. ([#1200](https://github.com/grelinfo/grelmicro/pull/1200))
+
+### Docs
+* 📝 [Versions and upgrades](versioning.md) says what each release may change: a patch never breaks, a minor may, a changed default warns at least 4 weeks before it switches, and up to three Python versions stay supported. ([#1200](https://github.com/grelinfo/grelmicro/pull/1200))
 
 ### Internal
+* 👷 `just release-audit` fails a patch with a Breaking or Deprecated entry, a changed default that switches less than 4 weeks after its first warning, and a Python floor raised in a patch or above the newest supported Python minus two. ([#1200](https://github.com/grelinfo/grelmicro/pull/1200))
 * 👷 CI uploads test results with `codecov/codecov-action` and `report_type: test_results`, replacing the deprecated `codecov/test-results-action` that ran on Node 20. ([#1196](https://github.com/grelinfo/grelmicro/pull/1196))
 
 ## 0.44.0 - 2026-10-27
