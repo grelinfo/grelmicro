@@ -124,14 +124,16 @@ class RenewedHold(Hold[LockHandle]):
         timeout: Seconds | None,
         *,
         name: str,
-        keep: Callable[[str, asyncio.Event], Awaitable[bool]],
+        keep: Callable[
+            [str, asyncio.Event, Callable[[], None]], Awaitable[None]
+        ],
         drop: Callable[[], Awaitable[None]],
     ) -> None:
         """Renew through `keep`, and leave a lost lease through `drop`.
 
-        `keep(token, stop)` extends the lease until `stop` is set and
-        answers whether the lease was lost. `drop()` lets go of a lost
-        lease in place of `exit_`.
+        `keep(token, stop, lost)` extends the lease until `stop` is set,
+        and calls `lost()` when the lease is lost. `drop()` lets go of a
+        lost lease in place of `exit_`.
         """
         super().__init__(acquire, exit_, timeout)
         self._name = name
@@ -164,9 +166,11 @@ class RenewedHold(Hold[LockHandle]):
         return held
 
     async def _renew(self, token: str) -> None:
-        """Keep the lease, and cancel the body once when it is lost."""
-        if not await self._keep(token, self._stop):
-            return
+        """Keep the lease until the body ends."""
+        await self._keep(token, self._stop, self._revoke)
+
+    def _revoke(self) -> None:
+        """Mark the lease lost, and cancel the body once if it still runs."""
         self._lost = True
         if not self._stop.is_set():
             self._revoked = True

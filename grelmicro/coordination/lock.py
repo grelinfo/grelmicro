@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import timedelta
 from logging import getLogger
@@ -517,7 +518,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             drop=self._drop_lost_lease,
         )
 
-    async def _keep_lease(self, token: str, stop: asyncio.Event) -> bool:
+    async def _keep_lease(
+        self, token: str, stop: asyncio.Event, lost: Callable[[], None]
+    ) -> None:
         """Extend the lease `token` holds until `stop` is set.
 
         Extends every third of the lease, read again before each wait so
@@ -526,8 +529,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         stop when less than a tenth of the lease since the last extension
         that worked is left.
 
-        Returns False once `stop` is set. Returns True, after one warning,
-        when the backend no longer holds the lease or the retries ran out.
+        Returns once `stop` is set. When the backend no longer holds the
+        lease or the retries ran out, calls `lost`, lets the loop run once,
+        then logs one warning and returns.
         """
         loop = asyncio.get_running_loop()
         extended_at = loop.time()
@@ -536,29 +540,33 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             duration = self._config.lease_duration
             lease = duration.total_seconds()
             if await sleep_or_stop(lease / 10 if failing else lease / 3, stop):
-                return False
+                return
             sent = loop.time()
             cutoff = extended_at + lease - lease / 10
             try:
                 async with asyncio.timeout_at(cutoff):
                     fencing_token = await self._backend_extend(token, duration)
-            except LockExtendError, TimeoutError:
+            except (LockExtendError, TimeoutError) as error:
                 self._metrics.extension(ERROR)
                 if loop.time() + lease / 10 < cutoff:
                     failing = True
                     continue
+                lost()
+                await asyncio.sleep(0)
                 logger.warning(
                     "Lock could not extend its lease in time: %s",
                     self._name,
-                    exc_info=True,
+                    exc_info=error,
                 )
-                return True
+                return
             if fencing_token is None:
                 self._metrics.extension(LOST)
+                lost()
+                await asyncio.sleep(0)
                 logger.warning(
                     "Lock lost its lease while the body ran: %s", self._name
                 )
-                return True
+                return
             self._metrics.extension(SUCCESS)
             extended_at = sent
             failing = False

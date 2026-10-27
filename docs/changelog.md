@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+* 🐛 `lock.hold(auto_extend=True)` cancels the body before it logs the lost lease, so writing the warning no longer delays the cancel. The warning text is unchanged. ([#1197](https://github.com/grelinfo/grelmicro/pull/1197))
+
 ### Internal
 * 👷 CI uploads test results with `codecov/codecov-action` and `report_type: test_results`, replacing the deprecated `codecov/test-results-action` that ran on Node 20. ([#1196](https://github.com/grelinfo/grelmicro/pull/1196))
 
