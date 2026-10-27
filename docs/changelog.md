@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.44.0 - 2026-10-26
+## 0.44.0 - 2026-10-27
 
 ### Breaking
 * 💥 A mode field such as `MetricsConfig.exporter` reads back as a plain `str`, not as its old enum member. `.value` and `.name` raise `AttributeError`. Compare it with the string. ([#1175](https://github.com/grelinfo/grelmicro/pull/1175))

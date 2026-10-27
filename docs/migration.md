@@ -314,7 +314,7 @@ filterwarnings = ["ignore::grelmicro.EnvLoadDefaultWarning"]
 filterwarnings = ["ignore::grelmicro.EnvLoadOffWarning"]
 ```
 
-Full list: [0.44.0 in the changelog](changelog.md#0440-2026-10-26)
+Full list: [0.44.0 in the changelog](changelog.md#0440-2026-10-27)
 
 
 ## 0.43
