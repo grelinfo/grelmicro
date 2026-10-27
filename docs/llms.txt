@@ -43,6 +43,7 @@ One page per module. Each one links the rest of its section.
 - [Comparison](https://grelmicro.grel.info/comparison/): grelmicro next to aiocache, slowapi, pybreaker, tenacity, and aioredlock.
 - [Performance](https://grelmicro.grel.info/performance/): where the overhead is and when it matters.
 - [Migration](https://grelmicro.grel.info/migration/): what to change on each minor release.
+- [Versions and upgrades](https://grelmicro.grel.info/versioning/): what each release may change, how long a changed default warns first, and which Python versions are supported.
 - [Diagnostics](https://grelmicro.grel.info/diagnostics/): the startup warnings and their codes.
 - [Roadmap](https://grelmicro.grel.info/roadmap/): where grelmicro is going.
 - [Changelog](https://grelmicro.grel.info/changelog/): release notes for every version.

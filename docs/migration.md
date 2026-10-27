@@ -16,7 +16,9 @@ For a version before 0.30, read the `Breaking` sections in the
 [changelog](changelog.md), newest first.
 
 In `0.x` the minor is the breaking position: a `0.x.0` release may change the
-public API, and a `0.x.y` release is a safe patch. So an upgrade within one
+public API, and a `0.x.y` release is a safe patch. [Versions and
+upgrades](versioning.md) says what each release may change and how long a
+changed default warns first. So an upgrade within one
 minor rarely needs this page. A few patches are exceptions, and each one sits in
 its minor's section: [0.32.2](#0-32-2-circuit-breaker-state) closes an open
 circuit once, [0.35.1](#0-35-1-uvicorn-format) reformats uvicorn's lines and

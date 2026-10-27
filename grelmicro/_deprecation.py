@@ -274,7 +274,8 @@ GATE_BACKEND_STRICT = FutureChange(
     switch_in="0.45.0",
     keep=None,
     adopt="backend=",
-    remedy="Register a `Coordination` with a lock or schedule backend, "
+    remedy="Only a gated task with no backend is affected, and the running "
+    "app is not. Register a `Coordination` with a lock or schedule backend, "
     "or pass `backend=` to the task.",
 )
 """A gated task that resolves no backend fails the check in a strict tier."""

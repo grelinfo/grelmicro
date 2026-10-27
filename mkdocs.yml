@@ -62,6 +62,7 @@ nav:
 - grelmicro: index.md
 - installation.md
 - migration.md
+- versioning.md
 - Coming From:
     - coming-from/spring-boot.md
     - coming-from/quarkus.md
