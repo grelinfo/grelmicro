@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+import warnings
 from types import FunctionType, ModuleType
 
 import pytest
 
+from grelmicro.errors import Grelmicro045Warning
+
 _LAZY_PACKAGES = [
+    "grelmicro",
     "grelmicro.cache",
     "grelmicro.clock",
     "grelmicro.config",
@@ -46,6 +50,11 @@ _EAGER: dict[str, dict[str, str]] = {
 Each of these packages has a public name that is also a submodule name.
 """
 
+_DUE_FOR_REMOVAL: dict[str, frozenset[str]] = {
+    "grelmicro": frozenset({"EnvLoadDefaultWarning"}),
+}
+"""The public names that warn on access until a coming release removes them."""
+
 
 def _package(name: str) -> ModuleType:
     return importlib.import_module(name)
@@ -61,9 +70,10 @@ def test_every_public_name_resolves_to_its_submodule_object(name: str) -> None:
     # Arrange
     package = _package(name)
     sources = {**package._LAZY, **_EAGER.get(name, {})}
+    names = set(package.__all__) - _DUE_FOR_REMOVAL.get(name, frozenset())
 
     # Act
-    resolved = {attr: getattr(package, attr) for attr in package.__all__}
+    resolved = {attr: getattr(package, attr) for attr in names}
 
     # Assert
     for attr, value in resolved.items():
@@ -77,12 +87,13 @@ def test_lazy_table_covers_exactly_the_public_names(name: str) -> None:
     # Arrange
     package = _package(name)
     eager = set(_EAGER.get(name, {}))
+    removed = _DUE_FOR_REMOVAL.get(name, frozenset())
 
     # Act
     table = set(package._LAZY)
 
     # Assert
-    assert table == set(package.__all__) - eager
+    assert table == set(package.__all__) - eager - removed
     assert eager <= set(package.__all__)
 
 
@@ -109,18 +120,20 @@ def test_name_shared_with_a_submodule_stays_the_function(
 
 @pytest.mark.parametrize("name", _LAZY_PACKAGES)
 def test_dir_lists_the_public_names(name: str) -> None:
-    """`dir()` shows `__all__`, the loaded submodules and private names only."""
+    """`dir()` shows `__all__`, the loaded submodules and private names only.
+
+    A name due for removal stays out, so walking `dir()` never warns.
+    """
     # Arrange
     package = _package(name)
+    listed = set(package.__all__) - _DUE_FOR_REMOVAL.get(name, frozenset())
 
     # Act
     public = {attr for attr in dir(package) if not attr.startswith("_")}
 
     # Assert
-    assert public - _submodules(package) == set(package.__all__) - _submodules(
-        package
-    )
-    assert set(package.__all__) <= public
+    assert public - _submodules(package) == listed - _submodules(package)
+    assert listed <= public
 
 
 @pytest.mark.parametrize("name", _LAZY_PACKAGES)
@@ -130,11 +143,13 @@ def test_star_import_binds_every_public_name(name: str) -> None:
     namespace: dict[str, object] = {}
 
     # Act
-    exec(f"from {name} import *", namespace)  # noqa: S102
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", Grelmicro045Warning)
+        exec(f"from {name} import *", namespace)  # noqa: S102
 
     # Assert
     package = _package(name)
-    for attr in package.__all__:
+    for attr in set(package.__all__) - _DUE_FOR_REMOVAL.get(name, frozenset()):
         assert namespace[attr] is getattr(package, attr)
 
 

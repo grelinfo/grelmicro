@@ -6,6 +6,7 @@ already loaded cannot hide one the import pulls in.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import pkgutil
@@ -141,12 +142,47 @@ def test_config_with_env_load_reads_the_environment(flag: str | None) -> None:
     assert loaded is True
 
 
-def test_grelmicro_import_loads_only_the_health_endpoint_marker() -> None:
-    """`import grelmicro` loads no metrics or trace module, and of health only `_served`."""
+@pytest.mark.parametrize(
+    "submodule", ["config", "errors", "health", "providers", "types"]
+)
+def test_grelmicro_import_still_reaches_the_submodules_it_loaded(
+    submodule: str,
+) -> None:
+    """`import grelmicro` alone still reaches the submodules 0.44.1 loaded eagerly."""
+    # Arrange
+    code = f"import grelmicro\nprint(grelmicro.{submodule}.__name__)"
+
+    # Act
+    name = _run(code).strip()
+
+    # Assert
+    assert name == f"grelmicro.{submodule}"
+
+
+@pytest.mark.parametrize(
+    "submodule", ["config", "errors", "health", "providers", "types"]
+)
+def test_grelmicro_resolves_a_submodule_not_bound_on_the_package(
+    submodule: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`grelmicro.<submodule>` resolves through the package when unbound."""
+    # Arrange
+    expected = importlib.import_module(f"grelmicro.{submodule}")
+    monkeypatch.delattr(grelmicro, submodule)
+
+    # Act
+    resolved = getattr(grelmicro, submodule)
+
+    # Assert
+    assert resolved is expected
+
+
+def test_grelmicro_app_import_loads_only_the_health_endpoint_marker() -> None:
+    """`Grelmicro` loads no metrics or trace module, and of health only `_served`."""
     # Arrange
     code = (
         "import json, sys\n"
-        "import grelmicro\n"
+        "from grelmicro import Grelmicro\n"
         "print(json.dumps(sorted(name for name in sys.modules"
         " if name.split('.')[:2] in (['grelmicro', 'health'],"
         " ['grelmicro', 'metrics'], ['grelmicro', 'trace']))))"

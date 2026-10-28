@@ -73,8 +73,9 @@ A JWT signature check in the compiled core is about four times faster than in a 
 
 ## Memory
 
-`benchmarks/memory_benchmark.py` runs five reference apps, each in a fresh interpreter:
+`benchmarks/memory_benchmark.py` runs six reference apps, each in a fresh interpreter:
 
+- **scheduler**: `Tasks()` with an ungated `@tasks.every(interval=60)` task and an ungated `@tasks.cron("0 * * * *")` task, and no app. The tasks start and stop.
 - **tasks**: FastAPI with `Grelmicro(uses=[MemoryProvider(), Log(), HealthChecks(provider_checks="require"), tasks])`, one task on `@tasks.every(interval=60, gate="claim")` and `health_router()`. The app opens and closes.
 - **starlette**: the same app on Starlette, without `health_router()`. The app opens and closes.
 - **litestar**: the same app on Litestar, without `health_router()`. The app opens and closes.
@@ -83,13 +84,14 @@ A JWT signature check in the compiled core is about four times faster than in a 
 
 The redis and postgres apps need no server. They stop after construction and `micro.install(app)`, before the first connection, so the numbers leave out the client a connection loads.
 
-Each interpreter imports `fastapi` first, and the numbers are what the app adds on top. Max RSS is the median of five runs. Same machine and interpreter as above, on `main` after 0.42.4, measured on 2026-10-23.
+Each interpreter imports `fastapi` first, and the numbers are what the app adds on top. Max RSS is the median of five runs. Same machine and interpreter as above, on `main` with [#1206](https://github.com/grelinfo/grelmicro/pull/1206), measured on 2026-10-28.
 
 | App | grelmicro modules | New modules | Max RSS |
 |---|---|---|---|
-| tasks | 169 | 260 | +16.2 MB |
-| redis | 161 | 322 | +23.6 MB |
-| postgres | 102 | 176 | +11.1 MB |
+| scheduler | 30 | 85 | +4.0 MB |
+| tasks | 129 | 212 | +12.3 MB |
+| redis | 104 | 257 | +19.0 MB |
+| postgres | 98 | 169 | +11.1 MB |
 
 Most of this is the modules an app imports, not the data it holds. `tests/test_memory_budget.py` pins which grelmicro packages each app loads, so a change that loads more fails the test.
 

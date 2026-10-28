@@ -945,14 +945,15 @@ def _cron_checks(micro: Grelmicro) -> list[CheckReport]:
     a cron task or a schedule backend.
     """
     from grelmicro._environment import QUIET_ENVIRONMENTS  # noqa: PLC0415
-    from grelmicro.task._gate import (  # noqa: PLC0415
-        has_schedule_backend,
-        ungated_cron_finding,
-    )
+    from grelmicro.task._gate import ungated_cron_finding  # noqa: PLC0415
     from grelmicro.task.router import ungated_cron_names  # noqa: PLC0415
 
     names = ungated_cron_names(micro._items)  # noqa: SLF001
-    if names is None or not has_schedule_backend(micro):
+    if names is None:
+        return []
+    from grelmicro.task._gated import has_schedule_backend  # noqa: PLC0415
+
+    if not has_schedule_backend(micro):
         return []
     environment = micro.environment
     if not names or environment in QUIET_ENVIRONMENTS:

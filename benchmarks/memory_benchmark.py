@@ -1,4 +1,4 @@
-"""Benchmark the memory and modules five reference apps load.
+"""Benchmark the memory and modules six reference apps load.
 
 Each app runs in a fresh interpreter. The interpreter imports `fastapi` first,
 and that state is the baseline. The script reports the grelmicro modules the
@@ -23,6 +23,18 @@ RUNS = 5
 """The number of fresh interpreters per app."""
 
 APPS = {
+    "scheduler": (
+        "from grelmicro.task import Tasks\n"
+        "tasks = Tasks()\n"
+        "@tasks.every(interval=60)\n"
+        "async def job() -> None: ...\n"
+        "@tasks.cron('0 * * * *')\n"
+        "async def report() -> None: ...\n"
+        "async def _run() -> None:\n"
+        "    async with tasks:\n"
+        "        await asyncio.sleep(0)\n"
+        "asyncio.run(_run())\n"
+    ),
     "tasks": (
         "from fastapi import FastAPI\n"
         "from grelmicro import Grelmicro\n"
@@ -106,7 +118,9 @@ APPS = {
 }
 """The reference apps, by name.
 
-`tasks`, `starlette` and `litestar` open and close the app. `redis` and `postgres` stop before the
+`scheduler` runs an ungated interval task and an ungated cron task with no
+app. `tasks`, `starlette` and
+`litestar` open and close the app. `redis` and `postgres` stop before the
 first connection, so they need no server.
 """
 

@@ -45,6 +45,7 @@ from grelmicro._component import (
     instantiate_if_class,
 )
 from grelmicro._config import defer_report
+from grelmicro._current_app import _current_micro
 from grelmicro._diagnostics import (
     AMBIENT_BINDING,
     HEALTH_NOT_SERVED,
@@ -130,8 +131,6 @@ else:
     Outbox = Any
     RateLimiterComponent = Any
     Trace = Any
-
-_current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
 
 _active_apps: list[Grelmicro] = []
 """Apps currently inside their `async with` block, process-wide.

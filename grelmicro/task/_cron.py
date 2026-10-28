@@ -7,14 +7,12 @@ from datetime import UTC, datetime, timedelta
 from logging import getLogger
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from grelmicro._app import resolve_ambient
 from grelmicro._async import sleep_or_stop
 from grelmicro._duration import check_duration
 from grelmicro._environment import record_coordination
 from grelmicro._task import Task
 from grelmicro._timezone import UTC_NAME
 from grelmicro._unset import UNSET, Unset
-from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.metrics import _emit
 from grelmicro.task import _gate
 from grelmicro.task._fire import FireInfo, FireOutcome, FireRecorder
@@ -29,6 +27,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from grelmicro.coordination._protocol import LockPrimitive, ScheduleBackend
+    from grelmicro.coordination.leaderelection import LeaderElection
+    from grelmicro.task._gated import LeaderWatch
 
 logger = getLogger("grelmicro.task")
 
@@ -396,12 +396,13 @@ class CronTask(Task):
         if backend is not None:
             record_coordination(self, backend, "schedule")
         self._gate = chosen
-        self._leader = chosen if isinstance(chosen, LeaderElection) else None
-        self._watch = (
-            _gate.LeaderWatch(chosen, self._name)
-            if isinstance(chosen, LeaderElection)
-            else None
-        )
+        self._leader: LeaderElection | None = None
+        self._watch: LeaderWatch | None = None
+        if chosen is not None and not isinstance(chosen, str):
+            from grelmicro.task._gated import LeaderWatch  # noqa: PLC0415
+
+            self._leader = chosen
+            self._watch = LeaderWatch(chosen, self._name)
         # Set when a leader-gated tick skipped a fire as a follower.
         self._owes_catchup = False
         self._gate_label = gate_label
@@ -488,6 +489,8 @@ class CronTask(Task):
         """
         if self._backend is not None:
             return self._backend
+        from grelmicro._app import resolve_ambient  # noqa: PLC0415
+
         return resolve_ambient(
             ("coordination", "default"), _NO_BACKEND, self.name
         ).schedule_backend

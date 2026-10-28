@@ -9,28 +9,20 @@ from logging import getLogger
 from types import FunctionType
 from typing import TYPE_CHECKING, Literal
 
-from grelmicro._app import ComponentNotRegisteredError, _current_micro
 from grelmicro._config import match_case
-from grelmicro._diagnostics import LEADER_NOT_RUNNING, UNGATED_CRON, diagnostic
+from grelmicro._current_app import _current_micro
+from grelmicro._diagnostics import UNGATED_CRON, diagnostic
 from grelmicro._environment import _PACKAGE_DIR, QUIET_ENVIRONMENTS
-from grelmicro.clock import monotonic
-from grelmicro.coordination._component import Coordination
-from grelmicro.coordination.errors import CoordinationBackendError
-from grelmicro.coordination.leaderelection import LeaderElection, _LeaderGuard
-from grelmicro.coordination.tasklock import TaskLock
-from grelmicro.errors import LeaderNotRunningWarning, UngatedCronWarning
+from grelmicro.errors import UngatedCronWarning
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from grelmicro._app import Grelmicro
     from grelmicro.coordination._protocol import LockPrimitive
 
 __all__ = [
-    "LeaderWatch",
     "check_sync",
     "gate_label",
-    "has_schedule_backend",
     "report_ungated_cron",
     "ungated_cron_finding",
 ]
@@ -56,13 +48,9 @@ def gate_label(gate: object, *, takes_lock: bool) -> str:
         return "none"
     if gate == "claim":
         return "claim"
-    if isinstance(gate, LeaderElection):
-        return f"LeaderElection({gate.name!r})"
-    if takes_lock and isinstance(gate, TaskLock):
-        return f"TaskLock({gate.name!r})"
-    accepted = "'claim', a TaskLock or" if takes_lock else "'claim' or"
-    msg = f"gate must be None, {accepted} a LeaderElection, got {gate!r}"
-    raise TypeError(msg)
+    from grelmicro.task import _gated  # noqa: PLC0415
+
+    return _gated.label_gate_object(gate, takes_lock=takes_lock)
 
 
 def check_sync(sync: LockPrimitive | None) -> None:
@@ -71,79 +59,11 @@ def check_sync(sync: LockPrimitive | None) -> None:
     Raises:
         TypeError: If `sync` is a `LeaderElection` or its guard.
     """
-    if isinstance(sync, LeaderElection | _LeaderGuard):
-        msg = "sync takes a resource lock, pass a LeaderElection as gate="
-        raise TypeError(msg)
+    if sync is None:
+        return
+    from grelmicro.task import _gated  # noqa: PLC0415
 
-
-class LeaderWatch:
-    """Report a task gated on a leader election that does not run.
-
-    An election acquires leadership only while it runs, so the task it
-    gates skips every fire. The watch reports it once, on a fire at least
-    one lease duration after the task started, when the election has not
-    run at any fire it saw. An election that runs at a fire settles the
-    watch, and so does the report.
-    """
-
-    __slots__ = ("_election", "_settled", "_since", "_task")
-
-    def __init__(self, election: LeaderElection, task: str) -> None:
-        """Watch `election` for the task named `task`."""
-        self._election = election
-        self._task = task
-        self._since: float | None = None
-        self._settled = False
-
-    def start(self) -> None:
-        """Mark the moment the task started."""
-        self._since = monotonic()
-
-    def check(self) -> None:
-        """Report the election once when it has not run for a lease duration.
-
-        The report is a log record on the `grelmicro.task` logger and a
-        `LeaderNotRunningWarning`, both carrying the `leader-not-running`
-        code. A warnings filter set to `error` never raises it into the
-        task.
-        """
-        since = self._since
-        if self._settled or since is None:
-            return
-        election = self._election
-        if election.is_running():
-            self._settled = True
-            return
-        if monotonic() - since < election.config.lease_duration.total_seconds():
-            return
-        self._settled = True
-        msg = diagnostic(
-            LEADER_NOT_RUNNING,
-            f"Task {self._task!r} is gated on the leader election "
-            f"{election.name!r}, which has not run since the task started, "
-            f"so the task skips every fire. Register it with "
-            f"tasks.add_task(election), or start it.",
-        )
-        logger.warning(msg, extra={"diagnostic": LEADER_NOT_RUNNING})
-        # A filter that turns the warning into an error must not end the
-        # task loop. The log record above still carries the report.
-        with suppress(LeaderNotRunningWarning):
-            warnings.warn(msg, LeaderNotRunningWarning, stacklevel=2)
-
-
-def has_schedule_backend(micro: Grelmicro) -> bool:
-    """Return whether `micro` resolves a `Coordination` with a schedule backend."""
-    try:
-        coordination = micro.get("coordination")
-    except ComponentNotRegisteredError:
-        return False
-    if not isinstance(coordination, Coordination):
-        return False
-    try:
-        _ = coordination.schedule_backend
-    except CoordinationBackendError:
-        return False
-    return True
+    _gated.refuse_leader_sync(sync)
 
 
 def ungated_cron_finding(task: str) -> str:
@@ -168,11 +88,11 @@ def report_ungated_cron(task: str, function: Callable[..., object]) -> None:
     A warnings filter set to `error` never raises it into the task.
     """
     micro = _current_micro.get(None)
-    if (
-        micro is None
-        or micro.environment in QUIET_ENVIRONMENTS
-        or not has_schedule_backend(micro)
-    ):
+    if micro is None or micro.environment in QUIET_ENVIRONMENTS:
+        return
+    from grelmicro.task import _gated  # noqa: PLC0415
+
+    if not _gated.has_schedule_backend(micro):
         return
     msg = diagnostic(UNGATED_CRON, ungated_cron_finding(task))
     logger.warning(msg, extra={"diagnostic": UNGATED_CRON})
