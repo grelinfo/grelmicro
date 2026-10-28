@@ -455,6 +455,22 @@ def test_fully_encoded_innocent_assignment_and_empty_url_are_preserved() -> (
     assert redact_url("") == ""
 
 
+def test_encoded_innocent_assignment_beside_a_credential_is_preserved() -> None:
+    """A full redaction keeps an encoded non-credential assignment as it is.
+
+    The credential beside it makes the redaction parse the whole query, so
+    the encoded assignment goes through the full path, not the shortcut.
+    """
+    # Arrange
+    url = "https://example.test/?state%3Dok&token=LEAKME"
+
+    # Act
+    redacted = redact_url(url)
+
+    # Assert
+    assert redacted == f"https://example.test/?state%3Dok&token={MASK}"
+
+
 def test_path_prefixed_fragment_credential_is_redacted() -> None:
     """A credential assignment embedded in a fragment path is masked."""
     assert (
