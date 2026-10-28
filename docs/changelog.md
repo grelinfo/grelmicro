@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+* ⚡️ `import grelmicro` loads its public names on first use, and a task with no gate loads no coordination pattern. A `Tasks()` service with no app loads 30 grelmicro modules instead of 56, and every reference app loads 1 to 4 fewer. ([#1206](https://github.com/grelinfo/grelmicro/pull/1206))
+
 ## 0.44.1 - 2026-10-27
 
 ### Fixed

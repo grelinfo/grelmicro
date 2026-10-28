@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Final, NamedTuple, cast, get_args
 from weakref import WeakKeyDictionary, WeakSet
 
 from grelmicro._config import defer_report, match_case
+from grelmicro._current_app import _current_micro
 from grelmicro._diagnostics import (
     BACKEND_SCOPE,
     UNKNOWN_ENVIRONMENT,
@@ -332,8 +333,6 @@ def record(pattern: object, binding: Binding) -> None:
         BackendScopeError: If an app is open, its tier is `staging` or
             `production`, and the backend falls short.
     """
-    from grelmicro._app import _current_micro  # noqa: PLC0415
-
     if SUSPENDED.get():
         return
     with _recorded_lock:

@@ -33,6 +33,7 @@ from grelmicro._config import (
     match_case,
     resolve_config,
 )
+from grelmicro._current_app import _current_micro
 from grelmicro._duration import Retention, check_positive_wait, nanoseconds
 from grelmicro._markers import Registered, mark_registered
 from grelmicro.errors import SettingsValidationError
@@ -843,7 +844,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         Raises:
             NoActiveAppError: If `critical` is set and no app is active.
         """
-        from grelmicro._app import Grelmicro, _current_micro  # noqa: PLC0415
+        from grelmicro._app import Grelmicro  # noqa: PLC0415
 
         micro = Grelmicro.current() if critical else _current_micro.get(None)
         if micro is None:

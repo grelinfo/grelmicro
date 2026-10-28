@@ -19,7 +19,6 @@ from grelmicro._app import (
     Grelmicro,
     NoActiveAppError,
     _active_bulkhead,
-    _current_micro,
     _default_components_for_provider,
     _iter_provider_backends,
     _maybe_wrap_first_party_backend,
@@ -36,6 +35,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._current_app import _current_micro
 from grelmicro._environment import (
     report_unmet_requirements,
     unmet_requirements,

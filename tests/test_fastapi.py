@@ -95,7 +95,7 @@ async def test_middleware_passes_non_request_scopes_through() -> None:
 async def test_middleware_resets_binding_after_request() -> None:
     """The current-app binding does not leak past the request scope."""
     micro = Grelmicro()
-    from grelmicro._app import _current_micro  # noqa: PLC0415
+    from grelmicro._current_app import _current_micro  # noqa: PLC0415
 
     async def downstream(
         scope: MutableMapping[str, Any],  # noqa: ARG001

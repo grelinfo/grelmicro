@@ -334,6 +334,19 @@ def test_interval_task_gate_rejects_unknown_value() -> None:
         )
 
 
+def test_interval_task_gate_rejects_unknown_object_before_naming_a_lock() -> (
+    None
+):
+    """An unknown gate object is refused before the task derives a lock name."""
+    with pytest.raises(TypeError, match="gate must be"):
+        IntervalTask(
+            interval=60,
+            function=test1,
+            name="task-reserved",
+            gate=object(),  # ty: ignore[invalid-argument-type]
+        )
+
+
 @pytest.mark.parametrize("as_guard", [False, True])
 def test_interval_task_sync_rejects_leader_election(*, as_guard: bool) -> None:
     """A leader election passed as `sync` is refused in favour of `gate`."""

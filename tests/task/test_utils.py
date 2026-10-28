@@ -7,7 +7,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from grelmicro.coordination.lock import LOCK_NAME_MAX_LENGTH, validate_lock_name
-from grelmicro.task._utils import lock_key
+from grelmicro.task._gated import lock_key
 
 KEPT = frozenset(string.ascii_letters + string.digits + "_.:")
 PREFIX = "task-"

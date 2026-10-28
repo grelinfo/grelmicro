@@ -19,14 +19,17 @@ import pytest
 
 from benchmarks.memory_benchmark import APPS, probe
 
-_IMPORT = frozenset({"config", "errors", "health", "providers", "types"})
-"""The public subpackages `import grelmicro` loads."""
+_APP = frozenset({"errors", "health", "providers", "types"})
+"""The public subpackages a `Grelmicro` app loads."""
 
-_COMMON = _IMPORT | {"metrics"}
-"""The public subpackages every reference app loads."""
+_COMMON = _APP | {"metrics"}
+"""The public subpackages every reference app with a `Grelmicro` app loads."""
 
 _EXPECTED_SUBPACKAGES = {
-    "import": _IMPORT,
+    "import": frozenset(),
+    "scheduler": frozenset(
+        {"coordination", "errors", "metrics", "task", "types"}
+    ),
     "tasks": _COMMON
     | {
         "cache",
@@ -76,12 +79,13 @@ _EXPECTED_SUBPACKAGES = {
 """The public grelmicro subpackages each case loads, by case."""
 
 _MAX_MODULES = {
-    "import": 23,
-    "tasks": 131,
-    "starlette": 128,
-    "litestar": 127,
-    "redis": 106,
-    "postgres": 102,
+    "import": 1,
+    "scheduler": 30,
+    "tasks": 129,
+    "starlette": 126,
+    "litestar": 125,
+    "redis": 104,
+    "postgres": 98,
 }
 """The most grelmicro modules each case may load, by case."""
 
@@ -122,6 +126,24 @@ def test_loaded_modules_stay_within_budget(case: str) -> None:
     }
     assert subpackages == _EXPECTED_SUBPACKAGES[case]
     assert len(modules) <= _MAX_MODULES[case]
+
+
+def test_scheduler_loads_no_app_and_no_coordination_pattern() -> None:
+    """An ungated task with no app loads no app module and only the coordination errors."""
+    # Act
+    modules = set(_loaded("scheduler"))
+
+    # Assert
+    unwanted = {
+        name
+        for name in modules
+        if name.startswith(("grelmicro._app", "grelmicro._component"))
+        or (
+            name.startswith("grelmicro.coordination.")
+            and name != "grelmicro.coordination.errors"
+        )
+    }
+    assert unwanted == set()
 
 
 _STATE_MODULES = (
