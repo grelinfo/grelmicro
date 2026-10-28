@@ -14,7 +14,7 @@ name = "grelmicro_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.29", features = ["extension-module"] }
+pyo3 = { version = "0.30", features = ["extension-module"] }
 # aws-lc-rs is the only crypto provider enabled, so the backend cannot be
 # selected by accident. AWS-LC is a BoringSSL fork and is what rustls uses by
 # default. Its `fips` feature is deliberately not enabled: this is the ordinary
