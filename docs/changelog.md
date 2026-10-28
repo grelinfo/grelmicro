@@ -5,6 +5,9 @@
 ### Changed
 * ⚡️ `import grelmicro` loads its public names on first use, and a task with no gate loads no coordination pattern. A `Tasks()` service with no app loads 30 grelmicro modules instead of 56, and every reference app loads 1 to 4 fewer. ([#1206](https://github.com/grelinfo/grelmicro/pull/1206))
 
+### Internal
+* ✅ Two timing tests wait for what they check instead of a fixed sleep a slow runner could miss: the `SELECT ... FOR UPDATE` test starts the second writer once the first holds the row lock, and the two-provider SQLite election waits up to 10 seconds for a leader. ([#1215](https://github.com/grelinfo/grelmicro/pull/1215))
+
 ## 0.44.1 - 2026-10-27
 
 ### Fixed

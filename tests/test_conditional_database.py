@@ -234,6 +234,7 @@ async def test_select_for_update_serializes_the_read_modify_write() -> None:
         )
         await setup.close()
         refused: list[bool] = []
+        first_holds_the_lock = anyio.Event()
 
         async def write(items: str, expected: int, hold: float) -> None:
             """Take the row lock, check the version, then write under it."""
@@ -243,6 +244,7 @@ async def test_select_for_update_serializes_the_read_modify_write() -> None:
                     version = await connection.fetchval(
                         "SELECT version FROM carts WHERE id = 1 FOR UPDATE"
                     )
+                    first_holds_the_lock.set()
                     await anyio.sleep(hold)
                     # Inside the lock, so nothing can move between the
                     # check and the write.
@@ -260,7 +262,7 @@ async def test_select_for_update_serializes_the_read_modify_write() -> None:
         # Act
         async with anyio.create_task_group() as tasks:
             tasks.start_soon(write, "pear", FIRST_VERSION, 0.2)
-            await anyio.sleep(0.05)
+            await first_holds_the_lock.wait()
             tasks.start_soon(write, "plum", FIRST_VERSION, 0.0)
 
         # Assert
