@@ -1,11 +1,13 @@
 """Tests for the warnings that announce a behavior change or a rename."""
 
 import warnings
+from collections.abc import Mapping
 from dataclasses import replace
 
 import pytest
 
 import grelmicro
+from grelmicro import _deprecation
 from grelmicro._deprecation import (
     PENDING,
     RELEASE_WARNINGS,
@@ -74,6 +76,38 @@ def test_every_pending_release_has_a_category() -> None:
         for entry in PENDING
     }
     assert releases <= RELEASE_WARNINGS.keys()
+
+
+def _entries_in(value: object) -> list[FutureChange | Rename | Removal | Moved]:
+    """Return every change `value` holds, searching nested containers."""
+    if isinstance(value, FutureChange | Rename | Removal | Moved):
+        return [value]
+    if isinstance(value, Mapping):
+        value = list(value.values())
+    if isinstance(value, tuple | list | set | frozenset):
+        return [entry for item in value for entry in _entries_in(item)]
+    return []
+
+
+def test_every_declared_change_is_pending() -> None:
+    """Each change `grelmicro._deprecation` declares is itself in `PENDING`.
+
+    The release audit reads only `PENDING`, so a change left out of it would
+    never be flagged as due.
+    """
+    # Arrange
+    declared = _entries_in(list(vars(_deprecation).values()))
+
+    # Act
+    missing = [
+        entry
+        for entry in declared
+        if not any(entry is pending for pending in PENDING)
+    ]
+
+    # Assert
+    assert declared
+    assert missing == []
 
 
 @pytest.mark.parametrize("entry", PENDING, ids=repr)

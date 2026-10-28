@@ -435,6 +435,10 @@ def _needles(entry: Entry) -> set[str]:
         if name:
             found.add(name)
             found.add(re.split(r"[=.]", name, maxsplit=1)[0])
+    # A `Moved` entry retires a whole module path, matched as written.
+    module = getattr(entry, "module", None)
+    if module:
+        found.add(module)
     return {needle for needle in found if needle}
 
 

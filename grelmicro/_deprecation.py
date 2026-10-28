@@ -395,19 +395,6 @@ SECURITY_MOVED: tuple[Moved, ...] = (
 """Error classes `grelmicro.security.bans` and `.jwt` served in 0.43."""
 
 
-FACADE_MOVES: Mapping[str, Moved] = {
-    moved.module: moved
-    for moved in (
-        FASTAPI_MOVED,
-        *SECURITY_MOVED,
-        STARLETTE_MOVED,
-        LITESTAR_MOVED,
-        *SECURITY_MOVED,
-    )
-}
-"""Each `Moved` entry, by the module the names leave."""
-
-
 PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     GATE_BACKEND_STRICT,
     ENV_LOAD_DEFAULT_WARNING,
@@ -416,5 +403,12 @@ PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     FASTAPI_MOVED,
     STARLETTE_MOVED,
     LITESTAR_MOVED,
+    *SECURITY_MOVED,
 )
 """Every behavior change, rename and removal that currently warns."""
+
+
+FACADE_MOVES: Mapping[str, Moved] = {
+    entry.module: entry for entry in PENDING if isinstance(entry, Moved)
+}
+"""Each pending `Moved` entry, by the module the names leave."""
