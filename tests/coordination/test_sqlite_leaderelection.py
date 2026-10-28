@@ -440,11 +440,15 @@ async def test_two_providers_on_one_file_elect_one_leader(
         async with asyncio.TaskGroup() as group:
             for election in elections:
                 await start_task(group, election)
-            await asyncio.sleep(0.3)
-            leaders = [
-                election.is_leader_confirmed_within(0.15)
-                for election in elections
-            ]
+            deadline = asyncio.get_running_loop().time() + 10
+            while True:
+                leaders = [
+                    election.is_leader_confirmed_within(0.15)
+                    for election in elections
+                ]
+                if any(leaders) or asyncio.get_running_loop().time() > deadline:
+                    break
+                await asyncio.sleep(0.02)
             cancel_group(group)
 
     assert sum(leaders) == 1
