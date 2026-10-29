@@ -3,19 +3,18 @@
 ## Unreleased
 
 ### Changed
-* ⚡️ `import grelmicro` loads its public names on first use, and a task with no gate loads no coordination pattern. A `Tasks()` service with no app loads 30 grelmicro modules instead of 56, and every reference app loads 1 to 4 fewer. ([#1206](https://github.com/grelinfo/grelmicro/pull/1206))
+* ⚡️ `import grelmicro` loads its public names on first use, and a task with no gate loads no coordination pattern. A `Tasks()` service with no app loads 30 grelmicro modules instead of 56. ([#1206](https://github.com/grelinfo/grelmicro/pull/1206))
 
 ### Fixed
-* 🐛 `Bulkhead.to_thread` with `max_workers` runs the function with the caller's context variables, like it does without `max_workers`. ([#1212](https://github.com/grelinfo/grelmicro/pull/1212))
-* 🐛 A sync `@cached` function runs with its caller's context variables when it recomputes under `lock="cluster"`, through `.refresh()` under `lock="cluster"`, and on an early refresh. ([#1214](https://github.com/grelinfo/grelmicro/pull/1214))
+* 🐛 URL redaction no longer lets a credential through when it is percent-encoded three or more times, written as `user:password@host` without a scheme inside a nested URL, or placed after a second `#` in the fragment. ([#1221](https://github.com/grelinfo/grelmicro/pull/1221))
+* 🐛 A redacted URL with an international host shows the host in ASCII instead of garbling it. ([#1221](https://github.com/grelinfo/grelmicro/pull/1221))
+* 🐛 `WriteGuard.downgrade()` called from a task other than the one holding the write lock raises `LockNotOwnedError` instead of leaking the read lease. ([#1220](https://github.com/grelinfo/grelmicro/pull/1220))
+* 🐛 `Bulkhead.to_thread()` with `max_workers`, and a sync `@cached` function under `lock="cluster"` or `early=`, run with the caller's context variables, so their log records keep their context fields. ([#1212](https://github.com/grelinfo/grelmicro/pull/1212), [#1214](https://github.com/grelinfo/grelmicro/pull/1214))
 
 ### Internal
-* ✅ Two timing tests wait for what they check instead of a fixed sleep a slow runner could miss: the `SELECT ... FOR UPDATE` test starts the second writer once the first holds the row lock, and the two-provider SQLite election waits up to 10 seconds for a leader. ([#1215](https://github.com/grelinfo/grelmicro/pull/1215))
-* ✅ A test covers an encoded non-credential assignment beside a credential, so the full URL redaction no longer reaches 100% coverage only through random property-test inputs. ([#1216](https://github.com/grelinfo/grelmicro/pull/1216))
-* ✅ `PENDING` lists the `grelmicro.security.bans` and `grelmicro.security.jwt` import paths that 0.45.0 retires, so the release audit flags them as due and finds their Breaking line. A test fails when a declared change is missing from `PENDING`. ([#1213](https://github.com/grelinfo/grelmicro/pull/1213))
-* ✅ The JWKS fetcher tests pin that a redirect is refused, the timeout reaches the client, a body streamed in several chunks is read whole, and a body of exactly `max_bytes` is accepted. ([#1217](https://github.com/grelinfo/grelmicro/pull/1217))
-* ✅ The path tests pin how a request's authority, root path and route path are read for cache and idempotency keys, port bounds and IPv6 forms included, and two more prefix patterns `names_route` must agree on. ([#1218](https://github.com/grelinfo/grelmicro/pull/1218))
-* ✅ The JWT verifier tests pin what mutation testing found unchecked: an algorithm pinned for keys that publish none, an `oct` key naming an asymmetric algorithm skipped, `Bearer` followed by a tab refused, an audience string kept whole, every factory keyword, and the clock boundaries of `iat`, the retry interval and the metadata TTL. ([#1219](https://github.com/grelinfo/grelmicro/pull/1219))
+* ✅ New tests pin more than 230 behaviors that mutation testing found unchecked in JWT verification, JWKS fetching, URL redaction, request paths, the read-write lock and cron tasks. ([#1217](https://github.com/grelinfo/grelmicro/pull/1217), [#1218](https://github.com/grelinfo/grelmicro/pull/1218), [#1219](https://github.com/grelinfo/grelmicro/pull/1219), [#1220](https://github.com/grelinfo/grelmicro/pull/1220), [#1221](https://github.com/grelinfo/grelmicro/pull/1221))
+* ✅ Three tests no longer depend on timing, test order or random inputs. ([#1215](https://github.com/grelinfo/grelmicro/pull/1215), [#1216](https://github.com/grelinfo/grelmicro/pull/1216), [#1222](https://github.com/grelinfo/grelmicro/pull/1222))
+* 👷 The release audit tracks the two `grelmicro.security` import paths 0.45.0 retires, and a test fails when a change is declared but left out of it. ([#1213](https://github.com/grelinfo/grelmicro/pull/1213))
 
 ## 0.44.1 - 2026-10-27
 
