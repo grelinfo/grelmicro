@@ -24,6 +24,7 @@ from starlette.routing import Mount, Route, Router, compile_path
 from grelmicro import _discovery, _paths
 from grelmicro._paths import (
     _request_authority,
+    _request_root_path,
     matches,
     names_route,
     read_paths_with,
@@ -188,6 +189,39 @@ async def app(scope: object, receive: object, send: object) -> None:
             id="missing-host-preserved",
         ),
         pytest.param(
+            {"scheme": "http", "headers": [(b"host", b"Example.COM")]},
+            "example.com",
+            id="host-without-port",
+        ),
+        pytest.param(
+            {"scheme": "http", "headers": [(b"host", b"[2001:0DB8::1]")]},
+            "[2001:db8::1]",
+            id="bracketed-ipv6-without-port",
+        ),
+        pytest.param(
+            {"scheme": "http", "headers": [(b"host", b"[2001:0DB8::1]:0")]},
+            "[2001:db8::1]:0",
+            id="lowest-port",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b"[2001:0DB8::1]:65535")],
+            },
+            "[2001:db8::1]:65535",
+            id="highest-port",
+        ),
+        pytest.param(
+            {"scheme": "http", "headers": [(b"host", b"[Example.COM]:8080")]},
+            "[example.com]:8080",
+            id="bracketed-name-stays-bracketed",
+        ),
+        pytest.param(
+            {"scheme": "https", "server": ("Example.COM", 443), "headers": []},
+            "example.com",
+            id="server-default-https-port",
+        ),
+        pytest.param(
             {"scheme": "http", "headers": []},
             "",
             id="no-authority",
@@ -200,6 +234,17 @@ def test_request_authority_is_canonical_and_uses_server_fallback(
 ) -> None:
     """Authority follows Host routing and normalizes equivalent spellings."""
     assert _request_authority(scope) == expected
+
+
+@pytest.mark.parametrize(
+    ("root_path", "expected"),
+    [("/api/", "/api"), ("/api", "/api"), ("", "")],
+)
+def test_request_root_path_drops_only_the_trailing_slash(
+    root_path: str, expected: str
+) -> None:
+    """The mount prefix keys a request the same with or without a trailing slash."""
+    assert _request_root_path({"root_path": root_path}) == expected
 
 
 def test_routing_app_stops_at_a_wrapped_mount() -> None:
@@ -404,6 +449,18 @@ def test_a_tuple_of_patterns_is_taken_as_it_is() -> None:
             "/products", "/products", "/products", id="exact-literal-route"
         ),
         pytest.param(
+            "/x*",
+            "/file{n}.txt",
+            "/file1.txt",
+            id="prefix-misses-a-literal-around-a-parameter",
+        ),
+        pytest.param(
+            "/v2-x*",
+            "/v{version}-{rest:path}",
+            "/v2-x/y",
+            id="prefix-reaches-a-path-parameter-after-another",
+        ),
+        pytest.param(
             # Written as the route was declared, which selects only a
             # request for that literal path. A client sends a URL, not a
             # template, so this is a mistake the check should surface.
@@ -444,6 +501,8 @@ def test_names_route_agrees_with_what_runs(
         ("/api/x", "/api/", "/api/x"),
         ("/api/", "/api/", ""),
         ("/other/x", "/api", "/other/x"),
+        ("/x/y/z", "/api", "/x/y/z"),
+        ("/a", "/api", "/a"),
         ("/x", "", "/x"),
     ],
 )
