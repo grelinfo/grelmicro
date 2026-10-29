@@ -11,6 +11,8 @@ from pydantic_core import MultiHostUrl, Url
 MASK = "***"
 
 _USERINFO_RE = re.compile(r"(\A|://|:/|//)([^:/?#]*:)([^/?#]+)(@)")
+_NESTED_USERINFO_RE = re.compile(r"(\A|://|:/|//|=)([^:/?#]*:)([^/?#]+)(@)")
+"""Userinfo in a nested URL, including a scheme-less value after `=`."""
 _MULTI_HOST_USERINFO_RE = re.compile(
     r"(\A|://|:/|//|,)([^:,/?#]*:)"
     r"((?:(?!,[^:,/?#]*:)[^/?#])+)(@)"
@@ -65,7 +67,7 @@ for. Anything not listed here is still masked.
 """
 
 _QUALIFIER_SEPARATOR = re.compile(r"[-./\[\]]")
-_PARAMETER_BOUNDARY = re.compile(r"[/?&;]|%(?:2f|3b|26|3f)", re.IGNORECASE)
+_PARAMETER_BOUNDARY = re.compile(r"[/?&;#]|%(?:2f|3b|26|3f)", re.IGNORECASE)
 _ASSIGNMENT_SEPARATOR = re.compile(r"=|%3d", re.IGNORECASE)
 _QUERY_DELIMITER = re.compile(r"(&)")
 _FRAGMENT_DELIMITER = re.compile(r"(?!)")
@@ -73,6 +75,7 @@ _NESTED_URL = re.compile(
     r"[\x00-\x20]*(?:[A-Za-z][A-Za-z0-9+.-]*:|//)",
 )
 _MAX_NESTED_URL_DECODE_DEPTH = 2
+_PERCENT_ESCAPE = re.compile(r"%[0-9A-Fa-f]{2}")
 _REDACTION_CANDIDATE = re.compile(
     r"@|auth|code|pass|pwd|token|secret|sig|key|credential"
 )
@@ -219,7 +222,7 @@ def _redact_encoded_assignment(
 
 
 def _nested_url_has_credentials(value: str) -> bool:
-    """Return whether a bounded decoding reveals credentials in a nested URL."""
+    """Return whether a bounded decoding reveals credentials or leaves an escape."""
     candidate = value
     for _depth in range(_MAX_NESTED_URL_DECODE_DEPTH):
         if _NESTED_URL.match(candidate) and _url_text_has_credentials(
@@ -230,14 +233,14 @@ def _nested_url_has_credentials(value: str) -> bool:
         if decoded == candidate:
             return False
         candidate = decoded
-    return bool(
-        _NESTED_URL.match(candidate) and _url_text_has_credentials(candidate)
-    )
+    if _PERCENT_ESCAPE.search(candidate) is not None:
+        return True
+    return _url_text_has_credentials(candidate)
 
 
 def _url_text_has_credentials(value: str) -> bool:
     """Inspect one decoded URL-shaped value without recursively decoding it."""
-    if _USERINFO_RE.search(value) is not None:
+    if _NESTED_USERINFO_RE.search(value) is not None:
         return True
     before_fragment, fragment_separator, fragment = value.partition("#")
     _before_query, query_separator, query = before_fragment.partition("?")
@@ -354,7 +357,7 @@ def _redact_single_host(parsed: Url) -> str | None:
         and redacted_fragment == parsed.fragment
     ):
         return None
-    return Url.build(
+    rebuilt = Url.build(
         scheme=parsed.scheme,
         username=parsed.username,
         password=MASK if parsed.password is not None else None,
@@ -363,7 +366,8 @@ def _redact_single_host(parsed: Url) -> str | None:
         path=parsed.path.lstrip("/") if parsed.path else None,
         query=redacted_query,
         fragment=redacted_fragment,
-    ).unicode_string()
+    )
+    return str(rebuilt)
 
 
 def _redact_multi_host(parsed: MultiHostUrl) -> str | None:
@@ -392,13 +396,14 @@ def _redact_multi_host(parsed: MultiHostUrl) -> str | None:
         if port is not None:
             entry["port"] = port
         redacted_hosts.append(entry)
-    return MultiHostUrl.build(
+    rebuilt = MultiHostUrl.build(
         scheme=parsed.scheme,
         hosts=redacted_hosts,
         path=parsed.path.lstrip("/") if parsed.path else None,
         query=redacted_query,
         fragment=redacted_fragment,
-    ).unicode_string()
+    )
+    return str(rebuilt)
 
 
 def redact_url(url: str, *, multi_host: bool = False) -> str:
@@ -410,6 +415,10 @@ def redact_url(url: str, *, multi_host: bool = False) -> str:
     with nothing to redact is returned exactly as it came in, without being
     parsed. Set `multi_host` for URLs that carry several `host:port` pairs,
     such as a Postgres or MongoDB DSN.
+
+    A parameter value is decoded at most twice, and a value that still
+    holds a percent-escape after the second decode is masked whole. A
+    rebuilt URL shows an international host in its ASCII (punycode) form.
     """
     if _has_nothing_to_redact(url):
         return url
@@ -435,7 +444,7 @@ def _has_nothing_to_redact(url: str) -> bool:
         if "%" not in tail:
             return True
         tail = unquote_plus(tail)
-    return not _may_name_a_credential(tail)
+    return False
 
 
 def _may_name_a_credential(text: str) -> bool:
