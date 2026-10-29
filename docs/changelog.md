@@ -15,6 +15,7 @@
 * ✅ `PENDING` lists the `grelmicro.security.bans` and `grelmicro.security.jwt` import paths that 0.45.0 retires, so the release audit flags them as due and finds their Breaking line. A test fails when a declared change is missing from `PENDING`. ([#1213](https://github.com/grelinfo/grelmicro/pull/1213))
 * ✅ The JWKS fetcher tests pin that a redirect is refused, the timeout reaches the client, a body streamed in several chunks is read whole, and a body of exactly `max_bytes` is accepted. ([#1217](https://github.com/grelinfo/grelmicro/pull/1217))
 * ✅ The path tests pin how a request's authority, root path and route path are read for cache and idempotency keys, port bounds and IPv6 forms included, and two more prefix patterns `names_route` must agree on. ([#1218](https://github.com/grelinfo/grelmicro/pull/1218))
+* ✅ The JWT verifier tests pin what mutation testing found unchecked: an algorithm pinned for keys that publish none, an `oct` key naming an asymmetric algorithm skipped, `Bearer` followed by a tab refused, an audience string kept whole, every factory keyword, and the clock boundaries of `iat`, the retry interval and the metadata TTL. ([#1219](https://github.com/grelinfo/grelmicro/pull/1219))
 
 ## 0.44.1 - 2026-10-27
 

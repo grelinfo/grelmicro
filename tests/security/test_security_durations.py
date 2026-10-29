@@ -8,6 +8,7 @@ nanoseconds.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 from datetime import timedelta
@@ -34,11 +35,12 @@ from grelmicro.security import (
     JWTVerifier,
     OAuthClient,
     OAuthClientConfig,
+    SigningKeysUnavailableError,
 )
 from grelmicro.security import bans as bans_module
 from grelmicro.security import jwt as jwt_module
 from tests._durations import DURATIONS, FLOATS, NANOSECOND, NanosecondClock
-from tests.security.jwt_signing import Signer
+from tests.security.jwt_signing import Signer, loaded
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -54,6 +56,9 @@ FAILURES = 3
 HOUR = 3600
 WHOLE = 12
 UNDER_A_SECOND = timedelta(seconds=12, milliseconds=500)
+START = 1000
+RETRY = 30
+HALF = 0.5
 
 SIGNER = Signer()
 
@@ -614,6 +619,79 @@ def test_jwt_verifier_key_set_stale_exactly_at_its_ttl(
     assert stale
 
 
+@pytest.fixture
+def seconds_clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Pin the monotonic clock, in seconds, that refresh pacing reads."""
+    clock = [float(START)]
+    monkeypatch.setattr(jwt_module, "monotonic", lambda: clock[0])
+    return clock
+
+
+async def _down(
+    url: str,  # noqa: ARG001
+    *,
+    timeout: float,  # noqa: ARG001, ASYNC109
+    max_bytes: int,  # noqa: ARG001
+) -> bytes:
+    msg = "endpoint is down"
+    raise SigningKeysUnavailableError(msg)
+
+
+def test_jwt_verifier_refresh_fetches_again_exactly_at_the_retry_interval(
+    seconds_clock: list[float],
+) -> None:
+    """A refresh inside `retry_interval` of the last attempt waits, one at it fetches."""
+    # Arrange
+    attempts: list[float] = []
+
+    async def counted(url: str, *, timeout: float, max_bytes: int) -> bytes:  # noqa: ASYNC109
+        attempts.append(seconds_clock[0])
+        return await _down(url, timeout=timeout, max_bytes=max_bytes)
+
+    verifier = JWTVerifier.from_config(
+        _jwks_config(retry_interval=RETRY), fetch=counted
+    )
+
+    async def refresh_at(moment: float) -> None:
+        seconds_clock[0] = moment
+        with contextlib.suppress(SigningKeysUnavailableError):
+            await verifier.refresh()
+
+    # Act
+    async def scenario() -> None:
+        await refresh_at(START)
+        await refresh_at(START + RETRY - HALF)
+        await refresh_at(START + RETRY)
+
+    asyncio.run(scenario())
+
+    # Assert
+    assert attempts == [START, START + RETRY]
+
+
+def test_jwt_verifier_background_pass_waits_out_exactly_what_is_left(
+    seconds_clock: list[float],
+) -> None:
+    """The next pass waits what is left of the interval, or a whole one at its end."""
+    # Arrange
+    verifier = JWTVerifier.from_config(
+        _jwks_config(retry_interval=HOUR), fetch=_fetch
+    )
+    asyncio.run(verifier.refresh())
+    source = verifier.config
+    assert isinstance(source, JWKSConfig)
+
+    # Act
+    seconds_clock[0] = START + HOUR - HALF
+    left = verifier._until_next_pass(source)
+    seconds_clock[0] = START + HOUR
+    ended = verifier._until_next_pass(source)
+
+    # Assert
+    assert left == HALF
+    assert ended == HOUR
+
+
 # --- Verified token cache ---
 
 
@@ -645,18 +723,19 @@ def test_jwt_verifier_cache_entry_ends_exactly_at_its_ttl(
     assert again is not first
 
 
+@pytest.mark.parametrize("leeway", [0, 30])
 def test_jwt_verifier_cache_entry_never_outlives_the_token(
-    wall_clock: NanosecondClock,
+    wall_clock: NanosecondClock, leeway: int
 ) -> None:
-    """A token expiring before the TTL is served from memory until its `exp`, not after."""
+    """A token expiring before the TTL is served from memory until `exp` plus leeway."""
     # Arrange
     exp = wall_clock.now // NANOSECONDS_PER_SECOND + 10
-    verifier = _verifier_keys(cache_ttl=timedelta(days=1), leeway=0)
+    verifier = _verifier_keys(cache_ttl=timedelta(days=1), leeway=leeway)
     token = _signed(exp=exp)
     first = verifier.verify(token)
 
     # Act
-    wall_clock.now = exp * NANOSECONDS_PER_SECOND - NANOSECOND
+    wall_clock.now = (exp + leeway) * NANOSECONDS_PER_SECOND - NANOSECOND
     held = verifier.verify(token)
     wall_clock.now += NANOSECOND
     again = verifier.verify(token)
@@ -664,3 +743,21 @@ def test_jwt_verifier_cache_entry_never_outlives_the_token(
     # Assert
     assert held is first
     assert again is not first
+
+
+def test_jwt_verifier_cache_entry_at_its_deadline_is_reclaimed(
+    wall_clock: NanosecondClock,
+) -> None:
+    """An entry whose deadline is now is dead, so making room reclaims it."""
+    # Arrange
+    cache_ttl = timedelta(seconds=WHOLE)
+    verifier = _verifier_keys(cache_ttl=cache_ttl)
+    verifier.verify(_signed(sub="first"))
+
+    # Act
+    wall_clock.advance(cache_ttl)
+    second = _signed(sub="second")
+    verifier.verify(second)
+
+    # Assert
+    assert list(loaded(verifier).cache) == [verifier._key(second)]

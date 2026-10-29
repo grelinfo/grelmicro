@@ -14,7 +14,7 @@ import time
 from collections import deque
 from dataclasses import replace
 from datetime import timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
 from pydantic import ValidationError
@@ -35,6 +35,9 @@ from grelmicro.security import (
 from grelmicro.security.jwt import ALGORITHMS, BEARER_PREFIX
 from tests.security.jwt_signing import Signer, loaded
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 AUDIENCE = "grelmicro-api"
 ISSUER = "https://auth.grel.info/"
 HOUR = 3600
@@ -48,6 +51,45 @@ SKEW = 60
 
 SIGNER = Signer()
 OTHER = Signer()
+
+JWKS_URL = "https://auth.grel.info/.well-known/jwks.json"
+
+FACTORIES = [
+    pytest.param(
+        lambda **settings: JWTVerifier.keys(
+            JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256"),
+            **settings,
+        ),
+        id="keys",
+    ),
+    pytest.param(
+        lambda **settings: JWTVerifier.jwks(JWKS_URL, **settings), id="jwks"
+    ),
+    pytest.param(
+        lambda **settings: JWTVerifier.discover(ISSUER, **settings),
+        id="discover",
+    ),
+]
+"""Each factory, taking the settings every one of them accepts."""
+
+POLICY: dict[str, Any] = {
+    "leeway": SKEW,
+    "token_type": "at+jwt",
+    "scope_claims": ["scp"],
+    "required": ["exp", "jti"],
+    "cache_size": CACHE_SIZE,
+    "cache_key": "token",
+}
+"""A value other than the default for every claim policy keyword."""
+
+PUBLISHING: dict[str, Any] = {
+    "algorithm": "PS256",
+    "retry_interval": 7.0,
+    "timeout": 2.5,
+    "max_bytes": 4096,
+    "max_keys": 3,
+}
+"""A value other than the default for every fetch keyword."""
 
 
 def claims(**overrides: Any) -> dict[str, Any]:  # noqa: ANN401
@@ -446,6 +488,21 @@ class TestJWKS:
         assert key.algorithm == "RS256"
         assert key.kid == "entra-1"
 
+    @pytest.mark.parametrize(
+        ("jwk", "algorithm"),
+        [
+            ({"kty": "EC", "crv": "P-256"}, "ES256"),
+            ({"kty": "EC", "crv": "P-384"}, "ES384"),
+            ({"kty": "OKP", "crv": "Ed25519"}, "EdDSA"),
+            ({"kty": "RSA", "crv": "P-256"}, "RS256"),
+        ],
+    )
+    def test_the_inferred_algorithm_follows_the_type_and_curve(
+        self, jwk: dict[str, str], algorithm: str
+    ) -> None:
+        """An elliptic curve key names its curve, an RSA key has none to read."""
+        assert JWTKey.jwk(jwk).algorithm == algorithm
+
     def test_an_explicit_algorithm_fills_the_gap(self) -> None:
         """A caller can pin the algorithm the provider left out."""
         key = JWTKey.jwk(
@@ -474,6 +531,34 @@ class TestJWKS:
         token = issue(header={"kid": "signing-1"})
 
         assert verifier.verify(token).subject == "user-1"
+
+    def test_a_jwks_pins_the_algorithm_it_is_given(self) -> None:
+        """A key that names no `alg` takes the one passed, not the inferred one."""
+        jwks = {"keys": [SIGNER.public_jwk(alg=None, kid="entra-1")]}
+
+        config = JWTKeysConfig.from_jwks(
+            jwks, algorithm="PS256", audience=[AUDIENCE]
+        )
+
+        assert [key.algorithm for key in config.keys] == ["PS256"]
+
+    def test_a_document_without_keys_is_refused(self) -> None:
+        """No `keys` member is a key set with nothing in it."""
+        with pytest.raises(ValidationError):
+            JWTKeysConfig.from_jwks({}, audience=[AUDIENCE])
+
+    def test_a_symmetric_key_naming_another_alg_is_skipped(self) -> None:
+        """A shared secret in a public document is refused whatever it claims."""
+        jwks = {
+            "keys": [
+                {"kty": "oct", "alg": "RS256", "kid": "oct", "k": "c2VjcmV0"},
+                SIGNER.public_jwk("RS256", kid="sig-1"),
+            ]
+        }
+
+        config = JWTKeysConfig.from_jwks(jwks, audience=[AUDIENCE])
+
+        assert [key.kid for key in config.keys] == ["sig-1"]
 
     def test_encryption_keys_are_skipped(self) -> None:
         """A signature is never verified with an encryption key."""
@@ -511,7 +596,7 @@ class TestJWKS:
         jwks = {
             "keys": [
                 "not-a-key",
-                {"kty": ["RSA"], "kid": "listed-type"},
+                {"kty": ["RSA"], "alg": "RS256", "kid": "listed-type"},
                 SIGNER.public_jwk("RS256", kid="sig-1"),
             ]
         }
@@ -538,6 +623,14 @@ class TestKeys:
 
         assert key.format == "pem"
         assert verifier.verify(issue("ES256")).subject == "user-1"
+
+    def test_a_pem_key_answers_to_its_kid(self) -> None:
+        """The `kid` given to `pem` is the one the key is selected by."""
+        key = JWTKey.pem(
+            SIGNER.public_pem("RS256"), algorithm="RS256", kid="2026-09"
+        )
+
+        assert key.kid == "2026-09"
 
     def test_a_secret_key_verifies(self) -> None:
         """A shared secret verifies the tokens it signed."""
@@ -655,6 +748,11 @@ class TestAuthorizationHeader:
         """RFC 7235 allows one or more spaces between the scheme and the token."""
         assert build().verify_header(f"Bearer   {issue()}").subject
 
+    def test_a_tab_after_the_spaces_stays_part_of_the_token(self) -> None:
+        """RFC 6750 separates the scheme with spaces only, so a tab is refused."""
+        with pytest.raises(TokenRejectedError):
+            build().verify_header(f"Bearer \t{issue()}")
+
 
 class TestUnverifiedHeader:
     """Reading the routing fields without trusting them."""
@@ -756,6 +854,36 @@ class TestCache:
 
         assert first is not second
         assert len(loaded(verifier).cache) == 1
+
+    def test_an_expired_entry_is_dropped_when_the_token_now_fails(
+        self, frozen: list[float]
+    ) -> None:
+        """A dead entry goes before the token is verified again, pass or fail."""
+        verifier = build(cache_ttl=TTL)
+        token = issue(iat=int(frozen[0]), exp=int(time.time()) + DAY)
+        verifier.verify(token)
+
+        def refuse(_token: str) -> dict[str, Any]:
+            reason = "expired"
+            raise verifier._error(reason, reason, None)
+
+        verifier._keys = replace(loaded(verifier), verify=refuse)
+        frozen[0] += TTL + 1
+
+        with pytest.raises(TokenRejectedError):
+            verifier.verify(token)
+
+        assert loaded(verifier).cache == {}
+
+    def test_token_keys_hold_the_token_itself(self) -> None:
+        """`cache_key="token"` keys the entry by the encoded token."""
+        verifier = build(cache_key="token")
+        token = issue()
+
+        first = verifier.verify(token)
+
+        assert verifier.verify(token) is first
+        assert list(loaded(verifier).cache) == [token]
 
     def test_sha256_keys_are_the_default(self) -> None:
         """A verifier holds digests unless it is asked for raw tokens."""
@@ -950,9 +1078,10 @@ class TestCacheUnderThreads:
         keys = loaded(verifier)
         verifier._keys = replace(keys, order=Drained(keys.order))
 
-        verifier.verify(issue(sub="second"))
+        second = issue(sub="second")
+        verifier.verify(second)
 
-        assert len(loaded(verifier).cache) >= 1
+        assert verifier._key(second) in loaded(verifier).cache
 
 
 class TestConfiguration:
@@ -1081,6 +1210,20 @@ class TestConstruction:
         )
 
         assert verifier.verify(issue()).subject == "user-1"
+
+    def test_a_single_string_is_one_value_even_with_a_comma(self) -> None:
+        """Only a variable is split on commas, a keyword is taken whole."""
+        verifier = JWTVerifier.keys(
+            self.key(),
+            audience="orders,admin",
+            issuer="https://auth.grel.info/a,b",
+            scope_claims="scope,scp",
+            env_load=False,
+        )
+
+        assert verifier.config.audience == ["orders,admin"]
+        assert verifier.config.issuer == ["https://auth.grel.info/a,b"]
+        assert verifier.config.scope_claims == ["scope,scp"]
 
     def test_from_config_takes_a_config_as_it_is(self) -> None:
         """A config assembled elsewhere, from YAML or a vault, verifies."""
@@ -1292,6 +1435,17 @@ class TestClaims:
             build(leeway=2 * HOUR).verify(issue(iat=issued)).issued_at == issued
         )
 
+    def test_an_issue_time_exactly_at_the_leeway_verifies(
+        self, frozen: list[float]
+    ) -> None:
+        """Only an `iat` past now and the leeway is in the future."""
+        frozen[0] = float(int(frozen[0]))
+        issued = int(frozen[0]) + SKEW
+
+        result = build(leeway=SKEW).verify(issue(iat=issued))
+
+        assert result.issued_at == issued
+
     def test_a_fractional_time_reads_as_whole_seconds(self) -> None:
         """`expires_at` and `issued_at` round a fraction down, `claims` keeps it."""
         now = int(time.time())
@@ -1406,18 +1560,46 @@ class TestEnvironment:
         with pytest.raises(SettingsValidationError, match="audience"):
             JWTVerifier.keys(self.key(), name="partner")
 
+    @pytest.mark.parametrize("factory", FACTORIES)
     def test_env_load_false_reads_nothing(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        factory: Callable[..., JWTVerifier],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """The per-call switch wins over the process-wide flag."""
         monkeypatch.setenv("GREL_ENV_LOAD", "1")
         monkeypatch.setenv("GREL_JWTVERIFIER_LEEWAY", "30")
 
-        verifier = JWTVerifier.keys(
-            self.key(), audience=AUDIENCE, env_load=False
-        )
+        verifier = factory(audience=AUDIENCE, env_load=False)
 
         assert verifier.config.leeway == 0
+
+    @pytest.mark.parametrize(
+        ("factory", "settings"),
+        [
+            pytest.param(FACTORIES[0].values[0], POLICY, id="keys"),
+            pytest.param(
+                FACTORIES[1].values[0],
+                {**POLICY, **PUBLISHING, "issuer": [ISSUER]},
+                id="jwks",
+            ),
+            pytest.param(
+                FACTORIES[2].values[0], {**POLICY, **PUBLISHING}, id="discover"
+            ),
+        ],
+    )
+    def test_every_keyword_reaches_the_config(
+        self, factory: Callable[..., JWTVerifier], settings: dict[str, Any]
+    ) -> None:
+        """Each setting named in code is the one the verifier runs with."""
+        verifier = factory(
+            audience=AUDIENCE, env_load=False, name="tuned", **settings
+        )
+
+        assert verifier.name == "tuned"
+        assert {
+            setting: getattr(verifier.config, setting) for setting in settings
+        } == settings
 
     async def test_a_mounted_file_resizes_the_cache_and_nothing_else(
         self,
