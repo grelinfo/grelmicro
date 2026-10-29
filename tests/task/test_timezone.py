@@ -1,5 +1,6 @@
 """Test the task timezone: inheritance, resolution, and DST transitions."""
 
+import asyncio
 from datetime import datetime
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -26,6 +27,7 @@ SHUTDOWN_TIMEOUT = 5
 SECONDS_PER_MINUTE = 60
 EXPECTED_DELAY = 45
 CLAMPED_WAKES = 2
+FRACTIONAL_DELAY = 44.5
 
 ZURICH = ZoneInfo("Europe/Zurich")
 
@@ -322,6 +324,17 @@ class TestDaylightSaving:
         # Assert
         assert delay > 0
 
+    def test_delay_to_next_minute_counts_the_fraction(self) -> None:
+        """The wait ends on the next whole minute, fractions included."""
+        # Arrange
+        now = datetime(*FALL_BACK_DAY, 2, 30, 15, 500_000, tzinfo=ZURICH)
+
+        # Act
+        delay = _delay_to_next_minute(now)
+
+        # Assert
+        assert delay == FRACTIONAL_DELAY
+
     def test_spring_forward_fires_once_past_the_gap(self) -> None:
         """A wall time that does not exist fires once, just after the jump."""
         # Arrange
@@ -441,3 +454,25 @@ async def test_clamped_wake_does_not_run_the_body(
     # Assert
     assert wakes > CLAMPED_WAKES
     assert runs == 0
+
+
+async def test_stop_ends_the_wait_inside_a_repeated_hour(
+    mocker: MockFixture,
+) -> None:
+    """A stop set while the loop waits out the repeated hour ends it at once."""
+    # Arrange
+    inside_repeated_hour = datetime(
+        *FALL_BACK_DAY, 2, 30, 15, tzinfo=ZURICH, fold=1
+    )
+
+    def frozen_now(tz: object) -> datetime:  # noqa: ARG001
+        return inside_repeated_hour
+
+    mocker.patch("grelmicro.task._cron._now", side_effect=frozen_now)
+    task = CronTask(function=test1, expr="* * * * *", timezone="Europe/Zurich")
+    stop = asyncio.Event()
+    stop.set()
+
+    # Act / Assert: returns well before the 45 seconds left in the minute.
+    async with asyncio.timeout(1):
+        await task(stop=stop)

@@ -1,6 +1,6 @@
 """Test Cron Expression Parser."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -9,6 +9,15 @@ from grelmicro.task._cron import CronExpression
 from grelmicro.task.errors import CronError
 
 UTC = ZoneInfo("UTC")
+
+SEARCH_WINDOW = timedelta(days=5 * 366)
+"""How far `next_after` and `previous_or_equal` search before giving up."""
+
+LATE_FEB_29 = datetime(2104, 2, 29, tzinfo=UTC)
+"""A Feb 29 eight years after the previous one, as 2100 is not a leap year."""
+
+EARLY_FEB_29 = datetime(2096, 2, 29, tzinfo=UTC)
+"""The Feb 29 before `LATE_FEB_29`."""
 
 
 def dt(
@@ -83,6 +92,84 @@ def test_year_rollover() -> None:
     """Test rollover into the next year."""
     expr = CronExpression("0 0 1 1 *")
     assert expr.next_after(dt(2026, 6, 1)) == dt(2027, 1, 1)
+
+
+def test_every_minute_truncates_microseconds() -> None:
+    """A start with microseconds still yields a whole-minute result."""
+    expr = CronExpression("* * * * *")
+    start = datetime(2026, 1, 1, 10, 30, 15, 500, tzinfo=UTC)
+    assert expr.next_after(start) == dt(2026, 1, 1, 10, 31)
+
+
+@pytest.mark.parametrize(
+    ("expr", "start", "expected"),
+    [
+        ("* * * 1 *", dt(2026, 12, 15, 10, 30), dt(2027, 1, 1)),
+        ("* * * 4 *", dt(2026, 3, 15, 10, 30), dt(2026, 4, 1)),
+        ("* * 15 * *", dt(2026, 2, 1, 10, 30), dt(2026, 2, 15)),
+    ],
+)
+def test_next_after_skips_to_the_start_of_the_next_matching_day(
+    expr: str, start: datetime, expected: datetime
+) -> None:
+    """A skipped month or day lands on midnight, not on the start's time."""
+    assert CronExpression(expr).next_after(start) == expected
+
+
+@pytest.mark.parametrize(
+    ("expr", "start", "expected"),
+    [
+        ("59 23 * 3 *", dt(2026, 4, 10), dt(2026, 3, 31, 23, 59)),
+        ("45 23 15 * *", dt(2026, 2, 20, 10, 30), dt(2026, 2, 15, 23, 45)),
+    ],
+)
+def test_previous_or_equal_rewinds_to_the_end_of_the_previous_day(
+    expr: str, start: datetime, expected: datetime
+) -> None:
+    """A skipped month or day rewinds to its last minute, 23:59."""
+    assert CronExpression(expr).previous_or_equal(start) == expected
+
+
+@pytest.mark.parametrize(
+    ("expr", "start", "expected"),
+    [
+        ("5-5 * * * *", dt(2026, 1, 1, 10, 0), dt(2026, 1, 1, 10, 5)),
+        ("*/1 * * * *", dt(2026, 1, 1, 10, 0), dt(2026, 1, 1, 10, 1)),
+    ],
+)
+def test_single_value_range_and_unit_step(
+    expr: str, start: datetime, expected: datetime
+) -> None:
+    """A range of one value and a step of one are valid fields."""
+    assert CronExpression(expr).next_after(start) == expected
+
+
+def test_next_after_searches_the_whole_window() -> None:
+    """A match exactly at the end of the search window is found."""
+    expr = CronExpression("0 0 29 2 *")
+    start = LATE_FEB_29 - SEARCH_WINDOW - timedelta(minutes=1)
+    assert expr.next_after(start) == LATE_FEB_29
+
+
+def test_next_after_stops_at_the_end_of_the_window() -> None:
+    """A match just past the search window raises."""
+    expr = CronExpression("0 0 29 2 *")
+    with pytest.raises(CronError, match="no matching time"):
+        expr.next_after(LATE_FEB_29 - SEARCH_WINDOW - timedelta(days=2))
+
+
+def test_previous_or_equal_searches_the_whole_window() -> None:
+    """A match exactly at the start of the backward window is found."""
+    expr = CronExpression("0 0 29 2 *")
+    start = EARLY_FEB_29 + SEARCH_WINDOW
+    assert expr.previous_or_equal(start) == EARLY_FEB_29
+
+
+def test_previous_or_equal_stops_at_the_end_of_the_window() -> None:
+    """A match just before the backward window is not returned."""
+    expr = CronExpression("0 0 29 2 *")
+    start = EARLY_FEB_29 + SEARCH_WINDOW + timedelta(days=2)
+    assert expr.previous_or_equal(start) is None
 
 
 def test_specific_month() -> None:

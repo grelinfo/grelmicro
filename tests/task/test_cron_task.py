@@ -6,19 +6,21 @@ from asyncio import sleep
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import Self
+from zoneinfo import ZoneInfo
 
 import pytest
 from pytest_mock import MockFixture
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
-from grelmicro.coordination._protocol import LockPrimitive
+from grelmicro.coordination._protocol import LockBackend, LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.memory import (
     MemoryLeaderElectionAdapter,
     MemoryScheduleAdapter,
 )
+from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import OutOfContextError
 from grelmicro.resilience import Bulkhead
 from grelmicro.task import FireInfo, FireOutcome
@@ -130,6 +132,18 @@ def test_cron_task_init_invalid_timezone() -> None:
     # Act / Assert
     with pytest.raises(Exception):  # noqa: B017, PT011
         CronTask(expr=EVERY_MINUTE, function=test1, timezone="Mars/Phobos")
+
+
+FROZEN_NOW = datetime(2026, 1, 5, 10, 0, 30, tzinfo=UTC)
+"""A fixed tick instant, 30 seconds past the 10:00 fire."""
+
+FROZEN_DUE = datetime(2026, 1, 5, 10, 0, tzinfo=UTC).timestamp()
+"""The every-minute fire due at `FROZEN_NOW`."""
+
+
+def _freeze_now(mocker: MockFixture) -> None:
+    """Pin the cron wall clock to `FROZEN_NOW`, seen in the asked timezone."""
+    mocker.patch("grelmicro.task._cron._now", side_effect=FROZEN_NOW.astimezone)
 
 
 def _run_fast(mocker: MockFixture) -> None:
@@ -585,6 +599,8 @@ async def test_cron_task_stop_event_breaks_loop(mocker: MockFixture) -> None:
         await sleep(SLEEP)
         cancel_group(tg)
 
+    assert samples.execution_count == 0
+
 
 async def test_tick_guarded_propagates_cancellation(
     mocker: MockFixture,
@@ -683,6 +699,16 @@ def test_cron_task_gate_rejects_unknown_value() -> None:
         )
 
 
+def test_cron_task_gate_rejects_a_task_lock(backend: LockBackend) -> None:
+    """A `TaskLock` gates an interval task, never a cron task."""
+    with pytest.raises(TypeError, match="gate must be"):
+        CronTask(
+            expr=EVERY_MINUTE,
+            function=test1,
+            gate=TaskLock(backend=backend, lease_duration=60),  # ty: ignore[invalid-argument-type]
+        )
+
+
 def test_cron_task_backend_without_gate_rejected(
     schedule: MemoryScheduleAdapter,
 ) -> None:
@@ -722,6 +748,7 @@ async def test_cron_task_leader_gate_follower_skips_without_claiming(
     election = _election()
     mocker.patch.object(election, "is_leader", return_value=False)
     claim = mocker.spy(schedule, "claim")
+    _freeze_now(mocker)
     task = CronTask(
         expr=EVERY_MINUTE,
         function=count_execution,
@@ -737,6 +764,7 @@ async def test_cron_task_leader_gate_follower_skips_without_claiming(
     claim.assert_not_called()
     assert task.last_fire is not None
     assert task.last_fire.outcome == FireOutcome.SKIPPED
+    assert task.last_fire.started_at == FROZEN_NOW
 
 
 async def test_cron_task_leader_gate_claims_each_fire(
@@ -999,3 +1027,244 @@ async def test_cron_task_leader_that_flaps_at_the_fire_replays_it(
     await task()
 
     assert samples.execution_count == 1
+
+
+# --- One tick at a fixed instant ---
+
+
+def _claim_task(schedule: MemoryScheduleAdapter, **kwargs: object) -> CronTask:
+    """Return an every-minute task claiming its fires on `schedule`."""
+    return CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name="tick",
+        backend=schedule,
+        gate="claim",
+        **kwargs,  # ty: ignore[invalid-argument-type]
+    )
+
+
+async def test_cron_task_handled_fire_is_reported_only_when_scheduled(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A fire already claimed is a silent catch-up, and a skip when scheduled."""
+    # Arrange
+    _freeze_now(mocker)
+    await schedule.claim("tick", FROZEN_DUE)
+    claim = mocker.spy(schedule, "claim")
+    task = _claim_task(schedule)
+
+    # Act
+    await task._tick(catchup=True)
+    after_catchup = task.last_fire
+    await task._tick(catchup=False)
+
+    # Assert
+    assert after_catchup is None
+    claim.assert_not_called()
+    assert task.last_fire == FireInfo(
+        started_at=FROZEN_NOW, outcome=FireOutcome.SKIPPED, duration=0.0
+    )
+
+
+async def test_cron_task_won_claim_advances_the_baseline(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A won claim runs the body once and stores the fire it ran."""
+    # Arrange
+    _freeze_now(mocker)
+    await schedule.claim("tick", FROZEN_DUE - 120)
+    task = _claim_task(schedule)
+
+    # Act
+    await task._tick(catchup=False)
+
+    # Assert
+    assert samples.execution_count == 1
+    assert await schedule.last_fired("tick") == FROZEN_DUE
+
+
+@pytest.mark.parametrize("misfire_grace", [None, 1])
+async def test_cron_task_lost_claim_is_a_skip_at_the_tick(
+    schedule: MemoryScheduleAdapter,
+    mocker: MockFixture,
+    misfire_grace: int | None,
+) -> None:
+    """A claim a peer won is a skip, whether the fire was on time or late."""
+    # Arrange
+    _freeze_now(mocker)
+    await schedule.claim("tick", FROZEN_DUE - 120)
+    mocker.patch.object(schedule, "claim", return_value=False)
+    task = _claim_task(schedule, misfire_grace=misfire_grace)
+
+    # Act
+    await task._tick(catchup=False)
+
+    # Assert
+    assert samples.execution_count == 0
+    assert task.last_fire == FireInfo(
+        started_at=FROZEN_NOW, outcome=FireOutcome.SKIPPED, duration=0.0
+    )
+
+
+async def test_cron_task_claimed_fire_not_admitted_is_missed_at_the_tick(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A claimed fire the `sync` lock refuses is a miss stamped at the tick."""
+    # Arrange
+    later = FROZEN_NOW.replace(second=45)
+    clock = iter([FROZEN_NOW, later])
+    mocker.patch(
+        "grelmicro.task._cron._now",
+        side_effect=lambda tz: next(clock).astimezone(tz),
+    )
+    await schedule.claim("tick", FROZEN_DUE - 120)
+    task = _claim_task(schedule, sync=WouldBlockLock())
+
+    # Act
+    await task._tick(catchup=False)
+
+    # Assert
+    assert task.last_fire is not None
+    assert task.last_fire.outcome is FireOutcome.MISSED
+    assert task.last_fire.started_at == FROZEN_NOW
+
+
+async def test_cron_task_fires_in_its_own_timezone(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """The due fire and the run start are read in the task's timezone."""
+    # Arrange
+    _freeze_now(mocker)
+    kiritimati = ZoneInfo("Pacific/Kiritimati")
+    gated = CronTask(
+        expr="0 9 * * *",
+        function=count_execution,
+        name="kiritimati",
+        backend=schedule,
+        gate="claim",
+        timezone="Pacific/Kiritimati",
+    )
+    ungated = CronTask(
+        expr=EVERY_MINUTE, function=count_execution, timezone="Europe/Zurich"
+    )
+
+    # Act
+    await gated._tick(catchup=False)
+    await ungated._tick(catchup=False)
+
+    # Assert
+    # 10:00:30 UTC is already 00:00:30 the next day in Kiritimati.
+    nine = datetime(2026, 1, 5, 9, 0, tzinfo=kiritimati)
+    assert await schedule.last_fired("kiritimati") == nine.timestamp()
+    assert ungated.last_fire is not None
+    assert ungated.last_fire.started_at.tzinfo == ZoneInfo("Europe/Zurich")
+    assert ungated.last_fire.started_at == FROZEN_NOW
+
+
+# --- The loop ---
+
+
+async def test_cron_task_fire_less_than_a_second_away_still_runs(
+    mocker: MockFixture,
+) -> None:
+    """A loop that wakes just before a fire sleeps to it and runs the body."""
+    # Arrange
+    mocker.patch(
+        "grelmicro.task._cron._now",
+        side_effect=FROZEN_NOW.replace(
+            second=59, microsecond=500_000
+        ).astimezone,
+    )
+    delays: list[float] = []
+
+    async def wake_then_stop(seconds: float, stop: object) -> bool:
+        del stop
+        delays.append(seconds)
+        return len(delays) > 1
+
+    mocker.patch(
+        "grelmicro.task._cron.sleep_or_stop", side_effect=wake_then_stop
+    )
+    task = CronTask(expr=EVERY_MINUTE, function=count_execution)
+
+    # Act
+    await task()
+
+    # Assert
+    assert delays[0] == pytest.approx(0.5)
+    assert samples.execution_count == 1
+
+
+@pytest.mark.parametrize("through_the_wait", [True, False])
+async def test_cron_task_leader_regained_replays_quietly_and_keeps_going(
+    schedule: MemoryScheduleAdapter,
+    mocker: MockFixture,
+    *,
+    through_the_wait: bool,
+) -> None:
+    """A worker leading again replays as a catch-up, then waits for the next fire.
+
+    Leadership comes back either while waiting for the fire, or between the
+    startup tick and the loop.
+    """
+    # Arrange
+    _freeze_now(mocker)
+    await schedule.claim("tick", FROZEN_DUE)
+    election = _election()
+    elected = asyncio.Event()
+    asked = 0
+
+    def is_leader() -> bool:
+        nonlocal asked
+        asked += 1
+        if not through_the_wait and asked > 1:
+            elected.set()
+        return elected.is_set()
+
+    async def win_while_waiting(*_: object) -> bool:
+        elected.set()
+        return True
+
+    mocker.patch.object(election, "is_leader", side_effect=is_leader)
+    mocker.patch(
+        "grelmicro.task._cron.CronTask._wait_for_leadership",
+        side_effect=win_while_waiting,
+    )
+    sleep_or_stop = mocker.patch(
+        "grelmicro.task._cron.sleep_or_stop", return_value=True
+    )
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name="tick",
+        backend=schedule,
+        gate=election,
+    )
+
+    # Act
+    await task()
+
+    # Assert
+    assert task.last_fire is None
+    sleep_or_stop.assert_awaited_once()
+
+
+async def test_cron_task_stopped_takes_a_default_timezone_again(
+    mocker: MockFixture,
+) -> None:
+    """A stopped task accepts a new default timezone and fires in it."""
+    # Arrange
+    _freeze_now(mocker)
+    mocker.patch("grelmicro.task._cron.sleep_or_stop", return_value=True)
+    task = CronTask(expr=EVERY_MINUTE, function=test1)
+    await task()
+
+    # Act
+    task._set_default_timezone("Europe/Zurich")
+    await task()
+
+    # Assert
+    assert task.timezone == "Europe/Zurich"
+    assert task.next_fire_time is not None
+    assert task.next_fire_time.tzinfo == ZoneInfo("Europe/Zurich")

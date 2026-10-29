@@ -1,6 +1,7 @@
 """Test Read-Write Lock."""
 
 import asyncio
+import threading
 from collections.abc import AsyncGenerator
 from datetime import timedelta
 from types import TracebackType
@@ -10,6 +11,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from grelmicro import Grelmicro
+from grelmicro._config import reconfigure_all
 from grelmicro.coordination import (
     Coordination,
     LockAcquireError,
@@ -32,6 +34,7 @@ from grelmicro.coordination.errors import (
 from grelmicro.coordination.memory import MemoryReadWriteLockAdapter
 from grelmicro.errors import (
     EventLoopDeadlockError,
+    LockTimeoutError,
     OutOfContextError,
     SettingsValidationError,
     WouldBlockError,
@@ -40,6 +43,7 @@ from grelmicro.errors import (
 pytestmark = [pytest.mark.timeout(10, func_only=True)]
 
 _READERS = 3
+_THREAD_READERS = 2
 _RETAKEN_FENCE = 2
 _ENV_LEASE_DURATION = 12
 _RECONFIGURED_LEASE_DURATION = timedelta(seconds=30)
@@ -252,6 +256,107 @@ async def test_nested_acquire_is_refused(lock: ReadWriteLock) -> None:
             await lock.read.acquire()
 
 
+async def test_nested_acquire_nowait_is_refused(lock: ReadWriteLock) -> None:
+    """A non-blocking try is refused the same way as a waiting acquire."""
+    async with lock.read:
+        with pytest.raises(LockReentrantError):
+            await lock.read.acquire_nowait()
+        with pytest.raises(LockUpgradeError):
+            await lock.write.acquire_nowait()
+
+    async with lock.write:
+        with pytest.raises(LockReentrantError):
+            await lock.write.acquire_nowait()
+
+
+@pytest.mark.parametrize(
+    ("mode", "method"),
+    [
+        ("read", "acquire"),
+        ("read", "acquire_nowait"),
+        ("write", "acquire"),
+        ("write", "acquire_nowait"),
+    ],
+)
+async def test_acquire_token_carries_the_worker(
+    backend: MemoryReadWriteLockAdapter, mode: str, method: str
+) -> None:
+    """Every acquire path presents a token led by the configured worker."""
+    lock = ReadWriteLock("catalog", backend=backend, worker="web-1")
+    side = getattr(lock, mode)
+
+    guard = await getattr(side, method)()
+
+    assert guard.token.startswith("web-1:")
+    await side.release()
+
+
+@pytest.mark.parametrize("mode", ["read", "write"])
+async def test_from_thread_token_carries_the_worker(
+    backend: MemoryReadWriteLockAdapter, mode: str
+) -> None:
+    """A worker thread presents a token led by the configured worker."""
+    lock = ReadWriteLock("catalog", backend=backend, worker="web-1")
+    side = getattr(lock, mode)
+
+    def body() -> str:
+        with side.from_thread as guard:
+            return guard.token
+
+    token = await asyncio.to_thread(body)
+
+    assert token.startswith("web-1:")
+
+
+async def test_from_thread_readers_hold_their_own_leases(
+    lock: ReadWriteLock,
+) -> None:
+    """Two worker threads reading at once hold two separate read leases."""
+    leave = threading.Event()
+    held = [threading.Event(), threading.Event()]
+
+    def read(entered: threading.Event) -> None:
+        with lock.read.from_thread:
+            entered.set()
+            leave.wait()
+
+    threads = [asyncio.create_task(asyncio.to_thread(read, e)) for e in held]
+    for entered in held:
+        await asyncio.to_thread(entered.wait)
+
+    readers = (await lock.state()).readers
+    leave.set()
+    await asyncio.gather(*threads)
+
+    assert readers == _THREAD_READERS
+
+
+async def test_from_thread_writer_excludes_another_thread(
+    lock: ReadWriteLock,
+) -> None:
+    """A second worker thread cannot take the write lock a first one holds."""
+    entered = threading.Event()
+    leave = threading.Event()
+
+    def write() -> None:
+        with lock.write.from_thread:
+            entered.set()
+            leave.wait()
+
+    def try_write() -> None:
+        with lock.write.from_thread.hold(timeout=0):
+            pass
+
+    holder = asyncio.create_task(asyncio.to_thread(write))
+    await asyncio.to_thread(entered.wait)
+    try:
+        with pytest.raises(LockTimeoutError):
+            await asyncio.to_thread(try_write)
+    finally:
+        leave.set()
+        await holder
+
+
 async def test_upgrade_is_refused(lock: ReadWriteLock) -> None:
     """A reader asking for the write lock gets an error, not a deadlock."""
     async with lock.read:
@@ -268,6 +373,58 @@ async def test_downgrade_keeps_the_lock(lock: ReadWriteLock) -> None:
         assert not writing.valid
         assert await lock.read.owned()
         assert not await lock.write.owned()
+
+    assert await lock.state() == ReadWriteLockState(
+        generation=1, writing=False, readers=0, waiting_writers=0
+    )
+
+
+async def test_downgrade_from_another_task_is_refused(
+    lock: ReadWriteLock,
+) -> None:
+    """Only the task holding the write lease can downgrade it."""
+    async with lock.write as writing:
+        with pytest.raises(LockNotOwnedError):
+            await asyncio.create_task(writing.downgrade())
+
+        assert writing.valid
+        assert await lock.write.owned()
+        reading = await writing.downgrade()
+        assert await lock.read.owned()
+
+    assert not reading.valid
+    assert await lock.state() == ReadWriteLockState(
+        generation=1, writing=False, readers=0, waiting_writers=0
+    )
+
+
+async def test_downgrade_from_another_task_leaves_the_writer_releasing(
+    lock: ReadWriteLock,
+) -> None:
+    """A refused downgrade leaves the holder free to release the write lease."""
+    async with lock.write as writing:
+        with pytest.raises(LockNotOwnedError):
+            await asyncio.create_task(writing.downgrade())
+
+    assert not writing.valid
+    assert await lock.state() == ReadWriteLockState(
+        generation=1, writing=False, readers=0, waiting_writers=0
+    )
+
+
+async def test_downgrade_of_a_thread_write_lease_is_refused(
+    lock: ReadWriteLock,
+) -> None:
+    """A write lease taken from a thread cannot be downgraded from a task."""
+
+    def body() -> None:
+        writing = lock.write.from_thread.acquire()
+        with pytest.raises(LockNotOwnedError):
+            asyncio.run(writing.downgrade())
+        assert writing.valid
+        lock.write.from_thread.release()
+
+    await asyncio.to_thread(body)
 
     assert await lock.state() == ReadWriteLockState(
         generation=1, writing=False, readers=0, waiting_writers=0
@@ -324,6 +481,38 @@ async def test_extend_renews_the_lease(lock: ReadWriteLock) -> None:
     async with lock.read as reading:
         await reading.extend()
         assert reading.generation == 1
+        assert (await lock.state()).readers == 1
+        assert await lock.read.owned()
+
+
+async def test_extend_of_a_lost_write_lease_records_no_intent(
+    lock: ReadWriteLock, backend: MemoryReadWriteLockAdapter
+) -> None:
+    """An extend that finds readers in place of its lease holds no one out."""
+    writing = await lock.write.acquire()
+    await backend.release_write(name="rwlock:catalog", token=writing.token)
+    await backend.acquire_read(
+        name="rwlock:catalog", token="reader", duration=timedelta(seconds=5)
+    )
+
+    with pytest.raises(LockNotOwnedError):
+        await writing.extend()
+
+    assert (await lock.state()).waiting_writers == 0
+
+
+async def test_refused_write_acquire_nowait_records_no_intent(
+    lock: ReadWriteLock, backend: MemoryReadWriteLockAdapter
+) -> None:
+    """A refused non-blocking write try lets later readers in."""
+    await backend.acquire_read(
+        name="rwlock:catalog", token="reader", duration=timedelta(seconds=5)
+    )
+
+    with pytest.raises(WouldBlockError):
+        await lock.write.acquire_nowait()
+
+    assert (await lock.state()).waiting_writers == 0
 
 
 async def test_extend_reports_a_lost_read_lease(
@@ -473,6 +662,13 @@ async def test_owned_without_holding(lock: ReadWriteLock) -> None:
     assert not await lock.write.owned()
 
 
+async def test_owned_while_holding(lock: ReadWriteLock) -> None:
+    """A task holding the write lease owns it, and only the write view says so."""
+    async with lock.write:
+        assert await lock.write.owned()
+        assert not await lock.read.owned()
+
+
 async def test_backend_errors_are_wrapped() -> None:
     """A backend that raises surfaces as a coordination error."""
     lock = ReadWriteLock("catalog", backend=_FailingBackend())
@@ -584,6 +780,51 @@ async def test_environment_configuration(
     lock = ReadWriteLock("catalog", backend=backend)
 
     assert lock.config.lease_duration == timedelta(seconds=_ENV_LEASE_DURATION)
+
+
+@pytest.mark.parametrize(
+    ("variable", "env_prefix"),
+    [
+        ("GREL_READWRITELOCK_LEASE_DURATION", None),
+        ("MYAPP_RW_LEASE_DURATION", "MYAPP_RW_"),
+    ],
+)
+async def test_environment_configuration_prefixes(
+    backend: MemoryReadWriteLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+    env_prefix: str | None,
+) -> None:
+    """A named lock reads the kind-wide prefix, or the `env_prefix=` override."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv(variable, "12")
+
+    lock = ReadWriteLock("catalog", backend=backend, env_prefix=env_prefix)
+
+    assert lock.config.lease_duration == timedelta(seconds=_ENV_LEASE_DURATION)
+
+
+async def test_environment_configuration_env_load_false(
+    backend: MemoryReadWriteLockAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`env_load=False` skips the environment even when the flag enables it."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_READWRITELOCK_CATALOG_LEASE_DURATION", "12")
+
+    lock = ReadWriteLock("catalog", backend=backend, env_load=False)
+
+    assert lock.config.lease_duration == ReadWriteLockConfig().lease_duration
+
+
+async def test_external_config_reloads_the_lock(
+    backend: MemoryReadWriteLockAdapter,
+) -> None:
+    """A reload keyed on the lock's own prefix reconfigures it."""
+    lock = ReadWriteLock("catalog", backend=backend, lease_duration=5)
+
+    await reconfigure_all({"GREL_READWRITELOCK_CATALOG_LEASE_DURATION": "30"})
+
+    assert lock.config.lease_duration == _RECONFIGURED_LEASE_DURATION
 
 
 async def test_reconfigure_keeps_the_worker(

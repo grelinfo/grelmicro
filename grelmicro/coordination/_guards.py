@@ -186,10 +186,12 @@ class WriteGuard(_BaseGuard):
 
         No other writer takes the lock in between. This guard is spent
         afterwards, and the returned `ReadGuard` is released when the
-        `async with lock.write` block exits.
+        `async with lock.write` block exits. Only the task that acquired
+        the write lease can downgrade it.
 
         Raises:
-            LockNotOwnedError: This writer no longer holds the lock.
+            LockNotOwnedError: This task does not hold this write lease,
+                or the writer no longer holds the lock.
             LockAcquireError: The backend call failed.
         """
         self._check()

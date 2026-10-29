@@ -513,6 +513,26 @@ async def test_the_coordination_holding_the_same_backend_decides() -> None:
         pass
 
 
+async def test_the_coordination_holding_a_cron_backend_decides() -> None:
+    """A claim-gated cron task accepts the reach its `Coordination` accepts."""
+    shared = MemoryScheduleAdapter()
+    task = CronTask(
+        function=_claim,
+        expr="* * * * *",
+        name="claim",
+        gate="claim",
+        backend=shared,
+    )
+    micro = Grelmicro(
+        uses=[Coordination(schedule=shared, requires="process")],
+        environment="production",
+    )
+
+    async with micro:
+        pass
+    del task
+
+
 def test_check_backends_reads_the_recorded_patterns() -> None:
     """A unit test catches the lock the pod would refuse to boot with."""
     lock = Lock("cart", backend=MemoryLockAdapter())
