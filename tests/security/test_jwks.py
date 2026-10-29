@@ -39,7 +39,7 @@ from grelmicro.security.jwks import fetch_with_httpx
 from tests.security.jwt_signing import Signer
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
 URL = "https://idp.example.com/.well-known/jwks.json"
 AUDIENCE = "grelmicro-api"
@@ -932,6 +932,96 @@ class TestDefaultFetcher:
         """The cap is enforced while reading, not from the declared length."""
         self.client(monkeypatch, responder(200, b"x" * OVERSIZED))
 
+        with pytest.raises(SigningKeysUnavailableError, match="larger than"):
+            await fetch_with_httpx(URL, timeout=1.0, max_bytes=100)
+
+    async def test_a_redirect_is_not_followed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A key set that answers from somewhere else is refused."""
+        # Arrange
+        elsewhere = "https://elsewhere.test/jwks.json"
+        requested: list[str] = []
+
+        def redirect(request: httpx.Request) -> httpx.Response:
+            requested.append(str(request.url))
+            if str(request.url) == URL:
+                return httpx.Response(302, headers={"Location": elsewhere})
+            return httpx.Response(200, content=document())
+
+        self.client(monkeypatch, redirect)
+
+        # Act / Assert
+        with pytest.raises(SigningKeysUnavailableError, match="302"):
+            await fetch_with_httpx(URL, timeout=1.0, max_bytes=1 << 20)
+        assert requested == [URL]
+
+    async def test_the_timeout_reaches_the_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The client waits no longer than the timeout it was given."""
+        # Arrange
+        real = httpx.AsyncClient
+        clients: list[httpx.AsyncClient] = []
+
+        def factory(**kwargs: Any) -> httpx.AsyncClient:  # noqa: ANN401
+            transport = httpx.MockTransport(responder(200, document()))
+            client = real(transport=transport, **kwargs)
+            clients.append(client)
+            return client
+
+        monkeypatch.setattr(httpx, "AsyncClient", factory)
+
+        # Act
+        await fetch_with_httpx(URL, timeout=2.5, max_bytes=1 << 20)
+
+        # Assert
+        assert [client.timeout for client in clients] == [httpx.Timeout(2.5)]
+
+    async def test_a_body_in_several_chunks_is_read_whole(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every chunk the endpoint streams ends up in the document."""
+        # Arrange
+        body = document()
+        middle = len(body) // 2
+
+        async def chunks() -> AsyncIterator[bytes]:
+            yield body[:middle]
+            yield body[middle:]
+
+        def stream(request: httpx.Request) -> httpx.Response:  # noqa: ARG001
+            return httpx.Response(200, content=chunks())
+
+        self.client(monkeypatch, stream)
+
+        # Act
+        fetched = await fetch_with_httpx(URL, timeout=1.0, max_bytes=1 << 20)
+
+        # Assert
+        assert fetched == body
+
+    async def test_a_body_of_exactly_the_cap_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`max_bytes` is the largest body accepted, not the first refused."""
+        # Arrange
+        self.client(monkeypatch, responder(200, b"x" * 100))
+
+        # Act
+        fetched = await fetch_with_httpx(URL, timeout=1.0, max_bytes=100)
+
+        # Assert
+        assert fetched == b"x" * 100
+
+    async def test_a_body_one_byte_over_the_cap_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One byte past `max_bytes` is already too large."""
+        # Arrange
+        self.client(monkeypatch, responder(200, b"x" * 101))
+
+        # Act / Assert
         with pytest.raises(SigningKeysUnavailableError, match="larger than"):
             await fetch_with_httpx(URL, timeout=1.0, max_bytes=100)
 
