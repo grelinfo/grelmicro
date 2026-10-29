@@ -1024,7 +1024,9 @@ def test_main_puts_the_working_directory_on_the_path(
     That is how `uvicorn app:app` behaves, and the app module is usually
     importable only from there.
     """
-    monkeypatch.setattr(sys, "path", ["/somewhere", "/else"])
+    # Keep the real entries, so `main` can still import what it loads lazily.
+    rest = [entry for entry in sys.path if entry != ""]
+    monkeypatch.setattr(sys, "path", ["/somewhere", *rest])
 
     code = main(["check", "tests.test_describe:_PASSING_APP"])
 
@@ -1040,12 +1042,15 @@ def test_main_does_not_duplicate_the_working_directory(
     Both sides are pinned here rather than left to whichever test happened to
     call `main` first, which under `pytest-xdist` depends on the worker.
     """
-    monkeypatch.setattr(sys, "path", ["/somewhere", "", "/else"])
+    # Keep the real entries, so `main` can still import what it loads lazily.
+    rest = [entry for entry in sys.path if entry != ""]
+    path = ["/somewhere", "", *rest]
+    monkeypatch.setattr(sys, "path", list(path))
 
     code = main(["check", "tests.test_describe:_PASSING_APP"])
 
     assert code == 0
-    assert sys.path == ["/somewhere", "", "/else"]
+    assert sys.path == path
 
 
 def test_report_types_are_publicly_importable() -> None:
