@@ -25,6 +25,8 @@ from grelmicro.security import (
     TokenRejectedError,
     TokenRejectedReason,
 )
+from grelmicro.security import jwt as jwt_module
+from tests._durations import NANOSECOND, NanosecondClock
 from tests.security.jwt_signing import Signer
 
 ISSUER = "https://auth.grel.info/"
@@ -42,6 +44,7 @@ REALM_OIDC = (
 HOUR = 3600
 SHORT_TTL = timedelta(milliseconds=10)
 LIVE_TTL = 5
+RETRY = 60
 SIGNER = Signer()
 ROTATED = Signer()
 
@@ -404,6 +407,51 @@ class TestDiscovery:
         await verifier.refresh(force=True)
 
         assert provider.calls == [JWKS]
+
+    async def test_the_metadata_is_read_again_exactly_at_its_ttl(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The metadata is current until `ttl` has passed, never later."""
+        clock = NanosecondClock()
+        monkeypatch.setattr(jwt_module, "monotonic_ns", clock)
+        provider = Provider({OIDC: metadata(), JWKS: key_set()})
+        verifier = discovering(provider, ttl=HOUR)
+        await verifier.refresh()
+
+        clock.advance(timedelta(seconds=HOUR), -NANOSECOND)
+        provider.calls.clear()
+        await verifier.refresh(force=True)
+        current = list(provider.calls)
+        clock.advance(timedelta(0), NANOSECOND)
+        provider.calls.clear()
+        await verifier.refresh(force=True)
+
+        assert current == [JWKS]
+        assert provider.calls == [OIDC, JWKS]
+
+    async def test_metadata_that_is_down_is_tried_again_after_the_retry_interval(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An outage holds the metadata back for `retry_interval`, not longer."""
+        clock = NanosecondClock()
+        monkeypatch.setattr(jwt_module, "monotonic_ns", clock)
+        provider = Provider({OIDC: metadata(), JWKS: key_set()})
+        verifier = discovering(provider, ttl=HOUR, retry_interval=RETRY)
+        await verifier.refresh()
+        clock.advance(timedelta(seconds=HOUR))
+        del provider.documents[OIDC]
+        await verifier.refresh(force=True)
+
+        clock.advance(timedelta(seconds=RETRY), -NANOSECOND)
+        provider.calls.clear()
+        await verifier.refresh(force=True)
+        waiting = list(provider.calls)
+        clock.advance(timedelta(0), NANOSECOND)
+        provider.calls.clear()
+        await verifier.refresh(force=True)
+
+        assert waiting == [JWKS]
+        assert provider.calls == [OIDC, OAUTH, JWKS]
 
     async def test_opening_the_verifier_discovers_its_keys(self) -> None:
         """`async with` finds the keys before the first request."""

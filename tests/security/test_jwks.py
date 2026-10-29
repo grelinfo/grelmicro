@@ -55,6 +55,7 @@ MIN_RETRY_INTERVAL = 60
 LEEWAY = 30
 OVERSIZED = 5000
 TEN_MS = timedelta(milliseconds=10)
+LARGER_CACHE = 4096
 
 SIGNER = Signer()
 ROTATED = Signer()
@@ -223,6 +224,36 @@ class TestRefresh:
 
         assert await verifier.refresh(force=True) is False
         assert endpoint.calls == EXPECTED_FETCHES
+
+    async def test_an_unchanged_document_answers_the_rotation_signal(
+        self,
+    ) -> None:
+        """The same bytes after an unknown `kid` leave the key set current."""
+        endpoint = Endpoint(document())
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
+        await verifier.refresh()
+        with pytest.raises(TokenRejectedError):
+            verifier.verify(token(ROTATED, kid="k2"))
+
+        assert await verifier.refresh(force=True) is False
+
+        assert verifier.stale is False
+
+    async def test_the_fetcher_gets_the_configured_limits(self) -> None:
+        """The timeout and the size limit reach every fetch."""
+        limits: list[tuple[float, int]] = []
+
+        async def fetch(url: str, *, timeout: float, max_bytes: int) -> bytes:  # noqa: ARG001, ASYNC109
+            limits.append((timeout, max_bytes))
+            return document()
+
+        verifier = JWTVerifier.from_config(
+            config(timeout=2.5, max_bytes=OVERSIZED), fetch=fetch
+        )
+
+        await verifier.refresh()
+
+        assert limits == [(2.5, OVERSIZED)]
 
     async def test_force_fetches_even_when_fresh(self) -> None:
         """An operator can make it look now rather than wait for the TTL."""
@@ -743,6 +774,37 @@ class TestLifecycle:
         assert verifier._inflight is None
         assert verifier._task is None
 
+    async def test_an_abandoned_fetch_reports_nothing_to_the_loop(self) -> None:
+        """A fetch cancelled at close is settled quietly, not as an error."""
+        loop = asyncio.get_running_loop()
+        reported: list[dict[str, Any]] = []
+        loop.set_exception_handler(lambda _, context: reported.append(context))
+        verifier = JWTVerifier.from_config(config(), fetch=Slow(document()))
+        fetching = asyncio.create_task(verifier.refresh())
+        try:
+            await until(lambda: verifier._inflight is not None)
+
+            await verifier.__aexit__(None, None, None)
+            await asyncio.wait({fetching})
+            await asyncio.sleep(0)
+        finally:
+            loop.set_exception_handler(None)
+
+        assert reported == []
+
+    async def test_a_reload_paces_the_next_background_pass(self) -> None:
+        """The pass about to start waits the interval a reload set."""
+        endpoint = Endpoint(document())
+
+        async with JWTVerifier.from_config(
+            config(ttl=TEN_MS, retry_interval=HOUR), fetch=endpoint
+        ) as verifier:
+            await verifier.reconfigure(
+                verifier.config.model_copy(update={"retry_interval": 0.01})
+            )
+
+            await until(lambda: endpoint.calls >= EXPECTED_FETCHES)
+
 
 class TestDocumentLimits:
     """What a hostile or broken endpoint cannot do."""
@@ -779,6 +841,18 @@ class TestDocumentLimits:
 
         with pytest.raises(SigningKeysUnavailableError, match="more than"):
             await verifier.refresh()
+
+    async def test_exactly_max_keys_keys_are_accepted(self) -> None:
+        """The limit is the most keys a document may carry, not the first refused."""
+        keys = [
+            SIGNER.public_jwk("RS256", kid=f"k{i}") for i in range(SMALL_LIMIT)
+        ]
+        body = json.dumps({"keys": keys}).encode()
+        verifier = JWTVerifier.from_config(
+            config(max_keys=SMALL_LIMIT), fetch=Endpoint(body)
+        )
+
+        assert await verifier.refresh() is True
 
     async def test_a_key_that_is_not_a_key_is_refused(self) -> None:
         """A usable document shape with unusable contents still fails."""
@@ -883,11 +957,24 @@ class TestDocumentLimits:
             {"keys": [SIGNER.public_jwk(kid="entra-1", alg=None)]}
         ).encode()
         verifier = JWTVerifier.from_config(
-            config(algorithm="RS256"), fetch=Endpoint(body)
+            config(algorithm="PS256"), fetch=Endpoint(body)
         )
         await verifier.refresh()
+        now = int(time.time())
+        pinned = SIGNER.token(
+            {
+                "iss": ISSUER,
+                "sub": "user-1",
+                "aud": AUDIENCE,
+                "exp": now + HOUR,
+            },
+            algorithm="PS256",
+            header={"kid": "entra-1"},
+        )
 
-        assert verifier.verify(token(kid="entra-1")).subject == "user-1"
+        assert verifier.verify(pinned).subject == "user-1"
+        with pytest.raises(TokenRejectedError):
+            verifier.verify(token(kid="entra-1"))
 
 
 class TestDefaultFetcher:
@@ -1134,3 +1221,23 @@ class TestEnvironment:
         assert config.retry_interval == 5  # noqa: PLR2004
         assert config.url == URL
         assert verifier._source is config
+
+    @pytest.mark.parametrize(
+        "update",
+        [
+            pytest.param({"ttl": timedelta(hours=2)}, id="same-size"),
+            pytest.param({"cache_size": LARGER_CACHE}, id="larger"),
+        ],
+    )
+    async def test_a_reload_that_does_not_shrink_the_cache_keeps_it(
+        self, update: dict[str, Any]
+    ) -> None:
+        """Only a smaller cache drops what is already cached."""
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(document()))
+        await verifier.refresh()
+        issued = token()
+        first = verifier.verify(issued)
+
+        await verifier.reconfigure(verifier.config.model_copy(update=update))
+
+        assert verifier.verify(issued) is first
