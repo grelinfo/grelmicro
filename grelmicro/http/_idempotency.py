@@ -213,7 +213,7 @@ _MIN_CONTENT_STATUS = 200
 """Lowest status that may carry content."""
 
 
-_DEFAULT_KEY_VERSION = "v3"
+_DEFAULT_KEY_VERSION = "v4"
 """Version isolating safe default keys from entries written before this policy."""
 
 
@@ -225,13 +225,90 @@ def _authenticated_scope(scope: Scope) -> bool:
     """Return whether authentication already established a caller identity.
 
     Any truthy `is_authenticated` counts, so the default key is never shared
-    by two callers when an authentication layer marks its caller loosely.
+    by two callers when an authentication layer marks its caller loosely. A
+    user without one counts too, as a Litestar user model carries none, and
+    so does a credential without `scopes`, such as a Litestar API key.
     """
     user = scope.get("user")
-    if user is not None and getattr(user, "is_authenticated", False):
+    if user is not None and getattr(user, "is_authenticated", True):
         return True
     auth = scope.get("auth")
-    return bool(getattr(auth, "scopes", ()))
+    if auth is None:
+        return False
+    return bool(getattr(auth, "scopes", True))
+
+
+_AUTH_MISSING: Any = object()
+"""Marks an authentication field absent before child dispatch."""
+
+_AUTH_UNREADABLE: Any = object()
+"""Marks an authentication attribute that could not be inspected safely."""
+
+
+@dataclass(frozen=True)
+class _AuthenticationSnapshot:
+    """Authentication objects and identity state visible before dispatch."""
+
+    user: Any
+    auth: Any
+    user_state: tuple[Any, ...]
+    auth_state: tuple[Any, ...]
+
+
+def _authentication_attribute(value: Any, name: str) -> Any:  # noqa: ANN401
+    """Read one conventional authentication attribute without trusting it."""
+    try:
+        return getattr(value, name, _AUTH_MISSING)
+    except Exception:  # noqa: BLE001
+        return _AUTH_UNREADABLE
+
+
+def _authentication_state(value: Any, *, user: bool) -> tuple[Any, ...]:  # noqa: ANN401
+    """Snapshot conventional user or credential state without object equality."""
+    if value is _AUTH_MISSING:
+        return ()
+    if user:
+        return (
+            type(value),
+            _authentication_attribute(value, "is_authenticated"),
+            _authentication_attribute(value, "identity"),
+            _authentication_attribute(value, "display_name"),
+            _authentication_attribute(value, "username"),
+        )
+    scopes = _authentication_attribute(value, "scopes")
+    if scopes is not _AUTH_MISSING and scopes is not _AUTH_UNREADABLE:
+        try:
+            scopes = tuple(scopes)
+        except TypeError, ValueError:
+            scopes = _AUTH_UNREADABLE
+    return type(value), scopes
+
+
+def _authentication_snapshot(scope: Scope) -> _AuthenticationSnapshot:
+    """Remember authentication presence, object identity, and public state."""
+    user = scope.get("user", _AUTH_MISSING)
+    auth = scope.get("auth", _AUTH_MISSING)
+    return _AuthenticationSnapshot(
+        user=user,
+        auth=auth,
+        user_state=_authentication_state(user, user=True),
+        auth_state=_authentication_state(auth, user=False),
+    )
+
+
+def _authentication_changed(
+    before: _AuthenticationSnapshot,
+    scope: Scope,
+) -> bool:
+    """Return whether child dispatch added, replaced, or mutated auth state."""
+    user = scope.get("user", _AUTH_MISSING)
+    auth = scope.get("auth", _AUTH_MISSING)
+    return (
+        user is not before.user
+        or auth is not before.auth
+        or _authentication_state(user, user=True) != before.user_state
+        or _authentication_state(auth, user=False) != before.auth_state
+    )
 
 
 def _field_name(value: str, argument: str, example: str) -> str:
@@ -667,6 +744,7 @@ class IdempotencyMiddleware:
         self._key_function = key
         self._skip = skip
         self._replay_collision_logged = False
+        self._caller_behind_logged = False
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
         self._live = (
@@ -873,17 +951,47 @@ class IdempotencyMiddleware:
                 unhandled: Unhandled | None = scope.get(UNHANDLED_KEY)
                 if unhandled is None:
                     unhandled = scope[UNHANDLED_KEY] = Unhandled()
+                authentication = _authentication_snapshot(scope)
                 await self.app(scope, receive, capture)
                 self._report_collision(
                     config.replay_header, replaced=capture.replaced
                 )
-                if capture.stored is not None and not unhandled.raised:
+                if (
+                    capture.stored is not None
+                    and not unhandled.raised
+                    and not self._caller_set_behind(authentication, scope)
+                ):
                     operation.store(capture.stored)
         except BaseException as exc:
             await block.__aexit__(type(exc), exc, exc.__traceback__)
             raise
         else:
             await block.__aexit__(None, None, None)
+
+    def _caller_set_behind(
+        self, before: _AuthenticationSnapshot, scope: Scope
+    ) -> bool:
+        """Return whether authentication behind this middleware set a caller.
+
+        Litestar runs the middleware an app declares behind the route, so
+        when `install` wraps the app, its authentication sets the caller
+        only once the request passed here. The default key would then
+        replay one caller's response to another, so it is not stored, and
+        that is said once.
+        """
+        if self._key_function is not None or not _authentication_changed(
+            before, scope
+        ):
+            return False
+        if not self._caller_behind_logged:
+            self._caller_behind_logged = True
+            _logger.warning(
+                "A response was not stored, because authentication behind "
+                "the idempotency middleware set its caller. A retry runs "
+                "the handler again. Declare the middleware after the "
+                "authentication, or pass key= to fold in the caller."
+            )
+        return True
 
     def _report_collision(self, name: str, *, replaced: bool) -> None:
         """Say once that a response carried the marker's name itself.

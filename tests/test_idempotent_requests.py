@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import warnings
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -24,7 +25,11 @@ from litestar.exceptions import (
     ValidationException,
 )
 from litestar.handlers import BaseRouteHandler
-from litestar.middleware import DefineMiddleware
+from litestar.middleware import (
+    AbstractAuthenticationMiddleware,
+    AuthenticationResult,
+    DefineMiddleware,
+)
 from litestar.params import FromPath
 from litestar.response.base import ASGIResponse
 from litestar.testing import TestClient as LitestarTestClient
@@ -61,6 +66,7 @@ from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.integrations.litestar import Anonymous
 from grelmicro.integrations.starlette import install_middleware
 from grelmicro.providers.memory import MemoryProvider
+from tests._logs import records_of
 from tests.test_route_gate_litestar import Passing
 
 if TYPE_CHECKING:
@@ -1640,6 +1646,120 @@ def test_idempotent_requests_litestar_handler_checks_never_replay_across_callers
     assert alice.json() == {"caller": "a"}
     assert bob.json() == {"caller": "b"}
     assert REPLAY_HEADER not in bob.headers
+
+
+class _CallerModel:
+    """A Litestar user model, which carries no `is_authenticated`."""
+
+    def __init__(self, name: str) -> None:
+        """Hold the caller's name."""
+        self.name = name
+
+
+class _CallerAuthentication(AbstractAuthenticationMiddleware):
+    """Authenticate the caller the API key names, the way Litestar documents."""
+
+    async def authenticate_request(
+        self, connection: ASGIConnection
+    ) -> AuthenticationResult:
+        """Return the caller as the user and the key as the auth value."""
+        caller = connection.headers.get("x-api-key", "")
+        return AuthenticationResult(user=_CallerModel(caller), auth=caller)
+
+
+class _KeyAuthentication(AbstractAuthenticationMiddleware):
+    """Authenticate with the API key alone, setting no user."""
+
+    async def authenticate_request(
+        self, connection: ASGIConnection
+    ) -> AuthenticationResult:
+        """Return no user and the key as the auth value."""
+        return AuthenticationResult(
+            user=None, auth=connection.headers.get("x-api-key", "")
+        )
+
+
+CALLER_AUTHENTICATIONS = [
+    pytest.param(_CallerAuthentication, id="user model"),
+    pytest.param(_KeyAuthentication, id="key only"),
+]
+"""Litestar authentication middleware, each marking the caller its own way."""
+
+
+def _authenticated_app(
+    authentication: type[Any], *, declared: bool
+) -> Litestar:
+    """Return an installed Litestar app answering the caller at `/whoami`.
+
+    With `declared`, the app declares idempotency after its authentication.
+    Otherwise only `IdempotentRequests` is registered and `install` wraps
+    the app.
+    """
+
+    @post("/whoami", status_code=200)
+    async def whoami(request: LitestarRequest) -> dict[str, str]:
+        return {"caller": request.auth}
+
+    middleware: list[Any] = [DefineMiddleware(authentication)]
+    if declared:
+        middleware.append(_DECLARED_IDEMPOTENCY)
+    app = Litestar(
+        route_handlers=[whoami], middleware=middleware, logging_config=None
+    )
+    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MiddlewarePlacementWarning)
+        micro.install(app)
+    return app
+
+
+@pytest.mark.parametrize("authentication", CALLER_AUTHENTICATIONS)
+@pytest.mark.parametrize(
+    "declared",
+    [True, False],
+    ids=["declared after authentication", "registered only"],
+)
+def test_idempotent_requests_litestar_authenticated_caller_never_replays_across_callers(
+    authentication: type[Any],
+    declared: bool,  # noqa: FBT001
+) -> None:
+    """A caller Litestar authentication sets is a caller, so each caller runs."""
+    # Arrange
+    app = _authenticated_app(authentication, declared=declared)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        alice = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
+        bob = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "b"})
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert bob.json() == {"caller": "b"}
+    assert REPLAY_HEADER not in bob.headers
+
+
+def test_idempotent_requests_litestar_caller_set_behind_is_not_stored_and_says_so(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A caller set after the middleware leaves nothing stored, said once."""
+    # Arrange
+    app = _authenticated_app(_CallerAuthentication, declared=False)
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.http"),
+        LitestarTestClient(app=app) as client,
+    ):
+        first = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
+        retry = client.post("/whoami", headers={HEADER: "k", "X-API-Key": "a"})
+        client.post("/whoami", headers={HEADER: "j", "X-API-Key": "a"})
+
+    # Assert
+    assert first.json() == retry.json() == {"caller": "a"}
+    assert REPLAY_HEADER not in retry.headers
+    warned = records_of(caplog, "grelmicro.http")
+    assert len(warned) == 1
+    assert "authentication" in warned[0].getMessage()
 
 
 @pytest.mark.parametrize(
