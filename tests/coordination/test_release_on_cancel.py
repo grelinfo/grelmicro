@@ -22,6 +22,7 @@ from grelmicro.coordination.memory import (
 )
 from grelmicro.coordination.readwritelock import ReadWriteLock
 from grelmicro.coordination.tasklock import TaskLock
+from grelmicro.errors import LockTimeoutError
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -346,3 +347,25 @@ async def test_write_release_past_the_lease_stops_holding(
 
     mocker.stopall()
     await lock.write.acquire()
+
+
+async def test_write_timeout_with_a_stuck_intent_withdrawal_gives_up(
+    rw_backend: MemoryReadWriteLockAdapter, mocker: MockerFixture
+) -> None:
+    """A withdrawal that hangs past the lease no longer holds the writer back."""
+    lock = ReadWriteLock(
+        "catalog", backend=rw_backend, lease_duration=timedelta(milliseconds=50)
+    )
+    await rw_backend.acquire_read(
+        name="rwlock:catalog", token="reader", duration=timedelta(seconds=10)
+    )
+    never = asyncio.Event()
+
+    async def hang(**_: object) -> bool:
+        await never.wait()
+        return True
+
+    mocker.patch.object(rw_backend, "cancel_intent", side_effect=hang)
+
+    with pytest.raises(LockTimeoutError):
+        await lock.write.acquire(timeout=0)

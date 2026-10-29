@@ -1226,10 +1226,13 @@ class WriteMode(_Mode):
         """Turn the write lease behind `guard` into a read lease.
 
         Raises:
-            LockNotOwnedError: This holder no longer holds the write lock.
+            LockNotOwnedError: This task does not hold this write lease,
+                or no longer holds the write lock.
             LockAcquireError: The backend call failed.
         """
         task = self._running_task()
+        if self._task_guards.get(task) is not guard:
+            raise LockNotOwnedError(name=self.name)
         duration = self._lock._config.lease_duration  # noqa: SLF001
         backend = self.backend
         try:

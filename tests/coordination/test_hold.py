@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -278,3 +279,22 @@ async def test_rw_from_thread_hold_under_a_writer_raises(
     async with rw_lock.write:
         with pytest.raises(LockTimeoutError):
             await asyncio.to_thread(read)
+
+
+@pytest.mark.parametrize("wait", [WAIT, 0])
+async def test_rw_from_thread_hold_under_a_reader_raises(
+    rw_lock: ReadWriteLock, rw_backend: MemoryReadWriteLockAdapter, wait: float
+) -> None:
+    """A writer thread gives up while a reader holds the lock."""
+    # Arrange
+    await rw_backend.acquire_read(
+        name="rwlock:catalog", token="reader", duration=timedelta(seconds=0.5)
+    )
+
+    def write() -> None:
+        with rw_lock.write.from_thread.hold(timeout=wait):
+            pass
+
+    # Act / Assert
+    with pytest.raises(LockTimeoutError):
+        await asyncio.to_thread(write)
