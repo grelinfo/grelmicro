@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import functools
 import inspect
 from typing import TYPE_CHECKING, Any, NoReturn, TypeGuard
@@ -11,6 +12,7 @@ from grelmicro.errors import EventLoopDeadlockError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine
+    from concurrent.futures import Executor
 
 _finishing: set[asyncio.Task[Any]] = set()
 """Tasks `run_to_completion` is waiting on, kept alive until they end."""
@@ -111,6 +113,26 @@ async def run_to_completion[T](work: Coroutine[Any, Any, T]) -> T:
     if cancelled is not None:
         raise cancelled
     return task.result()
+
+
+async def run_in_thread[**P, T](
+    executor: Executor | None,
+    func: Callable[P, T],
+    /,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> T:
+    """Run `func` on a thread of `executor`, in a copy of the caller's context.
+
+    `None` runs it on the event loop's default executor, like
+    `asyncio.to_thread`. `func` reads the caller's context variables, and
+    its own writes stay in the copy.
+    """
+    loop = asyncio.get_running_loop()
+    context = contextvars.copy_context()
+    return await loop.run_in_executor(
+        executor, functools.partial(context.run, func, *args, **kwargs)
+    )
 
 
 def is_async_callable(

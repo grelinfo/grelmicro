@@ -1,11 +1,14 @@
 """Tests for grelmicro._async utilities."""
 
 import asyncio
+import contextvars
 import functools
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from grelmicro._async import is_async_callable, run_to_completion
+from grelmicro._async import is_async_callable, run_in_thread, run_to_completion
 
 ANSWER = 42
 
@@ -174,3 +177,54 @@ async def test_run_to_completion_keeps_the_cancel_over_a_work_error() -> None:
     resume.set()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+_REQUEST_ID: contextvars.ContextVar[str] = contextvars.ContextVar("request_id")
+"""A context variable the caller sets before `run_in_thread`."""
+
+
+async def test_run_in_thread_runs_in_a_copy_of_the_caller_context() -> None:
+    """The thread sees the caller's context variables, and its writes stay there."""
+    # Arrange
+    _REQUEST_ID.set("caller")
+
+    def read_then_write() -> str:
+        seen = _REQUEST_ID.get("unset")
+        _REQUEST_ID.set("thread")
+        return seen
+
+    # Act
+    seen = await run_in_thread(None, read_then_write)
+
+    # Assert
+    assert seen == "caller"
+    assert _REQUEST_ID.get() == "caller"
+
+
+async def test_run_in_thread_uses_the_given_executor() -> None:
+    """A given executor runs the call on one of its own threads."""
+    # Arrange
+    with ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="private"
+    ) as executor:
+        # Act
+        name = await run_in_thread(
+            executor, lambda: threading.current_thread().name
+        )
+
+    # Assert
+    assert name.startswith("private")
+
+
+async def test_run_in_thread_forwards_arguments() -> None:
+    """Positional and keyword arguments reach the call."""
+
+    # Arrange
+    def add(a: int, *, b: int) -> int:
+        return a + b
+
+    # Act
+    total = await run_in_thread(None, add, 40, b=2)
+
+    # Assert
+    assert total == ANSWER
