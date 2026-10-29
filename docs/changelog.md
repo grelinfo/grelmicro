@@ -7,6 +7,7 @@
 
 ### Fixed
 * 🐛 `Bulkhead.to_thread` with `max_workers` runs the function with the caller's context variables, like it does without `max_workers`. ([#1212](https://github.com/grelinfo/grelmicro/pull/1212))
+* 🐛 A sync `@cached` function runs with its caller's context variables when it recomputes under `lock="cluster"`, through `.refresh()` under `lock="cluster"`, and on an early refresh. ([#1214](https://github.com/grelinfo/grelmicro/pull/1214))
 
 ### Internal
 * ✅ Two timing tests wait for what they check instead of a fixed sleep a slow runner could miss: the `SELECT ... FOR UPDATE` test starts the second writer once the first holds the row lock, and the two-provider SQLite election waits up to 10 seconds for a leader. ([#1215](https://github.com/grelinfo/grelmicro/pull/1215))

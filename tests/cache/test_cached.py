@@ -1,6 +1,7 @@
 """Test Cached Decorator."""
 
 import asyncio
+import contextvars
 import inspect
 import logging
 import threading
@@ -2381,3 +2382,86 @@ class TestEarlyRefreshFailureIsObservable:
 
         # Assert
         assert not records_of(caplog, "grelmicro.cache.cached")
+
+
+_REQUEST_ID: contextvars.ContextVar[str] = contextvars.ContextVar("request_id")
+"""A context variable the caller sets before calling a sync cached function."""
+
+
+class TestSyncCallerContext:
+    """A sync cached function runs with its caller's context variables."""
+
+    async def test_cluster_miss_runs_with_the_caller_context(self) -> None:
+        """A miss under `lock="cluster"` computes with the caller's context."""
+        # Arrange
+        cache = _shared_cache(asyncio.get_running_loop())
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
+        seen: list[str] = []
+
+        @cached(cache, lock="cluster")
+        def compute(x: int) -> int:
+            seen.append(_REQUEST_ID.get("unset"))
+            return x * 2
+
+        # Act
+        async with micro:
+            _REQUEST_ID.set("caller")
+            await asyncio.to_thread(compute, 5)
+
+        # Assert
+        assert seen == ["caller"]
+
+    async def test_cluster_refresh_runs_with_the_caller_context(self) -> None:
+        """`refresh` under `lock="cluster"` computes with the caller's context."""
+        # Arrange
+        cache = _shared_cache(asyncio.get_running_loop())
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
+        seen: list[str] = []
+
+        @cached(cache, lock="cluster")
+        def compute(x: int) -> int:
+            seen.append(_REQUEST_ID.get("unset"))
+            return x * 2
+
+        # Act
+        async with micro:
+            _REQUEST_ID.set("caller")
+            await asyncio.to_thread(compute.refresh, 5)
+
+        # Assert
+        assert seen == ["caller"]
+
+    async def test_early_refresh_runs_with_the_caller_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An early refresh on its own thread computes with the caller's context."""
+        # Arrange
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        monkeypatch.setattr(
+            cached_mod, "_xfetch_should_refresh", lambda *_: True
+        )
+        cache = _make_cache(ttl=60)
+        seen: list[str] = []
+        refreshed = threading.Event()
+
+        @cached(cache, early=0.5)
+        def compute(x: int) -> int:
+            seen.append(_REQUEST_ID.get("unset"))
+            if len(seen) == EXPECTED_CALL_COUNT_2:
+                refreshed.set()
+            return x * 2
+
+        _REQUEST_ID.set("caller")
+        await asyncio.to_thread(compute, 5)  # miss at t=1000
+        clock.t = 1040
+
+        # Act
+        await asyncio.to_thread(compute, 5)  # hit, schedules the refresh
+        assert await asyncio.to_thread(refreshed.wait, 10)
+
+        # Assert
+        assert seen == ["caller", "caller"]

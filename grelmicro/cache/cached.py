@@ -1,6 +1,7 @@
 """Cached Decorator."""
 
 import asyncio
+import contextvars
 import functools
 import inspect
 import json
@@ -37,6 +38,7 @@ from grelmicro._async import (
     on_backend_loop,
     raise_backend_not_open,
     raise_event_loop_deadlock,
+    run_in_thread,
 )
 from grelmicro._duration import check_duration
 from grelmicro._key_checks import KeyFunction, check_key_choice
@@ -1259,7 +1261,6 @@ def _build_sync_wrapper(  # noqa: C901
                         cache,
                         key,
                         skip,
-                        loop,
                         early=early,
                         stale_ttl=stale_ttl,
                         tag_spec=tag_spec,
@@ -1321,7 +1322,6 @@ def _build_sync_wrapper(  # noqa: C901
                             cache,
                             key,
                             skip,
-                            loop,
                             early=early,
                             stale_ttl=stale_ttl,
                             tag_spec=tag_spec,
@@ -1369,7 +1369,6 @@ async def _distributed_orchestrate(  # noqa: PLR0913
     cache: TTLCache,
     key: str,
     skip: Callable[[Any], bool] | None,
-    loop: Any,  # noqa: ANN401
     *,
     early: float | None,
     stale_ttl: timedelta | None,
@@ -1382,7 +1381,8 @@ async def _distributed_orchestrate(  # noqa: PLR0913
     The blocking function runs in an executor so it does not stall the
     loop, while the `Lock` acquire and release stay on the same task so
     ownership holds. A refresh passes `peek=False`, so it recomputes
-    instead of returning an entry another caller just stored.
+    instead of returning an entry another caller just stored. The function
+    runs in a copy of this task's context, which carries the caller's.
     """
     async with fold.across(key) as crossed:
         if peek and crossed:
@@ -1390,7 +1390,7 @@ async def _distributed_orchestrate(  # noqa: PLR0913
             if result is not _SENTINEL:
                 return result
         started = time.perf_counter()
-        result = await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+        result = await run_in_thread(None, func, *args, **kwargs)
         delta = time.perf_counter() - started
         if skip is None or not skip(result):
             await cache.set(
@@ -1462,7 +1462,9 @@ def _maybe_refresh_sync(  # noqa: PLR0913, PLR0917
         finally:
             the_lock.release()
 
-    threading.Thread(target=refresh, daemon=True).start()
+    threading.Thread(
+        target=refresh, daemon=True, context=contextvars.copy_context()
+    ).start()
 
 
 def _compute_and_cache_sync(
