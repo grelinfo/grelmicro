@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from grelmicro._deprecation import FutureChange, Removal, Rename
+from grelmicro._deprecation import FutureChange, Moved, Removal, Rename
 from tools import changelog, release_audit
 from tools.release_audit import GitHubError
 
@@ -242,6 +242,20 @@ def test_has_breaking_line_finds_the_retired_name(
 ) -> None:
     """A Breaking line naming what the entry retires counts."""
     assert release_audit.has_breaking_line(entry, [line])
+
+
+def test_has_breaking_line_finds_the_module_a_moved_entry_leaves() -> None:
+    """A Breaking line naming the module the names leave counts."""
+    # Arrange
+    moved = Moved(
+        module="grelmicro.security.bans",
+        homes={"AdmissionError": "grelmicro.errors"},
+        removed_in="0.45.0",
+    )
+    line = "* 💥 `grelmicro.security.bans` no longer serves `AdmissionError`."
+
+    # Act / Assert
+    assert release_audit.has_breaking_line(moved, [line])
 
 
 def test_has_breaking_line_ignores_an_unrelated_line() -> None:

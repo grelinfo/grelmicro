@@ -8,6 +8,7 @@
 ### Internal
 * ✅ Two timing tests wait for what they check instead of a fixed sleep a slow runner could miss: the `SELECT ... FOR UPDATE` test starts the second writer once the first holds the row lock, and the two-provider SQLite election waits up to 10 seconds for a leader. ([#1215](https://github.com/grelinfo/grelmicro/pull/1215))
 * ✅ A test covers an encoded non-credential assignment beside a credential, so the full URL redaction no longer reaches 100% coverage only through random property-test inputs. ([#1216](https://github.com/grelinfo/grelmicro/pull/1216))
+* ✅ `PENDING` lists the `grelmicro.security.bans` and `grelmicro.security.jwt` import paths that 0.45.0 retires, so the release audit flags them as due and finds their Breaking line. A test fails when a declared change is missing from `PENDING`. ([#1213](https://github.com/grelinfo/grelmicro/pull/1213))
 
 ## 0.44.1 - 2026-10-27
 
