@@ -22,7 +22,7 @@ The limit counts the calls through one `Bulkhead` object in one process. Build i
 
 ### Bounded blocking work
 
-`to_thread` runs a blocking function on the bulkhead's own thread pool when `max_workers` is set, otherwise on the event loop's shared executor.
+`to_thread` runs a blocking function on the bulkhead's own thread pool when `max_workers` is set, otherwise on the event loop's shared executor. Either way the function sees the caller's context variables, so its log records keep their context fields.
 
 ```python
 --8<-- "resilience/bulkhead_to_thread.py"

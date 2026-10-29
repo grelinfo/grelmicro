@@ -28,7 +28,7 @@ from grelmicro._app import (
     bulkhead_layer,
     enter_bulkhead_scope,
 )
-from grelmicro._async import is_async_callable
+from grelmicro._async import is_async_callable, run_in_thread
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
     Reconfigurable,
@@ -848,21 +848,20 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         """Run ``func`` in a worker thread, bounded by `max_workers`.
 
         Routes through the bulkhead's private `ThreadPoolExecutor` when
-        `max_workers` is set, otherwise the event loop's shared executor
-        (`asyncio.to_thread`).
+        `max_workers` is set, otherwise the event loop's default executor.
+        Either way ``func`` runs in a copy of the caller's context, so it
+        reads the caller's context variables and its own writes stay in
+        the copy.
         """
         max_workers = self._state.config.max_workers
         if max_workers is None:
-            return await asyncio.to_thread(func, *args, **kwargs)
+            return await run_in_thread(None, func, *args, **kwargs)
         if self._executor is None:
             self._executor = ThreadPoolExecutor(
                 max_workers=max_workers,
                 thread_name_prefix=f"bulkhead-{self._name}",
             )
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, functools.partial(func, *args, **kwargs)
-        )
+        return await run_in_thread(self._executor, func, *args, **kwargs)
 
     async def _apply_reconfigure(self, new_config: BulkheadConfig) -> None:
         """Publish a fresh snapshot. In-flight calls keep their permit.

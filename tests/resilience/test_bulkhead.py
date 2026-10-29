@@ -247,6 +247,26 @@ async def test_to_thread_private_executor() -> None:
     assert again.startswith("bulkhead-checkout")
 
 
+_REQUEST_ID: contextvars.ContextVar[str] = contextvars.ContextVar("request_id")
+"""A context variable the caller sets before `to_thread`."""
+
+
+@pytest.mark.parametrize("max_workers", [None, 2])
+async def test_to_thread_sees_the_caller_context(
+    max_workers: int | None,
+) -> None:
+    """The function reads the caller's context variables on either pool."""
+    # Arrange
+    bulkhead = Bulkhead("api", max_workers=max_workers)
+    _REQUEST_ID.set("caller")
+
+    # Act
+    seen = await bulkhead.to_thread(_REQUEST_ID.get, "unset")
+
+    # Assert
+    assert seen == "caller"
+
+
 async def test_to_thread_passes_kwargs() -> None:
     """`to_thread` forwards positional and keyword arguments."""
     bulkhead = Bulkhead("api", max_workers=1)
