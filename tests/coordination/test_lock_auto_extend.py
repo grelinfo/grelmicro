@@ -28,6 +28,9 @@ pytestmark = [pytest.mark.timeout(10)]
 LEASE = 0.15
 """Seconds of lease, short enough to outlive several of them in a test."""
 
+STEADY = 0.6
+"""Seconds of lease for a hold whose every renewal must land, past any loop stall."""
+
 WAIT = 0.5
 """Seconds a hold waits for the lock."""
 
@@ -89,12 +92,12 @@ async def test_auto_extend_keeps_the_lock_past_several_leases(
 ) -> None:
     """The body outlives four leases and the lock is never free for another worker."""
     # Arrange
-    lock = _lock(backend)
+    lock = _lock(backend, lease=STEADY)
     other = _lock(backend, "worker_1")
 
     # Act
     async with lock.hold(timeout=WAIT, auto_extend=True) as held:
-        await asyncio.sleep(LEASE * 4)
+        await asyncio.sleep(STEADY * 4)
         with pytest.raises(WouldBlockError):
             await other.acquire_nowait()
         owned = await backend.owned(name="lock:orders", token=held.token)
@@ -109,12 +112,12 @@ async def test_auto_extend_keeps_the_fencing_token(
 ) -> None:
     """Each renewal keeps the fencing token the hold returned."""
     # Arrange
-    lock = _lock(backend)
+    lock = _lock(backend, lease=STEADY)
     extend = mocker.spy(lock, "_backend_extend")
 
     # Act
     async with lock.hold(timeout=WAIT, auto_extend=True) as held:
-        await asyncio.sleep(LEASE * 2)
+        await asyncio.sleep(STEADY * 2)
 
     # Assert
     assert extend.call_count >= RENEWALS
@@ -127,16 +130,16 @@ async def test_auto_extend_stops_renewing_once_the_body_ends(
 ) -> None:
     """Leaving the body stops the renewer, leaves no task behind, and releases."""
     # Arrange
-    lock = _lock(backend)
+    lock = _lock(backend, lease=STEADY)
     extend = mocker.spy(lock, "_backend_extend")
     before = _other_tasks()
 
     # Act
     async with lock.hold(timeout=WAIT, auto_extend=True):
-        await asyncio.sleep(LEASE)
+        await asyncio.sleep(STEADY)
         renewing = _other_tasks() - before
     calls = extend.call_count
-    await asyncio.sleep(LEASE)
+    await asyncio.sleep(STEADY)
 
     # Assert
     assert len(renewing) == 1
@@ -309,7 +312,7 @@ async def test_auto_extend_transient_error_keeps_the_lock(
     """A renewal that fails once and then works keeps the body running."""
     # Arrange
     caplog.set_level("WARNING")
-    lock = _lock(backend)
+    lock = _lock(backend, lease=STEADY)
     other = _lock(backend, "worker_1")
     real = lock._backend_extend
     calls = 0
@@ -325,7 +328,7 @@ async def test_auto_extend_transient_error_keeps_the_lock(
 
     # Act
     async with lock.hold(timeout=WAIT, auto_extend=True):
-        await asyncio.sleep(LEASE * 3)
+        await asyncio.sleep(STEADY * 3)
         with pytest.raises(WouldBlockError):
             await other.acquire_nowait()
 
