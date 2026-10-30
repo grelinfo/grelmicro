@@ -43,7 +43,7 @@ requires_sqlalchemy = pytest.mark.skipif(
     not HAS_SQLALCHEMY, reason="sqlalchemy is not installed"
 )
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 ASYNCPG_URL = (

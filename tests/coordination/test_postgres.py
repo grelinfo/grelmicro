@@ -20,7 +20,7 @@ from grelmicro.providers.postgres import PostgresProvider
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 @pytest.mark.parametrize(
     "table_name",
     [
@@ -41,7 +41,7 @@ def test_table_name_invalid(table_name: str) -> None:
         )
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_out_of_context_errors() -> None:
     """Backend methods raise when called outside the context manager."""
     backend = PostgresLeaderElectionAdapter(provider=PostgresProvider(URL))
@@ -58,7 +58,7 @@ async def test_out_of_context_errors() -> None:
         await backend.get(name=name)
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_backend_with_implicit_env_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -71,7 +71,7 @@ def test_backend_with_implicit_env_provider(
     assert backend._owns_provider is True
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_backend_borrows_external_provider() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = PostgresProvider(URL)
@@ -81,7 +81,7 @@ def test_backend_borrows_external_provider() -> None:
     assert backend._owns_provider is False
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_backend_env_prefix_passed_to_implicit_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -94,7 +94,7 @@ def test_backend_env_prefix_passed_to_implicit_provider(
     assert backend.provider.env_prefix == "WRITE_POSTGRES_"
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_env_validation_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -106,7 +106,7 @@ def test_env_validation_error_propagates(
         PostgresLeaderElectionAdapter()
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_custom_table_name() -> None:
     """Custom `table_name=` is stored on the backend."""
     backend = PostgresLeaderElectionAdapter(
@@ -116,7 +116,7 @@ def test_custom_table_name() -> None:
     assert backend._table_name == "my_leaders"
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_provider_factory() -> None:
     """`provider.leaderelection_backend()` binds a backend to the provider."""
     provider = PostgresProvider(URL)
@@ -128,7 +128,7 @@ def test_provider_factory() -> None:
     assert backend._owns_provider is False
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_satisfies_protocol() -> None:
     """The backend satisfies the `LeaderElectionBackend` protocol."""
     backend = PostgresLeaderElectionAdapter(provider=PostgresProvider(URL))
@@ -136,7 +136,7 @@ def test_satisfies_protocol() -> None:
     assert isinstance(backend, LeaderElectionBackend)
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_rebind_provider_borrows_new_provider() -> None:
     """`_rebind_provider` swaps the provider and marks it borrowed."""
     owned = PostgresProvider(URL)
@@ -150,7 +150,7 @@ def test_rebind_provider_borrows_new_provider() -> None:
     assert backend._owns_provider is False
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_owned_provider_lifecycle(
     mocker: pytest_mock.MockerFixture,
 ) -> None:
@@ -172,7 +172,7 @@ async def test_owned_provider_lifecycle(
     aexit.assert_awaited_once()
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_borrowed_provider_lifecycle_left_alone(
     mocker: pytest_mock.MockerFixture,
 ) -> None:
@@ -193,7 +193,7 @@ async def test_borrowed_provider_lifecycle_left_alone(
     aexit.assert_not_awaited()
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

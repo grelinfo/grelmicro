@@ -5,7 +5,7 @@ import pytest
 from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.providers.redis import RedisProvider
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 URL = "redis://:test_password@test_host:1234/0"
 

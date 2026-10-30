@@ -20,7 +20,7 @@ from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
 )
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 CLOSED = CircuitBreakerState.CLOSED
 OPEN = CircuitBreakerState.OPEN

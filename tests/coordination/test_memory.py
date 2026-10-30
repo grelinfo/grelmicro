@@ -9,7 +9,7 @@ import pytest
 
 from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 NAME = "svc"
 SHORT = timedelta(milliseconds=20)

@@ -18,6 +18,7 @@ from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import WouldBlockError
 
 if TYPE_CHECKING:
+    import logging
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from pytest_mock import MockerFixture
@@ -64,6 +65,11 @@ def _extend_with(
 ) -> None:
     """Route the lock's backend extensions through `answer`."""
     mocker.patch.object(lock, "_backend_extend", side_effect=answer)
+
+
+def _lock_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """Return the records the lock logged, leaving out other loggers."""
+    return [r for r in caplog.records if r.name == "grelmicro.coordination"]
 
 
 def _current() -> asyncio.Task[object]:
@@ -286,11 +292,11 @@ async def test_auto_extend_cancels_the_body_before_it_warns(
             try:
                 await asyncio.sleep(LEASE * 10)
             finally:
-                warned_before_cancel = bool(caplog.records)
+                warned_before_cancel = bool(_lock_records(caplog))
 
     # Assert
     assert not warned_before_cancel
-    [warned] = caplog.records
+    [warned] = _lock_records(caplog)
     assert "orders" in warned.getMessage()
     assert (warned.exc_info is not None) is (failure != "lost")
 

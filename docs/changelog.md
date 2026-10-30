@@ -14,11 +14,12 @@
 * 🐛 A `RateLimited(key=...)` route no longer warns when the key function returns `None`, and the warning for a caller nobody resolved no longer blames `trusted=` when it is set. ([#1225](https://github.com/grelinfo/grelmicro/pull/1225))
 
 ### Security
-* 🔒 On Litestar, idempotent replay and the response cache never hand one caller another caller's response. A user without `is_authenticated` or a credential without `scopes`, as Litestar authentication sets them, counts as a caller, and a response is not stored when authentication behind the middleware set its caller. The built-in idempotency key moves to a `v4:` format, so a retry crossing the upgrade runs the handler once more. ([#1224](https://github.com/grelinfo/grelmicro/pull/1224))
+* 🔒 On Litestar, idempotent replay and the response cache never hand one caller another caller's response. A user without `is_authenticated` or a credential without `scopes`, as Litestar authentication sets them, counts as a caller, and a response is not stored when authentication behind the middleware set its caller. ([#1224](https://github.com/grelinfo/grelmicro/pull/1224))
+* 🔒 The built-in idempotency key moves to a `v4:` format on every framework, so a retry that crosses the upgrade runs the handler once more. ([#1224](https://github.com/grelinfo/grelmicro/pull/1224))
 
 ### Internal
 * ✅ New tests pin more than 400 behaviors that mutation testing found unchecked in JWT verification, JWKS fetching, URL redaction, request paths, the read-write lock, cron tasks, and the authentication, idempotency, rate limit and conditional request middleware. ([#1217](https://github.com/grelinfo/grelmicro/pull/1217), [#1218](https://github.com/grelinfo/grelmicro/pull/1218), [#1219](https://github.com/grelinfo/grelmicro/pull/1219), [#1220](https://github.com/grelinfo/grelmicro/pull/1220), [#1221](https://github.com/grelinfo/grelmicro/pull/1221), [#1226](https://github.com/grelinfo/grelmicro/pull/1226))
-* ✅ Three tests no longer depend on timing, test order or random inputs. ([#1215](https://github.com/grelinfo/grelmicro/pull/1215), [#1216](https://github.com/grelinfo/grelmicro/pull/1216), [#1222](https://github.com/grelinfo/grelmicro/pull/1222))
+* ✅ Four tests no longer depend on timing, test order or random inputs. A hung test fails within ten minutes instead of blocking the run. ([#1215](https://github.com/grelinfo/grelmicro/pull/1215), [#1216](https://github.com/grelinfo/grelmicro/pull/1216), [#1222](https://github.com/grelinfo/grelmicro/pull/1222), [#1229](https://github.com/grelinfo/grelmicro/pull/1229))
 * 👷 The release audit tracks the two `grelmicro.security` import paths 0.45.0 retires, and a test fails when a change is declared but left out of it. ([#1213](https://github.com/grelinfo/grelmicro/pull/1213))
 
 ## 0.44.1 - 2026-10-27

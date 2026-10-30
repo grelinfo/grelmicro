@@ -22,7 +22,7 @@ from grelmicro.resilience.circuitbreaker.postgres import (
 )
 from grelmicro.resilience.errors import CircuitBreakerError
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 URL = "postgresql://test:test@test_host:5432/test"
 

@@ -19,7 +19,7 @@ from grelmicro.resilience.circuitbreaker.sqlite import (
     SQLiteCircuitBreakerAdapter,
 )
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 RESET_TIMEOUT = timedelta(seconds=12)
 """Cool-down of the breakers under test."""

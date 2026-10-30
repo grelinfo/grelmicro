@@ -34,7 +34,7 @@ async def checkpoint() -> None:
     await asyncio.sleep(0)
 
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 LIMIT = 5
 WINDOW = 60

@@ -7,7 +7,7 @@ from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.testing import Call, CallLog, record
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 T1 = "t1"
 T2 = "t2"

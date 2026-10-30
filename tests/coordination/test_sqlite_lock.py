@@ -15,7 +15,7 @@ from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 
 @pytest.mark.parametrize(

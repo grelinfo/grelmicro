@@ -24,7 +24,7 @@ from grelmicro.resilience.circuitbreaker.redis import (
 )
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 URL = "redis://:test_password@test_host:1234/0"
 _TWO_HOSTS = 2

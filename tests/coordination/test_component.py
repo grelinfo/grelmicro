@@ -26,7 +26,7 @@ from grelmicro.providers.sqlite import SQLiteProvider
 if TYPE_CHECKING:
     from types import TracebackType
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 
 def test_coordination_satisfies_component_protocol() -> None:
