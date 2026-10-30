@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pytest
 from litestar import Litestar, Router, asgi, get, post, websocket
+from litestar import Request as LitestarRequest
 from litestar import WebSocket as LitestarWebSocket
 from litestar.background_tasks import BackgroundTask
 from litestar.config.cors import CORSConfig
@@ -40,6 +41,7 @@ from grelmicro.http import (
     RateLimitMiddleware,
     RouteDeclaration,
 )
+from grelmicro.http._authentication import template_under_root
 from grelmicro.integrations.litestar import (
     Anonymous,
     Authenticated,
@@ -863,13 +865,105 @@ class TestAuthenticationInTheApp:
         assert statuses == [OK, UNAUTHORIZED, OK, FORBIDDEN, UNAUTHORIZED]
         assert calls.served == ["public", "private"]
 
-    @pytest.mark.usefixtures("clock")
-    async def test_the_answering_middleware_run_once_it_admitted_the_request(
+    def test_a_public_handler_reads_an_anonymous_caller_and_the_body(
         self,
     ) -> None:
-        """A refused request spends nothing, an admitted one is limited."""
+        """`request.user` and `request.auth` answer, and the body is read."""
         component = AuthenticatedRequests(verifier())
         middleware, options = component.asgi_middleware()
+
+        @post("/public", opt=Anonymous(), status_code=OK)
+        async def public(
+            request: LitestarRequest[Any, Any, Any],
+        ) -> dict[str, Any]:
+            return {
+                "user": request.user.is_authenticated,
+                "auth": request.auth.is_authenticated,
+                "data": await request.json(),
+            }
+
+        app = Litestar(
+            [public], middleware=[DefineMiddleware(middleware, **options)]
+        )
+        Grelmicro(uses=[ErrorResponses(), component]).install(app)
+        with TestClient(app) as client:
+            response = client.post("/public", json={"n": 1})
+
+        assert response.json() == {
+            "user": False,
+            "auth": False,
+            "data": {"n": 1},
+        }
+
+    def test_a_refusal_is_answered_in_the_app_format_and_recorded(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """The format the app registered, as a refusal in front of the router."""
+        component = AuthenticatedRequests(verifier())
+        middleware, options = component.asgi_middleware()
+
+        @get("/public", opt=Anonymous())
+        async def public() -> str:
+            return "public"  # pragma: no cover
+
+        @get("/private")
+        async def private() -> str:
+            return "private"  # pragma: no cover
+
+        app = Litestar(
+            [public, private],
+            middleware=[DefineMiddleware(middleware, **options)],
+        )
+        Grelmicro(uses=[ErrorResponses.tmf(), component]).install(app)
+        with TestClient(app) as client:
+            refused = client.get("/private")
+
+        assert refused.status_code == UNAUTHORIZED
+        assert refused.headers["content-type"] == "application/json"
+        assert [record.__dict__["error.type"] for record in events] == [
+            "authentication-required"
+        ]
+
+    def test_a_websocket_without_a_credential_is_closed(self) -> None:
+        """As a protected websocket handler in front of the router closes it."""
+        component = AuthenticatedRequests(verifier())
+        middleware, options = component.asgi_middleware()
+
+        @get("/public", opt=Anonymous())
+        async def public() -> str:
+            return "public"  # pragma: no cover
+
+        @websocket("/ws")
+        async def chat(socket: LitestarWebSocket[Any, Any, Any]) -> None:
+            await socket.accept()  # pragma: no cover
+            await socket.close()  # pragma: no cover
+
+        app = Litestar(
+            [public, chat],
+            middleware=[DefineMiddleware(middleware, **options)],
+        )
+        Grelmicro(uses=[ErrorResponses(), component]).install(app)
+        with (
+            TestClient(app) as client,
+            pytest.raises(WebSocketDisconnect) as refused,
+            client.websocket_connect("/ws"),
+        ):
+            pass  # pragma: no cover
+
+        assert refused.value.code == CLOSED
+
+    @pytest.mark.usefixtures("clock")
+    @pytest.mark.parametrize(
+        "passed_to_the_app", [False, True], ids=["installed", "passed too"]
+    )
+    async def test_the_answering_middleware_run_once_it_admitted_the_request(
+        self, *, passed_to_the_app: bool
+    ) -> None:
+        """A refused request spends nothing, an admitted one is limited once."""
+        component = AuthenticatedRequests(verifier())
+        middleware, options = component.asgi_middleware()
+        limit = limited()
+        limiting, limits = limit.asgi_middleware()
 
         @get("/public", opt=Anonymous())
         async def public() -> str:
@@ -879,11 +973,11 @@ class TestAuthenticationInTheApp:
         async def private() -> str:
             return "private"
 
-        app = Litestar(
-            [public, private],
-            middleware=[DefineMiddleware(middleware, **options)],
-        )
-        Grelmicro(uses=[ErrorResponses(), component, limited()]).install(app)
+        stack = [DefineMiddleware(middleware, **options)]
+        if passed_to_the_app:
+            stack.append(DefineMiddleware(limiting, **limits))
+        app = Litestar([public, private], middleware=stack)
+        Grelmicro(uses=[ErrorResponses(), component, limit]).install(app)
         async with AsyncTestClient(app) as client:
             refused = [
                 (await client.get("/private")).status_code for _ in range(3)
@@ -1093,3 +1187,43 @@ def test_authentication_on_a_handler_serves_its_anonymous_route() -> None:
         ]
 
     assert statuses == [OK, UNAUTHORIZED, OK, UNAUTHORIZED]
+
+
+@pytest.mark.parametrize(
+    ("scope", "named"),
+    [
+        pytest.param(
+            {
+                "root_path": "/api",
+                "raw_path": b"/api/items/7",
+                "path": "/items/7",
+            },
+            "/api/items/{item_id}",
+            id="root path Litestar took off the path",
+        ),
+        pytest.param(
+            {
+                "root_path": "/api/",
+                "raw_path": b"/api/items/7",
+                "path": "/items/7",
+            },
+            "/api/items/{item_id}",
+            id="root path with a trailing slash",
+        ),
+        pytest.param(
+            {"root_path": "/api", "raw_path": b"/items/7", "path": "/items/7"},
+            "/items/{item_id}",
+            id="root path a proxy stripped",
+        ),
+        pytest.param(
+            {"path": "/items/7"},
+            "/items/{item_id}",
+            id="no root path",
+        ),
+    ],
+)
+def test_a_gate_with_no_route_reader_names_the_route_under_the_root_path(
+    scope: dict[str, Any], named: str
+) -> None:
+    """As the access log names it, from the path the request arrived with."""
+    assert template_under_root("/items/{item_id}", scope) == named

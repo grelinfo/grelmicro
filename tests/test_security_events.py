@@ -403,6 +403,24 @@ class TestRoute:
         [record] = events
         assert field(record, "http.route") is None
 
+    def test_a_middleware_added_by_hand_names_no_caller(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """`enduser` is off unless it is passed."""
+        app = Starlette(routes=[Route("/whoami", whoami)])
+        app.add_middleware(
+            AuthenticatedRequestsMiddleware,
+            verifier=verifier(),
+            check=lambda caller, scope: None,  # noqa: ARG005
+        )
+        client = TestClient(app)
+
+        client.get("/whoami", headers=bearer(token()))
+
+        [record] = events
+        assert field(record, "error.type") == "revoked"
+        assert field(record, "enduser.id") is None
+
     def test_a_litestar_middleware_added_by_hand_names_no_route(
         self, events: list[logging.LogRecord]
     ) -> None:

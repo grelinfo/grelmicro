@@ -88,6 +88,7 @@ pytestmark = [pytest.mark.timeout(10)]
 
 KEY = {"Idempotency-Key": "key-1"}
 LARGE_BODY = b"x" * 4096
+MAX_KEY_LENGTH = 255
 DEFAULT_STORAGE_KEY_LENGTH = 67
 POSTGRES_BTREE_INDEX_ITEM_LIMIT = 2704
 
@@ -156,6 +157,11 @@ def _register_result_routes(app: FastAPI, calls: dict[str, int]) -> None:
     async def text() -> Response:
         calls["count"] += 1
         return Response(content="plain", media_type="text/plain")
+
+    @app.post("/echo")
+    async def echo(request: Request) -> Response:
+        calls["count"] += 1
+        return Response(content=await request.body(), media_type="text/plain")
 
 
 def _register_storage_routes(app: FastAPI, calls: dict[str, int]) -> None:
@@ -363,6 +369,40 @@ def test_custom_header_dependency_runs_before_every_response() -> None:
     assert authorized.status_code == HTTP_200_OK
     assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
     assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_a_reconfigured_component_still_runs_behind_the_route_checks() -> None:
+    """A live reload keeps the middleware at the route, after its dependencies."""
+    # Arrange
+    app = FastAPI()
+    component = IdempotentRequests()
+    Grelmicro(uses=[Cache(MemoryCacheAdapter()), component]).install(app)
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> None:
+        if x_api_key is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/whoami", dependencies=[Depends(authenticate)])
+    async def whoami(x_api_key: Annotated[str, Header()]) -> dict[str, str]:
+        return {"caller": x_api_key}
+
+    asyncio.run(
+        component.reconfigure(
+            component.config.model_copy(update={"max_wait": 1.0})
+        )
+    )
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post("/whoami", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/whoami", headers={**KEY, "X-API-Key": "bob"})
+
+    # Assert
+    assert alice.json() == {"caller": "alice"}
+    assert bob.json() == {"caller": "bob"}
+    assert "idempotent-replayed" not in bob.headers
 
 
 def test_included_router_detects_authenticated_mount() -> None:
@@ -1155,6 +1195,31 @@ def test_middleware_unlisted_method_passes_through(
     assert second.json() == {"call": 2}
 
 
+@pytest.mark.parametrize(
+    ("options", "headers"),
+    [
+        pytest.param({}, {}, id="no key"),
+        pytest.param(
+            {}, {**KEY, "Authorization": "Bearer secret"}, id="private"
+        ),
+        pytest.param({"exclude": ("/echo",)}, KEY, id="excluded"),
+    ],
+)
+def test_middleware_passed_through_request_keeps_its_body(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+    options: dict[str, Any],
+    headers: dict[str, str],
+) -> None:
+    """A request the middleware leaves alone reaches the handler whole."""
+    # Arrange
+    client, _calls = client_factory(**options)
+    # Act
+    response = client.post("/echo", headers=headers, content=b"payload")
+    # Assert
+    assert response.content == b"payload"
+    assert "idempotent-replayed" not in response.headers
+
+
 def test_middleware_different_key_executes_again(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:
@@ -1210,6 +1275,10 @@ def test_default_storage_key_does_not_read_legacy_entries() -> None:
     assert storage_key not in legacy_keys
     assert storage_key.isascii()
     assert len(storage_key) == DEFAULT_STORAGE_KEY_LENGTH
+    without_query = {k: v for k, v in scope.items() if k != "query_string"}
+    assert middleware._storage_key(without_query, "key-1") == (
+        "v4:7e9abf0609ad3c649d4c988f3c4c88a6615bb5c589f548450ea6623fbd77288c"
+    )
 
 
 def test_default_key_isolates_host_routed_tenants() -> None:
@@ -1381,10 +1450,14 @@ def test_default_key_serialization_has_no_delimiter_collisions() -> None:
         },
         "key-1",
     )
+    lone_surrogate = _default_storage_key(
+        {**base, "path": "/a\ud800", "query_string": b""}, "key-1"
+    )
 
     assert path_then_query != path_before_query
     assert query_then_key != query_before_key
     assert unicode_bytes.isascii()
+    assert lone_surrogate.isascii()
     assert "\x00" not in unicode_bytes
     assert "\x1f" not in unicode_bytes
 
@@ -1714,6 +1787,23 @@ def test_middleware_skip_predicate_allows_other_responses(
     assert calls == {"count": 1}
 
 
+def test_middleware_skip_predicate_reads_the_response_headers(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+) -> None:
+    """`skip` sees the headers the response carries."""
+    # Arrange
+    client, calls = client_factory(
+        skip=lambda response: response["headers"]["content-type"].startswith(
+            "text/plain"
+        )
+    )
+    # Act
+    client.post("/text", headers=KEY)
+    client.post("/text", headers=KEY)
+    # Assert
+    assert calls == {"count": 2}
+
+
 def test_middleware_oversized_response_is_not_stored(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:
@@ -1725,6 +1815,35 @@ def test_middleware_oversized_response_is_not_stored(
     client.post("/large", headers=KEY)
     # Assert
     assert first.content == LARGE_BODY
+    assert calls == {"count": 2}
+
+
+def test_middleware_response_at_the_size_limit_is_stored(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+) -> None:
+    """A body of exactly max_body_size still replays."""
+    # Arrange
+    client, calls = client_factory(max_body_size=len(LARGE_BODY))
+    # Act
+    client.post("/large", headers=KEY)
+    second = client.post("/large", headers=KEY)
+    # Assert
+    assert second.content == LARGE_BODY
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == {"count": 1}
+
+
+def test_middleware_chunked_response_over_the_size_limit_is_not_stored(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+) -> None:
+    """The limit counts every chunk, not only the largest one."""
+    # Arrange
+    client, calls = client_factory(max_body_size=len("one "))
+    # Act
+    first = client.post("/stream", headers=KEY)
+    client.post("/stream", headers=KEY)
+    # Assert
+    assert first.text == "one two"
     assert calls == {"count": 2}
 
 
@@ -1773,6 +1892,21 @@ def test_middleware_oversized_key_rejected(
     assert calls == {"count": 0}
 
 
+def test_middleware_key_at_the_length_limit_is_accepted(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+) -> None:
+    """A key of exactly the maximum length is still a key."""
+    # Arrange
+    client, calls = client_factory()
+    key = {"Idempotency-Key": "x" * MAX_KEY_LENGTH}
+    # Act
+    client.post("/charge", headers=key)
+    second = client.post("/charge", headers=key)
+    # Assert
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == {"count": 1}
+
+
 def test_middleware_reused_key_with_new_body_conflicts(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:
@@ -1817,6 +1951,19 @@ def test_middleware_oversized_body_rejected_when_fingerprinting(
     assert response.headers["content-type"] == "application/problem+json"
     assert response.json()["type"].endswith("#request-body-too-large")
     assert calls == {"count": 0}
+
+
+def test_middleware_body_at_the_size_limit_is_fingerprinted(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+) -> None:
+    """A body of exactly max_body_size is hashed, not refused."""
+    # Arrange
+    client, calls = client_factory(fingerprint_body=True, max_body_size=16)
+    # Act
+    response = client.post("/charge", headers=KEY, content=b"x" * 16)
+    # Assert
+    assert response.status_code == HTTP_200_OK
+    assert calls == {"count": 1}
 
 
 def test_middleware_bodyless_status_replays_without_content_length(
@@ -2034,7 +2181,10 @@ def test_middleware_without_grelmicro_scope_names_the_fix() -> None:
 
 
 async def _drive(
-    middleware: IdempotencyMiddleware, messages: list[Message]
+    middleware: IdempotencyMiddleware,
+    messages: list[Message],
+    *,
+    method: str = "POST",
 ) -> list[Message]:
     """Run one request through the middleware and collect what it sends."""
     incoming = iter(messages)
@@ -2048,12 +2198,39 @@ async def _drive(
 
     scope: Scope = {
         "type": "http",
-        "method": "POST",
+        "method": method,
         "path": "/charge",
         "headers": [(b"idempotency-key", b"key-1")],
     }
     await middleware(scope, receive, send)
     return sent
+
+
+_START: Message = {"type": "http.response.start", "status": 200, "headers": []}
+"""The start of a response that declares nothing of its own."""
+
+
+def _sending(
+    *messages: Message,
+) -> tuple[Callable[[Scope, Receive, Send], Awaitable[None]], list[int]]:
+    """Return an app sending `messages` for each request, and its call log."""
+    calls: list[int] = []
+
+    async def app(
+        scope: Scope,  # noqa: ARG001
+        receive: Receive,  # noqa: ARG001
+        send: Send,
+    ) -> None:
+        calls.append(1)
+        for message in messages:
+            await send(dict(message))
+
+    return app, calls
+
+
+def _chunk(body: bytes, *, more_body: bool) -> Message:
+    """Return one request body message."""
+    return {"type": "http.request", "body": body, "more_body": more_body}
 
 
 async def test_middleware_hashes_a_chunked_request_body() -> None:
@@ -2131,8 +2308,158 @@ async def test_middleware_disconnect_before_body_is_not_fingerprinted() -> None:
     # Act
     async with micro:
         sent = await _drive(middleware, [{"type": "http.disconnect"}])
+        retry = await _drive(middleware, [_chunk(b"{}", more_body=False)])
     # Assert
     assert sent[0]["status"] == HTTP_200_OK
+    # No fingerprint was stored, so a body on the retry is no payload change.
+    assert retry[0]["status"] == HTTP_200_OK
+    assert (b"idempotent-replayed", b"true") in retry[0]["headers"]
+
+
+async def test_middleware_request_message_without_a_body_is_fingerprinted() -> (
+    None
+):
+    """A request message may leave `body` out, which reads as empty."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
+    middleware = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=True,
+    )
+    # Act
+    async with micro:
+        sent = await _drive(middleware, [{"type": "http.request"}])
+    # Assert
+    assert sent[0]["status"] == HTTP_200_OK
+    assert calls == [1]
+
+
+async def test_middleware_chunked_request_over_the_size_limit_is_refused() -> (
+    None
+):
+    """The limit counts every chunk, not only the largest one."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
+    middleware = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=True,
+        max_body_size=16,
+    )
+    # Act
+    async with micro:
+        sent = await _drive(
+            middleware,
+            [
+                _chunk(b"x" * 10, more_body=True),
+                _chunk(b"x" * 10, more_body=False),
+            ],
+        )
+    # Assert
+    assert sent[0]["status"] == HTTP_413_CONTENT_TOO_LARGE
+    assert calls == []
+
+
+async def test_middleware_change_in_a_later_request_chunk_conflicts() -> None:
+    """The fingerprint covers the whole body, not its first chunk."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
+    middleware = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=True,
+    )
+    # Act
+    async with micro:
+        await _drive(
+            middleware,
+            [_chunk(b"one ", more_body=True), _chunk(b"two", more_body=False)],
+        )
+        second = await _drive(
+            middleware,
+            [_chunk(b"one ", more_body=True), _chunk(b"six", more_body=False)],
+        )
+    # Assert
+    assert second[0]["status"] == HTTP_422_UNPROCESSABLE_CONTENT
+    assert calls == [1]
+
+
+async def test_middleware_response_declaring_trailers_is_not_stored() -> None:
+    """A replay could not send the trailers, so a retry runs the handler."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(
+        {**_START, "trailers": True},
+        {"type": "http.response.body", "body": b"{}"},
+        {"type": "http.response.trailers", "headers": []},
+    )
+    middleware = IdempotencyMiddleware(
+        app, idempotency=Idempotency("http", ttl=60)
+    )
+    # Act
+    async with micro:
+        await _drive(middleware, [])
+        await _drive(middleware, [])
+    # Assert
+    assert calls == [1, 1]
+
+
+async def test_middleware_response_message_without_a_body_is_replayed() -> None:
+    """A body message may leave `body` out, which stores an empty body."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(_START, {"type": "http.response.body"})
+    middleware = IdempotencyMiddleware(
+        app, idempotency=Idempotency("http", ttl=60)
+    )
+    # Act
+    async with micro:
+        await _drive(middleware, [])
+        second = await _drive(middleware, [])
+    # Assert
+    assert (b"idempotent-replayed", b"true") in second[0]["headers"]
+    assert second[1]["body"] == b""
+    assert calls == [1]
+
+
+async def test_middleware_response_torn_off_midway_is_not_stored() -> None:
+    """A body whose last chunk never arrives is never replayed."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(
+        _START, {"type": "http.response.body", "body": b"{", "more_body": True}
+    )
+    middleware = IdempotencyMiddleware(
+        app, idempotency=Idempotency("http", ttl=60)
+    )
+    # Act
+    async with micro:
+        await _drive(middleware, [])
+        await _drive(middleware, [])
+    # Assert
+    assert calls == [1, 1]
+
+
+async def test_middleware_head_replay_sends_no_body() -> None:
+    """A HEAD replay states the stored length and carries no content."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
+    middleware = IdempotencyMiddleware(
+        app, idempotency=Idempotency("http", ttl=60), methods=("HEAD",)
+    )
+    # Act
+    async with micro:
+        await _drive(middleware, [], method="HEAD")
+        second = await _drive(middleware, [], method="HEAD")
+    # Assert
+    assert (b"content-length", b"2") in second[0]["headers"]
+    assert second[1]["body"] == b""
+    assert calls == [1]
 
 
 async def _echo_body(scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG001

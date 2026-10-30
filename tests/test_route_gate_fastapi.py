@@ -738,6 +738,43 @@ class TestMounts:
             UNAUTHORIZED
         )
 
+    def test_an_anonymous_route_of_an_installed_app_under_an_installed_parent_reads_the_body(
+        self,
+    ) -> None:
+        """The request is handed on with what it sent."""
+
+        async def echoed(n: Annotated[int, Body(embed=True)]) -> dict[str, int]:
+            return {"n": n}
+
+        inner = FastAPI(openapi_url=None)
+        inner.add_api_route(
+            "/echo", echoed, methods=["POST"], dependencies=[Anonymous()]
+        )
+        installed(inner)
+        outer = FastAPI(openapi_url=None)
+        outer.mount("/svc", inner)
+        outer.add_api_route("/health", listed, dependencies=[Anonymous()])
+        installed(outer)
+
+        response = TestClient(outer).post("/svc/echo", json={"n": 1})
+
+        assert response.json() == {"n": 1}
+
+    def test_an_app_registering_no_error_format_refuses_in_problem_details(
+        self,
+    ) -> None:
+        """The default format, at the route and before it."""
+        app = FastAPI(openapi_url=None)
+        app.add_api_route("/open", listed, dependencies=[Anonymous()])
+        app.add_api_route("/private", listed)
+        Grelmicro(uses=[AuthenticatedRequests(verifier())]).install(app)
+        client = TestClient(app)
+
+        refused = client.get("/private")
+
+        assert refused.status_code == UNAUTHORIZED
+        assert refused.headers["content-type"] == "application/problem+json"
+
     @pytest.mark.parametrize("outer", [Starlette, FastAPI])
     def test_a_mounted_app_refuses_a_missing_scope_with_a_403(
         self, outer: type[Starlette]
