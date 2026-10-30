@@ -19,7 +19,7 @@
 
 ### Internal
 * ✅ New tests pin more than 400 behaviors that mutation testing found unchecked in JWT verification, JWKS fetching, URL redaction, request paths, the read-write lock, cron tasks, and the authentication, idempotency, rate limit and conditional request middleware. ([#1217](https://github.com/grelinfo/grelmicro/pull/1217), [#1218](https://github.com/grelinfo/grelmicro/pull/1218), [#1219](https://github.com/grelinfo/grelmicro/pull/1219), [#1220](https://github.com/grelinfo/grelmicro/pull/1220), [#1221](https://github.com/grelinfo/grelmicro/pull/1221), [#1226](https://github.com/grelinfo/grelmicro/pull/1226))
-* ✅ Four tests no longer depend on timing, test order or random inputs. A hung test fails within ten minutes instead of blocking the run. ([#1215](https://github.com/grelinfo/grelmicro/pull/1215), [#1216](https://github.com/grelinfo/grelmicro/pull/1216), [#1222](https://github.com/grelinfo/grelmicro/pull/1222), [#1229](https://github.com/grelinfo/grelmicro/pull/1229))
+* ✅ Eight tests no longer depend on timing, test order or random inputs. A hung test fails within ten minutes instead of blocking the run. ([#1215](https://github.com/grelinfo/grelmicro/pull/1215), [#1216](https://github.com/grelinfo/grelmicro/pull/1216), [#1222](https://github.com/grelinfo/grelmicro/pull/1222), [#1229](https://github.com/grelinfo/grelmicro/pull/1229), [#1230](https://github.com/grelinfo/grelmicro/pull/1230))
 * 👷 The release audit tracks the two `grelmicro.security` import paths 0.45.0 retires, and a test fails when a change is declared but left out of it. ([#1213](https://github.com/grelinfo/grelmicro/pull/1213))
 
 ## 0.44.1 - 2026-10-27
