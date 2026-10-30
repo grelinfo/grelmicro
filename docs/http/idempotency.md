@@ -182,7 +182,7 @@ A handler that raises an unhandled exception is different. It stores nothing, so
 
 ## What is never stored
 
-Four kinds of response, and each one lets a retry run the handler again:
+Five kinds of response, and each one lets a retry run the handler again:
 
 | Response | Reason |
 |---|---|
@@ -190,8 +190,9 @@ Four kinds of response, and each one lets a retry run the handler again:
 | Carries `Content-Encoding` | The stored bytes would reach a client that never negotiated that encoding. Add the middleware before any compression middleware. |
 | Declares trailers | Trailers cannot be replayed faithfully. |
 | Body over `max_body_size` (1 MiB) | A large response passes through instead of being held in memory. |
+| Answered once authentication behind the middleware set its caller | The default key is shared, so replaying it hands one caller another caller's response. |
 
-All four are logged at warning level. Watch for those warnings: a response that was not stored means the next retry runs the handler again.
+All five are logged at warning level. Watch for those warnings: a response that was not stored means the next retry runs the handler again.
 
 Everything else is stored whatever its content type, so a `201 Created` with an empty body and a `Location` header replays like any other response.
 
@@ -231,16 +232,21 @@ case or an explicit default port, still identify the same public resource.
 The fields use a typed, length-delimited encoding, so a decoded path or raw
 query containing control characters cannot move a value across field
 boundaries. The default then stores a SHA-256 digest of that serialization as
-`v3:` followed by 64 hexadecimal characters. Its 67-byte size is fixed even
+`v4:` followed by 64 hexadecimal characters. Its 67-byte size is fixed even
 for a large path or query, so it remains suitable for an indexed PostgreSQL
 text key. A custom `key=` function is not hashed or rewritten: its output remains
 the exact stored key.
 
 Without a custom `key=` function, a request carrying `Authorization` or `Cookie`
-bypasses idempotency and runs the handler every time. This safe default keeps
-private responses out of a shared entry and ensures authentication inside the
-application still runs. Registered, a route that runs checks before its
-handler bypasses the default too, on every framework:
+bypasses idempotency and runs the handler every time. So does a request whose
+ASGI scope carries a caller: an authenticated user, a user without
+`is_authenticated` such as a Litestar user model, authentication scopes, or a
+credential such as a Litestar API key. A response is not stored either when
+the app's authentication set its caller only after this middleware, as on a
+Litestar app `install` wraps. This safe default keeps private responses out of
+a shared entry and ensures authentication inside the application still runs.
+Registered, a route that runs checks before its handler bypasses the default
+too, on every framework:
 
 | Framework | Checks before the handler |
 |---|---|

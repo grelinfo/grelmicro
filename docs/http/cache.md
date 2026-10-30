@@ -84,7 +84,7 @@ of them is that mistake.
 |---|---|
 | A request carrying `Cookie` | it was answered for one caller |
 | A request carrying `Authorization`, unless its route declares `CachedResponse(shared=True)` | it was answered for one caller |
-| A request whose ASGI scope carries an authenticated user or authentication scopes, unless its route declares `CachedResponse(shared=True)` | an authentication middleware identified one caller |
+| A request whose ASGI scope carries an authenticated user, a user without `is_authenticated` such as a Litestar user model, authentication scopes, or a credential such as a Litestar API key, unless its route declares `CachedResponse(shared=True)` | an authentication middleware identified one caller |
 | A response carrying `Set-Cookie` | it is one caller's session |
 | A response carrying `Cache-Control: no-store`, `no-cache` or `private` | it said so |
 | A response carrying `Cache-Control: max-age=0` or `s-maxage=0` | it is stale already |

@@ -75,6 +75,9 @@ from grelmicro.http._gate import (
 from grelmicro.http._idempotency import (
     StoredResponse,
     _authenticated_scope,
+    _authentication_changed,
+    _authentication_snapshot,
+    _AuthenticationSnapshot,
 )
 from grelmicro.http._routes import (
     RouteDeclaration,
@@ -115,12 +118,6 @@ _SHARED = "__grelmicro_response_cache_shared__"
 _UNMARKED: Any = object()
 """Marks a route that declared nothing, which a `None` TTL cannot."""
 
-_AUTH_MISSING: Any = object()
-"""Marks an authentication field absent before child dispatch."""
-
-_AUTH_UNREADABLE: Any = object()
-"""Marks an authentication attribute that could not be inspected safely."""
-
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
 """Methods a response cache answers. Everything else passes through."""
 
@@ -156,16 +153,6 @@ _REPORT_INTERVAL = 60.0
 
 _WARNED_LIMIT = 128
 """How many distinct `Vary` refusals are remembered before warning again."""
-
-
-@dataclass(frozen=True)
-class _AuthenticationSnapshot:
-    """Authentication objects and identity state visible before dispatch."""
-
-    user: Any
-    auth: Any
-    user_state: tuple[Any, ...]
-    auth_state: tuple[Any, ...]
 
 
 class _Entry(TypedDict):
@@ -1415,62 +1402,6 @@ def _protected(declaration: RouteDeclaration, key: str) -> str:
     if declaration.anonymous:
         return f"anonymous\x00{key}"
     return f"authenticated {' '.join(sorted(declaration.scopes))}\x00{key}"
-
-
-def _authentication_attribute(value: Any, name: str) -> Any:  # noqa: ANN401
-    """Read one conventional authentication attribute without trusting it."""
-    try:
-        return getattr(value, name, _AUTH_MISSING)
-    except Exception:  # noqa: BLE001
-        return _AUTH_UNREADABLE
-
-
-def _authentication_state(value: Any, *, user: bool) -> tuple[Any, ...]:  # noqa: ANN401
-    """Snapshot conventional user or credential state without object equality."""
-    if value is _AUTH_MISSING:
-        return ()
-    if user:
-        return (
-            type(value),
-            _authentication_attribute(value, "is_authenticated"),
-            _authentication_attribute(value, "identity"),
-            _authentication_attribute(value, "display_name"),
-            _authentication_attribute(value, "username"),
-        )
-    scopes = _authentication_attribute(value, "scopes")
-    if scopes is not _AUTH_MISSING and scopes is not _AUTH_UNREADABLE:
-        try:
-            scopes = tuple(scopes)
-        except TypeError, ValueError:
-            scopes = _AUTH_UNREADABLE
-    return type(value), scopes
-
-
-def _authentication_snapshot(scope: Scope) -> _AuthenticationSnapshot:
-    """Remember authentication presence, object identity, and public state."""
-    user = scope.get("user", _AUTH_MISSING)
-    auth = scope.get("auth", _AUTH_MISSING)
-    return _AuthenticationSnapshot(
-        user=user,
-        auth=auth,
-        user_state=_authentication_state(user, user=True),
-        auth_state=_authentication_state(auth, user=False),
-    )
-
-
-def _authentication_changed(
-    before: _AuthenticationSnapshot,
-    scope: Scope,
-) -> bool:
-    """Return whether child dispatch added, replaced, or mutated auth state."""
-    user = scope.get("user", _AUTH_MISSING)
-    auth = scope.get("auth", _AUTH_MISSING)
-    return (
-        user is not before.user
-        or auth is not before.auth
-        or _authentication_state(user, user=True) != before.user_state
-        or _authentication_state(auth, user=False) != before.auth_state
-    )
 
 
 def _query_of(scope: Scope, selected: tuple[str, ...] | None) -> str:

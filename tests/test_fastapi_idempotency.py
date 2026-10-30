@@ -1195,6 +1195,7 @@ def test_default_storage_key_does_not_read_legacy_entries() -> None:
     legacy_keys = {
         "POST\x1f/private\x1fkey-1",
         "v2\x1fPOST\x1f/private\x1fkey-1",
+        "v3:c76e3d88ba132d35646eeed3c855df0be7d25bc0cc8b4787c94cb587ae1c5e22",
     }
 
     # Act
@@ -1202,9 +1203,9 @@ def test_default_storage_key_does_not_read_legacy_entries() -> None:
 
     # Assert
     assert storage_key == (
-        "v3:c76e3d88ba132d35646eeed3c855df0be7d25bc0cc8b4787c94cb587ae1c5e22"
+        "v4:6c3217ce821a7bec6c518c2598e9b83fbf01b8d3680bef3fb9758d23f0c4c6d2"
     )
-    assert storage_key.startswith("v3:")
+    assert storage_key.startswith("v4:")
     assert storage_key not in legacy_keys
     assert storage_key.isascii()
     assert len(storage_key) == DEFAULT_STORAGE_KEY_LENGTH
@@ -1428,7 +1429,7 @@ def test_default_key_has_fixed_postgres_compatible_size() -> None:
         ),
     )
 
-    assert all(key.startswith("v3:") and key.isascii() for key in keys)
+    assert all(key.startswith("v4:") and key.isascii() for key in keys)
     assert {len(key) for key in keys} == {DEFAULT_STORAGE_KEY_LENGTH}
     assert len(set(keys)) == len(keys)
     assert len(keys[-1].encode()) < POSTGRES_BTREE_INDEX_ITEM_LIMIT

@@ -13,6 +13,7 @@ path in `include=`.
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import pytest
@@ -20,6 +21,7 @@ from fastapi import APIRouter, FastAPI
 from litestar import Litestar, get
 from litestar import Request as LitestarRequest
 from litestar.di import NamedDependency, Provide
+from litestar.middleware import DefineMiddleware
 from litestar.testing import TestClient as LitestarClient
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -27,7 +29,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.testclient import TestClient as StarletteClient
 
-from grelmicro import Grelmicro
+from grelmicro import Grelmicro, MiddlewarePlacementWarning
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.http import (
@@ -42,6 +44,7 @@ from grelmicro.integrations import litestar as on_litestar
 from grelmicro.integrations import starlette as on_starlette
 from grelmicro.security.principal import Principal
 from tests.test_authentication import bearer, token, verifier
+from tests.test_idempotent_requests import CALLER_AUTHENTICATIONS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -811,3 +814,53 @@ def test_cached_responses_shared_route_reading_the_caller_fails_install(
     # Act / Assert
     with pytest.raises(ValueError, match=r"GET /me .*'caller'"):
         _authenticating().install(app)
+
+
+def _declared_cache() -> DefineMiddleware:
+    """Return the cache middleware as an app declares it in its own stack."""
+    return DefineMiddleware(
+        CachedResponsesMiddleware,  # ty: ignore[invalid-argument-type]
+        cache=TTLCache(
+            ttl=60, backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+        ),
+        include=("/feed",),
+    )
+
+
+@pytest.mark.parametrize("authentication", CALLER_AUTHENTICATIONS)
+@pytest.mark.parametrize(
+    "declared", [True, False], ids=["declared", "registered"]
+)
+def test_cached_responses_litestar_authenticated_caller_never_reads_another_callers_entry(
+    authentication: type[Any],
+    declared: bool,  # noqa: FBT001
+) -> None:
+    """A caller Litestar authentication sets is a caller, so each caller runs."""
+
+    # Arrange
+    @get("/feed")
+    async def feed(request: LitestarRequest) -> dict[str, str]:
+        return {"caller": request.auth}
+
+    middleware: list[Any] = [DefineMiddleware(authentication)]
+    if declared:
+        middleware.append(_declared_cache())
+    app = Litestar(route_handlers=[feed], middleware=middleware)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include={"/feed": 60}),
+        ]
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MiddlewarePlacementWarning)
+        micro.install(app)
+
+    # Act
+    with LitestarClient(app) as client:
+        alice = client.get("/feed", headers={"X-API-Key": "a"})
+        bob = client.get("/feed", headers={"X-API-Key": "b"})
+
+    # Assert
+    assert alice.json() == {"caller": "a"}
+    assert bob.json() == {"caller": "b"}

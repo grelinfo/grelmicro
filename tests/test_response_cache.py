@@ -54,13 +54,15 @@ from grelmicro.http import (
     CachedResponsesMiddleware,
     StoredResponse,
 )
-from grelmicro.http._response_cache import (
+from grelmicro.http._idempotency import (
     _AUTH_MISSING,
     _AUTH_UNREADABLE,
+    _authentication_state,
+)
+from grelmicro.http._response_cache import (
     _UNSTORABLE_LIMIT,
     _WARNED_LIMIT,
     UNSET,
-    _authentication_state,
     declare_cached,
 )
 from grelmicro.integrations.fastapi import CachedResponse, route_declarations
