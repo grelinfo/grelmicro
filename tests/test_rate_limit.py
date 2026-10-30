@@ -880,6 +880,47 @@ def test_a_route_that_resolves_nobody_meters_nothing(
     # Assert
     assert response.status_code == HTTP_200_OK
     assert "metered not at all" in caplog.text
+    assert "trusted=" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "trusted",
+    [
+        pytest.param(None, id="no proxies"),
+        pytest.param(TrustedProxies(list(PROXIES)), id="trusted proxies"),
+    ],
+)
+def test_a_route_key_builder_that_returns_none_is_not_reported(
+    caplog: pytest.LogCaptureFixture,
+    trusted: TrustedProxies | None,
+) -> None:
+    """`None` is how a route's builder says this call is not metered."""
+    # Arrange
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    @app.get(
+        "/search",
+        dependencies=[
+            RateLimited(
+                _limiter("search", 1), key=lambda _: None, trusted=trusted
+            )
+        ],
+    )
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.integrations"),
+        TestClient(app, client=CALLER) as client,
+    ):
+        client.get("/search")
+        response = client.get("/search")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+    assert records_of(caplog, "grelmicro.integrations") == []
 
 
 def test_the_superseded_fields_carry_the_meter_that_refuses_first() -> None:

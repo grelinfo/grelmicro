@@ -121,7 +121,7 @@ def RateLimited(  # noqa: N802
         scope = request.scope
         bucket = bucket_of(scope, key=key, trusted=trusted)
         if bucket.key is None:
-            if not reported:
+            if not reported and key is None:
                 reported.append(True)
                 _logger.warning(
                     "RateLimited() found no caller to meter on %s, so this "
@@ -130,8 +130,8 @@ def RateLimited(  # noqa: N802
                     "trusted= names a proxy that forwarded no caller, so "
                     "every caller behind it would share one budget"
                     if bucket.degraded
-                    else "nothing resolved a client address, and neither "
-                    "trusted= nor key= names another bucket",
+                    else "no proxy vouched for one and the transport peer "
+                    "is absent or unreadable",
                 )
             return
         try:
