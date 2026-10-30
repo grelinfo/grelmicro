@@ -82,7 +82,7 @@ from grelmicro.http._openapi import (
 )
 from grelmicro.http._routes import RouteDeclaration, runs_checks
 from grelmicro.http._unhandled import UNHANDLED_KEY, Unhandled
-from grelmicro.idempotency import Idempotency
+from grelmicro.idempotency import Idempotency, Operation
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyKeyFunctionError,
@@ -858,6 +858,7 @@ class IdempotencyMiddleware:
     ) -> None:
         """Fingerprint the request when configured, then execute its key."""
         fingerprint = None
+        whole = False
         if state.config.fingerprint_body:
             body, too_large, receive = await _buffer_request(
                 receive, state.config.max_body_size
@@ -867,6 +868,7 @@ class IdempotencyMiddleware:
                 return
             if body is not None:
                 fingerprint = hashlib.sha256(body).hexdigest()
+                whole = True
 
         await self._execute(
             scope,
@@ -875,6 +877,7 @@ class IdempotencyMiddleware:
             state,
             self._storage_key(scope, key),
             fingerprint,
+            whole=whole,
         )
 
     async def _execute(
@@ -885,8 +888,13 @@ class IdempotencyMiddleware:
         state: _State,
         storage_key: str,
         fingerprint: str | None,
+        *,
+        whole: bool = False,
     ) -> None:
         """Run the request under the idempotency block, or replay it.
+
+        `whole` says the request body was read whole already, so there is
+        no need to watch for the client leaving before it ends.
 
         Takes the snapshot `__call__` read rather than reading its own, so
         one request answers from one configuration throughout.
@@ -952,7 +960,8 @@ class IdempotencyMiddleware:
                 if unhandled is None:
                     unhandled = scope[UNHANDLED_KEY] = Unhandled()
                 authentication = _authentication_snapshot(scope)
-                await self.app(scope, receive, capture)
+                request = None if whole else _WatchedRequest(receive, capture)
+                await self.app(scope, request or receive, capture)
                 self._report_collision(
                     config.replay_header, replaced=capture.replaced
                 )
@@ -961,7 +970,7 @@ class IdempotencyMiddleware:
                     and not unhandled.raised
                     and not self._caller_set_behind(authentication, scope)
                 ):
-                    operation.store(capture.stored)
+                    _store(operation, capture.stored, request)
         except BaseException as exc:
             await block.__aexit__(type(exc), exc, exc.__traceback__)
             raise
@@ -1154,6 +1163,7 @@ class _ResponseCapture:
         self._size = 0
         self._storable = False
         self.stored: _Entry | None = None
+        self.answered = False
 
     async def __call__(self, message: Message) -> None:
         """Capture the message, then forward it downstream."""
@@ -1161,6 +1171,7 @@ class _ResponseCapture:
             self._start(message)
         elif message["type"] == "http.response.body":
             self._body(message)
+            self.answered = not message.get("more_body", False)
         await self._send(message)
 
     def _start(self, message: Message) -> None:
@@ -1301,6 +1312,55 @@ async def _buffer_request(
         return message
 
     return (b"".join(chunks) if complete else None), False, replay_receive
+
+
+def _store(
+    operation: Operation[_Entry],
+    stored: _Entry,
+    request: _WatchedRequest | None,
+) -> None:
+    """Store the captured response, unless the client left before its body ended."""
+    if request is not None and request.torn:
+        _logger.warning(
+            "Idempotent response not stored: the client left before its "
+            "request body arrived. A retry with the same key will run the "
+            "handler again."
+        )
+        return
+    operation.store(stored)
+
+
+class _WatchedRequest:
+    """The receive the app reads, watching whether its body arrived whole.
+
+    A disconnect read before the last body chunk, while the response is
+    still unfinished, marks the request torn. The response the app gave it
+    then answered a request that never arrived, so it is not stored and
+    the retry runs the handler. A disconnect read once the response is
+    finished is the server saying the exchange is over.
+    """
+
+    __slots__ = ("_capture", "_receive", "_whole", "torn")
+
+    def __init__(self, receive: Receive, capture: _ResponseCapture) -> None:
+        """Watch `receive` while `capture` copies the response."""
+        self._receive = receive
+        self._capture = capture
+        self._whole = False
+        self.torn = False
+
+    async def __call__(self) -> Message:
+        """Return the next message, noting whether the body arrived whole."""
+        message = await self._receive()
+        if not self._whole:
+            if message["type"] == "http.request":
+                self._whole = not message.get("more_body", False)
+            elif (
+                message["type"] == "http.disconnect"
+                and not self._capture.answered
+            ):
+                self.torn = True
+        return message
 
 
 async def _send_stored(
