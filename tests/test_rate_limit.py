@@ -6,7 +6,7 @@ import logging
 import re
 from dataclasses import replace
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import anyio
 import httpx
@@ -14,6 +14,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
+from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
@@ -22,6 +23,7 @@ from grelmicro.clock import VirtualClock
 from grelmicro.http import (
     ErrorResponses,
     RateLimitedRequests,
+    RateLimitedRequestsConfig,
     RateLimitMiddleware,
 )
 from grelmicro.http._ratelimit import _has_less_left, _joined
@@ -49,6 +51,7 @@ WINDOW = 60
 DAY = 86400
 PROXIES = ("10.0.0.0/8",)
 TWO_METERS = 2
+COST = 3
 
 
 def _limiter(
@@ -62,18 +65,23 @@ def _limiter(
 
 def _app(
     *limiters: RateLimiter,
+    include: tuple[str, ...] = (),
     exclude: tuple[str, ...] = (),
+    cost: int = 1,
     max_wait: float = 0.0,
     legacy_headers: bool = False,
+    errors: ErrorResponses | None = None,
 ) -> FastAPI:
     """Return an app metering every request through the component."""
     micro = Grelmicro(
         uses=[
-            ErrorResponses(),
+            errors or ErrorResponses(),
             RateLimitedRequests(
                 *limiters,
                 trusted=TrustedProxies(list(PROXIES)),
+                include=include,
                 exclude=exclude,
+                cost=cost,
                 max_wait=max_wait,
                 legacy_headers=legacy_headers,
             ),
@@ -91,6 +99,63 @@ def _app(
         return {"live": 1}
 
     return app
+
+
+def _starlette(
+    *limiters: RateLimiter,
+    **options: Any,  # noqa: ANN401
+) -> Starlette:
+    """Return an app metering every request through a hand-added middleware."""
+
+    async def read(_request: Request) -> Response:
+        return Response(b"read")
+
+    async def echo(request: Request) -> Response:
+        return Response(await request.body())
+
+    app = Starlette(
+        routes=[
+            Route("/read", read),
+            Route("/livez", read),
+            Route("/echo", echo, methods=["POST"]),
+        ]
+    )
+    if "key" not in options:
+        options["trusted"] = TrustedProxies(list(PROXIES))
+    app.add_middleware(
+        RateLimitMiddleware,
+        limiters=list(limiters) or [_limiter("api", 10)],
+        **options,
+    )
+    return app
+
+
+def _slow_bucket(name: str = "api") -> RateLimiter:
+    """Return a one-token bucket that refills one token every half second."""
+    return RateLimiter.token_bucket(
+        name, capacity=1, refill_rate=2, backend=MemoryRateLimiterAdapter()
+    )
+
+
+async def _answer_while_it_refills(
+    app: Starlette, clock: VirtualClock
+) -> httpx.Response:
+    """Spend the one token, then answer a request a second of refill reaches."""
+    transport = httpx.ASGITransport(app=app, client=CALLER)
+    answers: list[httpx.Response] = []
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        await client.get("/read")
+
+        async def ask() -> None:
+            answers.append(await client.get("/read"))
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(ask)
+            await anyio.wait_all_tasks_blocked()
+            await clock.advance(1.0)
+    return answers[0]
 
 
 # --- What a caller is told ---
@@ -202,13 +267,74 @@ def test_the_superseded_fields_are_sent_when_asked_for() -> None:
     assert response.headers["x-ratelimit-reset"].isdigit()
 
 
+def test_the_superseded_fields_carry_the_limiter_closest_to_spent() -> None:
+    """They hold one budget, and the one that refuses first is the honest one."""
+    # Arrange
+    app = _app(
+        _limiter("daily", 1000, DAY), _limiter("burst", 3), legacy_headers=True
+    )
+    client = TestClient(app, client=CALLER)
+
+    # Act
+    with client:
+        response = client.get("/read")
+
+    # Assert
+    assert response.headers["x-ratelimit-limit"] == "3"
+    assert response.headers["x-ratelimit-remaining"] == "2"
+
+
+@pytest.mark.parametrize(
+    "max_wait", [0.0, 1.0], ids=["refusing at once", "waiting first"]
+)
+def test_a_request_spends_its_cost_of_every_limiter(max_wait: float) -> None:
+    """A request priced above one token spends all of them."""
+    # Arrange
+    app = _app(
+        _limiter("api", 10),
+        _limiter("burst", 5),
+        cost=COST,
+        max_wait=max_wait,
+    )
+    client = TestClient(app, client=CALLER)
+
+    # Act
+    with client:
+        response = client.get("/read")
+
+    # Assert
+    assert re.fullmatch(
+        rf'"api";r={10 - COST};t=\d+, "burst";r={5 - COST};t=\d+',
+        response.headers["ratelimit"],
+    )
+
+
+def test_a_refusal_answers_in_the_registered_format() -> None:
+    """A client parses one error format, whichever component refused it."""
+    # Arrange
+    app = _app(_limiter("api", 1), errors=ErrorResponses.tmf())
+    client = TestClient(app, client=CALLER)
+
+    # Act
+    with client:
+        client.get("/read")
+        response = client.get("/read")
+
+    # Assert
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["content-type"] == "application/json"
+
+
 # --- Who is metered ---
 
 
-def test_two_callers_are_two_buckets() -> None:
+@pytest.mark.parametrize(
+    "max_wait", [0.0, 0.05], ids=["refusing at once", "waiting first"]
+)
+def test_two_callers_are_two_buckets(max_wait: float) -> None:
     """One caller spending its budget must not spend everybody's."""
     # Arrange
-    app = _app(_limiter("api", 1))
+    app = _app(_limiter("api", 1), max_wait=max_wait)
 
     # Act
     with TestClient(app, client=CALLER) as client:
@@ -310,6 +436,19 @@ def test_a_key_builder_that_returns_none_leaves_the_call_alone() -> None:
     assert response.status_code == HTTP_200_OK
 
 
+def test_a_call_left_unmetered_still_reaches_the_app_whole() -> None:
+    """A request the builder leaves alone keeps its body."""
+    # Arrange
+    app = _starlette(key=lambda _scope: None)
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.post("/echo", content=b"payload")
+
+    # Assert
+    assert response.content == b"payload"
+
+
 def test_a_caller_that_cannot_be_read_is_let_through_once_said(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -328,6 +467,25 @@ def test_a_caller_that_cannot_be_read_is_let_through_once_said(
     # Assert
     assert response.status_code == HTTP_200_OK
     assert len(records_of(caplog, "grelmicro.http.ratelimit")) == 1
+    assert "transport peer" in caplog.text
+
+
+def test_a_resolved_caller_is_never_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A caller that was metered is not a misconfiguration to log."""
+    # Arrange
+    app = _app(_limiter("api", 10))
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.http.ratelimit"),
+        TestClient(app, client=CALLER) as client,
+    ):
+        client.get("/read")
+
+    # Assert
+    assert records_of(caplog, "grelmicro.http.ratelimit") == []
 
 
 def test_the_resolved_caller_is_left_where_the_next_reader_looks() -> None:
@@ -393,6 +551,21 @@ def test_an_excluded_path_is_never_metered() -> None:
     assert response.status_code == HTTP_200_OK
 
 
+def test_a_path_outside_include_is_never_metered() -> None:
+    """Naming the paths to meter leaves every other path alone."""
+    # Arrange
+    app = _app(_limiter("api", 1), include=("/read",))
+    client = TestClient(app, client=CALLER)
+
+    # Act
+    with client:
+        client.get("/livez")
+        response = client.get("/read")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+
+
 def test_a_websocket_scope_passes_through() -> None:
     """A rate limiter at the HTTP edge answers HTTP and nothing else."""
     # Arrange
@@ -416,6 +589,117 @@ def test_a_websocket_scope_passes_through() -> None:
 
     # Assert
     assert seen == ["websocket"]
+
+
+# --- Added by hand ---
+
+
+@pytest.mark.parametrize(
+    ("options", "path", "header", "stated"),
+    [
+        ({}, "/read", "x-ratelimit-remaining", "absent"),
+        ({"cost": 3}, "/read", "ratelimit", '"api";r=7;'),
+        ({"include": ("/read",)}, "/livez", "ratelimit", "absent"),
+        ({"exclude": ("/livez",)}, "/livez", "ratelimit", "absent"),
+        ({"legacy_headers": True}, "/read", "x-ratelimit-remaining", "9"),
+    ],
+    ids=["defaults", "cost", "include", "exclude", "superseded fields"],
+)
+def test_a_hand_added_middleware_takes_every_option(
+    options: dict[str, Any], path: str, header: str, stated: str
+) -> None:
+    """Added by hand, it answers as the registered component does."""
+    # Arrange
+    app = _starlette(**options)
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get(path)
+
+    # Assert
+    assert response.headers.get(header, "absent").startswith(stated)
+
+
+@pytest.mark.parametrize(
+    ("options", "status"),
+    [
+        ({}, HTTP_429_TOO_MANY_REQUESTS),
+        ({"max_wait": 1.0}, HTTP_200_OK),
+    ],
+    ids=["refusing at once", "waiting first"],
+)
+async def test_a_hand_added_middleware_waits_only_when_told(
+    options: dict[str, Any], status: int, clock: VirtualClock
+) -> None:
+    """Waiting at the edge holds the connection open, so it is opted into."""
+    # Arrange
+    app = _starlette(_slow_bucket(), **options)
+
+    # Act
+    response = await _answer_while_it_refills(app, clock)
+
+    # Assert
+    assert response.status_code == status
+
+
+def test_two_callers_are_two_flood_buckets() -> None:
+    """One caller flooding must not turn everybody away."""
+    # Arrange
+    app = _starlette(flood=_limiter("flood", 1))
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        client.get("/read")
+        spent = client.get("/read")
+    with TestClient(app, client=OTHER_CALLER) as other:
+        fresh = other.get("/read")
+
+    # Assert
+    assert spent.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert fresh.status_code == HTTP_200_OK
+
+
+async def test_the_flood_limit_refuses_at_once(clock: VirtualClock) -> None:
+    """A flood is answered before routing, never held waiting there."""
+    # Arrange
+    app = _starlette(flood=_slow_bucket("flood"), max_wait=1.0)
+
+    # Act
+    response = await _answer_while_it_refills(app, clock)
+
+    # Assert
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["ratelimit"].startswith('"flood";r=0;')
+
+
+def test_a_refusal_outside_any_framework_is_still_answered() -> None:
+    """A pure ASGI scope carries no app to read an error format from."""
+    # Arrange
+    sent: list[MutableMapping[str, Any]] = []
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        """Serve the allowed call with nothing."""
+
+    async def receive() -> MutableMapping[str, Any]:
+        return {"type": "http.request", "body": b""}
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
+
+    middleware = RateLimitMiddleware(
+        app, limiters=[_limiter("api", 1)], key=lambda _scope: "one"
+    )
+    scope = {"type": "http", "method": "GET", "path": "/read", "headers": []}
+
+    async def twice() -> None:
+        await middleware(dict(scope), receive, send)
+        await middleware(dict(scope), receive, send)
+
+    # Act
+    anyio.run(twice)
+
+    # Assert
+    assert sent[0]["status"] == HTTP_429_TOO_MANY_REQUESTS
 
 
 # --- What is refused where it is written ---
@@ -675,6 +959,7 @@ def test_a_budget_that_runs_out_is_a_refusal_not_a_failure() -> None:
     assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
     assert response.headers["retry-after"]
     assert response.headers["ratelimit"].startswith('"api";r=0')
+    assert response.headers["ratelimit-policy"] == '"api";q=1;w=60'
     assert response.headers["content-type"] == "application/problem+json"
 
 
@@ -705,6 +990,148 @@ def test_a_route_budget_that_runs_out_states_its_quota_too() -> None:
     # Assert
     assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
     assert '"search";r=0' in response.headers["ratelimit"]
+
+
+def test_a_route_budget_waits_rather_than_refusing() -> None:
+    """A route given a budget waits for tokens the way the edge does."""
+    # Arrange
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    @app.get(
+        "/search",
+        dependencies=[
+            RateLimited(
+                _slow_bucket("search"),
+                max_wait=1.0,
+                trusted=TrustedProxies(list(PROXIES)),
+            )
+        ],
+    )
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        client.get("/search")
+        response = client.get("/search")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+
+
+def test_a_route_states_the_superseded_fields_when_asked_for() -> None:
+    """A client that reads only those learns the route's budget, refused or not."""
+    # Arrange
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    @app.get(
+        "/search",
+        dependencies=[
+            RateLimited(
+                _limiter("search", 1),
+                legacy_headers=True,
+                trusted=TrustedProxies(list(PROXIES)),
+            )
+        ],
+    )
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        served = client.get("/search")
+        refused = client.get("/search")
+
+    # Assert
+    assert served.headers["x-ratelimit-remaining"] == "0"
+    assert refused.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert refused.headers["x-ratelimit-limit"] == "1"
+
+
+def test_a_route_refusal_names_the_bucket_it_refused() -> None:
+    """A handler of its own reads which caller was turned away."""
+    # Arrange
+    app = FastAPI()
+    refused: list[str] = []
+
+    async def answer(_request: Request, exc: Exception) -> Response:
+        refused.append(cast("RateLimitExceededError", exc).key)
+        return Response(status_code=HTTP_429_TOO_MANY_REQUESTS)
+
+    app.add_exception_handler(RateLimitExceededError, answer)
+
+    @app.get(
+        "/search",
+        dependencies=[RateLimited(_limiter("search", 1), key=lambda _: "a")],
+    )
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        client.get("/search")
+        client.get("/search")
+
+    # Assert
+    assert refused == ["a"]
+
+
+@pytest.mark.parametrize(
+    "own_response",
+    [False, True],
+    ids=["built by the framework", "own response"],
+)
+def test_the_superseded_fields_carry_a_tighter_route(
+    *, own_response: bool
+) -> None:
+    """The route's budget is the one this caller is refused by first."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter("api", 1000),
+                trusted=TrustedProxies(list(PROXIES)),
+                legacy_headers=True,
+            ),
+        ]
+    )
+    app = FastAPI()
+    micro.install(app)
+
+    @app.get(
+        "/search",
+        dependencies=[RateLimited(_limiter("search", 2), legacy_headers=True)],
+    )
+    async def do_search() -> Any:  # noqa: ANN401
+        return JSONResponse({"hits": 1}) if own_response else {"hits": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/search")
+
+    # Assert
+    assert response.headers["x-ratelimit-limit"] == "2"
+    assert response.headers["x-ratelimit-remaining"] == "1"
+
+
+def test_a_handlers_tighter_count_stands() -> None:
+    """A count the handler stated itself answers when it has less left."""
+    # Arrange
+    app = _app(_limiter("api", 10), legacy_headers=True)
+
+    @app.get("/own")
+    async def own() -> Response:
+        return JSONResponse({"own": 1}, headers={"X-RateLimit-Remaining": "1"})
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/own")
+
+    # Assert
+    assert response.headers["x-ratelimit-remaining"] == "1"
 
 
 @pytest.mark.parametrize("cost", [0, 50], ids=["nothing", "more than exists"])
@@ -766,13 +1193,24 @@ def test_a_reset_is_rounded_up() -> None:
 
     # Assert
     assert response.headers["ratelimit"] == '"api";r=0;t=1'
+    assert response.headers["x-ratelimit-remaining"] == "0"
     assert response.headers["x-ratelimit-reset"] == "1"
 
 
-def test_a_window_is_never_published_shorter_than_it_is() -> None:
+@pytest.mark.parametrize(
+    ("window", "policy"),
+    [
+        (timedelta(milliseconds=1400), '"api";q=10;w=2'),
+        (timedelta(seconds=1), '"api";q=10;w=1'),
+    ],
+    ids=["rounded up", "one second"],
+)
+def test_a_window_is_never_published_shorter_than_it_is(
+    window: timedelta, policy: str
+) -> None:
     """Published short, it invites a pace the limiter refuses."""
     # Arrange
-    app = _app(_limiter("api", 10, window=timedelta(milliseconds=1400)))
+    app = _app(_limiter("api", 10, window=window))
     client = TestClient(app, client=CALLER)
 
     # Act
@@ -780,7 +1218,7 @@ def test_a_window_is_never_published_shorter_than_it_is() -> None:
         response = client.get("/read")
 
     # Assert
-    assert response.headers["ratelimit-policy"] == '"api";q=10;w=2'
+    assert response.headers["ratelimit-policy"] == policy
 
 
 @pytest.mark.parametrize("cost", [0, 50], ids=["nothing", "more than exists"])
@@ -1122,8 +1560,9 @@ def test_one_policy_metered_twice_states_the_smaller_count() -> None:
         (b'"a";t=1', b'"a";r=0;t=2'),
         (b'"a";r=x;t=1', b'"a";r=0;t=2'),
         (b'"a";r=9;t=1', b'"a";r=0;t=2'),
+        (b'"a";r=0;t=1', b'"a";r=0;t=2'),
     ],
-    ids=["no count", "unreadable count", "larger count"],
+    ids=["no count", "unreadable count", "larger count", "same count"],
 )
 def test_a_policy_without_a_readable_count_yields_to_one(
     stated: bytes, kept: bytes
@@ -1134,6 +1573,15 @@ def test_a_policy_without_a_readable_count_yields_to_one(
 
     # Assert
     assert joined == kept
+
+
+def test_every_policy_of_a_list_is_kept() -> None:
+    """A List of two policies joined with a third states all three."""
+    # Act
+    joined = _joined(b'"a";r=1;t=1, "b";r=2;t=1', b'"c";r=3;t=1')
+
+    # Assert
+    assert joined == b'"a";r=1;t=1, "b";r=2;t=1, "c";r=3;t=1'
 
 
 def test_two_meters_on_one_route_are_two_policies() -> None:
@@ -1243,8 +1691,30 @@ def test_the_count_that_can_be_read_answers_for_the_pair() -> None:
         ([(b"x-ratelimit-remaining", b"3")], {}, True),
         ([], {b"x-ratelimit-remaining": b"3"}, False),
         ([(b"x-ratelimit-remaining", b"x")], {}, True),
+        (
+            [(b"X-RateLimit-Remaining", b"3")],
+            {b"x-ratelimit-remaining": b"5"},
+            True,
+        ),
+        (
+            [(b"x-ratelimit-remaining", b"5")],
+            {b"x-ratelimit-remaining": b"3"},
+            False,
+        ),
+        (
+            [(b"x-ratelimit-remaining", b"3")],
+            {b"x-ratelimit-remaining": b"3"},
+            True,
+        ),
     ],
-    ids=["only theirs", "only ours", "neither reads"],
+    ids=[
+        "only theirs",
+        "only ours",
+        "neither reads",
+        "theirs has less",
+        "ours has less",
+        "a tie keeps theirs",
+    ],
 )
 def test_the_side_that_can_be_read_answers(
     already: list[tuple[bytes, bytes]],
@@ -1293,6 +1763,8 @@ def test_a_quota_reconfigured_under_the_cost_lets_the_caller_through(
     # Assert
     assert response.status_code == HTTP_200_OK
     assert "reconfigured" in caplog.text
+    assert response.headers["ratelimit"] == '"api";r=0;t=0'
+    assert response.headers["ratelimit-policy"] == '"api";q=1;w=60'
 
 
 # --- What the component exposes ---
@@ -1311,6 +1783,111 @@ def test_the_limiters_it_spends_are_readable() -> None:
     # Assert
     assert component.limiters == (burst,)
     assert component.name == "default"
+
+
+@pytest.mark.parametrize(
+    ("options", "variable", "env_load"),
+    [
+        ({"env_prefix": "GREL_EDGE_"}, "GREL_EDGE_COST", "true"),
+        ({"name": "edge"}, "GREL_RATE_LIMITED_REQUESTS_COST", "true"),
+        ({"env_load": True}, "GREL_RATE_LIMITED_REQUESTS_COST", "0"),
+    ],
+    ids=["own prefix", "kind prefix", "env_load"],
+)
+def test_the_cost_is_read_from_the_environment(
+    options: dict[str, Any],
+    variable: str,
+    env_load: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator prices a request without a code change."""
+    # Arrange
+    monkeypatch.setenv("GREL_ENV_LOAD", env_load)
+    monkeypatch.setenv(variable, "3")
+
+    # Act
+    component = RateLimitedRequests(
+        _limiter("api", 10), trusted=TrustedProxies(list(PROXIES)), **options
+    )
+
+    # Assert
+    assert component.config.cost == COST
+
+
+def test_a_component_from_config_takes_every_option() -> None:
+    """The declarative door builds what the keyword door builds."""
+    # Arrange
+    flood = _limiter("flood", 10)
+    component = RateLimitedRequests.from_config(
+        RateLimitedRequestsConfig(),
+        _limiter("api", 1),
+        flood=flood,
+        key=lambda _scope: "one",
+    )
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses(), component]).install(app)
+
+    @app.get("/read")
+    async def read() -> dict[str, int]:
+        return {"read": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        client.get("/read")
+    with TestClient(app, client=OTHER_CALLER) as other:
+        shared = other.get("/read")
+    schema = component._document_openapi(
+        {"paths": {"/read": {"get": {"responses": {}}}}}
+    )
+
+    # Assert
+    assert component.flood is flood
+    assert shared.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert '"api";r=0' in shared.headers["ratelimit"]
+    assert "429" in schema["paths"]["/read"]["get"]["responses"]
+
+
+async def test_a_reconfigured_cost_reaches_the_middleware() -> None:
+    """A file that reprices a request is read by the next request."""
+    # Arrange
+    component = RateLimitedRequests(
+        _limiter("api", 10), trusted=TrustedProxies(list(PROXIES))
+    )
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses(), component]).install(app)
+
+    @app.get("/read")
+    async def read() -> dict[str, int]:
+        return {"read": 1}
+
+    transport = httpx.ASGITransport(app=app, client=CALLER)
+
+    # Act
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        await client.get("/read")
+        await component.reconfigure(RateLimitedRequestsConfig(cost=COST))
+        response = await client.get("/read")
+
+    # Assert
+    assert re.fullmatch(
+        rf'"api";r={10 - 1 - COST};t=\d+', response.headers["ratelimit"]
+    )
+
+
+def test_the_documented_refusal_follows_the_registered_format() -> None:
+    """The schema publishes the body the app actually answers with."""
+    # Arrange
+    app = _app(_limiter("api", 10), errors=ErrorResponses.tmf())
+
+    # Act
+    responses = app.openapi()["paths"]["/read"]["get"]["responses"]
+
+    # Assert
+    assert responses["429"]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("TMFError")
 
 
 async def test_a_burst_that_spends_the_quota_is_told_the_window() -> None:

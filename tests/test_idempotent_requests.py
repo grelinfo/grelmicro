@@ -47,8 +47,9 @@ from grelmicro import (
     MiddlewarePlacementWarning,
     Usable,
 )
-from grelmicro.cache import Cache
+from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
     CachedResponses,
@@ -185,6 +186,78 @@ def test_the_component_forwards_every_middleware_option() -> None:
     assert config.max_wait == 1.0
 
 
+def test_from_config_forwards_every_option_beside_the_config() -> None:
+    """What `from_config` takes next to the config is what the middleware runs with."""
+
+    # Arrange
+    def skip(response: Any) -> bool:  # noqa: ANN401, ARG001
+        return False
+
+    cache: TTLCache[Any] = TTLCache(
+        backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+    )
+
+    # Act
+    component = IdempotentRequests.from_config(
+        IdempotentRequestsConfig(),
+        namespace="payments",
+        ttl=30,
+        cache=cache,
+        requires="process",
+        skip=skip,
+    )
+    _middleware, options = component.asgi_middleware()
+
+    # Assert
+    assert options["idempotency"].name == "payments"
+    assert options["idempotency"].config.ttl == timedelta(seconds=30)
+    assert options["idempotency"]._get_cache() is cache
+    assert component.requires == "process"
+    assert options["skip"] is skip
+
+
+@pytest.mark.parametrize(
+    ("environment", "build", "expected"),
+    [
+        pytest.param(
+            {"GREL_IDEMPOTENT_REQUESTS_KEY_HEADER": "X-Shared-Key"},
+            lambda: IdempotentRequests(name="checkout"),
+            "X-Shared-Key",
+            id="kind-wide",
+        ),
+        pytest.param(
+            {"CHECKOUT_KEY_HEADER": "X-Checkout-Key"},
+            lambda: IdempotentRequests(env_prefix="CHECKOUT_"),
+            "X-Checkout-Key",
+            id="env-prefix",
+        ),
+        pytest.param(
+            {"GREL_IDEMPOTENT_REQUESTS_KEY_HEADER": "X-Shared-Key"},
+            lambda: IdempotentRequests(env_load=False),
+            HEADER,
+            id="env-load-false",
+        ),
+    ],
+)
+def test_the_environment_is_read_where_the_arguments_say(
+    monkeypatch: pytest.MonkeyPatch,
+    environment: dict[str, str],
+    build: Callable[[], IdempotentRequests],
+    expected: str,
+) -> None:
+    """`name`, `env_prefix` and `env_load` decide which variables apply."""
+    # Arrange
+    monkeypatch.setenv("GREL_ENV_LOAD", "true")
+    for variable, value in environment.items():
+        monkeypatch.setenv(variable, value)
+
+    # Act
+    component = build()
+
+    # Assert
+    assert component.config.key_header == expected
+
+
 def test_a_custom_replay_header_marks_the_replay() -> None:
     """No standard names the header, so a service picks what its clients read."""
     # Arrange
@@ -274,6 +347,46 @@ def test_the_middleware_refuses_a_broken_header_name_of_its_own() -> None:
         )
 
 
+def test_a_hand_added_middleware_defaults_to_what_the_component_defaults_to() -> (
+    None
+):
+    """Both doors answer the same way when nothing is passed."""
+    # Act
+    middleware = IdempotencyMiddleware(
+        FastAPI(), idempotency=Idempotency("http")
+    )
+
+    # Assert
+    assert middleware._live.state.config == IdempotentRequestsConfig()
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("key_header", "X-Idempotency-Key"),
+        ("replay_header", "X-Idempotent-Replayed"),
+        ("methods", ("PUT",)),
+        ("require_key", True),
+        ("fingerprint_body", True),
+        ("max_body_size", MAX_BODY_SIZE),
+        ("max_wait", 1.0),
+        ("reused_status", HTTP_400_BAD_REQUEST),
+    ],
+)
+def test_a_hand_added_middleware_keeps_every_option_it_is_given(
+    option: str,
+    value: Any,  # noqa: ANN401
+) -> None:
+    """What the middleware is built with is what it answers with."""
+    # Act
+    middleware = IdempotencyMiddleware(
+        FastAPI(), idempotency=Idempotency("http"), **{option: value}
+    )
+
+    # Assert
+    assert getattr(middleware._live.state.config, option) == value
+
+
 def test_the_replay_marker_is_the_only_value_under_its_name(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -297,19 +410,49 @@ def test_the_replay_marker_is_the_only_value_under_its_name(
         first = client.post("/charge", headers={HEADER: "abc"})
         second = client.post("/charge", headers={HEADER: "abc"})
         third = client.post("/charge", headers={HEADER: "abc"})
+        fresh = client.post("/charge", headers={HEADER: "def"})
 
     # Assert
     assert "x-cache" not in first.headers
     assert second.headers["x-cache"] == "true"
     assert third.headers["x-cache"] == "true"
+    assert "x-cache" not in fresh.headers
     # Static configuration, so it is said once and not once a request.
     assert caplog.text.count("The X-Cache header a response carried") == 1
 
 
-def test_install_documents_the_middleware_in_the_schema() -> None:
-    """The header a client has to send reaches the generated schema."""
+def test_a_response_without_the_marker_name_says_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Only a response carrying the marker's name is reported."""
     # Arrange
     app, _micro = _charge_app(IdempotentRequests())
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post("/charge", headers={HEADER: "abc"})
+
+    # Assert
+    assert first.headers["content-type"] == "application/json"
+    assert "made way for the replay marker" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(IdempotentRequests, id="arguments"),
+        pytest.param(
+            lambda: IdempotentRequests.from_config(IdempotentRequestsConfig()),
+            id="from-config",
+        ),
+    ],
+)
+def test_install_documents_the_middleware_in_the_schema(
+    build: Callable[[], IdempotentRequests],
+) -> None:
+    """The header a client has to send reaches the generated schema."""
+    # Arrange
+    app, _micro = _charge_app(build())
 
     # Act
     operation = app.openapi()["paths"]["/charge"]["post"]
@@ -440,10 +583,19 @@ _DECLARED_IDEMPOTENCY = DefineMiddleware(
 )
 """The idempotency middleware as an app declares it in its own stack."""
 
+_INNER_IDEMPOTENCY = DefineMiddleware(
+    IdempotencyMiddleware,  # ty: ignore[invalid-argument-type]
+    idempotency=Idempotency("inner"),
+)
+"""A second idempotency middleware, under the one the app declares."""
+
 _WITH_APP_MIDDLEWARE = [
     pytest.param([Passing], id="app middleware"),
     pytest.param([_Copying], id="copying app middleware"),
     pytest.param([_DECLARED_IDEMPOTENCY], id="declared by the app"),
+    pytest.param(
+        [_DECLARED_IDEMPOTENCY, _INNER_IDEMPOTENCY], id="declared twice"
+    ),
 ]
 """Middleware lists of a Litestar app that declares middleware of its own."""
 

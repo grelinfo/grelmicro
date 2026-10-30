@@ -18,6 +18,7 @@ from grelmicro._paths import route_path, selects
 from grelmicro.errors import OutOfContextError
 from grelmicro.http import (
     ConditionalRequests,
+    ConditionalRequestsConfig,
     ConditionalRequestsMiddleware,
     ErrorResponses,
     PreconditionFailedError,
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.timeout(5)]
 
 HTTP_200_OK = 200
+HTTP_299_LAST_SUCCESS = 299
 BACKGROUND_WORK = 0.2
 HTTP_204_NO_CONTENT = 204
 HTTP_404_NOT_FOUND = 404
@@ -44,6 +46,7 @@ HTTP_304_NOT_MODIFIED = 304
 HTTP_412_PRECONDITION_FAILED = 412
 HTTP_428_PRECONDITION_REQUIRED = 428
 FIRST_VERSION = 1
+BODY_LIMIT = 1024
 VERSION = 3
 """The version the cart carries before any write."""
 NEXT_VERSION = 4
@@ -107,6 +110,33 @@ def test_a_pydantic_model_is_hashed_through_json_mode() -> None:
 
     # Assert
     assert etag_of(cart) == f'"{_sha256(expected)}"'
+
+
+def test_a_models_own_uuids_and_datetimes_hash_as_json() -> None:
+    """A field JSON has no type for is rendered by the model, not refused."""
+
+    # Arrange
+    class Stamped(BaseModel):
+        id: UUID
+        at: datetime
+
+    stamped = Stamped(id=UUID(int=1), at=datetime(2026, 8, 20, tzinfo=UTC))
+    expected = json.dumps(
+        stamped.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+
+    # Assert
+    assert etag_of(stamped) == f'"{_sha256(expected)}"'
+
+
+def test_text_beyond_ascii_hashes_as_utf8() -> None:
+    """Every replica hashes the same bytes, never an escaped spelling."""
+    # Assert
+    assert (
+        etag_of({"name": "café"}) == f'"{_sha256('{"name":"café"}'.encode())}"'
+    )
 
 
 def test_the_serialization_is_canonical() -> None:
@@ -534,6 +564,7 @@ async def _drive(
     *,
     method: str = "GET",
     headers: list[tuple[bytes, bytes]] | None = None,
+    body: bytes = b"",
 ) -> list[dict[str, Any]]:
     """Run one request through a pure-ASGI app and return what it sent."""
     scope = {
@@ -546,7 +577,7 @@ async def _drive(
     sent: list[dict[str, Any]] = []
 
     async def receive() -> dict[str, Any]:
-        return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.request", "body": body, "more_body": False}
 
     async def send(message: dict[str, Any]) -> None:
         sent.append(message)
@@ -620,6 +651,118 @@ async def test_a_response_torn_off_mid_body_is_forwarded_untagged() -> None:
     assert not [name for name, _ in sent[0]["headers"] if name == b"etag"]
     assert sent[1]["body"] == b"half"
     assert sent[1]["more_body"] is True
+
+
+async def _hello(
+    scope: Any,  # noqa: ANN401, ARG001
+    receive: Any,  # noqa: ANN401, ARG001
+    send: Any,  # noqa: ANN401
+) -> None:
+    """Answer `200` with a five-byte body in one message."""
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b"hello"})
+
+
+@pytest.mark.parametrize(
+    ("options", "tagged"),
+    [
+        ({}, True),
+        ({"etag_responses": False}, False),
+        ({"max_body_size": 5}, True),
+        ({"max_body_size": 4}, False),
+    ],
+    ids=["defaults", "etag_responses", "body at the limit", "body past it"],
+)
+async def test_a_hand_added_middleware_takes_every_option(
+    options: dict[str, Any], *, tagged: bool
+) -> None:
+    """Added by hand, it tags as the registered component does."""
+    # Arrange
+    middleware = ConditionalRequestsMiddleware(_hello, **options)
+
+    # Act
+    sent = await _drive(middleware)
+
+    # Assert
+    assert (b"etag" in dict(sent[0]["headers"])) is tagged
+    assert sent[1]["body"] == b"hello"
+
+
+@pytest.mark.parametrize(
+    "options", [{}, {"exclude": ("/thing",)}], ids=["acted on", "excluded"]
+)
+async def test_the_request_body_reaches_the_app(
+    options: dict[str, Any],
+) -> None:
+    """Shaping the response never takes the request from the handler."""
+    # Arrange
+    read: list[bytes] = []
+
+    async def reading(
+        scope: Any,  # noqa: ANN401, ARG001
+        receive: Any,  # noqa: ANN401
+        send: Any,  # noqa: ANN401, ARG001
+    ) -> None:
+        read.append((await receive())["body"])
+
+    middleware = ConditionalRequestsMiddleware(reading, **options)
+
+    # Act
+    await _drive(middleware, method="PUT", body=b'{"items": 3}')
+
+    # Assert
+    assert read == [b'{"items": 3}']
+
+
+async def test_an_app_that_sends_nothing_is_forwarded_nothing() -> None:
+    """There is no response to shape, so none is made up."""
+    # Arrange
+    middleware = ConditionalRequestsMiddleware(_nothing)
+
+    # Act
+    sent = await _drive(middleware)
+
+    # Assert
+    assert sent == []
+
+
+async def test_a_body_message_without_a_body_is_an_empty_one() -> None:
+    """ASGI lets a body message leave out `body`, which means no bytes."""
+
+    # Arrange
+    async def empty(
+        scope: Any,  # noqa: ANN401, ARG001
+        receive: Any,  # noqa: ANN401, ARG001
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body"})
+
+    middleware = ConditionalRequestsMiddleware(empty)
+
+    # Act
+    sent = await _drive(middleware)
+
+    # Assert
+    assert dict(sent[0]["headers"])[b"etag"] == etag_of(b"").encode()
+    assert sent[1]["body"] == b""
+
+
+async def test_a_refusal_outside_any_framework_names_the_request() -> None:
+    """A pure ASGI scope carries no app, and the refusal still says where."""
+    # Arrange
+    middleware = ConditionalRequestsMiddleware(
+        _nothing, require_precondition=("PUT",)
+    )
+
+    # Act
+    sent = await _drive(middleware, method="PUT")
+
+    # Assert
+    assert sent[0]["status"] == HTTP_428_PRECONDITION_REQUIRED
+    assert json.loads(sent[1]["body"])["instance"] == "/thing"
 
 
 async def test_a_non_http_scope_passes_through() -> None:
@@ -849,7 +992,47 @@ def test_a_fresh_read_skips_the_work() -> None:
     # Assert
     assert response.status_code == HTTP_304_NOT_MODIFIED
     assert response.content == b""
+    assert response.headers["etag"] == etag_of(VERSION)
     assert loads == []
+
+
+def test_a_read_naming_several_tags_matches_any_of_them() -> None:
+    """A client holding two versions sends both, and either one is fresh."""
+    # Arrange
+    app, loads = _read_app()
+
+    # Act
+    with TestClient(app) as client:
+        response = client.get(
+            "/carts/1", headers={"If-None-Match": f'{etag_of(VERSION)}, "9"'}
+        )
+
+    # Assert
+    assert response.status_code == HTTP_304_NOT_MODIFIED
+    assert loads == []
+
+
+def test_a_read_tags_from_an_entity_tag_that_is_already_one() -> None:
+    """A tag read from a store goes through the explicit door."""
+    # Arrange
+    micro = Grelmicro(uses=[ConditionalRequests()])
+    app = FastAPI()
+
+    @app.get("/carts/1")
+    async def read() -> dict[str, int]:
+        check_freshness(etag='"v7"')
+        return {"version": VERSION}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        response = client.get("/carts/1")
+        fresh = client.get("/carts/1", headers={"If-None-Match": '"v7"'})
+
+    # Assert
+    assert response.headers["etag"] == '"v7"'
+    assert fresh.status_code == HTTP_304_NOT_MODIFIED
 
 
 def test_a_recorded_tag_answers_304_even_when_the_handler_ignores_it() -> None:
@@ -1013,6 +1196,7 @@ def test_a_read_documents_the_header_a_client_sends_back() -> None:
 
     # Assert
     assert _parameters(operation) == ["If-None-Match"]
+    assert [p["required"] for p in operation["parameters"]] == [False]
     assert "304" in operation["responses"]
 
 
@@ -1043,6 +1227,7 @@ def test_the_header_is_optional_until_it_is_enforced() -> None:
     # Assert
     assert [p["required"] for p in loose if p["in"] == "header"] == [False]
     assert [p["required"] for p in strict if p["in"] == "header"] == [True]
+    assert "If-None-Match: *" not in loose[0]["description"]
 
 
 def test_a_route_of_an_included_router_is_documented_too() -> None:
@@ -1131,10 +1316,10 @@ def test_the_documented_refusal_follows_the_registered_format() -> None:
     responses = app.openapi()["paths"]["/carts/1"]["patch"]["responses"]
 
     # Assert
-    assert "application/json" in responses["412"]["content"]
-    assert responses["412"]["content"]["application/json"]["schema"][
-        "$ref"
-    ].endswith("TMFError")
+    for status in ("412", "428"):
+        assert responses[status]["content"]["application/json"]["schema"][
+            "$ref"
+        ].endswith("TMFError")
 
 
 def test_an_app_with_nothing_to_document_is_left_alone() -> None:
@@ -1183,6 +1368,73 @@ def test_the_schema_documents_only_what_is_included() -> None:
     # Assert
     assert _parameters(schema["/carts/1"]["get"]) == ["If-None-Match"]
     assert _parameters(schema["/metrics"]["get"]) == []
+
+
+@pytest.mark.parametrize(
+    ("options", "variable", "env_load"),
+    [
+        ({}, "GREL_CONDITIONAL_REQUESTS_MAX_BODY_SIZE", "true"),
+        ({"env_prefix": "GREL_TAGS_"}, "GREL_TAGS_MAX_BODY_SIZE", "true"),
+        ({"name": "tags"}, "GREL_CONDITIONAL_REQUESTS_MAX_BODY_SIZE", "true"),
+        ({"env_load": True}, "GREL_CONDITIONAL_REQUESTS_MAX_BODY_SIZE", "0"),
+    ],
+    ids=["default prefix", "own prefix", "kind prefix", "env_load"],
+)
+def test_the_body_limit_is_read_from_the_environment(
+    options: dict[str, Any],
+    variable: str,
+    env_load: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator sizes what is held to hash without a code change."""
+    # Arrange
+    monkeypatch.setenv("GREL_ENV_LOAD", env_load)
+    monkeypatch.setenv(variable, str(BODY_LIMIT))
+
+    # Act
+    component = ConditionalRequests(**options)
+
+    # Assert
+    assert component.config.max_body_size == BODY_LIMIT
+
+
+def test_a_component_from_config_documents_by_default() -> None:
+    """The declarative door describes the headers as the keyword door does."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[ConditionalRequests.from_config(ConditionalRequestsConfig())]
+    )
+    app = FastAPI()
+
+    @app.get("/carts/1")
+    async def read() -> dict[str, int]:
+        return {"version": VERSION}
+
+    micro.install(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/carts/1"]["get"]
+
+    # Assert
+    assert _parameters(operation) == ["If-None-Match"]
+
+
+async def test_a_reconfigured_component_still_runs_at_the_route() -> None:
+    """Code that swaps the rules keeps where the middleware runs."""
+    # Arrange
+    component = ConditionalRequests()
+    before = component._live.state
+    smaller = BODY_LIMIT // 64
+
+    # Act
+    await component.reconfigure(
+        ConditionalRequestsConfig(max_body_size=smaller)
+    )
+
+    # Assert
+    assert component._live.state.config.max_body_size == smaller
+    assert component._live.state.routed is before.routed
+    assert before.routed is not None
 
 
 # --- Injected, the FastAPI way --------------------------------------------
@@ -1543,11 +1795,71 @@ def test_a_bodyless_status_carries_no_generated_tag() -> None:
     assert "etag" not in second.headers
 
 
+@pytest.mark.parametrize("status", [HTTP_200_OK, HTTP_299_LAST_SUCCESS])
+def test_every_success_with_a_body_is_tagged(status: int) -> None:
+    """The whole `2xx` range describes a representation."""
+    # Arrange
+    micro = Grelmicro(uses=[ConditionalRequests()])
+    app = FastAPI()
+
+    @app.get("/carts/1", status_code=status)
+    async def read() -> dict[str, int]:
+        return {"version": VERSION}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        response = client.get("/carts/1")
+
+    # Assert
+    assert response.status_code == status
+    assert response.headers["etag"] == etag_of(response.content)
+
+
 def test_a_tag_cannot_hold_the_separator() -> None:
     """A comma separates two tags in one header, so no tag may carry one."""
     # Act / Assert
     with pytest.raises(ValueError, match="commas"):
         etag_of("v1,rev2")
+
+
+@pytest.mark.parametrize(
+    ("path", "headers", "status"),
+    [
+        ("/by-version", {"If-None-Match": "*"}, HTTP_412_PRECONDITION_FAILED),
+        ("/by-version", {"If-Match": '"3", "2"'}, HTTP_200_OK),
+        ("/by-tag", {"If-Match": '"3"'}, HTTP_200_OK),
+        ("/by-tag", {"If-Match": '"2"'}, HTTP_412_PRECONDITION_FAILED),
+    ],
+    ids=["create-only", "list of tags", "tag", "stale tag"],
+)
+def test_the_injected_guard_reads_every_precondition(
+    path: str, headers: dict[str, str], status: int
+) -> None:
+    """What the dependency declares is what it evaluates."""
+    # Arrange
+    micro = Grelmicro(uses=[ErrorResponses()])
+    app = FastAPI()
+
+    @app.patch("/by-version")
+    async def by_version(conditional: Conditional) -> dict[str, int]:
+        conditional.check(VERSION)
+        return {"version": NEXT_VERSION}
+
+    @app.patch("/by-tag")
+    async def by_tag(conditional: Conditional) -> dict[str, int]:
+        conditional.check(etag=etag_of(VERSION))
+        return {"version": NEXT_VERSION}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        response = client.patch(path, headers=headers)
+
+    # Assert
+    assert response.status_code == status
 
 
 def test_the_injected_guard_answers_without_the_component() -> None:
@@ -1708,7 +2020,10 @@ def test_a_handlers_own_tag_still_answers_304() -> None:
     async def read() -> Any:  # noqa: ANN401
         from fastapi.responses import JSONResponse  # noqa: PLC0415
 
-        return JSONResponse({"version": VERSION}, headers={"ETag": '"v7"'})
+        return JSONResponse(
+            {"version": VERSION},
+            headers={"ETag": '"v7"', "Cache-Control": "max-age=60"},
+        )
 
     micro.install(app)
 
@@ -1720,6 +2035,7 @@ def test_a_handlers_own_tag_still_answers_304() -> None:
     # Assert
     assert matching.status_code == HTTP_304_NOT_MODIFIED
     assert matching.headers["etag"] == '"v7"'
+    assert matching.headers["cache-control"] == "max-age=60"
     assert stale.status_code == HTTP_200_OK
     assert stale.headers["etag"] == '"v7"'
 

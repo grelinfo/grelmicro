@@ -646,6 +646,27 @@ class TestBans:
         assert first.status_code == HTTP_401_UNAUTHORIZED
         assert second.status_code == HTTP_401_UNAUTHORIZED
 
+    def test_a_caller_no_address_names_is_never_counted(self) -> None:
+        """A chain of the proxies alone names one of them, and nobody is banned."""
+        bans = ClientBans(failures=1, duration=60)
+        app = app_with(
+            AuthenticatedRequests(
+                verifier(), bans=bans, trusted=TrustedProxies(PROXIES)
+            )
+        )
+        client = TestClient(app, client=("10.0.0.1", 5000))
+
+        forged = client.get(
+            "/whoami",
+            headers={
+                **bearer(token(FORGER)),
+                "x-forwarded-for": "10.0.0.2",
+            },
+        )
+
+        assert forged.status_code == HTTP_401_UNAUTHORIZED
+        assert bans.active() == 0
+
     def test_bans_need_the_proxies_that_name_the_caller(self) -> None:
         """A ban counted against a spoofable address refuses the wrong one."""
         with pytest.raises(TypeError, match="trusted="):
@@ -1277,6 +1298,24 @@ class TestCallerShape:
             "identity": "user-1",
             "display": "user-1",
             "authenticated": True,
+            "scopes": [],
+        }
+
+    def test_an_anonymous_route_reads_the_caller_the_way_an_excluded_path_does(
+        self,
+    ) -> None:
+        """`request.user` and `request.auth` are both the empty caller."""
+        app = FastAPI(openapi_url=None)
+        app.add_api_route("/open", identified, dependencies=[Anonymous()])
+        app.add_api_route("/closed", identified)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert TestClient(app).get("/open").json() == {
+            "identity": "",
+            "display": "",
+            "authenticated": False,
             "scopes": [],
         }
 
@@ -1947,6 +1986,27 @@ class TestVerifiedToken:
         assert body["value"] == "opaque"
         assert body["expires_at"] is None
 
+    @pytest.mark.parametrize("expires_at", [True, 1.5e9, "1700000000"])
+    def test_an_expiry_in_anything_but_whole_seconds_is_none(
+        self,
+        expires_at: Any,  # noqa: ANN401
+    ) -> None:
+        """A flag, a float or a string is not when the token expires."""
+        caller = SimpleNamespace(
+            subject="service-7",
+            issuer=None,
+            scopes=frozenset(),
+            claims={},
+            is_authenticated=True,
+            expires_at=expires_at,
+        )
+        expiring = SimpleNamespace(verify=lambda token: caller)  # noqa: ARG005
+        client = TestClient(presenting(AuthenticatedRequests(expiring)))  # ty: ignore[invalid-argument-type]
+
+        body = client.get("/token", headers=bearer("opaque")).json()
+
+        assert body["expires_at"] is None
+
     def test_a_check_replacing_the_caller_keeps_the_verified_expiry(
         self,
     ) -> None:
@@ -2402,6 +2462,16 @@ class TestOpenAPI:
         assert schema["components"]["securitySchemes"][SCHEME] == {
             "type": "openIdConnect",
             "openIdConnectUrl": OIDC_METADATA,
+        }
+
+    def test_a_verifier_of_your_own_is_a_bearer_token(self) -> None:
+        """One with no configuration to read is described all the same."""
+        schema = fastapi_app(AuthenticatedRequests(Opaque())).openapi()
+
+        assert schema["components"]["securitySchemes"][SCHEME] == {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
         }
 
     def test_metadata_found_only_under_rfc_8414_is_a_bearer_token(
@@ -5155,11 +5225,16 @@ class TestResourceMetadata:
 
     def test_a_resource_at_the_host_is_published_at_the_root(self) -> None:
         """The slash after the host is dropped, and `resource` kept as given."""
-        response = TestClient(
-            published(resource="https://api.example.com/")
-        ).get("/.well-known/oauth-protected-resource")
+        client = TestClient(published(resource="https://api.example.com/"))
+
+        response = client.get("/.well-known/oauth-protected-resource")
+        refused = client.get("/orders")
 
         assert response.json()["resource"] == "https://api.example.com/"
+        assert refused.headers["www-authenticate"] == (
+            'Bearer resource_metadata="https://api.example.com'
+            '/.well-known/oauth-protected-resource"'
+        )
 
     def test_a_query_in_the_resource_stays_in_the_metadata_url(self) -> None:
         """The suffix goes between the host and the path, the query after."""
@@ -5241,18 +5316,29 @@ class TestResourceMetadata:
                 },
             )
 
+        async def named(request: Request) -> StarletteResponse:  # noqa: ARG001
+            return StarletteResponse(headers={"x-scheme": "Bearer"})
+
         app = Starlette(
-            routes=[Route("/basic", basic), Route("/pointed", pointed)]
+            routes=[
+                Route("/basic", basic),
+                Route("/pointed", pointed),
+                Route("/named", named),
+            ]
         )
         Grelmicro(
             uses=[
                 ErrorResponses(),
                 AuthenticatedRequests(
-                    issuing(), resource=RESOURCE, exclude=("/basic", "/pointed")
+                    issuing(),
+                    resource=RESOURCE,
+                    exclude=("/basic", "/pointed", "/named"),
                 ),
             ]
         ).install(app)
         client = TestClient(app)
+
+        assert client.get("/named").headers["x-scheme"] == "Bearer"
 
         assert client.get("/basic").headers["www-authenticate"] == (
             'Basic realm="files"'
@@ -5272,6 +5358,9 @@ class TestResourceMetadata:
 
         assert response.status_code == HTTP_401_UNAUTHORIZED
         assert response.headers["www-authenticate"] == "Bearer"
+        assert not any(
+            path.startswith("/.well-known/") for path in app.openapi()["paths"]
+        )
 
     def test_the_document_is_served_whatever_credential_is_sent(self) -> None:
         """No token is read there, so a forged one is neither refused nor counted."""
@@ -5301,6 +5390,34 @@ class TestResourceMetadata:
         assert post.status_code == HTTP_405_METHOD_NOT_ALLOWED
         assert post.headers["allow"] == "GET, HEAD, OPTIONS"
         assert post.headers["access-control-allow-origin"] == "*"
+
+    async def test_head_sends_the_server_no_body(self) -> None:
+        """The body is left out where it is sent, not by the client."""
+        sent: list[MutableMapping[str, Any]] = []
+
+        async def receive() -> dict[str, Any]:
+            return {"type": "http.request"}  # pragma: no cover
+
+        async def send(message: MutableMapping[str, Any]) -> None:
+            sent.append(message)
+
+        await published()(
+            {
+                "type": "http",
+                "method": "HEAD",
+                "path": WELL_KNOWN,
+                "root_path": "",
+                "headers": [],
+            },
+            receive,
+            send,
+        )
+
+        assert [
+            message["body"]
+            for message in sent
+            if message["type"] == "http.response.body"
+        ] == [b""]
 
     def test_starlette_and_litestar_publish_it_too(self) -> None:
         """Litestar's router drops a trailing slash, and the document is still found."""
@@ -5385,6 +5502,7 @@ class TestResourceMetadata:
             "http://login.example.com/",
             "https://login.example.com/?tenant=a",
             "https://login.example.com/#top",
+            "https://[login.example.com/",
         ],
     )
     def test_an_authorization_server_that_is_not_an_issuer_is_refused(

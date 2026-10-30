@@ -753,10 +753,16 @@ class TestGate:
         preflight = client.options("/sub/x", headers=PREFLIGHT)
         unrouted = client.options("/nowhere", headers=PREFLIGHT)
         plain = client.options("/sub/x", headers={"origin": ORIGIN})
+        origin_alone = client.options(
+            "/sub/nowhere", headers={"origin": ORIGIN}
+        )
+        not_options = client.get("/sub/nowhere", headers=PREFLIGHT)
 
         assert preflight.status_code == OK
         assert preflight.headers["access-control-allow-origin"] == ORIGIN
         assert unrouted.status_code == plain.status_code == UNAUTHORIZED
+        assert origin_alone.status_code == UNAUTHORIZED
+        assert not_options.status_code == UNAUTHORIZED
 
     def test_a_websocket_no_gate_answered_is_denied(
         self, monkeypatch: pytest.MonkeyPatch
@@ -770,6 +776,50 @@ class TestGate:
         with (
             pytest.raises(WebSocketDenialResponse) as denied,
             TestClient(app).websocket_connect("/nowhere"),
+        ):
+            pass  # pragma: no cover
+
+        assert denied.value.status_code == UNAUTHORIZED
+
+    def test_a_websocket_a_mounted_app_raises_on_before_a_gate_is_denied(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With the `401` a protected route answers, not the server's error."""
+
+        class Raising:
+            def __init__(self, app: Any) -> None:  # noqa: ANN401
+                self.app = app
+
+            async def __call__(
+                self, scope: Scope, receive: Receive, send: Send
+            ) -> None:
+                if scope["type"] == "websocket":
+                    raise RuntimeError
+                await self.app(scope, receive, send)  # pragma: no cover
+
+        app = walking(
+            monkeypatch,
+            {
+                "/public": (RouteDeclaration("/public", anonymous=True),),
+                "/sub/ws": (RouteDeclaration("/sub/ws"),),
+            },
+            Starlette(
+                routes=[
+                    Route("/public", Echo()),
+                    Mount(
+                        "/sub",
+                        app=Starlette(
+                            routes=[WebSocketRoute("/ws", accept)],
+                            middleware=[Middleware(Raising)],
+                        ),
+                    ),
+                ]
+            ),
+        )
+
+        with (
+            pytest.raises(WebSocketDenialResponse) as denied,
+            TestClient(app).websocket_connect("/sub/ws"),
         ):
             pass  # pragma: no cover
 
@@ -1743,6 +1793,11 @@ class TestAnsweringMiddleware:
                 "/orders",
                 headers={"Idempotency-Key": "k-1", **bearer(token())},
             )
+        with TestClient(app) as client, pytest.raises(TenantUnknownError):
+            client.post(
+                "/orders",
+                headers={"Idempotency-Key": "k-2", **bearer(token())},
+            )
 
         assert response.status_code == INTERNAL_SERVER_ERROR
 
@@ -2208,6 +2263,29 @@ class TestAnExcludedPath:
         statuses = [client.get("/feed").status_code for _ in range(4)]
 
         assert statuses == [OK, OK, OK, TOO_MANY_REQUESTS]
+
+    def test_a_refusal_its_route_raises_is_recorded(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """As one the middleware answered, though no credential was read."""
+        caplog.set_level(logging.DEBUG, logger=EVENTS)
+
+        @Authenticated()
+        async def feed(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({})  # pragma: no cover
+
+        app = installed(
+            Starlette(routes=[Route("/feed", feed)]), exclude=("/feed",)
+        )
+
+        refused = TestClient(app).get("/feed")
+
+        assert refused.status_code == UNAUTHORIZED
+        assert [
+            record.__dict__["error.type"]
+            for record in caplog.records
+            if record.name == EVENTS
+        ] == ["authentication-required"]
 
     def test_a_read_is_cached_on_a_miss_and_served_on_a_hit(self) -> None:
         """The handler runs once."""
