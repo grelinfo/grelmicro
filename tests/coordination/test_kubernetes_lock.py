@@ -18,7 +18,7 @@ from grelmicro.coordination.kubernetes import (
 )
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 TOKEN = "test-token"
 

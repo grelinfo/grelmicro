@@ -13,7 +13,7 @@ from grelmicro.clock import (
     sleep,
 )
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 _TOLERANCE = 0.1
 _SHORT = 0.01

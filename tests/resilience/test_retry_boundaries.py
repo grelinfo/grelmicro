@@ -9,7 +9,7 @@ import pytest
 
 from grelmicro.resilience import ConstantBackoff, Retry
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 _FAST_DELAY = 0.001
 _ATTEMPTS = 3

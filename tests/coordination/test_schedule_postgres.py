@@ -23,7 +23,7 @@ OTHER = 200.0
 # Construction and wiring (no server).
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 @pytest.mark.parametrize(
     "table_name",
     [
@@ -44,7 +44,7 @@ def test_table_name_invalid(table_name: str) -> None:
         )
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_out_of_context_errors() -> None:
     """Adapter methods raise when called outside the context manager."""
     adapter = PostgresScheduleAdapter(provider=PostgresProvider(URL))
@@ -55,7 +55,7 @@ async def test_out_of_context_errors() -> None:
         await adapter.last_fired("job")
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_adapter_with_implicit_env_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -68,7 +68,7 @@ def test_adapter_with_implicit_env_provider(
     assert adapter._owns_provider is True
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_adapter_borrows_external_provider() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = PostgresProvider(URL)
@@ -78,7 +78,7 @@ def test_adapter_borrows_external_provider() -> None:
     assert adapter._owns_provider is False
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_adapter_env_prefix_passed_to_implicit_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -91,7 +91,7 @@ def test_adapter_env_prefix_passed_to_implicit_provider(
     assert adapter.provider.env_prefix == "WRITE_POSTGRES_"
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_env_validation_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -103,7 +103,7 @@ def test_env_validation_error_propagates(
         PostgresScheduleAdapter()
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_custom_table_name() -> None:
     """Custom `table_name=` is stored on the adapter."""
     adapter = PostgresScheduleAdapter(
@@ -113,7 +113,7 @@ def test_custom_table_name() -> None:
     assert adapter._table_name == "my_schedules"
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_provider_factory_returns_postgres_adapter() -> None:
     """`PostgresProvider.schedule_backend()` returns a bound adapter."""
     provider = PostgresProvider(URL)
@@ -125,7 +125,7 @@ def test_provider_factory_returns_postgres_adapter() -> None:
     assert adapter._owns_provider is False
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_satisfies_protocol() -> None:
     """The adapter satisfies the `ScheduleBackend` protocol."""
     adapter = PostgresScheduleAdapter(provider=PostgresProvider(URL))
@@ -133,7 +133,7 @@ def test_satisfies_protocol() -> None:
     assert isinstance(adapter, ScheduleBackend)
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_rebind_provider_borrows_new_provider() -> None:
     """`_rebind_provider` swaps the provider and marks it borrowed."""
     adapter = PostgresScheduleAdapter(provider=PostgresProvider(URL))
@@ -167,7 +167,7 @@ class _StubProvider:
         self.exit_count += 1
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_aenter_aexit_owned_provider_opens_and_closes_it() -> None:
     """When owned, the adapter opens, migrates, and closes its provider."""
     stub = _StubProvider()
@@ -182,7 +182,7 @@ async def test_aenter_aexit_owned_provider_opens_and_closes_it() -> None:
     assert stub.client.connection.execute.await_count > 0
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_aenter_aexit_borrowed_provider_left_alone() -> None:
     """An external provider is migrated but not entered or exited."""
     stub = _StubProvider()

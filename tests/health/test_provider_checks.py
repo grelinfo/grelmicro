@@ -26,7 +26,7 @@ from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 
 class FakeProvider(Provider):

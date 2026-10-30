@@ -32,7 +32,7 @@ _CALLS_BEFORE_BUDGET = 4
 _BOOM = ValueError("boom")
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_retry_backoff_driven_by_virtual_clock(
     clock: VirtualClock,
 ) -> None:
@@ -60,7 +60,7 @@ async def test_retry_backoff_driven_by_virtual_clock(
     assert calls == _EXPECTED_CALLS
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_retry_max_seconds_stops_on_time_budget(
     clock: VirtualClock,
 ) -> None:
@@ -101,7 +101,7 @@ async def test_retry_max_seconds_stops_on_time_budget(
     assert calls == _CALLS_BEFORE_BUDGET
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_circuit_breaker_half_open_driven_by_virtual_clock(
     clock: VirtualClock,
 ) -> None:

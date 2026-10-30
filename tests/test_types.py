@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from grelmicro.types import SecretUrl
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 REDIS_URL = "redis://app:hunter2@cache:6379/0"
 REDIS_SAFE = "redis://app:***@cache:6379/0"

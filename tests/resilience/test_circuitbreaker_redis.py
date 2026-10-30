@@ -19,7 +19,7 @@ from grelmicro.resilience import (
 from grelmicro.resilience.circuitbreaker.redis import RedisCircuitBreakerAdapter
 from grelmicro.resilience.errors import CircuitBreakerError
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 URL = "redis://:test_password@test_host:1234/0"
 

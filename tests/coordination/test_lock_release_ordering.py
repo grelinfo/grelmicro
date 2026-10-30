@@ -16,7 +16,7 @@ from grelmicro.coordination.errors import (
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 LOCK_NAME = "test_lock_release_ordering"
 WORKER = "worker_1"

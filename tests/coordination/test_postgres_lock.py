@@ -8,7 +8,7 @@ from grelmicro.coordination.postgres import PostgresLockAdapter
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 

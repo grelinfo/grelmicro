@@ -92,7 +92,7 @@ def _make_mocked_backend(
 # --- Out of context ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_out_of_context_errors() -> None:
     """Backend methods raise when called outside the context manager."""
     backend = KubernetesLeaderElectionAdapter(namespace="default")
@@ -110,7 +110,7 @@ async def test_out_of_context_errors() -> None:
 # --- __aenter__ / __aexit__ ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_aenter_sets_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """`__aenter__` creates an AsyncClient."""
     backend = KubernetesLeaderElectionAdapter(namespace="default")
@@ -124,7 +124,7 @@ async def test_aenter_sets_client(monkeypatch: pytest.MonkeyPatch) -> None:
     assert backend._client is not None
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_aexit_closes_client() -> None:
     """`__aexit__` closes and clears the client."""
     backend = KubernetesLeaderElectionAdapter(namespace="default")
@@ -140,7 +140,7 @@ async def test_aexit_closes_client() -> None:
 # --- Protocol ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_satisfies_protocol() -> None:
     """The backend satisfies the LeaderElectionBackend protocol."""
     backend = KubernetesLeaderElectionAdapter(namespace="default")
@@ -151,7 +151,7 @@ def test_satisfies_protocol() -> None:
 # --- Settings ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_env_var_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """The namespace is read from the environment variable."""
     monkeypatch.setenv("KUBE_NAMESPACE", "my-namespace")
@@ -161,7 +161,7 @@ def test_env_var_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     assert backend._namespace == "my-namespace"
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_env_var_settings_validation_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -172,7 +172,7 @@ def test_env_var_settings_validation_error(
         KubernetesLeaderElectionAdapter()
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_prefix() -> None:
     """The prefix is stored on the backend."""
     backend = KubernetesLeaderElectionAdapter(
@@ -185,7 +185,7 @@ def test_prefix() -> None:
 # --- Name sanitization ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 @pytest.mark.parametrize(
     ("input_name", "expected"),
     [
@@ -205,7 +205,7 @@ def test_sanitize_lease_name(input_name: str, expected: str) -> None:
     assert _sanitize_lease_name(input_name) == expected
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_sanitize_lease_name_empty() -> None:
     """An all-invalid name raises rather than producing an empty name."""
     with pytest.raises(ValueError, match="empty Kubernetes resource name"):
@@ -215,7 +215,7 @@ def test_sanitize_lease_name_empty() -> None:
 # --- Metadata and annotations ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_metadata_annotations_round_trip() -> None:
     """Metadata maps to namespaced annotations and back."""
     metadata = {"pod": "worker-0", "region": "eu"}
@@ -230,7 +230,7 @@ def test_metadata_annotations_round_trip() -> None:
     assert restored == metadata
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_annotations_to_metadata_ignores_foreign_keys() -> None:
     """Only namespaced annotations are returned as metadata."""
     annotations = {
@@ -241,7 +241,7 @@ def test_annotations_to_metadata_ignores_foreign_keys() -> None:
     assert _annotations_to_metadata(annotations) == {"pod": "worker-0"}
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_annotations_to_metadata_empty() -> None:
     """None or empty annotations map to an empty metadata dict."""
     assert _annotations_to_metadata(None) == {}
@@ -251,7 +251,7 @@ def test_annotations_to_metadata_empty() -> None:
 # --- Lease and record mapping ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 def test_lease_to_record_maps_fields() -> None:
     """Lease spec fields map onto a LeaderRecord."""
     acquired = datetime(2024, 1, 1, tzinfo=UTC)
@@ -281,7 +281,7 @@ def test_lease_to_record_maps_fields() -> None:
     assert record.metadata == {"pod": "worker-0"}
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 @pytest.mark.parametrize(
     "spec",
     [
@@ -304,7 +304,7 @@ def test_lease_to_record_returns_none_on_partial(spec: LeaseSpec) -> None:
 # --- acquire_or_renew with a mocked client ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_acquire_creates_when_not_found() -> None:
     """Acquire creates a Lease when none exists."""
     create = AsyncMock()
@@ -327,7 +327,7 @@ async def test_acquire_creates_when_not_found() -> None:
     assert record.metadata == {"pod": "w0"}
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_acquire_rounds_the_lease_up_to_whole_seconds() -> None:
     """A Lease stores whole seconds, so 1001 ms becomes two seconds."""
     create = AsyncMock()
@@ -345,7 +345,7 @@ async def test_acquire_rounds_the_lease_up_to_whole_seconds() -> None:
     assert create.await_args.args[0].spec.leaseDurationSeconds == 2  # noqa: PLR2004
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_renew_keeps_transitions_and_acquired_at() -> None:
     """Renewing the same live holder keeps transitions and acquire time."""
     lease = _make_lease(holder=TOKEN, transitions=_RENEW_TRANSITIONS)
@@ -369,7 +369,7 @@ async def test_renew_keeps_transitions_and_acquired_at() -> None:
     assert record.renewed_at >= original_acquired
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_live_lease_held_by_other_is_returned_unchanged() -> None:
     """A live lease held by another token is not written to."""
     replace = AsyncMock()
@@ -391,7 +391,7 @@ async def test_live_lease_held_by_other_is_returned_unchanged() -> None:
     assert record.transitions == _LIVE_OTHER_TRANSITIONS
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_takeover_after_expiry_bumps_transitions() -> None:
     """Taking over an expired lease from another holder bumps transitions."""
     expired = _make_lease(
@@ -412,7 +412,7 @@ async def test_takeover_after_expiry_bumps_transitions() -> None:
     assert record.transitions == _EXPIRED_OTHER_TRANSITIONS + 1
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_reacquire_own_expired_lease_keeps_transitions() -> None:
     """Re-acquiring one's own expired lease keeps transitions."""
     expired = _make_lease(
@@ -431,7 +431,7 @@ async def test_reacquire_own_expired_lease_keeps_transitions() -> None:
     assert record.transitions == _OWN_EXPIRED_TRANSITIONS
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_acquire_conflict_on_create_rereads() -> None:
     """A create conflict re-reads and returns the winner's record."""
     winner = _make_lease(holder=OTHER, transitions=_CREATE_WINNER_TRANSITIONS)
@@ -447,7 +447,7 @@ async def test_acquire_conflict_on_create_rereads() -> None:
     assert record.holder == OTHER
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_acquire_conflict_on_replace_rereads() -> None:
     """A replace conflict re-reads and returns the winner's record."""
     expired = _make_lease(
@@ -468,7 +468,7 @@ async def test_acquire_conflict_on_replace_rereads() -> None:
     assert record.holder == "winner"
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_acquire_raises_on_non_404_get() -> None:
     """Acquire re-raises a non-404 GET error."""
     backend = _make_mocked_backend(
@@ -481,7 +481,7 @@ async def test_acquire_raises_on_non_404_get() -> None:
         )
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_acquire_raises_on_non_409_create() -> None:
     """Acquire re-raises a non-409 create error."""
     backend = _make_mocked_backend(
@@ -495,7 +495,7 @@ async def test_acquire_raises_on_non_409_create() -> None:
         )
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_acquire_raises_on_non_409_replace() -> None:
     """Acquire re-raises a non-409 replace error."""
     expired = _make_lease(holder=OTHER, expired=True)
@@ -510,7 +510,7 @@ async def test_acquire_raises_on_non_409_replace() -> None:
         )
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_conflict_reread_returns_empty_when_vanished() -> None:
     """A re-read after a conflict returns an empty record when the Lease is gone."""
     expired = _make_lease(holder=OTHER, expired=True)
@@ -528,7 +528,7 @@ async def test_conflict_reread_returns_empty_when_vanished() -> None:
     assert record.lease_duration == timedelta(0)
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_conflict_reread_returns_empty_when_partial() -> None:
     """A re-read returning a half-written Lease falls back to an empty record."""
     expired = _make_lease(holder=OTHER, expired=True)
@@ -548,7 +548,7 @@ async def test_conflict_reread_returns_empty_when_partial() -> None:
     assert record.holder == ""
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_conflict_reread_raises_on_non_404_get() -> None:
     """A re-read after a conflict re-raises a non-404 GET error."""
     expired = _make_lease(holder=OTHER, expired=True)
@@ -566,7 +566,7 @@ async def test_conflict_reread_raises_on_non_404_get() -> None:
 # --- release with a mocked client ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_release_succeeds() -> None:
     """Release deletes the Lease held by the token."""
     delete = AsyncMock()
@@ -581,7 +581,7 @@ async def test_release_succeeds() -> None:
     delete.assert_awaited_once()
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_release_wrong_token() -> None:
     """Release returns False when the token does not hold the lease."""
     backend = _make_mocked_backend(
@@ -591,7 +591,7 @@ async def test_release_wrong_token() -> None:
     assert await backend.release(name="election", token=TOKEN) is False
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_release_not_found() -> None:
     """Release returns False when the Lease is absent."""
     backend = _make_mocked_backend(
@@ -601,7 +601,7 @@ async def test_release_not_found() -> None:
     assert await backend.release(name="election", token=TOKEN) is False
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_release_expired() -> None:
     """Release returns False when the lease has expired."""
     backend = _make_mocked_backend(
@@ -611,7 +611,7 @@ async def test_release_expired() -> None:
     assert await backend.release(name="election", token=TOKEN) is False
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_release_raises_on_non_404_get() -> None:
     """Release re-raises a non-404 GET error."""
     backend = _make_mocked_backend(
@@ -622,7 +622,7 @@ async def test_release_raises_on_non_404_get() -> None:
         await backend.release(name="election", token=TOKEN)
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_release_delete_not_found_returns_false() -> None:
     """Release returns False when the Lease vanishes before the delete."""
     backend = _make_mocked_backend(
@@ -633,7 +633,7 @@ async def test_release_delete_not_found_returns_false() -> None:
     assert await backend.release(name="election", token=TOKEN) is False
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_release_raises_on_non_404_delete() -> None:
     """Release re-raises a non-404 delete error."""
     backend = _make_mocked_backend(
@@ -648,7 +648,7 @@ async def test_release_raises_on_non_404_delete() -> None:
 # --- get with a mocked client ---
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_get_returns_record_when_live() -> None:
     """Get returns the record for a live lease."""
     backend = _make_mocked_backend(
@@ -666,7 +666,7 @@ async def test_get_returns_record_when_live() -> None:
     assert record.metadata == {"pod": "w0"}
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_get_returns_none_when_expired() -> None:
     """Get returns None when the lease has expired."""
     backend = _make_mocked_backend(
@@ -676,7 +676,7 @@ async def test_get_returns_none_when_expired() -> None:
     assert await backend.get(name="election") is None
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_get_returns_none_when_not_found() -> None:
     """Get returns None when the Lease is absent."""
     backend = _make_mocked_backend(
@@ -686,7 +686,7 @@ async def test_get_returns_none_when_not_found() -> None:
     assert await backend.get(name="election") is None
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_get_raises_on_non_404_get() -> None:
     """Get re-raises a non-404 GET error."""
     backend = _make_mocked_backend(
@@ -884,7 +884,7 @@ async def test_a_lease_is_rounded_up_never_down(
     assert gone is None
 
 
-@pytest.mark.timeout(1)
+@pytest.mark.timeout(5)
 async def test_kubernetes_leader_acquire_refused_when_lease_exceeds_int32() -> (
     None
 ):

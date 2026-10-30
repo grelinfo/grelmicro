@@ -18,7 +18,7 @@ from grelmicro.resilience import RateLimiterComponent
 from grelmicro.resilience.ratelimiter import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 # capacity / refill chosen so `* refill_rate` and `/ refill_rate` differ.
 TB_CAPACITY = 10

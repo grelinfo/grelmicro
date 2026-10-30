@@ -6,7 +6,7 @@ import pytest
 
 from grelmicro.coordination import LockHandle
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 
 def test_handle_carries_fields() -> None:

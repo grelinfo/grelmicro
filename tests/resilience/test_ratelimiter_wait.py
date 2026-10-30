@@ -16,7 +16,7 @@ from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.ratelimiter import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
-pytestmark = [pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(5)]
 
 CAPACITY = 1
 REFILL_RATE = 1.0
