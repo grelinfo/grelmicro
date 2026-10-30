@@ -194,6 +194,8 @@ Five kinds of response, and each one lets a retry run the handler again:
 
 All five are logged at warning level. Watch for those warnings: a response that was not stored means the next retry runs the handler again.
 
+A request the client left before its body arrived whole, while the response was still unfinished, stores nothing either and is logged the same way. The retry runs the handler on the whole body.
+
 Everything else is stored whatever its content type, so a `201 Created` with an empty body and a `Location` header replays like any other response.
 
 The response streams to the client as the handler produces it. The copy is buffered alongside and written to the cache after the last chunk is sent.

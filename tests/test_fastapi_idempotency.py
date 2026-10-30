@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import gzip
 import json
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -2132,6 +2133,121 @@ async def test_middleware_disconnect_before_body_is_not_fingerprinted() -> None:
         sent = await _drive(middleware, [{"type": "http.disconnect"}])
     # Assert
     assert sent[0]["status"] == HTTP_200_OK
+
+
+async def _echo_body(scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG001
+    """Answer the request body, or `400` when the client left before it ended."""
+    chunks: list[bytes] = []
+    while True:
+        message = await receive()
+        if message["type"] == "http.disconnect":
+            status, body = HTTP_400_BAD_REQUEST, b"torn"
+            break
+        chunks.append(message.get("body", b""))
+        if not message.get("more_body", False):
+            status, body = HTTP_200_OK, b"".join(chunks)
+            break
+    await send({"type": "http.response.start", "status": status, "headers": []})
+    await send({"type": "http.response.body", "body": body})
+
+
+@pytest.mark.parametrize("fingerprint_body", [True, False])
+@pytest.mark.parametrize(
+    "torn",
+    [
+        pytest.param([{"type": "http.disconnect"}], id="before any body"),
+        pytest.param(
+            [
+                {"type": "http.request", "body": b"{", "more_body": True},
+                {"type": "http.disconnect"},
+            ],
+            id="after a partial chunk",
+        ),
+    ],
+)
+async def test_middleware_request_the_client_left_is_not_stored(
+    torn: list[Message],
+    fingerprint_body: bool,  # noqa: FBT001
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A request whose body never arrived whole leaves the retry to run."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    middleware = IdempotencyMiddleware(
+        _echo_body,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=fingerprint_body,
+    )
+    whole: list[Message] = [
+        {"type": "http.request", "body": b"{}", "more_body": False}
+    ]
+
+    # Act
+    async with micro:
+        with caplog.at_level(logging.WARNING, logger="grelmicro.http"):
+            await _drive(middleware, torn)
+        retry = await _drive(middleware, whole)
+
+    # Assert
+    assert retry[0]["status"] == HTTP_200_OK
+    assert retry[1]["body"] == b"{}"
+    assert b"idempotent-replayed" not in dict(retry[0]["headers"])
+    assert "client left" in caplog.text
+
+
+async def test_middleware_disconnect_once_answered_is_stored() -> None:
+    """The disconnect a server sends once the response ended is no torn request."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG001
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"{}"})
+        while (await receive())["type"] != "http.disconnect":
+            pass
+
+    middleware = IdempotencyMiddleware(
+        app, idempotency=Idempotency("http", ttl=60)
+    )
+    unread: list[Message] = [
+        {"type": "http.request", "body": b"{", "more_body": True}
+    ]
+
+    # Act
+    async with micro:
+        await _drive(middleware, unread)
+        retry = await _drive(middleware, unread)
+
+    # Assert
+    assert dict(retry[0]["headers"])[b"idempotent-replayed"] == b"true"
+
+
+@pytest.mark.parametrize("fingerprint_body", [True, False])
+async def test_middleware_request_left_after_its_whole_body_is_stored(
+    fingerprint_body: bool,  # noqa: FBT001
+) -> None:
+    """A client leaving once its body arrived still gets the replay it retries for."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    middleware = IdempotencyMiddleware(
+        _echo_body,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=fingerprint_body,
+    )
+    whole: list[Message] = [
+        {"type": "http.request", "body": b"{}", "more_body": False}
+    ]
+
+    # Act
+    async with micro:
+        await _drive(middleware, [*whole, {"type": "http.disconnect"}])
+        retry = await _drive(middleware, whole)
+
+    # Assert
+    assert retry[1]["body"] == b"{}"
+    assert dict(retry[0]["headers"])[b"idempotent-replayed"] == b"true"
 
 
 async def test_middleware_forwards_unknown_response_messages() -> None:
