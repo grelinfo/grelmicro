@@ -83,6 +83,7 @@ SECTIONS = (
     "Changed",
     "Deprecated",
     "Fixed",
+    "Security",
     "Docs",
     "Internal",
 )
