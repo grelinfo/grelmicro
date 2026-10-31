@@ -89,6 +89,7 @@ def test_count_entries_counts_every_section() -> None:
         "Changed": 0,
         "Deprecated": 0,
         "Fixed": 1,
+        "Security": 0,
         "Docs": 1,
         "Internal": 0,
     }
@@ -96,8 +97,8 @@ def test_count_entries_counts_every_section() -> None:
 
 def test_count_entries_keeps_an_unexpected_heading() -> None:
     """A heading outside the list is counted, so the report can name it."""
-    counts = release_audit.count_entries("### Security\n* 🔒 A fix.\n")
-    assert counts["Security"] == 1
+    counts = release_audit.count_entries("### Removed\n* 🔥 A drop.\n")
+    assert counts["Removed"] == 1
 
 
 @pytest.mark.parametrize(
@@ -117,10 +118,10 @@ def test_patch_violations_hold_a_patch_to_no_break(
 
 
 def test_a_patch_of_features_and_fixes_passes_the_policy() -> None:
-    """Added, Changed, Fixed, Docs and Internal entries may ship in a patch."""
+    """Added, Changed, Fixed, Security, Docs and Internal may ship in a patch."""
     counts = release_audit.count_entries(
         "### Added\n* ✨ w\n### Changed\n* ⚡️ v\n### Fixed\n* 🐛 x\n"
-        "### Internal\n* y\n"
+        "### Security\n* 🔒 s\n### Internal\n* y\n"
     )
     assert release_audit.patch_violations("patch", counts) == []
 
