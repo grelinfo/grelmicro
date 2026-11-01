@@ -1107,6 +1107,25 @@
     "FunctionTypeError": {
       "()": "(reference) -> None"
     },
+    "Job": {
+      "()": "(function, *, name=None, max_concurrent=1, max_queued=100, keep=3600) -> 'None'"
+    },
+    "JobError": null,
+    "JobInfo": {
+      "()": "(*, id, name, status, done, total, results, error, cancel_requested, created_at, started_at, finished_at) -> None"
+    },
+    "JobRefusedError": {
+      "()": "(*, name, reason) -> None"
+    },
+    "JobStatus": {
+      "()": "(*values)"
+    },
+    "OwnedJob": {
+      "()": "(job, owner) -> 'None'"
+    },
+    "Progress": {
+      "()": "(record, job) -> 'None'"
+    },
     "Task": {
       "()": "(*args, **kwargs)"
     },
