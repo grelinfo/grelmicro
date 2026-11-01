@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable, Iterator
 from datetime import timedelta
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Concatenate, Literal
 
 from typing_extensions import Doc
 
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     )
     from grelmicro.coordination.leaderelection import LeaderElection
     from grelmicro.coordination.tasklock import TaskLock
+    from grelmicro.task._job import Job, Progress
 
 
 class TaskRouter:
@@ -436,6 +437,95 @@ class TaskRouter:
             # subclass that overrides it and schedules another way.
             mark_registered(function, Registered.TASK, self)
             return function
+
+        return decorator
+
+    def job[**P](
+        self,
+        *,
+        name: Annotated[
+            str | None,
+            Doc(
+                """
+                The name of the job.
+
+                If None, a name is generated from the function, as for
+                `every`. It names the job in `JobInfo.name`, logs and
+                metric labels.
+                """,
+            ),
+        ] = None,
+        max_concurrent: Annotated[
+            int,
+            Doc(
+                """
+                How many jobs of this function run at once, in this process.
+
+                Jobs submitted past it wait in a queue and start in
+                submission order as slots free up.
+                """,
+            ),
+        ] = 1,
+        max_queued: Annotated[
+            int | None,
+            Doc(
+                """
+                How many jobs may wait for a slot.
+
+                `submit` raises `JobRefusedError` past it. `0` refuses as
+                soon as every slot runs. `None` means no limit.
+                """,
+            ),
+        ] = 100,
+        keep: Annotated[
+            int | timedelta | None,
+            Doc(
+                """
+                How long a finished job stays readable.
+
+                Takes whole seconds or a `timedelta`, counted from the moment
+                the job finished. After it, `get` returns `None`. `0` keeps
+                nothing. `None` means no limit.
+                """,
+            ),
+        ] = 3600,
+    ) -> Callable[
+        [Callable[Concatenate[Progress, P], Awaitable[None] | None]],
+        Job[P],
+    ]:
+        """Decorate a function to run it once each time it is submitted.
+
+        Returns a `Job`. Call `submit` on it with the function's arguments
+        after `progress`, then `get` to follow the job.
+
+        Raises:
+            FunctionTypeError: If the job name generation fails.
+            TypeError: If the function does not take `progress: Progress`
+                as its first parameter.
+            ValueError: If `max_concurrent` is not an int of at least 1,
+                `max_queued` is not an int of at least 0, or `keep` is
+                not whole seconds or a `timedelta`, is negative, or is
+                over 100 years.
+        """
+        from grelmicro.task._job import Job  # noqa: PLC0415
+
+        def decorator(
+            function: Callable[
+                Concatenate[Progress, P], Awaitable[None] | None
+            ],
+        ) -> Job[P]:
+            job: Job[P] = Job(
+                function,
+                name=name,
+                max_concurrent=max_concurrent,
+                max_queued=max_queued,
+                keep=keep,
+            )
+            self.add_task(job)
+            # A decorator above `@tasks.job` receives the job, so mark it
+            # too, and that decorator refuses instead of wrapping it.
+            mark_registered(job, Registered.TASK, self)
+            return job
 
         return decorator
 
