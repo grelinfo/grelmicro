@@ -5,6 +5,7 @@ A simple scheduler that runs tasks periodically. Use it for lightweight recurrin
 - **Fast and easy**: simple decorators to define and schedule tasks with minimal boilerplate.
 - **Interval tasks**: run tasks at fixed intervals.
 - **Cron tasks**: run tasks on a cron schedule in the timezone you choose.
+- **On-demand jobs**: run work when a request asks for it, and follow its progress until it ends.
 - **One worker or every worker**: every worker runs a task by default. Pass `gate="claim"` or a leader election to run it on one.
 - **Coordination**: control concurrency with distributed primitives (see [Coordination primitives](coordination/index.md)).
 - **Dependency injection**: use [FastDepends](https://lancetnik.github.io/FastDepends/) to inject dependencies into tasks.
@@ -40,6 +41,7 @@ Choose the entry point by the job:
 | Add an object that already implements the task protocol | `tasks.add_task(...)` |
 | Run a task on one worker per interval or fire | `@tasks.every(..., gate="claim")` or `@tasks.cron(..., gate="claim")` |
 | Run a task on the leader only | `@tasks.every(..., gate=leader_election)` |
+| Run work on request and follow its progress | [`@tasks.job(...)`](#on-demand-jobs) |
 
 !!! warning "The task decorator goes on top"
 
@@ -275,9 +277,186 @@ A worker is checked in this order, and stops at the first refusal:
 
 A refused interval is skipped (logged at DEBUG) and tried again on the next one.
 
+## On-demand jobs
+
+A job runs once each time your code submits it, and reports its progress while
+it runs. Use it for work started from a request that takes too long to answer
+in it: an import, a report, a batch handled item by item.
+
+```python
+--8<-- "task/job.py:1:48"
+```
+
+`@tasks.job` turns the function into a `Job`. Call `submit` with the function's
+own arguments, after `progress`. It returns at once with a `JobInfo`, and the
+job runs in the background, in the context of the code that submitted it, so its
+logs and traces carry that request's fields. A `JobInfo` is a Pydantic model, so an endpoint
+returns it as is:
+
+```json
+{
+  "id": "6Rk2p0N8yq1vQm3ZcXbE4w",
+  "name": "app:import_rows",
+  "status": "running",
+  "done": 2,
+  "total": 3,
+  "results": ["row-1", "row-2"],
+  "error": null,
+  "cancel_requested": false,
+  "created_at": "2026-11-02T09:15:00Z",
+  "started_at": "2026-11-02T09:15:00Z",
+  "finished_at": null
+}
+```
+
+!!! warning "One process"
+    A job lives in the process that runs it. Behind a load balancer, a poll that
+    reaches another replica finds nothing. Route a job's requests to one
+    replica, or run one replica.
+
+### Status
+
+| `status` | Meaning |
+| --- | --- |
+| `queued` | Waiting for a free slot. |
+| `running` | The body is running. |
+| `succeeded` | The body returned. |
+| `failed` | The body raised. `error` says why. |
+| `cancelled` | Cancelled before or while it ran. |
+
+A job only moves forward: `queued`, then `running`, then one of the last three.
+`finished_at` is set when it reaches one of them.
+
+### Progress
+
+Take `progress: Progress` as the first parameter. Set `progress.total` when you
+know it, and call `progress.advance()` after each item. Pass `result=` to add
+the item's result to `results`. A result must be JSON: a string, a number, a
+boolean, or a list or dict of them.
+
+Results reported before a failure or a cancel stay in `results`. `results` holds
+every result the job reports, so a job over millions of items should report a
+summary instead.
+
+The arguments after `progress` reach the body as you pass them, checked by your
+type checker and never copied. `submit` raises `TypeError` for arguments the
+body does not take. A dependency the body takes from
+[FastDepends](https://lancetnik.github.io/FastDepends/) is injected, never
+submitted. Give it a default, `client: Client = Depends(get_client)`, so your
+type checker does not ask `submit` for it either.
+
+### Errors
+
+A job that raises ends `failed`. The caller sees `"Job failed"`, and the full
+traceback goes to the log. To show the caller a message, raise `JobError`:
+
+```python
+raise JobError(f"Row {row.number} is invalid")
+```
+
+Its message reaches `error` as written. Write it for the caller. A `JobError`
+logs one warning line, with no traceback. Inside a task group in the body, it
+counts when every error the group raised is a `JobError`, and the first message
+is shown.
+
+### Owner
+
+`import_rows.for_owner(user_id)` is the job as one caller sees it, with the same
+`submit`, `get` and `cancel`. Use it to keep each caller to their own jobs.
+`get` and `cancel` return `None` for a job that does not exist, has expired, or
+belongs to another owner, so a caller cannot tell them apart. Answer `404` in
+all three cases.
+
+`import_rows` itself, without `for_owner`, finds only the jobs submitted
+without an owner. An endpoint that forgets `for_owner` finds nothing, never
+another caller's job.
+
+### Cancel
+
+`cancel` asks the job to stop and returns at once with `cancel_requested`
+set. A queued job ends `cancelled` right away. A running async body gets
+`asyncio.CancelledError` at its next `await` and ends `cancelled`, even if it
+catches the error and returns. Cancelling a finished job changes nothing and
+returns it as it is.
+
+A sync body runs in a worker thread, which nothing can interrupt. It stops at
+its next `progress.checkpoint()`, so call it between items. Until then the job
+reads `running`.
+
+### Stop between items
+
+`progress.checkpoint()` raises `asyncio.CancelledError` once the job should
+stop: a cancel was requested, or the service is shutting down. Call it where
+stopping is safe, between two items. The job then ends `cancelled`, with the
+results reported so far.
+
+To save state before stopping, read `progress.stopping` instead:
+
+```python title="fragment"
+for row in rows:
+    if progress.stopping:
+        await save_cursor(upload_id, row.number)
+        progress.checkpoint()
+    progress.advance(result=await save_row(row))
+```
+
+A body that returns ends `succeeded`, so stop with `checkpoint()`, never with a
+bare `return`.
+
+### Limits
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `max_concurrent` | `1` | Jobs of this function running at once, in this process. |
+| `max_queued` | `100` | Jobs waiting for a slot. `0` refuses as soon as every slot runs. `None` means no limit. |
+| `keep` | `3600` | How long a finished job stays readable, in seconds or a `timedelta`. `0` keeps nothing. `None` means no limit. |
+
+When the queue is full, or the service is shutting down, `submit` raises
+`JobRefusedError`. With [error responses](http/errors.md) installed, it answers
+`503`, so the client retries, on another replica if there is one.
+
+A sync body holds a thread of the default executor for its whole run, as sync
+scheduled tasks do. Keep `max_concurrent` low for long sync jobs.
+
+### Shutdown
+
+Leaving `async with tasks` drains jobs with the scheduled tasks, within the
+same `shutdown_timeout`:
+
+1. `submit` refuses new jobs with `JobRefusedError`.
+2. Queued jobs end `cancelled` without starting.
+3. Running jobs see `progress.stopping` turn `True`. Each stops at its next
+   `checkpoint()`, after the item in hand, and releases its locks through
+   `async with` as it unwinds.
+4. A job still running after `shutdown_timeout` is cancelled at its next
+   `await`. A sync job ends `cancelled` at once, and its thread stops at its
+   next `checkpoint()`, `advance()` or `total` update.
+
+A `Grelmicro` app closes `Tasks` before the rest of what it uses, so a draining
+job still reaches its database. A sync body that never calls `checkpoint()`
+cannot be stopped: its thread keeps the process alive until it returns or the
+orchestrator kills it.
+
+A job stopped by shutdown is not resumed. The client sees it `cancelled` while
+the process lives, and `404` once it is gone. Submit it again, starting from a
+cursor the body saved.
+
+### Metrics
+
+Each run of a job lands on
+[`grelmicro.task.runs`](metrics.md#every-fire-lands-on-grelmicrotaskruns) under
+the job's name, like a scheduled fire. A cancelled run counts no run, and its
+`grelmicro.task.duration` reads as an error.
+
+!!! note "The job decorator goes on top"
+    `@tasks.job` returns a `Job`, not the function. A decorator written below it
+    wraps every run. A grelmicro decorator written above it receives the `Job`
+    and refuses with a `TypeError`.
+
 ## Task Introspection
 
-Each task exposes two read-only properties for observability:
+Each interval and cron task exposes two read-only properties for
+observability:
 
 - **`timezone`**: the IANA timezone name a cron task fires on. `None` until
   the tasks start, unless the task declared one itself.
@@ -308,8 +487,9 @@ tasks = Tasks()
 async def cleanup() -> None:
     ...
 
-# After startup: tasks.tasks holds IntervalTask and CronTask objects.
-# The decorator returns the original function unchanged.
+# After startup: tasks.tasks holds IntervalTask and CronTask objects,
+# and a Job for each @tasks.job. `every` and `cron` return the original
+# function unchanged.
 task = tasks.tasks[-1]
 info: FireInfo | None = task.last_fire
 if info is not None:

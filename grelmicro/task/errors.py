@@ -1,6 +1,6 @@
 """Task Errors."""
 
-from grelmicro.errors import GrelmicroError
+from grelmicro.errors import AdmissionError, GrelmicroError
 
 
 class TaskError(GrelmicroError):
@@ -75,3 +75,29 @@ class TaskStartOperationError(TaskError, RuntimeError):
         super().__init__(
             "Could not start the tasks twice, use one Tasks per application"
         )
+
+
+class JobError(TaskError):
+    """Raised by a job body to fail the job with a message for the caller.
+
+    The message reaches `JobInfo.error` as written. Any other exception a
+    body raises shows as `"Job failed"`.
+
+    Read more in the [Errors](../task.md#errors) docs.
+    """
+
+
+class JobRefusedError(TaskError, AdmissionError):
+    """Raised by `submit` when a job cannot take another submission.
+
+    Either its queue is full, or the tasks are shutting down. With error
+    responses installed, it answers `503 request-refused`.
+
+    Read more in the [Limits](../task.md#limits) docs.
+    """
+
+    def __init__(self, *, name: str, reason: str) -> None:
+        """Initialize the error."""
+        self.name = name
+        self.reason = reason
+        super().__init__(f"Job {name!r} refused the submission: {reason}")
