@@ -42,7 +42,7 @@ grelmicro follows where CPython goes, and supports up to three Python versions a
 
 ## Upgrades you can plan
 
-Upgrading grelmicro should not mean rereading the changelog. A patch never breaks. A breaking change warns in your code first and lands only after a published waiting period, which grows as the API settles. 1.0 comes when the API holds still, and from then nothing breaks before 2.0.
+Upgrading grelmicro should not mean rereading the changelog. A patch never breaks. A breaking change warns in your code first and lands only after a published waiting period, which grows as the API settles. 1.0 comes when the API holds still, and from then nothing breaks before 2.0, except a feature still marked Experimental.
 
 ______________________________________________________________________
 
