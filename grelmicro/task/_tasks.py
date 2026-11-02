@@ -279,7 +279,12 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         self.do_mark_as_started()
 
         loop = asyncio.get_running_loop()
-        for task in self.tasks:
+        # A task that starts first, such as a job, is ready to take work
+        # before any other task's first fire.
+        ordered = sorted(
+            self.tasks, key=lambda t: not getattr(t, "_starts_first", False)
+        )
+        for task in ordered:
             ready: asyncio.Future[None] = loop.create_future()
             handle = self._task_group.create_task(
                 task(ready=ready, stop=self._stop), name=task.name

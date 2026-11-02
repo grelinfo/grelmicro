@@ -60,6 +60,23 @@ class FireInfo:
     duration: float
 
 
+def first_leaf(group: ExceptionGroup[Exception]) -> Exception:
+    """Return the first exception in `group` that is not a group."""
+    first = group.exceptions[0]
+    return first_leaf(first) if isinstance(first, ExceptionGroup) else first
+
+
+def _all_of(error: Exception, kinds: tuple[type[Exception], ...]) -> bool:
+    """Return whether `error`, or every exception in its group, is of `kinds`."""
+    if isinstance(error, kinds):
+        return True
+    return (
+        bool(kinds)
+        and isinstance(error, ExceptionGroup)
+        and error.split(kinds)[1] is None
+    )
+
+
 class FireRecorder:
     """Runs a task's body and records every fire, run or not.
 
@@ -69,6 +86,7 @@ class FireRecorder:
 
     __slots__ = (
         "_clock",
+        "_expected",
         "_function",
         "_name",
         "last",
@@ -82,16 +100,22 @@ class FireRecorder:
         function: Callable[..., Any],
         *,
         clock: Callable[[], datetime],
+        cast: bool = True,
+        expected: tuple[type[Exception], ...] = (),
     ) -> None:
         """Record the fires of the task `name`, timestamped by `clock`.
 
         `function` is injected once, and a synchronous one runs in a worker
-        thread.
+        thread. With `cast` off, the arguments passed to `run` reach the
+        body as they are, never validated or copied. An `expected`
+        exception, or a group made only of them, logs one warning line
+        with its first message instead of a traceback.
         """
         self._name = name
+        self._expected = expected
         self._clock = clock
-        injected = inject(function)
-        self._function: Callable[[], Awaitable[Any]] = (
+        injected = inject(function, cast=cast)
+        self._function: Callable[..., Awaitable[Any]] = (
             injected
             if is_async_callable(injected)
             else partial(asyncio.to_thread, injected)
@@ -127,12 +151,19 @@ class FireRecorder:
             started_at=started_at, outcome=outcome, duration=0.0
         )
 
-    async def run(self, started_at: datetime, delay: float | None) -> None:
-        """Run the body once and record the fire.
+    async def run(
+        self,
+        started_at: datetime,
+        delay: float | None,
+        *args: Any,  # noqa: ANN401
+        **kwargs: Any,  # noqa: ANN401
+    ) -> Exception | None:
+        """Run the body once with `args` and `kwargs`, and record the fire.
 
         `delay` is how late the body starts against its planned instant, in
         seconds, or `None` when nothing was planned. A body that raises is
-        recorded as an error and does not propagate. A cancelled body is
+        recorded as an error and does not propagate: its exception is
+        returned instead, and `None` when it returns. A cancelled body is
         recorded as an error too, and the cancellation propagates.
         """
         self.started = True
@@ -152,14 +183,23 @@ class FireRecorder:
             "grelmicro.outcome": FireOutcome.ERROR,
         }
         try:
-            await self._function()
+            await self._function(*args, **kwargs)
             outcome = FireOutcome.SUCCESS
             attributes["grelmicro.outcome"] = FireOutcome.SUCCESS
             _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
         except Exception as exc:
-            logger.exception("Task execution error: %s", self._name)
+            if _all_of(exc, self._expected):
+                shown = (
+                    first_leaf(exc) if isinstance(exc, ExceptionGroup) else exc
+                )
+                logger.warning("Task failed: %s: %s", self._name, shown)
+            else:
+                logger.exception("Task execution error: %s", self._name)
             attributes["error.type"] = type(exc).__name__
             _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
+            return exc
+        else:
+            return None
         finally:
             duration = time.perf_counter() - start_monotonic
             self.last = FireInfo(
@@ -189,7 +229,7 @@ class FireRecorder:
             )
             self.unrun(self.now() if at is None else at, FireOutcome.MISSED)
 
-    async def guard(self, fire: Awaitable[None]) -> None:
+    async def guard(self, fire: Awaitable[object]) -> None:
         """Await one fire, recording what kept it from the body.
 
         A refused admission is a skip. A lock that ran out while the body

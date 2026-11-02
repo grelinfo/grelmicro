@@ -8,7 +8,7 @@ import re
 from datetime import timedelta
 from math import floor, isfinite
 from time import time_ns
-from typing import Annotated, Any
+from typing import Annotated, Any, TypeIs
 
 from pydantic import (
     AfterValidator,
@@ -167,12 +167,17 @@ def _from_text(text: str, name: str) -> timedelta:
         return _TOO_LONG
 
 
+def is_int(value: object) -> TypeIs[int]:
+    """Return whether `value` is an `int` and not a `bool`."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _from_value(value: object, name: str) -> timedelta:
     """Read whole seconds or a `timedelta`, and refuse anything else.
 
     A float, a bool, text, or any other number is refused.
     """
-    if isinstance(value, int) and not isinstance(value, bool):
+    if is_int(value):
         return _from_seconds(value)
     if isinstance(value, timedelta):
         return value

@@ -8,10 +8,19 @@ import typing as _typing
 if _typing.TYPE_CHECKING:
     from grelmicro._task import Task
     from grelmicro.task._fire import FireInfo, FireOutcome
+    from grelmicro.task._job import (
+        Job,
+        JobInfo,
+        JobStatus,
+        OwnedJob,
+        Progress,
+    )
     from grelmicro.task._tasks import Tasks, TasksConfig
     from grelmicro.task.errors import (
         CronError,
         FunctionTypeError,
+        JobError,
+        JobRefusedError,
         TaskAddOperationError,
         TaskError,
         TaskStartOperationError,
@@ -24,6 +33,13 @@ __all__ = [
     "FireInfo",
     "FireOutcome",
     "FunctionTypeError",
+    "Job",
+    "JobError",
+    "JobInfo",
+    "JobRefusedError",
+    "JobStatus",
+    "OwnedJob",
+    "Progress",
     "Task",
     "TaskAddOperationError",
     "TaskError",
@@ -39,6 +55,13 @@ _LAZY: dict[str, str] = {
     "FireInfo": "grelmicro.task._fire",
     "FireOutcome": "grelmicro.task._fire",
     "FunctionTypeError": "grelmicro.task.errors",
+    "Job": "grelmicro.task._job",
+    "JobError": "grelmicro.task.errors",
+    "JobInfo": "grelmicro.task._job",
+    "JobRefusedError": "grelmicro.task.errors",
+    "JobStatus": "grelmicro.task._job",
+    "OwnedJob": "grelmicro.task._job",
+    "Progress": "grelmicro.task._job",
     "Task": "grelmicro._task",
     "TaskAddOperationError": "grelmicro.task.errors",
     "TaskError": "grelmicro.task.errors",

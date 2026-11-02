@@ -39,7 +39,7 @@ ______________________________________________________________________
 
 ## Start with one pattern
 
-Run a job once a minute across all your replicas, not once per replica. Create a file `main.py` with:
+Run a task once a minute across all your replicas, not once per replica. Create a file `main.py` with:
 
 ```python
 from fastapi import FastAPI
@@ -78,7 +78,7 @@ Each minute the report is sent once, by whichever copy claims it. `micro.install
 
 Your FastAPI, Starlette, Litestar or FastStream service keeps its routes, its lifespan and its database code. grelmicro adds what a service needs once it runs on more than one replica:
 
-- a scheduled job that runs once per interval across replicas, not on each of them,
+- a scheduled task that runs once per interval across replicas, not on each of them,
 - a lock, a cache and a rate limit that every replica shares,
 - a retry, a circuit breaker and a timeout around the calls that fail,
 - health probes, logs, traces and metrics that Kubernetes and your dashboards read.
@@ -93,7 +93,7 @@ Coming from another stack? See the mapping for [Spring Boot](https://grelmicro.g
 
 ## Add the next one
 
-The same provider line serves every pattern you add. Here a lock keeps two inventory syncs from running at once across replicas, and a circuit breaker stops calling a warehouse service that keeps failing. The job from above stays:
+The same provider line serves every pattern you add. Here a lock keeps two inventory syncs from running at once across replicas, and a circuit breaker stops calling a warehouse service that keeps failing. The task from above stays:
 
 ```python
 from fastapi import FastAPI
@@ -124,7 +124,7 @@ async def send_report() -> None:
     print("report sent by this copy")
 ```
 
-Both copies now share the lock and the breaker's state as well as the job.
+Both copies now share the lock and the breaker's state as well as the task.
 
 ## What each module guarantees
 

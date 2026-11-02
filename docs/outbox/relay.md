@@ -51,7 +51,7 @@ from grelmicro.outbox import Outbox
 micro = Grelmicro(uses=[Outbox(postgres, keep_delivered=timedelta(days=30))])
 ```
 
-The window is measured from delivery time, not publish time, so a delayed or heavily retried message still gets its full retention. The relay purges expired delivered rows in the background, so retention needs no scheduled job. The purge runs on the relay, so a `relay=False` replica never purges. Set `keep_delivered=None` to keep delivered rows for good with no auto-purge. From an environment variable, write `GREL_OUTBOX_KEEP_DELIVERED=none`.
+The window is measured from delivery time, not publish time, so a delayed or heavily retried message still gets its full retention. The relay purges expired delivered rows in the background, so retention needs no scheduled task. The purge runs on the relay, so a `relay=False` replica never purges. Set `keep_delivered=None` to keep delivered rows for good with no auto-purge. From an environment variable, write `GREL_OUTBOX_KEEP_DELIVERED=none`.
 
 Auto-purge only removes delivered rows. A dead-letter is a failure to inspect and redrive, so dead rows are never deleted automatically. Trim them yourself with `purge`, which deletes both delivered and dead rows, optionally only those past a window:
 

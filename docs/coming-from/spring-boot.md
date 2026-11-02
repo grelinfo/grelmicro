@@ -62,7 +62,7 @@ MDC is a map for each thread that you can write to anywhere. grelmicro context f
 
 ## Side by side
 
-### A job that runs on one node
+### A task that runs on one node
 
 === "Spring Boot"
 
