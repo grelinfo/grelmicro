@@ -1,5 +1,7 @@
 # Bulkhead
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A **Bulkhead** caps how many calls run at once. Rate limiting bounds requests per unit time. A bulkhead bounds *concurrent in-flight* work, so one slow dependency cannot consume every worker and starve the rest of the app.
 
 **Why**

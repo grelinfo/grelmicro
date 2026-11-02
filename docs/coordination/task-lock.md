@@ -1,5 +1,7 @@
 # Task Lock
 
+Check its [maturity level](../capabilities.md#patterns-on-a-backend).
+
 The Task Lock is a distributed lock for scheduled tasks. Unlike a regular
 [`Lock`](lock.md), it does not release immediately. It keeps the lock held for a
 configurable minimum duration to stop re-execution on other nodes.

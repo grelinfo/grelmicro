@@ -1,5 +1,7 @@
 # Response Cache
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A catalog endpoint reads the same rows for every caller and answers the same
 bytes every time. Under load it runs that query thousands of times a minute,
 and every replica runs its own copy.

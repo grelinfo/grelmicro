@@ -1,5 +1,7 @@
 # Ops Server
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A consumer reads from a queue. A scheduler fires jobs. Neither serves HTTP, and
 Kubernetes still restarts the pod that stops answering `/livez`, and Prometheus
 still needs a `/metrics` to scrape.

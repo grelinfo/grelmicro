@@ -1,5 +1,7 @@
 # Outbox
 
+Check its [maturity level](../capabilities.md#patterns-on-a-backend).
+
 The `outbox` module runs an async handler exactly after your database transaction commits, at least once. Use it to turn a side effect into a durable part of your write: send an email, call an external API, or publish an event without ever losing it and without ever running it for a transaction that rolled back.
 
 This is the transactional outbox pattern. It removes the dual-write problem: the moment you write to the database and "also send an email" as two separate steps, a crash between them either loses the email or sends it for a change that never committed. Staging the message in the same transaction makes that impossible.

@@ -1,5 +1,7 @@
 # Idempotency
 
+Check its [maturity level](../capabilities.md#patterns-on-a-backend).
+
 The `idempotency` module makes a retried operation safe to run more than once. It stores the response under a caller-supplied key. A repeated key within the configured lifetime replays the stored response instead of running the operation again.
 
 This pairs with retries. Wrap a call in `Retry`, mark the operation idempotent, and a retry that lands after the first attempt already succeeded returns the stored response rather than charging the card twice.

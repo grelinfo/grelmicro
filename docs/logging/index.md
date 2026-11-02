@@ -1,5 +1,7 @@
 # Logging
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 Zero-config logging that follows the **12-factor app** methodology. Use it to get structured, environment-aware logs without wiring handlers by hand.
 
 - **Zero-config**: logs go to stdout, the format is picked automatically.

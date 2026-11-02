@@ -1,5 +1,7 @@
 # Lock
 
+Check its [maturity level](../capabilities.md#patterns-on-a-backend).
+
 The lock is a distributed lock that synchronizes access to a shared resource.
 
 The lock supports the following features:

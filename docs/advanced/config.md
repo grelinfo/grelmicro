@@ -1,5 +1,7 @@
 # Declarative Configuration
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 The [User Guide Configuration](../config.md) page teaches the default path: build
 with keyword arguments, tune with environment variables. This page covers the
 other two construction paths and the resolution contract behind all three.

@@ -1,5 +1,7 @@
 # Fallback
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A **Fallback** policy returns a safe value when a call fails. Use it to degrade gracefully: "if the live recommendation service fails, return cached recommendations or an empty list".
 
 **Why**

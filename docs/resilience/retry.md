@@ -1,5 +1,7 @@
 # Retry
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A **Retry** policy repeats a failing call with backoff and jitter. Use it for transient errors that are safe to retry: network blips, brief overloads, deadline-related failures.
 
 **Why**

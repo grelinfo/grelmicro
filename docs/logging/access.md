@@ -1,5 +1,7 @@
 # Access Log
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 One structured record per HTTP request, written by grelmicro.
 
 Uvicorn already writes an access line, and it carries what uvicorn knows: the

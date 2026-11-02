@@ -1,5 +1,7 @@
 # Read-Write Lock
 
+Check its [maturity level](../capabilities.md#patterns-on-a-backend).
+
 A [`Lock`](lock.md) lets one caller in at a time, readers included. A
 `ReadWriteLock` lets every reader in at once and keeps writers alone. Reach for
 it when a resource is read far more often than it is written: a catalog, a

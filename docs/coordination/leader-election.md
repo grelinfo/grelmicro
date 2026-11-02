@@ -1,5 +1,7 @@
 # Leader Election
 
+Check its [maturity level](../capabilities.md#patterns-on-a-backend).
+
 Leader election elects one worker in a cluster to act as the leader. Use it to
 run a job at most once across all replicas: a scheduler, a migration, a
 compaction.

@@ -1,5 +1,7 @@
 # Rate Limit
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A `RateLimiter` hands back a `RateLimitResult` and stops. Every service then
 writes the same `429` by hand, and most write it wrong: no `Retry-After`, no
 quota, a body that does not match what the rest of the app answers with, and a

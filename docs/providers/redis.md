@@ -155,7 +155,9 @@ lock = provider.lock_backend(prefix="{myapp}")
 Without a hash tag, the adapter raises a `ValueError` at construction
 that names the fix. Standalone and Sentinel need no hash tag, since every
 key lives on one server. The rate limiter, circuit breaker, schedule, and
-leader-election adapters touch one key per call and work on Cluster as is.
+leader-election adapters touch one key per call, so they need no hash tag.
+CI does not run a real cluster yet, see the
+[capability matrix](../capabilities.md#patterns-on-a-backend).
 
 ## Valkey
 

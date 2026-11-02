@@ -1,5 +1,7 @@
 # Cache
 
+Check its [maturity level](../capabilities.md#patterns-on-a-backend).
+
 The `cache` module caches function results and arbitrary values behind a swappable backend. Use it to avoid recomputing expensive calls.
 
 - **[TTLCache](#ttlcache)**: cache with per-entry TTL, optional maxsize with LRU eviction, and serialization.

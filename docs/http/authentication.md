@@ -1,5 +1,7 @@
 # Authentication
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A service checks the token a caller presents before any handler runs. Register
 one component and every request is authenticated: the bearer token is read,
 verified, and the caller handed to the route.

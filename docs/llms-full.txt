@@ -77,7 +77,7 @@
 - [Providers](https://grelmicro.grel.info/providers/): the connection object behind every component.
 - [Redis and Valkey](https://grelmicro.grel.info/providers/redis/): environment variables, Sentinel, Cluster, and the hash-tag rule.
 - [Postgres](https://grelmicro.grel.info/providers/postgres/): environment variables, `command_timeout`, reader and writer pools.
-- [Capability matrix](https://grelmicro.grel.info/capabilities/): which pattern and adapter combinations ship today.
+- [Capability matrix](https://grelmicro.grel.info/capabilities/): which pattern and adapter combinations ship today, and how mature each one is.
 - [Comparison](https://grelmicro.grel.info/comparison/): grelmicro next to aiocache, slowapi, pybreaker, tenacity, and aioredlock.
 - [Performance](https://grelmicro.grel.info/performance/): where the overhead is and when it matters.
 - [Benchmarks](https://grelmicro.grel.info/benchmarks/): runnable scripts to verify the numbers on your own hardware.

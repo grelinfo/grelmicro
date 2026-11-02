@@ -1,5 +1,7 @@
 # Circuit Breaker
 
+Check its [maturity level](../capabilities.md#patterns-on-a-backend).
+
 A **Circuit Breaker** prevents repeated failures when calling an unreliable downstream. After too many consecutive failures it **opens** to block further calls for a cool-down period, so the dependency can recover.
 
 **Why**

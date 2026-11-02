@@ -1,5 +1,7 @@
 # Timeout
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A **Timeout** policy bounds how long an async call may run. Use it to keep a slow dependency from blocking a request indefinitely.
 
 **Why**

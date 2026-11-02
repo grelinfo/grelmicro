@@ -1,5 +1,7 @@
 # Outbound Tokens
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A service that calls another API needs a token for it. grelmicro gets that
 token from your authorization server, caches it, and refreshes it before it
 expires.

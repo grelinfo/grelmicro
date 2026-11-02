@@ -1,5 +1,7 @@
 # Conditional Requests
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 Two clients read the same cart. Both edit it. Both send it back. The second
 write silently erases the first.
 
