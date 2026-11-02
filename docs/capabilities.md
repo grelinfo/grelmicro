@@ -18,6 +18,8 @@ A break or a serious bug fix counts for:
 - One cell, when it is on a backend.
 - Every feature, when it affects them all, such as the Python floor or the `GREL_*` default.
 
+From `1.0`, 🧪 is the only level the "nothing breaks before `2.0`" promise does not cover. A 🧪 feature can still break in a minor, and it always warns first.
+
 A feature is only as mature as what it runs on. A level reports the past and promises nothing. Pin the minor whatever the level, as [Versions and upgrades](versioning.md#pin-the-minor) explains.
 
 ## Patterns on a backend

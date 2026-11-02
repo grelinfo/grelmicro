@@ -690,7 +690,9 @@ not before. A Stable level on the
 promise.
 
 After `1.0`, standard semver applies: breaking changes wait for the
-next `MAJOR`, and still warn one release ahead first. There is no fixed
+next `MAJOR`, and still warn one release ahead first. A feature marked
+Experimental on the [capability matrix](docs/capabilities.md) is the one
+exception: it can break in a minor, and it always warns first. There is no fixed
 schedule for major versions, and a major version is never bumped just
 because time has passed.
 

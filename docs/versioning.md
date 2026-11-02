@@ -64,5 +64,7 @@ The [capability matrix](capabilities.md) gives each feature a level. A level rep
 
 ## After 1.0
 
-From `1.0`, nothing breaks before `2.0`. `1.0` comes when the API has held
-still, not on a date.
+From `1.0`, nothing breaks before `2.0`, except a feature marked
+[🧪 Experimental](capabilities.md). A 🧪 feature can still break in a minor,
+and it always warns first. `1.0` does not need every feature to be ✅ Stable,
+only the core ones. `1.0` comes when the API has held still, not on a date.
