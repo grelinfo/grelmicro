@@ -1,5 +1,7 @@
 # JWT
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 [Rust powered](../architecture/jwt.md){ .grel-tag .grel-tag--rust }
 
 A caller presents a bearer token. `JWTVerifier` decides whether to believe it.

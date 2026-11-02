@@ -39,7 +39,7 @@ One page per module. Each one links the rest of its section.
 - [API reference](https://grelmicro.grel.info/reference/cache/): every public symbol, generated from the source docstrings.
 - [Architecture](https://grelmicro.grel.info/architecture/): design decisions, guarantees, and internals.
 - [Providers](https://grelmicro.grel.info/providers/): the connection object behind every component.
-- [Capability matrix](https://grelmicro.grel.info/capabilities/): which pattern and adapter combinations ship today.
+- [Capability matrix](https://grelmicro.grel.info/capabilities/): which pattern and adapter combinations ship today, and how mature each one is.
 - [Comparison](https://grelmicro.grel.info/comparison/): grelmicro next to aiocache, slowapi, pybreaker, tenacity, and aioredlock.
 - [Performance](https://grelmicro.grel.info/performance/): where the overhead is and when it matters.
 - [Migration](https://grelmicro.grel.info/migration/): what to change on each minor release.

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+* 📝 The capability matrix gives each feature a maturity level: Experimental, Preview or Stable, with the last break and serious bug fix behind it. ([#1252](https://github.com/grelinfo/grelmicro/pull/1252))
+
 ## 0.44.2 - 2026-10-30
 
 ### Changed

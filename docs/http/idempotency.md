@@ -1,5 +1,7 @@
 # Idempotency Middleware
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 The [quick start](../idempotency/index.md#quick-start) reads the key and opens a block in every handler that needs one. `IdempotentRequests()` does it once, for the whole app.
 
 ```python title="middleware.py"

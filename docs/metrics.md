@@ -1,5 +1,7 @@
 # Metrics
 
+Check its [maturity level](capabilities.md#features-with-no-backend).
+
 The `metrics` module records OpenTelemetry metrics for your app. Add one `Metrics()` component and grelmicro emits metrics from every built-in component. Add `@measure` to time your own functions. Register an `OpsServer` to serve a Prometheus endpoint on a port of its own.
 
 ## Quick Start

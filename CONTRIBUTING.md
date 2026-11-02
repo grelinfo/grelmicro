@@ -685,7 +685,9 @@ surface fails CI. Every intentional break appears under **Breaking** in
 `1.0` is reserved for the point where the public API is promised
 stable. It is a maturity milestone, not a calendar or launch event. We
 cross it when the API has held steady and we are ready to commit to it,
-not before.
+not before. A Stable level on the
+[capability matrix](docs/capabilities.md) reports the past, and is not this
+promise.
 
 After `1.0`, standard semver applies: breaking changes wait for the
 next `MAJOR`, and still warn one release ahead first. There is no fixed

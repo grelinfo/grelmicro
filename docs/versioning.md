@@ -58,6 +58,10 @@ is dropped only when it is no longer one of the three, and only in a minor.
 Today grelmicro supports Python 3.14 and 3.15. Python 3.14 stays supported at
 least until Python 3.17 is released.
 
+## Maturity levels
+
+The [capability matrix](capabilities.md) gives each feature a level. A level reports the past. Every level follows the rules on this page.
+
 ## After 1.0
 
 From `1.0`, nothing breaks before `2.0`. `1.0` comes when the API has held

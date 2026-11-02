@@ -1,5 +1,7 @@
 # Task Scheduler
 
+Check its [maturity level](capabilities.md).
+
 A simple scheduler that runs tasks periodically. Use it for lightweight recurring jobs without a full task queue.
 
 - **Fast and easy**: simple decorators to define and schedule tasks with minimal boilerplate.

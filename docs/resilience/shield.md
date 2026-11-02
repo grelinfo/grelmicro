@@ -1,5 +1,7 @@
 # Shield
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 A **Shield** wraps one async call to one dependency with resilience built in: a per-attempt timeout, automatic retries, and an adaptive rate limiter that engages only when the dependency starts to struggle. One decorator, one knob.
 
 **Why**

@@ -1,5 +1,7 @@
 # Client IP
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 Behind a reverse proxy, the address your app sees is the proxy's. The real
 client is in `X-Forwarded-For`, and reading that header naively is one of
 the most reliably exploited mistakes in web software.

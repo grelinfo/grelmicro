@@ -1,5 +1,7 @@
 # Tracing
 
+Check its [maturity level](capabilities.md#features-with-no-backend).
+
 Unified instrumentation. Use it to enrich logs with structured context and create distributed traces from one decorator.
 
 - **One decorator**: `@instrument` captures function arguments as context.

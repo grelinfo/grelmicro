@@ -1,5 +1,7 @@
 # Frameworks
 
+Check each framework's [maturity level](capabilities.md#features-with-no-backend).
+
 grelmicro is not a web framework. It plugs into the one you picked, and
 `micro.install(app)` detects which one from the app object.
 

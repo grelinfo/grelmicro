@@ -1,5 +1,7 @@
 # Rate Limiter
 
+Check its [maturity level](../capabilities.md#patterns-on-a-backend).
+
 A **Rate Limiter** caps how many requests a client can make inside a time window. Use it to protect a service from overload and to enforce fair usage across clients.
 
 **Why**

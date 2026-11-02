@@ -1,5 +1,7 @@
 # Error Responses
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 grelmicro knows why it turned a request away. A rate limiter knows when the
 budget refills, an open circuit breaker knows when it next tries the
 dependency, a full bulkhead knows there is nothing to wait for. This page is

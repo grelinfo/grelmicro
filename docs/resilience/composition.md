@@ -1,5 +1,7 @@
 # Composing patterns
 
+Check its [maturity level](../capabilities.md#features-with-no-backend).
+
 Resilience patterns wrap a call in layers. Each layer adds its own behavior, and the order of the layers changes what they mean. A timeout outside a retry bounds every attempt together. The same timeout inside the retry bounds one attempt.
 
 A [`Stack`](#stack) takes the patterns and applies them in the safe order, so the order stops being something to get right at every call site.

@@ -1,5 +1,7 @@
 # Health Checks
 
+Check its [maturity level](capabilities.md#features-with-no-backend).
+
 A health checks manager with concurrent execution. Use it to expose liveness, readiness, and aggregate health endpoints.
 
 - **[HealthChecks](#quick-start)**: Register check functions with a FastAPI-style decorator, run them concurrently with per-check timeouts and caching.
