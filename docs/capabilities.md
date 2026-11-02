@@ -91,7 +91,7 @@ A level does not say whether replicas share state. See [the backend check](deplo
     | Feature | Last break | Last serious fix | Announced |
     | --- | --- | --- | --- |
     | Whole library | 0.44.0 | None | |
-    | `Lock` | 0.42.0 | 0.42.0 | |
+    | `Lock` | 0.42.0 | 0.44.1 | |
     | `ReadWriteLock` | 0.42.0 | 0.44.2 | |
     | `TaskLock` | 0.42.0 | 0.42.5 | Gated tasks change in 0.45.0 |
     | `LeaderElection` | 0.42.0 | 0.42.0 | Gated tasks change in 0.45.0 |
@@ -106,7 +106,7 @@ A level does not say whether replicas share state. See [the backend check](deplo
     | `Retry` | 0.41.0 | 0.41.0 | |
     | `Bulkhead` | 0.42.0 | 0.41.0 | |
     | `Fallback` | 0.41.0 | 0.41.0 | |
-    | `Timeout` | 0.41.0 | 0.41.0 | |
+    | `Timeout` | 0.41.0 | None | |
     | `Shield` | 0.42.0 | 0.40.0 | |
     | `Stack` | 0.41.0 | None | |
     | `Log` | 0.44.0 | 0.42.0 | Log format spelling changes in 0.45.0 |
@@ -123,7 +123,7 @@ A level does not say whether replicas share state. See [the backend check](deplo
     | `AuthenticatedRequests` | None | None | |
     | `IdempotentRequests` | 0.42.0 | 0.44.2 | |
     | `CachedResponses` | 0.42.0 | 0.44.2 | |
-    | `ConditionalRequests` | 0.42.0 | None | |
+    | `ConditionalRequests` | 0.42.0 | 0.42.0 | |
     | `RateLimitedRequests` | 0.42.0 | None | |
     | `ErrorResponses` | 0.42.0 | 0.41.0 | |
     | FastAPI | 0.42.0 | 0.42.0 | Imported names leave in 0.45.0 |
