@@ -15,7 +15,6 @@ import threading
 from annotationlib import Format, ForwardRef
 from collections import deque
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 from functools import partial
 from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
@@ -31,6 +30,7 @@ from grelmicro._task import Task
 from grelmicro.clock._seam import monotonic, sleep
 from grelmicro.errors import OutOfContextError
 from grelmicro.task._fire import FireRecorder, first_leaf
+from grelmicro.task._protocol import JobStatus
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.errors import JobError, JobRefusedError
 
@@ -44,25 +44,6 @@ _JSON: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 
 _FAILED = "Job failed"
 """The error a caller sees for any exception but a `JobError`."""
-
-
-class JobStatus(StrEnum):
-    """Status of a job.
-
-    - ``QUEUED``: waiting for a free slot.
-    - ``RUNNING``: the body is running.
-    - ``SUCCEEDED``: the body returned.
-    - ``FAILED``: the body raised. `JobInfo.error` says why.
-    - ``CANCELLED``: cancelled before or while it ran.
-
-    Read more in the [Status](../task.md#status) docs.
-    """
-
-    QUEUED = "queued"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class JobInfo(BaseModel, frozen=True):
