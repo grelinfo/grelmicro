@@ -346,7 +346,7 @@ The `grelmicro.outcome` attribute says what:
 | `grelmicro.outcome` | What happened |
 |---|---|
 | `success` | the body ran and returned |
-| `error` | the body raised, `error.type` names the exception |
+| `error` | the body raised, or a job's stored arguments could not be loaded, `error.type` names the exception |
 | `skipped` | another worker handled this fire, so this one stood down |
 | `missed` | the fire was dropped and no worker ran it, either because it came back too late to replay or because the worker that claimed it could not admit the body |
 | `coordination_error` | the fire never reached the body because coordination failed, `error.type` names the exception |

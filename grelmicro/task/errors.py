@@ -80,8 +80,8 @@ class TaskStartOperationError(TaskError, RuntimeError):
 class JobError(TaskError):
     """Raised by a job body to fail the job with a message for the caller.
 
-    The message reaches `JobInfo.error` as written. Any other exception a
-    body raises shows as `"Job failed"`.
+    The message reaches `JobInfo.error` and the status of the run's span as
+    written. Any other exception a body raises shows as `"Job failed"`.
 
     Read more in the [Errors](../task.md#errors) docs.
     """

@@ -286,13 +286,12 @@ it runs. Use it for work started from a request that takes too long to answer
 in it: an import, a report, a batch handled item by item.
 
 ```python
---8<-- "task/job.py:1:48"
+--8<-- "task/job.py:1:50"
 ```
 
 `@tasks.job` turns the function into a `Job`. Call `submit` with the function's
 own arguments, after `progress`. It returns at once with a `JobInfo`, and the
-job runs in the background, in the context of the code that submitted it, so its
-logs and traces carry that request's fields. A `JobInfo` is a Pydantic model, so an endpoint
+job runs in the background. A `JobInfo` is a Pydantic model, so an endpoint
 returns it as is:
 
 ```json
@@ -302,7 +301,7 @@ returns it as is:
   "status": "running",
   "done": 2,
   "total": 3,
-  "results": ["row-1", "row-2"],
+  "result": null,
   "error": null,
   "cancel_requested": false,
   "created_at": "2026-11-02T09:15:00Z",
@@ -322,8 +321,8 @@ returns it as is:
 | --- | --- |
 | `queued` | Waiting for a free slot. |
 | `running` | The body is running. |
-| `succeeded` | The body returned. |
-| `failed` | The body raised. `error` says why. |
+| `succeeded` | The body returned JSON. |
+| `failed` | The body raised or returned something that is not JSON, the job never started in time, or the job was lost. `error` says why. |
 | `cancelled` | Cancelled before or while it ran. |
 
 A job only moves forward: `queued`, then `running`, then one of the last three.
@@ -332,17 +331,28 @@ A job only moves forward: `queued`, then `running`, then one of the last three.
 ### Progress
 
 Take `progress: Progress` as the first parameter. Set `progress.total` when you
-know it, and call `progress.advance()` after each item. Pass `result=` to add
-the item's result to `results`. A result must be JSON: a string, a number, a
-boolean, or a list or dict of them.
+know it, and call `progress.advance()` after each item. Progress reaches a poll
+within about a second, and the last of it always arrives with the final status.
 
-Results reported before a failure or a cancel stay in `results`. `results` holds
-every result the job reports, so a job over millions of items should report a
-summary instead.
+What the body returns reaches `result` once the job ends. It must be JSON: a
+string, a number, a boolean, or a list or dict of them. A body that returns
+anything else ends `failed`. A job that fails or is cancelled has no `result`,
+and `done` and `total` still show how far it got. To keep partial work, have the
+body save it.
 
-The arguments after `progress` reach the body as you pass them, checked by your
-type checker and never copied. `submit` raises `TypeError` for arguments the
-body does not take. A dependency the body takes from
+The arguments after `progress` are stored as JSON and rebuilt from the body's
+type hints, so a `datetime`, a `UUID` or a Pydantic model arrives as that type.
+A type hint only your type checker can resolve travels as plain JSON. The body
+gets a copy, never your object.
+
+`submit` raises `TypeError` for arguments the body does not take, for a value
+that does not match its type hint or has no JSON form, and for a value that
+would not arrive the same, such as a `SecretStr`. A parameter whose type has no
+JSON form, such as an open connection or an uploaded file, raises `TypeError`
+where the job is written, or at the first `submit` when the type is defined
+after the job. Pass an id, and let the body load it.
+
+A dependency the body takes from
 [FastDepends](https://lancetnik.github.io/FastDepends/) is injected, never
 submitted. Give it a default, `client: Client = Depends(get_client)`, so your
 type checker does not ask `submit` for it either.
@@ -356,10 +366,15 @@ traceback goes to the log. To show the caller a message, raise `JobError`:
 raise JobError(f"Row {row.number} is invalid")
 ```
 
-Its message reaches `error` as written. Write it for the caller. A `JobError`
+Its message reaches `error` and the run's span as written. Write it for the
+caller, and keep out what your traces should not hold. A `JobError`
 logs one warning line, with no traceback. Inside a task group in the body, it
 counts when every error the group raised is a `JobError`, and the first message
 is shown.
+
+A job also ends `failed`, with the error `"Job lost"`, when nothing extended its
+lease for 30 seconds. A body that blocks the event loop that long does this, so
+run blocking work in a sync body, which runs in a worker thread.
 
 ### Owner
 
@@ -372,6 +387,11 @@ all three cases.
 `import_rows` itself, without `for_owner`, finds only the jobs submitted
 without an owner. An endpoint that forgets `for_owner` finds nothing, never
 another caller's job.
+
+!!! warning "A job without an owner"
+    Only its id protects a job with no owner, so treat that id as a credential.
+    The id reaches your traces, on the run's span and in the URL of each poll.
+    Use `for_owner` for any job a caller reaches.
 
 ### Cancel
 
@@ -390,7 +410,7 @@ reads `running`.
 `progress.checkpoint()` raises `asyncio.CancelledError` once the job should
 stop: a cancel was requested, or the service is shutting down. Call it where
 stopping is safe, between two items. The job then ends `cancelled`, with the
-results reported so far.
+counts reported so far.
 
 To save state before stopping, read `progress.stopping` instead:
 
@@ -399,19 +419,24 @@ for row in rows:
     if progress.stopping:
         await save_cursor(upload_id, row.number)
         progress.checkpoint()
-    progress.advance(result=await save_row(row))
+    await save_row(row)
+    progress.advance()
 ```
 
-A body that returns ends `succeeded`, so stop with `checkpoint()`, never with a
-bare `return`.
+A body that returns JSON ends `succeeded`, so stop with `checkpoint()`, never
+with a bare `return`.
 
 ### Limits
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `max_concurrent` | `1` | Jobs of this function running at once, in this process. |
-| `max_queued` | `100` | Jobs waiting for a slot. `0` refuses as soon as every slot runs. `None` means no limit. |
-| `keep` | `3600` | How long a finished job stays readable, in seconds or a `timedelta`. `0` keeps nothing. `None` means no limit. |
+| `max_concurrent` | `1` | Jobs of this function running at once, on each replica. |
+| `max_queued` | `None` | Jobs waiting for a slot. `None` means no limit. Past a limit, `submit` raises `JobRefusedError`. `0` takes a job only when a slot is free now. |
+| `max_wait` | `86400` | How long a queued job may wait for a slot, in seconds or a `timedelta`. Past it, the job ends `failed`. `None` means no limit. |
+| `keep` | `86400` | How long a finished job stays readable, in seconds or a `timedelta`. `0` keeps nothing. `None` means no limit. |
+
+With no limit, a flood of submits grows the store. If callers can flood you, set
+`max_queued` or put a [rate limit](http/rate-limit.md) on the route.
 
 When the queue is full, or the service is shutting down, `submit` raises
 `JobRefusedError`. With [error responses](http/errors.md) installed, it answers
@@ -426,7 +451,7 @@ Leaving `async with tasks` drains jobs with the scheduled tasks, within the
 same `shutdown_timeout`:
 
 1. `submit` refuses new jobs with `JobRefusedError`.
-2. Queued jobs end `cancelled` without starting.
+2. Queued jobs stay queued and do not start. They are lost with the process.
 3. Running jobs see `progress.stopping` turn `True`. Each stops at its next
    `checkpoint()`, after the item in hand, and releases its locks through
    `async with` as it unwinds.
@@ -440,8 +465,19 @@ cannot be stopped: its thread keeps the process alive until it returns or the
 orchestrator kills it.
 
 A job stopped by shutdown is not resumed. The client sees it `cancelled` while
-the process lives, and `404` once it is gone. Submit it again, starting from a
-cursor the body saved.
+the process lives, and `404` once it is gone. A queued job reads `queued` until
+then. Submit it again, starting from a cursor the body saved.
+
+### Logs and traces
+
+Each run has its own trace, linked to the span that submitted it, so a trace
+view shows both. A failed run marks its span as an error and sets `error.type`.
+An exception other than a `JobError` is also an `exception` event on the span,
+with its message and traceback. Set `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN=logs`
+to leave the event off the span. The log still has it. A cancelled run is not
+marked as an error. The body runs in its own context, not the request's, so context
+variables and log fields from the request do not travel. Pass what the body
+needs as an argument.
 
 ### Metrics
 

@@ -84,7 +84,7 @@ def test_job_documented_import_flow_works() -> None:
     # Assert
     assert started.status_code == HTTP_202_ACCEPTED
     assert polled["status"] == "succeeded"
-    assert polled["results"] == ["row-1", "row-2", "row-3"]
+    assert polled["result"] == {"imported": 3}
     assert (polled["done"], polled["total"]) == (3, 3)
     assert as_bob.status_code == HTTP_404_NOT_FOUND
     assert cancel_as_bob.status_code == HTTP_404_NOT_FOUND

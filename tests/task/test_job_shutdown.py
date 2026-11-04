@@ -4,19 +4,21 @@ import asyncio
 import contextlib
 import threading
 from collections.abc import AsyncGenerator
-from typing import Self
+from typing import Any, Self
 
 import pytest
 
 from grelmicro import Grelmicro
 from grelmicro.task import Job, JobRefusedError, JobStatus, Progress, Tasks
+from grelmicro.task.memory import MemoryJobAdapter
+from tests.task._job_shared import share, shared
 
 pytestmark = [pytest.mark.timeout(10)]
 
 
-async def _wait_for(_progress: Progress, gate: asyncio.Event) -> None:
-    """Run until `gate` is set."""
-    await gate.wait()
+async def _wait_for(_progress: Progress, gate: str) -> None:
+    """Run until the shared `gate` is set."""
+    await shared(gate).wait()
 
 
 async def _settled(job: Job[...], job_id: str) -> JobStatus:
@@ -43,12 +45,12 @@ async def test_job_submit_refused_during_the_drain() -> None:
     job = tasks.job()(_wait_for)
     gate = asyncio.Event()
     await tasks.__aenter__()
-    await job.submit(gate)
+    await job.submit(share(gate))
 
     async with _draining(tasks):
         # Act
         with pytest.raises(JobRefusedError) as refused:
-            await job.submit(gate)
+            await job.submit(share(gate))
         gate.set()
 
     # Assert
@@ -65,30 +67,31 @@ async def test_job_submit_refused_after_the_drain() -> None:
 
     # Act
     with pytest.raises(JobRefusedError) as refused:
-        await job.submit(asyncio.Event())
+        await job.submit(share(asyncio.Event()))
 
     # Assert
     assert refused.value.reason == "the tasks are shutting down"
 
 
-async def _items_until_stopped(progress: Progress, gate: asyncio.Event) -> None:
+async def _items_until_stopped(progress: Progress, gate: str) -> None:
     """Handle one item per `gate` set, stopping at the checkpoint."""
+    event = shared(gate)
     while True:
-        await gate.wait()
-        gate.clear()
+        await event.wait()
+        event.clear()
         progress.checkpoint()
-        progress.advance(result=progress.done + 1)
+        progress.advance()
 
 
-async def test_job_drain_cancels_the_queue_and_stops_between_items() -> None:
-    """Queued jobs never start, and a running one ends after its item."""
+async def test_job_drain_keeps_the_queue_and_stops_between_items() -> None:
+    """Queued jobs stay queued, and a running one ends after its item."""
     # Arrange
     tasks = Tasks(shutdown_timeout=5)
     job = tasks.job(max_concurrent=1)(_items_until_stopped)
     gate = asyncio.Event()
     await tasks.__aenter__()
-    running = await job.submit(gate)
-    queued = await job.submit(gate)
+    running = await job.submit(share(gate))
+    queued = await job.submit(share(gate))
     gate.set()
     for _ in range(5):
         await asyncio.sleep(0)
@@ -103,14 +106,15 @@ async def test_job_drain_cancels_the_queue_and_stops_between_items() -> None:
     # Assert
     queued_info = await job.get(queued.id)
     running_info = await job.get(running.id)
-    assert queued_status is JobStatus.CANCELLED
+    assert queued_status is JobStatus.QUEUED
     assert queued_info is not None
+    assert queued_info.status is JobStatus.QUEUED
     assert queued_info.started_at is None
     assert while_draining is JobStatus.RUNNING
     assert drained_early is False
     assert running_info is not None
     assert running_info.status is JobStatus.CANCELLED
-    assert running_info.results == (1,)
+    assert running_info.done == 1
 
 
 async def test_job_drain_cancels_a_job_past_shutdown_timeout() -> None:
@@ -119,7 +123,7 @@ async def test_job_drain_cancels_a_job_past_shutdown_timeout() -> None:
     tasks = Tasks(shutdown_timeout=0.05)
     job = tasks.job()(_wait_for)
     await tasks.__aenter__()
-    submitted = await job.submit(asyncio.Event())
+    submitted = await job.submit(share(asyncio.Event()))
 
     # Act
     await tasks.__aexit__(None, None, None)
@@ -128,14 +132,14 @@ async def test_job_drain_cancels_a_job_past_shutdown_timeout() -> None:
     assert await _settled(job, submitted.id) is JobStatus.CANCELLED
 
 
-async def test_job_drain_with_no_timeout_cancels_every_job_cleanly() -> None:
-    """A force-cancel at once still ends every job and refuses submits."""
+async def test_job_drain_with_no_timeout_ends_what_runs_cleanly() -> None:
+    """A force-cancel at once ends what runs, and leaves the queue queued."""
     # Arrange
     tasks = Tasks(shutdown_timeout=0)
     job = tasks.job(max_concurrent=1)(_wait_for)
     await tasks.__aenter__()
-    running = await job.submit(asyncio.Event())
-    queued = await job.submit(asyncio.Event())
+    running = await job.submit(share(asyncio.Event()))
+    queued = await job.submit(share(asyncio.Event()))
     await asyncio.sleep(0)
 
     # Act
@@ -143,30 +147,30 @@ async def test_job_drain_with_no_timeout_cancels_every_job_cleanly() -> None:
 
     # Assert
     assert await _settled(job, running.id) is JobStatus.CANCELLED
-    assert await _settled(job, queued.id) is JobStatus.CANCELLED
+    assert await _settled(job, queued.id) is JobStatus.QUEUED
     with pytest.raises(JobRefusedError):
-        await job.submit(asyncio.Event())
+        await job.submit(share(asyncio.Event()))
 
 
 def _write_when_released(
     progress: Progress,
-    started: threading.Event,
-    release: threading.Event,
-    finished: threading.Event,
-    wrote: list[str],
+    started: str,
+    release: str,
+    finished: str,
+    wrote: str,
 ) -> None:
     """Block in a thread until `release`, then try to report."""
-    started.set()
-    release.wait()
+    shared(started).set()
+    shared(release).wait()
     try:
         progress.total = 1
-        wrote.append("total")
+        shared(wrote).append("total")
     finally:
         try:
-            progress.advance(result="late")
-            wrote.append("advance")
+            progress.advance()
+            shared(wrote).append("advance")
         finally:
-            finished.set()
+            shared(finished).set()
 
 
 async def test_job_ended_at_shutdown_timeout_takes_no_late_writes() -> None:
@@ -178,7 +182,9 @@ async def test_job_ended_at_shutdown_timeout_takes_no_late_writes() -> None:
     finished = threading.Event()
     wrote: list[str] = []
     await tasks.__aenter__()
-    submitted = await job.submit(started, release, finished, wrote)
+    submitted = await job.submit(
+        share(started), share(release), share(finished), share(wrote)
+    )
     await asyncio.to_thread(started.wait)
     await tasks.__aexit__(None, None, None)
 
@@ -190,7 +196,7 @@ async def test_job_ended_at_shutdown_timeout_takes_no_late_writes() -> None:
     info = await job.get(submitted.id)
     assert info is not None
     assert info.status is JobStatus.CANCELLED
-    assert (info.done, info.total, info.results) == (0, None, ())
+    assert (info.done, info.total) == (0, None)
     assert wrote == []
 
 
@@ -226,7 +232,7 @@ async def test_job_body_raising_a_base_exception_ends_failed() -> None:
 async def test_job_base_exception_starts_no_queued_job(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A `BaseException` cancels the queue instead of starting the next job."""
+    """After a `BaseException`, this replica starts no queued job."""
     # Arrange
     tasks = Tasks()
     job = tasks.job(max_concurrent=1)(_abort)
@@ -240,18 +246,18 @@ async def test_job_base_exception_starts_no_queued_job(
             await asyncio.Event().wait()
 
     # Assert
-    assert await _settled(job, submitted[1]) is JobStatus.CANCELLED
+    assert await _settled(job, submitted[1]) is JobStatus.QUEUED
     assert "Exception in callback" not in caplog.text
 
 
 def _sync_until_released(
-    progress: Progress, started: threading.Event, release: threading.Event
+    progress: Progress, started: str, release: str
 ) -> None:
     """Block in a thread until `release`, then stop at the checkpoint."""
-    started.set()
-    release.wait()
+    shared(started).set()
+    shared(release).wait()
     progress.checkpoint()
-    progress.advance(result="past the checkpoint")
+    progress.advance()
 
 
 async def test_job_drain_stops_a_sync_job_at_its_checkpoint() -> None:
@@ -261,7 +267,7 @@ async def test_job_drain_stops_a_sync_job_at_its_checkpoint() -> None:
     job = tasks.job()(_sync_until_released)
     started, release = threading.Event(), threading.Event()
     await tasks.__aenter__()
-    submitted = await job.submit(started, release)
+    submitted = await job.submit(share(started), share(release))
     await asyncio.to_thread(started.wait)
 
     async with _draining(tasks):
@@ -272,7 +278,7 @@ async def test_job_drain_stops_a_sync_job_at_its_checkpoint() -> None:
     info = await job.get(submitted.id)
     assert info is not None
     assert info.status is JobStatus.CANCELLED
-    assert info.results == ()
+    assert info.done == 0
 
 
 class _Database:
@@ -290,12 +296,12 @@ class _Database:
 
 
 async def _use_database_on_stop(
-    progress: Progress, database: _Database, seen: list[bool]
+    progress: Progress, database: str, seen: str
 ) -> None:
     """Wait for shutdown, then record whether the database is open."""
     while not progress.stopping:  # noqa: ASYNC110
         await asyncio.sleep(0)
-    seen.append(database.open)
+    shared(seen).append(shared(database).open)
 
 
 async def test_job_app_drains_jobs_before_closing_its_resources() -> None:
@@ -308,7 +314,7 @@ async def test_job_app_drains_jobs_before_closing_its_resources() -> None:
     seen: list[bool] = []
 
     async with micro:
-        submitted = await job.submit(database, seen)
+        submitted = await job.submit(share(database), share(seen))
         # Act: leaving the app drains the tasks.
 
     # Assert
@@ -316,3 +322,32 @@ async def test_job_app_drains_jobs_before_closing_its_resources() -> None:
     assert seen == [True]
     assert info is not None
     assert info.status is JobStatus.SUCCEEDED
+
+
+async def test_job_base_exception_refuses_submits_while_it_settles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A submit that arrives while a dying job settles is refused."""
+    # Arrange
+    settle: Any = MemoryJobAdapter.settle
+    refused: list[bool] = []
+    tasks = Tasks()
+    job = tasks.job()(_abort)
+
+    async def _submits_first(self: MemoryJobAdapter, **kwargs: object) -> None:
+        try:
+            await job.submit()
+        except JobRefusedError:
+            refused.append(True)
+        await settle(self, **kwargs)
+
+    monkeypatch.setattr(MemoryJobAdapter, "settle", _submits_first)
+
+    # Act
+    with pytest.RaisesGroup(_Abort, flatten_subgroups=True):
+        async with tasks:
+            await job.submit()
+            await asyncio.Event().wait()
+
+    # Assert
+    assert refused == [True]

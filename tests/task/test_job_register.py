@@ -1,5 +1,7 @@
 """Test what `@tasks.job` refuses at registration."""
 
+import asyncio
+import inspect
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Annotated, Any
@@ -7,8 +9,9 @@ from typing import Annotated, Any
 import pytest
 
 from grelmicro.resilience import retry
-from grelmicro.task import Progress, Tasks
+from grelmicro.task import Job, Progress, Tasks
 from grelmicro.task.errors import TaskAddOperationError
+from grelmicro.task.router import TaskRouter
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -79,6 +82,9 @@ async def _unannotated(progress) -> None:  # noqa: ANN001
         pytest.param({"max_queued": 1.5}, id="max_queued-float"),
         pytest.param({"max_queued": True}, id="max_queued-bool"),
         pytest.param({"keep": -1}, id="keep-negative"),
+        pytest.param({"max_wait": -1}, id="max_wait-negative"),
+        pytest.param({"max_wait": 1.5}, id="max_wait-float"),
+        pytest.param({"max_wait": 0}, id="max_wait-zero"),
         pytest.param({"keep": 1.5}, id="keep-float"),
         pytest.param({"keep": timedelta(days=365 * 101)}, id="keep-too-long"),
     ],
@@ -91,6 +97,20 @@ def test_job_register_refuses_a_bad_limit(limits: dict[str, Any]) -> None:
     # Act & Assert
     with pytest.raises(ValueError, match=next(iter(limits))):
         tasks.job(**limits)(_noop)
+
+
+async def _takes_an_event(_progress: Progress, gate: asyncio.Event) -> None:
+    """Take an argument with no JSON form."""
+
+
+def test_job_register_refuses_an_argument_type_with_no_json_form() -> None:
+    """A parameter that cannot travel as JSON raises where the job is written."""
+    # Arrange
+    tasks = Tasks()
+
+    # Act & Assert
+    with pytest.raises(TypeError, match="gate"):
+        tasks.job()(_takes_an_event)
 
 
 @pytest.mark.parametrize(
@@ -174,3 +194,27 @@ def test_job_register_raises_name_error_for_an_unresolvable_annotation() -> (
     # Act & Assert
     with pytest.raises(NameError, match="_types"):
         tasks.job()(_typing_only)
+
+
+_ONE_DAY = 86400
+"""The default of `max_wait` and `keep`, in seconds."""
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        pytest.param(Job.__init__, id="job"),
+        pytest.param(TaskRouter.job, id="decorator"),
+    ],
+)
+def test_job_limits_default_to_no_queue_limit_and_one_day(
+    written: Callable[..., Any],
+) -> None:
+    """A job has no queue limit, and waits and stays readable for a day."""
+    # Act
+    parameters = inspect.signature(written).parameters
+
+    # Assert
+    assert parameters["max_queued"].default is None
+    assert parameters["max_wait"].default == _ONE_DAY
+    assert parameters["keep"].default == _ONE_DAY

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 from logging import getLogger
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from fast_depends import inject
 
@@ -33,7 +33,8 @@ class FireOutcome(StrEnum):
     """Outcome of a task fire.
 
     - ``SUCCESS``: the body ran and returned without raising.
-    - ``ERROR``: the body raised an exception.
+    - ``ERROR``: the body raised an exception, or the stored arguments of
+      a job could not be loaded for it.
     - ``SKIPPED``: another worker handled the fire, so this one stood
       down. The peer either ran it or recorded it as missed.
     - ``MISSED``: the fire was dropped and no worker ran it. Either it
@@ -66,7 +67,7 @@ def first_leaf(group: ExceptionGroup[Exception]) -> Exception:
     return first_leaf(first) if isinstance(first, ExceptionGroup) else first
 
 
-def _all_of(error: Exception, kinds: tuple[type[Exception], ...]) -> bool:
+def all_of(error: Exception, kinds: tuple[type[Exception], ...]) -> bool:
     """Return whether `error`, or every exception in its group, is of `kinds`."""
     if isinstance(error, kinds):
         return True
@@ -75,6 +76,13 @@ def _all_of(error: Exception, kinds: tuple[type[Exception], ...]) -> bool:
         and isinstance(error, ExceptionGroup)
         and error.split(kinds)[1] is None
     )
+
+
+class FireResult(NamedTuple):
+    """What the body of one fire did."""
+
+    error: Exception | None = None
+    value: Any = None
 
 
 class FireRecorder:
@@ -87,6 +95,7 @@ class FireRecorder:
     __slots__ = (
         "_clock",
         "_expected",
+        "_finish",
         "_function",
         "_name",
         "last",
@@ -102,6 +111,7 @@ class FireRecorder:
         clock: Callable[[], datetime],
         cast: bool = True,
         expected: tuple[type[Exception], ...] = (),
+        finish: Callable[[Any], Any] | None = None,
     ) -> None:
         """Record the fires of the task `name`, timestamped by `clock`.
 
@@ -109,10 +119,13 @@ class FireRecorder:
         thread. With `cast` off, the arguments passed to `run` reach the
         body as they are, never validated or copied. An `expected`
         exception, or a group made only of them, logs one warning line
-        with its first message instead of a traceback.
+        with its first message instead of a traceback. `finish` turns what
+        the body returned into the fire's value, and an exception it raises
+        counts as the body's.
         """
         self._name = name
         self._expected = expected
+        self._finish = finish
         self._clock = clock
         injected = inject(function, cast=cast)
         self._function: Callable[..., Awaitable[Any]] = (
@@ -155,16 +168,17 @@ class FireRecorder:
         self,
         started_at: datetime,
         delay: float | None,
+        /,
         *args: Any,  # noqa: ANN401
         **kwargs: Any,  # noqa: ANN401
-    ) -> Exception | None:
+    ) -> FireResult:
         """Run the body once with `args` and `kwargs`, and record the fire.
 
         `delay` is how late the body starts against its planned instant, in
         seconds, or `None` when nothing was planned. A body that raises is
         recorded as an error and does not propagate: its exception is
-        returned instead, and `None` when it returns. A cancelled body is
-        recorded as an error too, and the cancellation propagates.
+        returned instead. A body that returns gives its value. A cancelled
+        body is recorded as an error too, and the cancellation propagates.
         """
         self.started = True
         _emit.add_up_down(
@@ -183,12 +197,14 @@ class FireRecorder:
             "grelmicro.outcome": FireOutcome.ERROR,
         }
         try:
-            await self._function(*args, **kwargs)
+            value = await self._function(*args, **kwargs)
+            if self._finish is not None:
+                value = self._finish(value)
             outcome = FireOutcome.SUCCESS
             attributes["grelmicro.outcome"] = FireOutcome.SUCCESS
             _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
         except Exception as exc:
-            if _all_of(exc, self._expected):
+            if all_of(exc, self._expected):
                 shown = (
                     first_leaf(exc) if isinstance(exc, ExceptionGroup) else exc
                 )
@@ -197,9 +213,9 @@ class FireRecorder:
                 logger.exception("Task execution error: %s", self._name)
             attributes["error.type"] = type(exc).__name__
             _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
-            return exc
+            return FireResult(error=exc)
         else:
-            return None
+            return FireResult(value=value)
         finally:
             duration = time.perf_counter() - start_monotonic
             self.last = FireInfo(

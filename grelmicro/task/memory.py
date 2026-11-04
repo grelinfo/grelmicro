@@ -348,9 +348,11 @@ class MemoryJobAdapter:
     def _end(
         self, row: _Row, status: EndStatus, error: str | None = None
     ) -> None:
-        """Move `row` to an end state, and start its retention."""
+        """Move `row` to an end state, drop its arguments, start its retention."""
         row.status = status
         row.error = error
+        row.payload = ""
+        row.context = {}
         row.version += 1
         row.finished_at = datetime.now(UTC)
         row.expires_at = _deadline(row.keep)
