@@ -290,12 +290,13 @@ in it: an import, a report, a batch handled item by item.
     [capability matrix](capabilities.md) for where they run today.
 
 ```python
---8<-- "task/job.py:1:50"
+--8<-- "task/job.py:1:59"
 ```
 
-`@tasks.job` turns the function into a `Job`. Call `submit` with the function's
-own arguments, after `progress`. It returns at once with a `JobInfo`, and the
-job runs in the background. A `JobInfo` is a Pydantic model, so an endpoint
+`@tasks.job` turns the function into a `Job`. Choose who the job belongs to with
+[`for_owner`](#owner), then call `submit` with the function's own arguments,
+after `progress`. It returns at once with a `JobInfo`, and the job runs in the
+background. A `JobInfo` is a Pydantic model, so an endpoint
 returns it as is:
 
 ```json
@@ -382,20 +383,26 @@ run blocking work in a sync body, which runs in a worker thread.
 
 ### Owner
 
-`import_rows.for_owner(user_id)` is the job as one caller sees it, with the same
+`import_rows.for_owner(caller)` is the job as one caller sees it, with
 `submit`, `get` and `cancel`. Use it to keep each caller to their own jobs.
 `get` and `cancel` return `None` for a job that does not exist, has expired, or
 belongs to another owner, so a caller cannot tell them apart. Answer `404` in
 all three cases.
 
-`import_rows` itself, without `for_owner`, finds only the jobs submitted
-without an owner. An endpoint that forgets `for_owner` finds nothing, never
-another caller's job.
+Pass the authenticated caller, which is keyed by its issuer and subject
+together. A caller with no subject raises `ValueError`, because it names nobody.
+`for_owner` also takes a non-empty string your service assigns, such as a user
+id. Never build one from a value the client can set, such as a header.
+
+`import_rows.without_owner()` does the same for jobs with no owner, such as a
+job your service submits for itself. It finds only those jobs, and `for_owner`
+never finds them.
 
 !!! warning "A job without an owner"
     Only its id protects a job with no owner, so treat that id as a credential.
     The id reaches your traces, on the run's span and in the URL of each poll.
-    Use `for_owner` for any job a caller reaches.
+    Use `for_owner` for any job a caller reaches, and keep `without_owner` for
+    jobs whose id never reaches one.
 
 ### Cancel
 

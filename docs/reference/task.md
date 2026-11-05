@@ -13,7 +13,7 @@
         - TasksConfig
         - TaskRouter
         - Job
-        - OwnedJob
+        - JobView
         - Progress
         - JobInfo
         - JobStatus

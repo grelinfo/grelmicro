@@ -1,13 +1,24 @@
 from dataclasses import dataclass
-from typing import Annotated
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException
 
 from grelmicro import Grelmicro
+from grelmicro.http import AuthenticatedRequests
+from grelmicro.integrations.fastapi import CurrentPrincipal
+from grelmicro.security import JWTVerifier
 from grelmicro.task import JobError, JobInfo, Progress, Tasks
 
 tasks = Tasks()
-micro = Grelmicro(uses=[tasks])
+micro = Grelmicro(
+    uses=[
+        tasks,
+        AuthenticatedRequests(
+            JWTVerifier.discover(
+                "https://auth.example.com/", audience="imports-api"
+            ),
+        ),
+    ]
+)
 
 
 @tasks.job(max_concurrent=2)
@@ -26,25 +37,23 @@ async def import_rows(progress: Progress, upload_id: str) -> dict[str, int]:
 app = FastAPI()
 micro.install(app)
 
-UserId = Annotated[str, Header()]
-
 
 @app.post("/imports", status_code=202)
-async def start_import(upload_id: str, user_id: UserId) -> JobInfo:
-    return await import_rows.for_owner(user_id).submit(upload_id)
+async def start_import(upload_id: str, caller: CurrentPrincipal) -> JobInfo:
+    return await import_rows.for_owner(caller).submit(upload_id)
 
 
 @app.get("/imports/{job_id}")
-async def read_import(job_id: str, user_id: UserId) -> JobInfo:
-    job = await import_rows.for_owner(user_id).get(job_id)
+async def read_import(job_id: str, caller: CurrentPrincipal) -> JobInfo:
+    job = await import_rows.for_owner(caller).get(job_id)
     if job is None:
         raise HTTPException(404)
     return job
 
 
 @app.post("/imports/{job_id}/cancel")
-async def cancel_import(job_id: str, user_id: UserId) -> JobInfo:
-    job = await import_rows.for_owner(user_id).cancel(job_id)
+async def cancel_import(job_id: str, caller: CurrentPrincipal) -> JobInfo:
+    job = await import_rows.for_owner(caller).cancel(job_id)
     if job is None:
         raise HTTPException(404)
     return job

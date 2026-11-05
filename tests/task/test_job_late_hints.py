@@ -100,7 +100,7 @@ class _LateNoJson:
 async def _ended(job: Job[...], job_id: str) -> JobInfo:
     """Poll `job_id` until it reaches an end state, and return it."""
     while True:
-        info = await job.get(job_id)
+        info = await job.without_owner().get(job_id)
         assert info is not None
         if info.finished_at is not None:
             return info
@@ -124,15 +124,15 @@ async def test_job_hints_resolve_once_the_module_is_loaded() -> None:
     # Act
     async with _tasks:
         ended = [
-            await _ended(job, (await job.submit(argument)).id)
+            await _ended(job, (await job.without_owner().submit(argument)).id)
             for job, argument, _ in calls
         ]
 
         # Assert
         with pytest.raises(TypeError, match="does not fit"):
-            await _bare.submit("no model")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            await _bare.without_owner().submit("no model")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         with pytest.raises(TypeError, match="has no JSON form"):
-            await _no_json.submit(_LateNoJson())
+            await _no_json.without_owner().submit(_LateNoJson())
 
     assert [(info.status, info.result) for info in ended] == [
         (JobStatus.SUCCEEDED, result) for _, _, result in calls

@@ -31,7 +31,7 @@ async def _hang(_progress: Progress) -> None:
 async def _until_finished(job: Job[...], job_id: str) -> None:
     """Wait until the job `job_id` reaches an end state."""
     while True:
-        info = await job.get(job_id)
+        info = await job.without_owner().get(job_id)
         if info is not None and info.finished_at is not None:
             return
         await asyncio.sleep(0)
@@ -60,7 +60,7 @@ async def test_job_run_counts_under_the_job_name(
 
     async with tasks:
         # Act
-        submitted = await job.submit(fail)
+        submitted = await job.without_owner().submit(fail)
         await _until_finished(job, submitted.id)
 
     # Assert
@@ -79,13 +79,13 @@ async def test_job_cancelled_records_its_duration_as_an_error(
     job = tasks.job(name="import")(_hang)
 
     async with tasks:
-        submitted = await job.submit()
+        submitted = await job.without_owner().submit()
         for _ in range(5):
             await asyncio.sleep(0)
         # Act
-        await job.cancel(submitted.id)
+        await job.without_owner().cancel(submitted.id)
         await _until_finished(job, submitted.id)
-        info = await job.get(submitted.id)
+        info = await job.without_owner().get(submitted.id)
 
     # Assert
     assert info is not None

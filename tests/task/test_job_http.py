@@ -16,7 +16,9 @@ from starlette.status import (
 
 from grelmicro import Grelmicro
 from grelmicro.http import ERROR_DOCS_BASE, ErrorResponses
+from grelmicro.security import JWTVerifier
 from grelmicro.task import JobInfo, Progress, Tasks
+from grelmicro.testing import FakeVerifier, fake_claims
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -35,7 +37,7 @@ def test_job_submit_answers_503_when_the_queue_is_full() -> None:
 
     @app.post("/jobs", status_code=HTTP_202_ACCEPTED)
     async def start() -> JobInfo:
-        return await job.submit()
+        return await job.without_owner().submit()
 
     Grelmicro(uses=[tasks, ErrorResponses()]).install(app)
 
@@ -62,11 +64,16 @@ def _load_job_snippet() -> ModuleType:
     return module
 
 
-def test_job_documented_import_flow_works() -> None:
+def test_job_documented_import_flow_works(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The docs example starts an import, polls it, and scopes it per user."""
     # Arrange
+    verifier = FakeVerifier(alice=fake_claims("alice"), bob=fake_claims("bob"))
+    monkeypatch.setattr(JWTVerifier, "discover", lambda *_a, **_k: verifier)
     snippet = _load_job_snippet()
-    alice, bob = {"user-id": "alice"}, {"user-id": "bob"}
+    alice = {"Authorization": "Bearer alice"}
+    bob = {"Authorization": "Bearer bob"}
 
     with TestClient(snippet.app) as client:
         # Act
