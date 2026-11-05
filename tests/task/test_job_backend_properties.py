@@ -120,16 +120,15 @@ async def _apply(  # noqa: C901, PLR0912, PLR0915
                     model.started_at_submit.add(job_id)
         case ("claim", runner, limit):
             for job in await backend.claim(
-                names=[NAME], runner=runner, limit=limit, lease=LEASE
+                slots={NAME: limit}, runner=runner, lease=LEASE
             ):
                 model.claims.setdefault(job.record.id, []).append(runner)
         case ("beat", writer, job_id, done):
             runner = model.writer(writer, job_id)
             before = await backend.get(name=NAME, job_id=job_id, owner=OWNER)
             [reply] = await backend.beat(
-                name=NAME,
                 runner=runner,
-                beats=[Beat(job_id, ProgressUpdate(done=done, total=3))],
+                beats=[Beat(NAME, job_id, ProgressUpdate(done=done, total=3))],
                 lease=LEASE,
             )
             if reply.held:

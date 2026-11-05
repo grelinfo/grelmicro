@@ -28,10 +28,10 @@ from grelmicro._async import is_async_callable
 from grelmicro._caller import subject_of
 from grelmicro._duration import check_duration, check_retention, is_int
 from grelmicro._task import Task
-from grelmicro.clock._seam import sleep
 from grelmicro.errors import OutOfContextError
 from grelmicro.task._fire import FireOutcome, FireRecorder, all_of, first_leaf
 from grelmicro.task._job_arguments import JobArguments, resolve_annotation
+from grelmicro.task._job_loop import LEASE, JobStoreLoop, store_loop
 from grelmicro.task._job_trace import (
     mark_failed,
     mark_lost,
@@ -43,6 +43,7 @@ from grelmicro.task._job_trace import (
 from grelmicro.task._protocol import (
     JOB_LOST,
     Beat,
+    BeatReply,
     Claimed,
     EndStatus,
     JobBackend,
@@ -66,18 +67,6 @@ _JSON: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 
 _FAILED = "Job failed"
 """The error a caller sees for any exception but a `JobError`."""
-
-_LEASE = timedelta(seconds=30)
-"""How long a job stays held without a beat."""
-
-_BEAT = timedelta(seconds=1)
-"""How often a replica extends leases, writes counts and reads cancels."""
-
-_SWEEP_EVERY_BEATS = 10
-"""How many beats pass between two sweeps of the store."""
-
-_SWEEP_LIMIT = 100
-"""How many jobs one sweep ends or forgets at most."""
 
 
 class JobInfo(BaseModel, frozen=True):
@@ -301,10 +290,9 @@ class Job[**P](Task):
         )
         self._keep = None if keep is None else check_retention(keep, "keep")
         self._backend: JobBackend = MemoryJobAdapter()
-        self._runner = secrets.token_urlsafe(16)
+        self._loop: JobStoreLoop | None = None
         self._runs: dict[str, _Run] = {}
         self._running = 0
-        self._wake = asyncio.Event()
         self._group: asyncio.TaskGroup | None = None
         self._context: contextvars.Context | None = None
         self._stopping = False
@@ -340,54 +328,35 @@ class Job[**P](Task):
         stopped = stop or asyncio.Event()
         self._stopping = False
         self._context = contextvars.copy_context()
-        async with self._backend:
-            beating = asyncio.create_task(self._beat_loop())
-            try:
-                async with asyncio.TaskGroup() as group:
-                    self._group = group
-                    if (
-                        ready is not None and not ready.done()
-                    ):  # pragma: no branch
-                        ready.set_result(None)
-                    claimer = group.create_task(self._claim_when_free(group))
-                    try:
-                        await stopped.wait()
-                    finally:
-                        self._stopping = True
-                        claimer.cancel()
-            finally:
-                self._group = None
-                beating.cancel()
+        loop = store_loop(self._backend)
+        await loop.join(self)
+        self._loop = loop
+        try:
+            async with asyncio.TaskGroup() as group:
+                self._group = group
+                if ready is not None and not ready.done():  # pragma: no branch
+                    ready.set_result(None)
+                try:
+                    await stopped.wait()
+                finally:
+                    self._stopping = True
+                    await loop.finish_round()
+        finally:
+            self._group = None
+            await loop.leave(self)
 
-    async def _beat_loop(self) -> None:
-        """Beat every second and sweep the store now and then, until cancelled."""
-        beats = 0
-        while True:
-            await sleep(_BEAT.total_seconds())
-            await self._beat()
-            self._wake.set()
-            beats += 1
-            if beats % _SWEEP_EVERY_BEATS == 0:
-                await self._backend.reap(limit=_SWEEP_LIMIT)
-                await self._backend.purge(limit=_SWEEP_LIMIT)
+    def _beats(self) -> list[Beat]:
+        """Return one entry per running job, with counts that changed."""
+        return [
+            Beat(self._name, run.id, run.changed_counts())
+            for run in self._runs.values()
+        ]
 
-    async def _beat(self) -> None:
-        """Extend each lease, write new counts, and read each cancel flag."""
-        if not self._runs:
-            return
-        replies = await self._backend.beat(
-            name=self._name,
-            runner=self._runner,
-            beats=[
-                Beat(run.id, run.changed_counts())
-                for run in self._runs.values()
-            ],
-            lease=_LEASE,
-        )
-        for reply in replies:
-            run = self._runs.get(reply.job_id)
-            if run is not None and (not reply.held or reply.cancel_requested):
-                self._ask_to_stop(run)
+    def _read_reply(self, reply: BeatReply) -> None:
+        """Stop a run that was cancelled, or that this replica lost."""
+        run = self._runs.get(reply.job_id)
+        if run is not None and (not reply.held or reply.cancel_requested):
+            self._ask_to_stop(run)
 
     def _ask_to_stop(self, run: _Run) -> None:
         """Flag `run`, and cancel its task when its body can be interrupted."""
@@ -397,24 +366,27 @@ class Job[**P](Task):
         if self._interruptible and run.started and run.task is not None:
             run.task.cancel()
 
-    async def _claim_when_free(self, group: asyncio.TaskGroup) -> None:
-        """Run queued jobs, oldest first, when a slot is free, until cancelled."""
-        while True:
-            await self._wake.wait()
-            self._wake.clear()
-            free = self._max_concurrent - self._running
-            if free <= 0:
-                continue
-            self._running += free
-            claimed = await self._backend.claim(
-                names=[self._name],
-                runner=self._runner,
-                limit=free,
-                lease=_LEASE,
-            )
-            self._running -= free - len(claimed)
-            for job in claimed:
-                self._start(group, job)
+    def _reserve_slots(self) -> int:
+        """Reserve and return every free slot, none when stopping."""
+        if self._stopping or self._group is None:
+            return 0
+        free = self._max_concurrent - self._running
+        self._running += free
+        return free
+
+    def _give_back_slots(self, slots: int) -> None:
+        """Give back slots a claim did not use."""
+        self._running -= slots
+
+    def _accept(self, job: Claimed) -> None:
+        """Start a job the loop claimed, in a slot it reserved."""
+        assert self._group is not None  # noqa: S101
+        self._start(self._group, job)
+
+    def _wake_loop(self) -> None:
+        """Look for queued jobs now that a slot is free."""
+        assert self._loop is not None  # noqa: S101
+        self._loop.wake()
 
     def _start(self, group: asyncio.TaskGroup, job: Claimed) -> None:
         """Start the body of a job this replica holds, in a slot it reserved."""
@@ -429,7 +401,7 @@ class Job[**P](Task):
     def _release(self, _task: asyncio.Task[None]) -> None:
         """Free the slot of a job task that ended, started or not."""
         self._running -= 1
-        self._wake.set()
+        self._wake_loop()
 
     def for_owner(
         self,
@@ -490,8 +462,8 @@ class Job[**P](Task):
             raise JobRefusedError(
                 name=self._name, reason="the tasks are shutting down"
             )
-        group = self._group
-        if group is None:
+        group, loop = self._group, self._loop
+        if group is None or loop is None:
             raise OutOfContextError(self, "submit")
         free = self._running < self._max_concurrent
         if free:
@@ -507,14 +479,14 @@ class Job[**P](Task):
                 max_queued=self._max_queued,
                 max_wait=self._max_wait,
                 keep=self._keep,
-                start_as=self._runner if free else None,
-                lease=_LEASE,
+                start_as=loop.runner if free else None,
+                lease=LEASE,
             )
             started = submitted.started
         finally:
             if free and not started:
                 self._running -= 1
-                self._wake.set()
+                self._wake_loop()
         if submitted.record is None:
             raise JobRefusedError(name=self._name, reason="the queue is full")
         if started:
@@ -540,6 +512,7 @@ class Job[**P](Task):
         A job the store no longer gives this replica stays as the store has
         it. That is logged, without the job's id, and marked on the span.
         """
+        assert self._loop is not None  # noqa: S101
         counts = run.end()
         self._runs.pop(run.id, None)
         if status is JobStatus.FAILED:
@@ -547,7 +520,7 @@ class Job[**P](Task):
         settled = await self._backend.settle(
             name=self._name,
             job_id=run.id,
-            runner=self._runner,
+            runner=self._loop.runner,
             status=status,
             error=error,
             result=result,

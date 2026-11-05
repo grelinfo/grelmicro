@@ -120,6 +120,7 @@ class Claimed:
 class Beat:
     """One held job in a `beat`, with its progress when it changed."""
 
+    name: Annotated[str, Doc("The job's name.")]
     job_id: Annotated[str, Doc("The job's id.")]
     progress: Annotated[
         ProgressUpdate | None, Doc("The counts, when they changed.")
@@ -130,6 +131,7 @@ class Beat:
 class BeatReply:
     """What a `beat` found for one job."""
 
+    name: Annotated[str, Doc("The job's name.")]
     job_id: Annotated[str, Doc("The job's id.")]
     held: Annotated[
         bool, Doc("Whether the runner still holds the job. If not, stop.")
@@ -215,12 +217,14 @@ class JobBackend(Protocol):
     async def claim(
         self,
         *,
-        names: Annotated[Sequence[str], Doc("The names this replica runs.")],
+        slots: Annotated[
+            Mapping[str, int],
+            Doc("How many jobs to claim at most, for each name to claim."),
+        ],
         runner: Annotated[str, Doc("The token of the claiming runner.")],
-        limit: Annotated[int, Doc("How many jobs to claim at most.")],
         lease: Annotated[timedelta, Doc("The lease on each claimed job.")],
     ) -> list[Claimed]:
-        """Claim up to `limit` queued jobs, oldest first per name.
+        """Claim queued jobs up to each name's slots, oldest first per name.
 
         Two concurrent claims never return the same job, and a job is claimed
         at most once.
@@ -230,7 +234,6 @@ class JobBackend(Protocol):
     async def beat(
         self,
         *,
-        name: Annotated[str, Doc("The jobs' name.")],
         runner: Annotated[str, Doc("The token of the runner.")],
         beats: Annotated[Sequence[Beat], Doc("One entry per held job.")],
         lease: Annotated[timedelta, Doc("The new lease on each held job.")],

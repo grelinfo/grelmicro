@@ -1360,7 +1360,7 @@ async def test_job_stored_arguments_that_no_longer_match_end_failed() -> None:
             start_as=None,
             lease=timedelta(seconds=30),
         )
-        job._wake.set()
+        job._wake_loop()
         settled = await _settle(job.without_owner(), "old")
 
     # Assert

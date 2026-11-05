@@ -125,7 +125,7 @@ async def test_job_arguments_that_cannot_load_count_as_an_error(
             start_as=None,
             lease=timedelta(seconds=30),
         )
-        job._wake.set()
+        job._wake_loop()
         await _until_finished(job, "stale")
 
     # Assert
