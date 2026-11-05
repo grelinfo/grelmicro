@@ -35,7 +35,11 @@ The test runs the app you deploy, with every component and name it really
 registers. `Coordination`, `Cache`, `RateLimiterComponent` and
 `CircuitBreakerComponent` open on memory, so the `Lock` above is a real lock
 that needs no database. The Postgres they would have used is never opened, so
-the suite connects to nothing and `/readyz` does not probe it.
+the suite does not connect to it and `/readyz` does not probe it.
+
+`micro.fake()` replaces only those components. A `JWTVerifier.discover` or an
+`OAuthClient` still calls your identity provider, so
+[hand the app a `FakeVerifier`](#test-an-authenticated-app) for its verifier.
 
 A fixture is a pytest function that prepares a test. Do not open `micro` in the
 fixture as well. `install(app)` already opens it
