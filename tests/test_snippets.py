@@ -41,8 +41,9 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
+import httpx
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -435,8 +436,26 @@ def test_fastapi_snippet_routes_answer(
     Importing the module proves the app builds. It says nothing about
     what the endpoints answer, which is where a missing `install` shows
     up: the route raises `NoActiveAppError` and the reader gets a `500`.
-    The app runs under `micro.fake()`, the way its tests would run it.
+    The app runs under `micro.fake()`, the way its tests would run it,
+    and any attempt to reach the network fails the test. An identity
+    provider the app would fetch from answers `503`.
     """
+    connections: list[object] = []
+
+    def _no_connection(_socket: object, address: object) -> NoReturn:
+        connections.append(address)
+        raise ConnectionRefusedError
+
+    monkeypatch.setattr(socket.socket, "connect", _no_connection)
+
+    async def _unavailable(
+        _transport: object, request: httpx.Request
+    ) -> httpx.Response:
+        return httpx.Response(httpx.codes.SERVICE_UNAVAILABLE, request=request)
+
+    monkeypatch.setattr(
+        httpx.AsyncHTTPTransport, "handle_async_request", _unavailable
+    )
     for key, value in _ENV.get(rel, {}).items():
         monkeypatch.setenv(key, value)
     module = _import_snippet(rel)
@@ -464,6 +483,7 @@ def test_fastapi_snippet_routes_answer(
                 f"{rel}: GET {path} answered {response.status_code}\n"
                 f"{response.text}"
             )
+    assert not connections, f"{rel} reached the network: {connections}"
 
 
 def _needs_a_function(body: str) -> bool:
