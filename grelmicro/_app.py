@@ -966,12 +966,15 @@ class Grelmicro:
         Each registered `Coordination`, `Cache`, `RateLimiterComponent`, and
         `CircuitBreakerComponent` opens on a fresh `MemoryProvider`, under the
         same name. A Provider only those components use is left closed, so
-        the test connects to nothing and no readiness check probes it. A
+        the test does not connect to it and no readiness check probes it. A
         listed `MemoryProvider` is left closed too, as the fresh one takes its
         place. One that a component left as is still borrows, such as the
         Postgres an `Outbox` stores in, opens as usual. The real components
         come back when the app closes, and the backend scope check does not
         run on the faked ones.
+
+        A `JWTVerifier.discover` or an `OAuthClient` still calls its identity
+        provider.
 
         `Log`, `Trace`, `Metrics`, and `HealthChecks` have no backend to fake,
         and `Outbox` carries handlers and a relay that a swap would drop.
