@@ -47,7 +47,7 @@ def spans() -> Generator[InMemorySpanExporter]:
 async def _ended(job: Job[...], job_id: str) -> JobInfo:
     """Poll `job_id` until it reaches an end state, and return it."""
     while True:
-        info = await job.get(job_id)
+        info = await job.without_owner().get(job_id)
         assert info is not None
         if info.finished_at is not None:
             return info
@@ -82,7 +82,7 @@ async def test_job_run_span_links_to_submitter_in_its_own_trace(
     # Act
     async with tasks:
         with tracer.start_as_current_span("request") as request:
-            info = await job.submit()
+            info = await job.without_owner().submit()
         await _ended(job, info.id)
 
     # Assert
@@ -117,9 +117,9 @@ async def test_job_run_span_links_when_the_job_was_queued(
 
     # Act
     async with tasks:
-        first = await job.submit(key)
+        first = await job.without_owner().submit(key)
         with tracer.start_as_current_span("request") as request:
-            second = await job.submit(key)
+            second = await job.without_owner().submit(key)
         assert second.status is JobStatus.QUEUED
         release.set()
         await _ended(job, first.id)
@@ -147,7 +147,7 @@ async def test_job_run_without_a_submitter_span_has_no_link(
 
     # Act
     async with tasks:
-        info = await job.submit()
+        info = await job.without_owner().submit()
         await _ended(job, info.id)
 
     # Assert
@@ -166,7 +166,7 @@ async def test_job_run_is_no_child_of_a_span_open_at_startup(
     # Act
     with tracer.start_as_current_span("startup"):
         async with tasks:
-            info = await job.submit()
+            info = await job.without_owner().submit()
             await _ended(job, info.id)
 
     # Assert
@@ -202,7 +202,7 @@ async def test_job_body_runs_inside_the_run_span(
 
     # Act
     async with tasks:
-        info = await job.submit()
+        info = await job.without_owner().submit()
         ended = await _ended(job, info.id)
 
     # Assert
@@ -247,7 +247,7 @@ async def test_job_run_span_of_a_success_is_not_an_error(
 
     # Act
     async with tasks:
-        info = await job.submit()
+        info = await job.without_owner().submit()
         await _ended(job, info.id)
 
     # Assert
@@ -272,7 +272,7 @@ async def test_job_run_span_records_an_unexpected_failure(
 
     # Act
     async with tasks:
-        info = await job.submit()
+        info = await job.without_owner().submit()
         ended = await _ended(job, info.id)
 
     # Assert
@@ -305,7 +305,7 @@ async def test_job_run_span_records_no_event_for_a_job_error(
 
     # Act
     async with tasks:
-        info = await job.submit()
+        info = await job.without_owner().submit()
         ended = await _ended(job, info.id)
 
     # Assert
@@ -340,7 +340,7 @@ async def test_job_run_span_honours_the_exception_signal_opt_in(
 
     # Act
     async with tasks:
-        info = await job.submit()
+        info = await job.without_owner().submit()
         await _ended(job, info.id)
 
     # Assert
@@ -454,7 +454,7 @@ async def test_job_arguments_that_cannot_load_fail_only_that_job(
         )
         job._wake.set()
         info = await _ended(job, "broken")
-        await other.submit(share(ran))
+        await other.without_owner().submit(share(ran))
         await asyncio.wait_for(ran.wait(), 5)
 
     # Assert
@@ -487,7 +487,7 @@ async def test_job_lost_before_it_settles_is_logged_and_marked(
 
     # Act
     async with tasks:
-        submitted = await job.submit()
+        submitted = await job.without_owner().submit()
         info = await _ended(job, submitted.id)
 
     # Assert
@@ -524,7 +524,7 @@ async def test_job_run_span_of_a_base_exception_names_its_type(
     # Act
     with pytest.RaisesGroup(_Abort, flatten_subgroups=True):
         async with tasks:
-            await job.submit()
+            await job.without_owner().submit()
             await asyncio.Event().wait()
 
     # Assert
@@ -544,7 +544,7 @@ async def test_job_run_span_of_a_non_json_return_is_an_error(
 
     # Act
     async with tasks:
-        info = await job.submit()
+        info = await job.without_owner().submit()
         ended = await _ended(job, info.id)
 
     # Assert
@@ -571,9 +571,9 @@ async def test_job_run_span_of_a_cancel_is_not_an_error(
 
     # Act
     async with tasks:
-        info = await job.submit(key)
+        info = await job.without_owner().submit(key)
         await started.wait()
-        await job.cancel(info.id)
+        await job.without_owner().cancel(info.id)
         ended = await _ended(job, info.id)
 
     # Assert
@@ -606,7 +606,7 @@ async def test_job_run_span_of_a_store_failure_holds_no_message(
     # Act
     with pytest.RaisesGroup(RuntimeError, flatten_subgroups=True):
         async with tasks:
-            await job.submit()
+            await job.without_owner().submit()
             await asyncio.Event().wait()
 
     # Assert
@@ -636,7 +636,7 @@ async def test_job_settle_runs_inside_the_run_span(
 
     # Act
     async with tasks:
-        info = await job.submit()
+        info = await job.without_owner().submit()
         await _ended(job, info.id)
 
     # Assert
@@ -667,7 +667,7 @@ async def test_job_stored_context_is_the_trace_context_only(
     try:
         async with tasks:
             with tracer.start_as_current_span("request"):
-                info = await job.submit()
+                info = await job.without_owner().submit()
             await _ended(job, info.id)
     finally:
         context.detach(token)
@@ -701,7 +701,7 @@ async def test_job_runs_without_opentelemetry(
 
     # Act
     async with tasks:
-        info = await job.submit()
+        info = await job.without_owner().submit()
         ended = await _ended(job, info.id)
 
     # Assert
@@ -722,7 +722,7 @@ async def test_job_lost_without_opentelemetry_still_logs(
 
     # Act
     async with tasks:
-        submitted = await job.submit()
+        submitted = await job.without_owner().submit()
         info = await _ended(job, submitted.id)
 
     # Assert

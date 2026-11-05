@@ -25,6 +25,7 @@ from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
+from grelmicro._caller import subject_of
 from grelmicro._duration import check_duration, check_retention, is_int
 from grelmicro._task import Task
 from grelmicro.clock._seam import sleep
@@ -55,6 +56,8 @@ from grelmicro.task.memory import MemoryJobAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from grelmicro.security.principal import Principal
 
 logger = getLogger("grelmicro.task")
 
@@ -431,53 +434,36 @@ class Job[**P](Task):
     def for_owner(
         self,
         owner: Annotated[
-            str, Doc("Who the jobs belong to, such as a user id.")
+            str | Principal,
+            Doc(
+                """
+                Who the jobs belong to: the authenticated caller, or a
+                non-empty string your service assigns, such as a user id.
+                """
+            ),
         ],
-    ) -> OwnedJob[P]:
+    ) -> JobView[P]:
         """Return this job as `owner` sees it.
 
-        `submit` on it records `owner` with the job, and `get` finds only
-        the jobs `owner` submitted. The job itself, without `for_owner`,
-        finds only the jobs submitted without an owner.
-        """
-        return OwnedJob(self, owner)
-
-    async def submit(self, /, *args: P.args, **kwargs: P.kwargs) -> JobInfo:
-        """Submit a job with the function's arguments, after `progress`.
-
-        Returns at once, before the body starts. The job has no owner, so
-        only this job, without `for_owner`, finds it.
+        `submit` on it records `owner` with the job, and `get` and `cancel`
+        find only the jobs `owner` submitted. A caller is keyed by its issuer
+        and subject together.
 
         Raises:
-            TypeError: If the function cannot take these arguments.
-            OutOfContextError: If the tasks never started.
-            JobRefusedError: If the queue is full, or the tasks are
-                shutting down.
+            TypeError: If `owner` is neither a string nor a caller.
+            ValueError: If `owner` is empty, or a caller that was not
+                authenticated or has no subject.
         """
-        return await self._submit(None, args, kwargs)
+        return JobView(self, _owner_key(owner))
 
-    async def get(
-        self, job_id: Annotated[str, Doc("The id `submit` returned.")]
-    ) -> JobInfo | None:
-        """Return the job `job_id`.
+    def without_owner(self) -> JobView[P]:
+        """Return this job for the jobs that have no owner.
 
-        Returns `None` when no job has that id, or when it has an owner,
-        so a caller cannot tell the two apart.
+        Only its id protects such a job, so use this for a job your service
+        submits for itself, whose id never reaches a caller. Use `for_owner`
+        for any job a caller reaches.
         """
-        return await self._get(job_id, None)
-
-    async def cancel(
-        self, job_id: Annotated[str, Doc("The id `submit` returned.")]
-    ) -> JobInfo | None:
-        """Ask the job `job_id` to stop, and return it at once.
-
-        A queued job ends `cancelled` right away. A running async body gets
-        `asyncio.CancelledError` at its next `await`, within about a second
-        on another replica. Cancelling a finished
-        job changes nothing. Returns `None` when no job has that id, or when it
-        has an owner, so a caller cannot tell the two apart.
-        """
-        return await self._cancel(job_id, None)
+        return JobView(self, None)
 
     async def _cancel(self, job_id: str, owner: str | None) -> JobInfo | None:
         """Ask the job `job_id` to stop when `owner` owns it."""
@@ -631,22 +617,46 @@ class Job[**P](Task):
             raise
 
 
-class OwnedJob[**P]:
-    """A `Job` as one owner sees it.
+def _owner_key(owner: str | Principal) -> str:
+    """Return what the store records for `owner`, refusing a bad one."""
+    if isinstance(owner, str):
+        if not owner:
+            msg = "for_owner() needs a non-empty owner."
+            raise ValueError(msg)
+        return owner
+    if not all(
+        hasattr(owner, name)
+        for name in ("is_authenticated", "subject", "issuer")
+    ):
+        msg = (
+            "for_owner() takes a string or an authenticated caller, "
+            f"got {type(owner).__name__}."
+        )
+        raise TypeError(msg)
+    subject = subject_of(owner)
+    if subject is None:
+        msg = "for_owner() needs an authenticated caller with a subject."
+        raise ValueError(msg)
+    return json.dumps([owner.issuer, subject])
 
-    Use `Job.for_owner()` instead of creating one directly.
+
+class JobView[**P]:
+    """A `Job` for one owner, or for the jobs with no owner.
+
+    Use `Job.for_owner()` or `Job.without_owner()` instead of creating one
+    directly.
 
     Read more in the [Owner](../task.md#owner) docs.
     """
 
     __slots__ = ("_job", "_owner")
 
-    def __init__(self, job: Job[P], owner: str) -> None:
+    def __init__(self, job: Job[P], owner: str | None) -> None:
         self._job = job
         self._owner = owner
 
     async def submit(self, /, *args: P.args, **kwargs: P.kwargs) -> JobInfo:
-        """Submit a job for this owner, with the function's arguments.
+        """Submit a job with the function's arguments, after `progress`.
 
         Returns at once, before the body starts.
 
@@ -663,18 +673,22 @@ class OwnedJob[**P]:
     ) -> JobInfo | None:
         """Return the job `job_id`.
 
-        Returns `None` when no job has that id, or when another owner, or
-        no owner, submitted it, so a caller cannot tell them apart.
+        Returns `None` when no job has that id, or when it belongs to
+        another owner, so a caller cannot tell them apart.
         """
         return await self._job._get(job_id, self._owner)  # noqa: SLF001
 
     async def cancel(
         self, job_id: Annotated[str, Doc("The id `submit` returned.")]
     ) -> JobInfo | None:
-        """Ask this owner's job `job_id` to stop, and return it at once.
+        """Ask the job `job_id` to stop, and return it at once.
 
-        Returns `None` when no job has that id, or when another owner, or
-        no owner, submitted it. Such a job is left as it is.
+        A queued job ends `cancelled` right away. A running async body gets
+        `asyncio.CancelledError` at its next `await`, within about a second
+        on another replica. Cancelling a finished job changes nothing.
+
+        Returns `None` when no job has that id, or when it belongs to
+        another owner. Such a job is left as it is.
         """
         return await self._job._cancel(job_id, self._owner)  # noqa: SLF001
 

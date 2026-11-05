@@ -12,7 +12,7 @@ if _typing.TYPE_CHECKING:
         Job,
         JobInfo,
         JobStatus,
-        OwnedJob,
+        JobView,
         Progress,
     )
     from grelmicro.task._tasks import Tasks, TasksConfig
@@ -38,7 +38,7 @@ __all__ = [
     "JobInfo",
     "JobRefusedError",
     "JobStatus",
-    "OwnedJob",
+    "JobView",
     "Progress",
     "Task",
     "TaskAddOperationError",
@@ -60,7 +60,7 @@ _LAZY: dict[str, str] = {
     "JobInfo": "grelmicro.task._job",
     "JobRefusedError": "grelmicro.task.errors",
     "JobStatus": "grelmicro.task._job",
-    "OwnedJob": "grelmicro.task._job",
+    "JobView": "grelmicro.task._job",
     "Progress": "grelmicro.task._job",
     "Task": "grelmicro._task",
     "TaskAddOperationError": "grelmicro.task.errors",

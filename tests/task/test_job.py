@@ -8,7 +8,8 @@ import json
 import logging
 import threading
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, TypedDict, Unpack
 from uuid import UUID, uuid4
@@ -19,6 +20,7 @@ from pydantic import BaseModel, SecretStr
 
 from grelmicro.clock import VirtualClock
 from grelmicro.errors import AdmissionError, OutOfContextError
+from grelmicro.security.principal import Principal
 from grelmicro.task import (
     FireOutcome,
     Job,
@@ -26,7 +28,7 @@ from grelmicro.task import (
     JobInfo,
     JobRefusedError,
     JobStatus,
-    OwnedJob,
+    JobView,
     Progress,
     Tasks,
 )
@@ -36,7 +38,7 @@ from tests.task._job_shared import share, shared
 pytestmark = [pytest.mark.timeout(10)]
 
 
-async def _settle(job: Job[...] | OwnedJob[...], job_id: str) -> JobInfo:
+async def _settle(job: JobView[...], job_id: str) -> JobInfo:
     """Poll `job_id` until it reaches an end state, and return it."""
     while True:
         info = await job.get(job_id)
@@ -62,8 +64,8 @@ async def test_job_submit_runs_and_succeeds() -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit(["a", "b"])
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(["a", "b"])
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert submitted.status in {JobStatus.QUEUED, JobStatus.RUNNING}
@@ -106,8 +108,8 @@ async def test_job_failure_keeps_its_counts_and_has_no_result(
 
     async with tasks:
         # Act
-        submitted = await job.submit(message)
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(message)
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.FAILED
@@ -139,8 +141,8 @@ async def test_job_failure_logs_a_traceback_only_for_an_unexpected_error(
 
     async with tasks:
         # Act
-        submitted = await job.submit(message)
-        await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(message)
+        await _settle(job.without_owner(), submitted.id)
 
     # Assert
     [record] = [r for r in caplog.records if r.name == "grelmicro.task"]
@@ -190,8 +192,8 @@ async def test_job_error_inside_a_task_group_reaches_the_caller(
 
     async with tasks:
         # Act
-        submitted = await job.submit(mixed)
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(mixed)
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.FAILED
@@ -218,8 +220,8 @@ async def test_job_sync_body_runs_in_a_worker_thread() -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit(["a"])
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(["a"])
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.SUCCEEDED
@@ -234,9 +236,9 @@ async def _noop(progress: Progress) -> None:
 _OWNERS = [None, "alice", "bob"]
 
 
-def _as[**P](job: Job[P], owner: str | None) -> Job[P] | OwnedJob[P]:
-    """Return `job` as `owner` sees it, or as is for no owner."""
-    return job if owner is None else job.for_owner(owner)
+def _as[**P](job: Job[P], owner: str | None) -> JobView[P]:
+    """Return `job` as `owner` sees it, or for no owner."""
+    return job.without_owner() if owner is None else job.for_owner(owner)
 
 
 @pytest.mark.parametrize("submitted_by", _OWNERS)
@@ -270,7 +272,126 @@ async def test_job_get_returns_none_for_an_unknown_id() -> None:
 
     async with tasks:
         # Act
-        info = await job.get("unknown")
+        info = await job.without_owner().get("unknown")
+
+    # Assert
+    assert info is None
+
+
+@pytest.mark.parametrize("method", ["submit", "get", "cancel"])
+def test_job_needs_a_choice_of_owner_first(method: str) -> None:
+    """`Job` has no `submit`, `get` or `cancel` of its own."""
+    # Arrange
+    job = Tasks().job()(_noop)
+
+    # Act
+    found = hasattr(job, method)
+
+    # Assert
+    assert not found
+
+
+@dataclass(frozen=True)
+class _Caller:
+    """A caller, as an authentication layer leaves it."""
+
+    subject: str | None = "alice"
+    issuer: str | None = "https://idp.example"
+    scopes: frozenset[str] = frozenset()
+    claims: Mapping[str, Any] = field(default_factory=dict)
+    is_authenticated: bool = True
+
+
+@pytest.mark.parametrize("owner", [None, 123, b"alice", object()])
+def test_job_for_owner_refuses_what_cannot_own_a_job(
+    owner: Any,  # noqa: ANN401
+) -> None:
+    """`for_owner` raises `TypeError` for anything but a string or a caller."""
+    # Arrange
+    job = Tasks().job()(_noop)
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="for_owner"):
+        job.for_owner(owner)
+
+
+@pytest.mark.parametrize(
+    "owner",
+    [
+        "",
+        _Caller(subject=None),
+        _Caller(subject=""),
+        _Caller(is_authenticated=False),
+    ],
+)
+def test_job_for_owner_refuses_an_owner_that_names_nobody(
+    owner: str | Principal,
+) -> None:
+    """An empty owner, or a caller naming nobody, raises `ValueError`."""
+    # Arrange
+    job = Tasks().job()(_noop)
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="for_owner"):
+        job.for_owner(owner)
+
+
+async def test_job_for_owner_finds_a_job_for_the_same_caller() -> None:
+    """Two equal callers are the same owner, on another request too."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        submitted = await job.for_owner(_Caller()).submit()
+        # Act
+        info = await job.for_owner(_Caller()).get(submitted.id)
+
+    # Assert
+    assert info is not None
+
+
+async def test_job_for_owner_accepts_a_caller_with_no_issuer() -> None:
+    """A caller with no issuer owns a job by its subject alone."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+    caller = _Caller(issuer=None)
+
+    async with tasks:
+        submitted = await job.for_owner(caller).submit()
+        # Act
+        info = await job.for_owner(caller).get(submitted.id)
+
+    # Assert
+    assert info is not None
+
+
+@pytest.mark.parametrize(
+    ("owner", "other"),
+    [
+        (_Caller(subject="alice"), _Caller(subject="bob")),
+        (_Caller(issuer="https://a"), _Caller(issuer="https://b")),
+        (
+            _Caller(issuer="a:b", subject="c"),
+            _Caller(issuer="a", subject="b:c"),
+        ),
+        (_Caller(issuer=None), _Caller(issuer="")),
+        (_Caller(issuer=None), "alice"),
+    ],
+)
+async def test_job_for_owner_keeps_callers_apart(
+    owner: str | Principal, other: str | Principal
+) -> None:
+    """Issuer and subject together name the owner, with no way to collide."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        submitted = await job.for_owner(owner).submit()
+        # Act
+        info = await job.for_owner(other).get(submitted.id)
 
     # Assert
     assert info is None
@@ -285,7 +406,7 @@ async def _statuses(job: Job[...], ids: list[str]) -> list[JobStatus]:
     """Return the status of each job in `ids`, after the loop settles."""
     for _ in range(5):
         await asyncio.sleep(0)
-    infos = [await job.get(job_id) for job_id in ids]
+    infos = [await job.without_owner().get(job_id) for job_id in ids]
     return [info.status for info in infos if info is not None]
 
 
@@ -307,7 +428,7 @@ async def _submit_as(
 ) -> str:
     """Submit from a context where `user` is the submitter."""
     _USER.set(user)
-    return (await job.submit(share(seen), share(gate))).id
+    return (await job.without_owner().submit(share(seen), share(gate))).id
 
 
 async def test_job_body_never_sees_the_context_of_its_submitter() -> None:
@@ -325,7 +446,7 @@ async def test_job_body_never_sees_the_context_of_its_submitter() -> None:
             await asyncio.create_task(_submit_as(job, "alice", seen, gate))
             bob = await asyncio.create_task(_submit_as(job, "bob", seen, gate))
             gate.set()
-            await _settle(job, bob)
+            await _settle(job.without_owner(), bob)
     finally:
         _USER.reset(token)
 
@@ -341,14 +462,16 @@ async def test_job_max_concurrent_queues_the_rest_in_order() -> None:
     gates = [asyncio.Event() for _ in range(4)]
 
     async with tasks:
-        ids = [(await job.submit(share(gate))).id for gate in gates]
+        ids = [
+            (await job.without_owner().submit(share(gate))).id for gate in gates
+        ]
         # Act
         before = await _statuses(job, ids)
         gates[0].set()
         after_one = await _statuses(job, ids)
         for gate in gates:
             gate.set()
-        settled = [await _settle(job, job_id) for job_id in ids]
+        settled = [await _settle(job.without_owner(), job_id) for job_id in ids]
 
     # Assert
     assert before == ["running", "running", "queued", "queued"]
@@ -381,7 +504,7 @@ async def test_job_submit_refused_when_the_queue_is_full(
         submitted = 0
         try:
             for _ in range(_SUBMITS):
-                await job.submit(share(gate))
+                await job.without_owner().submit(share(gate))
                 submitted += 1
         except JobRefusedError as exc:
             refusal: JobRefusedError | None = exc
@@ -415,16 +538,16 @@ async def test_job_keep_forgets_a_finished_job_after_it(
     job = tasks.job(keep=keep)(_noop)
 
     async with clock, tasks:
-        submitted = await job.submit()
+        submitted = await job.without_owner().submit()
         for _ in range(5):
             await asyncio.sleep(0)
         # Act
-        at_finish = await job.get(submitted.id)
+        at_finish = await job.without_owner().get(submitted.id)
         if kept_for is not None:
             await clock.advance(kept_for - 1)
-        just_before = await job.get(submitted.id)
+        just_before = await job.without_owner().get(submitted.id)
         await clock.advance(1)
-        after = await job.get(submitted.id)
+        after = await job.without_owner().get(submitted.id)
 
     # Assert
     if kept_for is None:
@@ -454,7 +577,7 @@ async def test_job_keep_frees_an_expired_job_with_no_call_after_it() -> None:
     job = tasks.job(keep=60)(_noop)
 
     async with clock, tasks:
-        await job.submit()
+        await job.without_owner().submit()
         for _ in range(5):
             await asyncio.sleep(0)
         rows = job._backend._rows  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
@@ -475,11 +598,11 @@ async def test_job_keep_none_keeps_a_finished_job() -> None:
     job = tasks.job(keep=None)(_noop)
 
     async with clock, tasks:
-        submitted = await job.submit()
-        await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit()
+        await _settle(job.without_owner(), submitted.id)
         # Act
         await clock.advance(10 * 365 * 24 * 3600)
-        info = await job.get(submitted.id)
+        info = await job.without_owner().get(submitted.id)
 
     # Assert
     assert info is not None
@@ -494,10 +617,10 @@ async def test_job_keep_never_forgets_a_running_job() -> None:
     gate = asyncio.Event()
 
     async with clock, tasks:
-        submitted = await job.submit(share(gate))
+        submitted = await job.without_owner().submit(share(gate))
         # Act
         await _advance_in_steps(clock, 3600, step=10)
-        info = await job.get(submitted.id)
+        info = await job.without_owner().get(submitted.id)
         gate.set()
 
     # Assert
@@ -513,12 +636,12 @@ async def test_job_cancel_queued_ends_it_before_it_starts() -> None:
     gate = asyncio.Event()
 
     async with tasks:
-        await job.submit(share(gate))
-        queued = await job.submit(share(gate))
+        await job.without_owner().submit(share(gate))
+        queued = await job.without_owner().submit(share(gate))
         # Act
-        cancelled = await job.cancel(queued.id)
+        cancelled = await job.without_owner().cancel(queued.id)
         gate.set()
-        settled = await _settle(job, queued.id)
+        settled = await _settle(job.without_owner(), queued.id)
 
     # Assert
     assert cancelled is not None
@@ -544,12 +667,12 @@ async def test_job_cancel_before_its_first_step_never_runs_it(
     ran: list[bool] = []
 
     async with tasks:
-        submitted = await job.submit(share(ran))
+        submitted = await job.without_owner().submit(share(ran))
         # Act
-        cancelled = await job.cancel(submitted.id)
+        cancelled = await job.without_owner().cancel(submitted.id)
         for _ in range(5):
             await asyncio.sleep(0)
-        settled = await job.get(submitted.id)
+        settled = await job.without_owner().get(submitted.id)
 
     # Assert
     assert cancelled is not None
@@ -581,11 +704,11 @@ async def test_job_cancel_running_frees_the_body_locals() -> None:
     loads: list[weakref.ref[_Load]] = []
 
     async with tasks:
-        submitted = await job.submit(share(loads))
+        submitted = await job.without_owner().submit(share(loads))
         await _statuses(job, [submitted.id])
         # Act
-        await job.cancel(submitted.id)
-        await _settle(job, submitted.id)
+        await job.without_owner().cancel(submitted.id)
+        await _settle(job.without_owner(), submitted.id)
         await asyncio.sleep(0)
         gc.collect()
 
@@ -607,11 +730,11 @@ async def test_job_cancel_running_stops_it_at_its_next_await() -> None:
     gate = asyncio.Event()
 
     async with tasks:
-        submitted = await job.submit(share(gate))
+        submitted = await job.without_owner().submit(share(gate))
         await _statuses(job, [submitted.id])
         # Act
-        requested = await job.cancel(submitted.id)
-        settled = await _settle(job, submitted.id)
+        requested = await job.without_owner().cancel(submitted.id)
+        settled = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert requested is not None
@@ -639,11 +762,11 @@ async def test_job_cancel_running_ends_cancelled_when_the_body_swallows_it() -> 
     gate = asyncio.Event()
 
     async with tasks:
-        submitted = await job.submit(share(gate))
+        submitted = await job.without_owner().submit(share(gate))
         await _statuses(job, [submitted.id])
         # Act
-        await job.cancel(submitted.id)
-        settled = await _settle(job, submitted.id)
+        await job.without_owner().cancel(submitted.id)
+        settled = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert settled.status is JobStatus.CANCELLED
@@ -665,13 +788,15 @@ async def test_job_cancel_sync_stops_it_at_its_checkpoint() -> None:
     started, release = threading.Event(), threading.Event()
 
     async with tasks:
-        submitted = await job.submit(share(started), share(release))
+        submitted = await job.without_owner().submit(
+            share(started), share(release)
+        )
         await asyncio.to_thread(started.wait)
         # Act
-        requested = await job.cancel(submitted.id)
+        requested = await job.without_owner().cancel(submitted.id)
         while_blocked = await _statuses(job, [submitted.id])
         release.set()
-        settled = await _settle(job, submitted.id)
+        settled = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert requested is not None
@@ -689,10 +814,10 @@ async def test_job_cancel_finished_changes_nothing() -> None:
     job = tasks.job()(_noop)
 
     async with tasks:
-        submitted = await job.submit()
-        finished = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit()
+        finished = await _settle(job.without_owner(), submitted.id)
         # Act
-        cancelled = await job.cancel(submitted.id)
+        cancelled = await job.without_owner().cancel(submitted.id)
 
     # Assert
     assert cancelled == finished
@@ -738,7 +863,7 @@ async def test_job_cancel_returns_none_for_an_unknown_id() -> None:
 
     async with tasks:
         # Act
-        cancelled = await job.cancel("unknown")
+        cancelled = await job.without_owner().cancel("unknown")
 
     # Assert
     assert cancelled is None
@@ -770,8 +895,8 @@ async def test_job_submit_passes_arguments_as_they_are() -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit(share(sink))
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(share(sink))
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.SUCCEEDED
@@ -796,8 +921,8 @@ async def test_job_submit_does_not_ask_for_an_annotated_dependency() -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit(share(sink))  # type: ignore[call-arg]  # ty: ignore[missing-argument]
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(share(sink))  # type: ignore[call-arg]  # ty: ignore[missing-argument]
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.SUCCEEDED
@@ -824,7 +949,7 @@ async def test_job_submit_raises_for_arguments_the_body_does_not_take(
     async with tasks:
         # Act & Assert
         with pytest.raises(TypeError, match="_collect"):
-            await job.submit(*args, **kwargs)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            await job.without_owner().submit(*args, **kwargs)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 async def _report(_progress: Progress, result: str) -> object:
@@ -850,8 +975,8 @@ async def test_job_return_fails_the_job_on_a_non_json_result(
 
     async with tasks:
         # Act
-        submitted = await job.submit(share(result))
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(share(result))
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.FAILED
@@ -867,8 +992,8 @@ async def test_job_return_keeps_a_json_result_as_returned() -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit(share(result))
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(share(result))
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.result == result
@@ -899,8 +1024,8 @@ async def test_job_bad_count_fails_the_job(total: object, n: object) -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit(share(total), share(n))
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(share(total), share(n))
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.FAILED
@@ -923,8 +1048,8 @@ async def test_job_advance_without_a_result_counts_items_only() -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit(3)
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(3)
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.SUCCEEDED
@@ -946,8 +1071,8 @@ async def test_job_total_set_back_to_none_reads_unknown() -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit()
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit()
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.SUCCEEDED
@@ -960,7 +1085,7 @@ _KICKED: dict[str, Job[[]]] = {}
 
 async def _kick() -> None:
     """Submit to the job in `_KICKED` on the task's first fire."""
-    await _KICKED["job"].submit()
+    await _KICKED["job"].without_owner().submit()
 
 
 async def test_job_takes_a_submit_from_a_task_registered_above_it() -> None:
@@ -1013,7 +1138,7 @@ async def test_job_submit_rebuilds_arguments_from_the_type_hints() -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit(
+        submitted = await job.without_owner().submit(
             share(sink),
             when,
             upload_id,
@@ -1024,7 +1149,7 @@ async def test_job_submit_rebuilds_arguments_from_the_type_hints() -> None:
             4,
             tag="x",
         )
-        info = await _settle(job, submitted.id)
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.SUCCEEDED
@@ -1065,7 +1190,7 @@ async def test_job_submit_refuses_an_argument_of_the_wrong_type(
     async with tasks:
         # Act & Assert
         with pytest.raises(TypeError, match=named):
-            await job.submit(*args, *rest)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            await job.without_owner().submit(*args, *rest)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 async def _take_anything(_progress: Progress, value) -> None:  # noqa: ANN001
@@ -1093,7 +1218,7 @@ async def test_job_submit_refuses_an_untyped_argument_that_is_not_json(
     async with tasks:
         # Act & Assert
         with pytest.raises(TypeError, match="value"):
-            await job.submit(value)
+            await job.without_owner().submit(value)
 
 
 async def test_job_submit_refuses_a_value_that_validates_but_has_no_json_form() -> (
@@ -1107,7 +1232,7 @@ async def test_job_submit_refuses_a_value_that_validates_but_has_no_json_form() 
     async with tasks:
         # Act & Assert
         with pytest.raises(TypeError, match="value"):
-            await job.submit(object())
+            await job.without_owner().submit(object())
 
 
 async def _take_any_typed(_progress: Progress, value: Any) -> None:  # noqa: ANN401
@@ -1130,12 +1255,12 @@ async def test_job_progress_reaches_a_read_within_a_beat() -> None:
     gate = asyncio.Event()
 
     async with clock, tasks:
-        submitted = await job.submit(share(gate))
+        submitted = await job.without_owner().submit(share(gate))
         await _statuses(job, [submitted.id])
         # Act
-        before = await job.get(submitted.id)
+        before = await job.without_owner().get(submitted.id)
         await _advance_in_steps(clock, 2)
-        after = await job.get(submitted.id)
+        after = await job.without_owner().get(submitted.id)
         gate.set()
 
     # Assert
@@ -1154,14 +1279,14 @@ async def test_job_cancel_from_another_replica_reaches_the_body() -> None:
     job = tasks.job()(_wait_for)
 
     async with clock, tasks:
-        submitted = await job.submit(share(asyncio.Event()))
+        submitted = await job.without_owner().submit(share(asyncio.Event()))
         await _statuses(job, [submitted.id])
         # Act
         await job._backend.cancel(
             name=job.name, job_id=submitted.id, owner=None
         )
         await _advance_in_steps(clock, 2)
-        settled = await job.get(submitted.id)
+        settled = await job.without_owner().get(submitted.id)
 
     # Assert
     assert settled is not None
@@ -1176,12 +1301,12 @@ async def test_job_lease_lost_stops_the_body_and_reads_lost() -> None:
     job = tasks.job()(_wait_for)
 
     async with clock, tasks:
-        submitted = await job.submit(share(asyncio.Event()))
+        submitted = await job.without_owner().submit(share(asyncio.Event()))
         await _statuses(job, [submitted.id])
         # Act
         await clock.advance(31)
         await _advance_in_steps(clock, 2)
-        settled = await job.get(submitted.id)
+        settled = await job.without_owner().get(submitted.id)
 
     # Assert
     assert settled is not None
@@ -1198,11 +1323,11 @@ async def test_job_max_wait_ends_a_job_that_never_got_a_slot() -> None:
     gate = asyncio.Event()
 
     async with clock, tasks:
-        await job.submit(share(gate))
-        queued = await job.submit(share(gate))
+        await job.without_owner().submit(share(gate))
+        queued = await job.without_owner().submit(share(gate))
         # Act
         await _advance_in_steps(clock, 61)
-        read = await job.get(queued.id)
+        read = await job.without_owner().get(queued.id)
         gate.set()
 
     # Assert
@@ -1236,7 +1361,7 @@ async def test_job_stored_arguments_that_no_longer_match_end_failed() -> None:
             lease=timedelta(seconds=30),
         )
         job._wake.set()
-        settled = await _settle(job, "old")
+        settled = await _settle(job.without_owner(), "old")
 
     # Assert
     assert settled.status is JobStatus.FAILED
@@ -1250,12 +1375,12 @@ async def test_job_cancel_twice_cancels_the_body_once() -> None:
     job = tasks.job()(_wait_for)
 
     async with tasks:
-        submitted = await job.submit(share(asyncio.Event()))
+        submitted = await job.without_owner().submit(share(asyncio.Event()))
         await _statuses(job, [submitted.id])
-        first = await job.cancel(submitted.id)
+        first = await job.without_owner().cancel(submitted.id)
         # Act
-        second = await job.cancel(submitted.id)
-        settled = await _settle(job, submitted.id)
+        second = await job.without_owner().cancel(submitted.id)
+        settled = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert first is not None
@@ -1286,8 +1411,8 @@ async def test_job_free_slot_never_jumps_an_older_queued_job() -> None:
             lease=timedelta(seconds=30),
         )
         # Act
-        newer = await job.submit(key, "newer")
-        await _settle(job, newer.id)
+        newer = await job.without_owner().submit(key, "newer")
+        await _settle(job.without_owner(), newer.id)
 
     # Assert
     assert newer.status is JobStatus.QUEUED
@@ -1315,8 +1440,8 @@ async def test_job_submit_rebuilds_a_tuple_argument() -> None:
 
     async with tasks:
         # Act
-        submitted = await job.submit(share(sink), (1, 2))
-        await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(share(sink), (1, 2))
+        await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert sink == [(1, 2)]
@@ -1330,7 +1455,7 @@ async def test_job_submit_raises_outside_the_tasks() -> None:
 
     # Act & Assert
     with pytest.raises(OutOfContextError):
-        await job.submit()
+        await job.without_owner().submit()
 
 
 async def test_job_idle_beat_leaves_every_slot_free() -> None:
@@ -1344,7 +1469,7 @@ async def test_job_idle_beat_leaves_every_slot_free() -> None:
         await _advance_in_steps(clock, 2)
 
         # Act
-        submitted = await job.submit([])
+        submitted = await job.without_owner().submit([])
 
     # Assert
     assert submitted.status is JobStatus.RUNNING
@@ -1376,7 +1501,7 @@ async def test_job_beat_claims_a_job_another_replica_queued() -> None:
         await _advance_in_steps(clock, 2)
 
     # Assert
-    info = await job.get("from-another-replica")
+    info = await job.without_owner().get("from-another-replica")
     assert info is not None
     assert info.result == ["A"]
 
@@ -1450,8 +1575,8 @@ async def test_job_body_returning_no_json_is_a_failed_run(
 
     # Act
     async with tasks:
-        submitted = await job.submit()
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit()
+        info = await _settle(job.without_owner(), submitted.id)
 
     # Assert
     assert info.status is JobStatus.FAILED
@@ -1492,7 +1617,7 @@ async def test_job_stored_arguments_that_no_longer_match_stay_out_of_the_log(
         await _advance_in_steps(clock, 2)
 
     # Assert
-    info = await job.get("stale")
+    info = await job.without_owner().get("stale")
     assert info is not None
     assert info.status is JobStatus.FAILED
     assert "a-stored-secret" not in caplog.text
@@ -1559,7 +1684,7 @@ async def test_job_submit_refuses_a_value_that_would_not_arrive_the_same(
     # Act & Assert
     async with tasks:
         with pytest.raises(TypeError, match="does not fit"):
-            await job.submit(value)
+            await job.without_owner().submit(value)
 
 
 @pytest.mark.parametrize(
@@ -1586,11 +1711,11 @@ async def test_job_submit_that_fails_in_the_store_frees_its_slot(
 
             failing.setattr(MemoryJobAdapter, "submit", _fails)
             with pytest.raises(error):
-                await job.submit()
+                await job.without_owner().submit()
         assert MemoryJobAdapter.submit is real
 
         # Act
-        info = await job.submit()
+        info = await job.without_owner().submit()
 
         # Assert
         assert info.status is JobStatus.RUNNING
@@ -1651,7 +1776,7 @@ async def test_job_body_can_use_any_keyword(
     # Arrange
     tasks = Tasks()
     job = tasks.job()(function)
-    target = job.for_owner("alice") if owned else job
+    target = job.for_owner("alice") if owned else job.without_owner()
 
     # Act
     async with tasks:
@@ -1703,10 +1828,10 @@ async def test_job_unpacked_keywords_arrive_as_their_types() -> None:
 
     # Act
     async with tasks:
-        submitted = await job.submit(count=1, when=when)
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(count=1, when=when)
+        info = await _settle(job.without_owner(), submitted.id)
         with pytest.raises(TypeError, match="does not fit"):
-            await job.submit(count="one", when=when)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            await job.without_owner().submit(count="one", when=when)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
     # Assert
     assert info.result == ["int", "datetime"]
@@ -1726,10 +1851,10 @@ async def test_job_unpacked_positionals_arrive_as_their_types(
 
     # Act
     async with tasks:
-        submitted = await job.submit(1, when)
-        info = await _settle(job, submitted.id)
+        submitted = await job.without_owner().submit(1, when)
+        info = await _settle(job.without_owner(), submitted.id)
         with pytest.raises(TypeError, match="does not fit"):
-            await job.submit(1)
+            await job.without_owner().submit(1)
 
     # Assert
     assert info.result == ["int", "datetime"]

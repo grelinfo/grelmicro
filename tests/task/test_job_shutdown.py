@@ -23,7 +23,7 @@ async def _wait_for(_progress: Progress, gate: str) -> None:
 
 async def _settled(job: Job[...], job_id: str) -> JobStatus:
     """Return the status of `job_id`, which must still be known."""
-    info = await job.get(job_id)
+    info = await job.without_owner().get(job_id)
     assert info is not None
     return info.status
 
@@ -45,12 +45,12 @@ async def test_job_submit_refused_during_the_drain() -> None:
     job = tasks.job()(_wait_for)
     gate = asyncio.Event()
     await tasks.__aenter__()
-    await job.submit(share(gate))
+    await job.without_owner().submit(share(gate))
 
     async with _draining(tasks):
         # Act
         with pytest.raises(JobRefusedError) as refused:
-            await job.submit(share(gate))
+            await job.without_owner().submit(share(gate))
         gate.set()
 
     # Assert
@@ -67,7 +67,7 @@ async def test_job_submit_refused_after_the_drain() -> None:
 
     # Act
     with pytest.raises(JobRefusedError) as refused:
-        await job.submit(share(asyncio.Event()))
+        await job.without_owner().submit(share(asyncio.Event()))
 
     # Assert
     assert refused.value.reason == "the tasks are shutting down"
@@ -90,8 +90,8 @@ async def test_job_drain_keeps_the_queue_and_stops_between_items() -> None:
     job = tasks.job(max_concurrent=1)(_items_until_stopped)
     gate = asyncio.Event()
     await tasks.__aenter__()
-    running = await job.submit(share(gate))
-    queued = await job.submit(share(gate))
+    running = await job.without_owner().submit(share(gate))
+    queued = await job.without_owner().submit(share(gate))
     gate.set()
     for _ in range(5):
         await asyncio.sleep(0)
@@ -104,8 +104,8 @@ async def test_job_drain_keeps_the_queue_and_stops_between_items() -> None:
         gate.set()
 
     # Assert
-    queued_info = await job.get(queued.id)
-    running_info = await job.get(running.id)
+    queued_info = await job.without_owner().get(queued.id)
+    running_info = await job.without_owner().get(running.id)
     assert queued_status is JobStatus.QUEUED
     assert queued_info is not None
     assert queued_info.status is JobStatus.QUEUED
@@ -123,7 +123,7 @@ async def test_job_drain_cancels_a_job_past_shutdown_timeout() -> None:
     tasks = Tasks(shutdown_timeout=0.05)
     job = tasks.job()(_wait_for)
     await tasks.__aenter__()
-    submitted = await job.submit(share(asyncio.Event()))
+    submitted = await job.without_owner().submit(share(asyncio.Event()))
 
     # Act
     await tasks.__aexit__(None, None, None)
@@ -138,8 +138,8 @@ async def test_job_drain_with_no_timeout_ends_what_runs_cleanly() -> None:
     tasks = Tasks(shutdown_timeout=0)
     job = tasks.job(max_concurrent=1)(_wait_for)
     await tasks.__aenter__()
-    running = await job.submit(share(asyncio.Event()))
-    queued = await job.submit(share(asyncio.Event()))
+    running = await job.without_owner().submit(share(asyncio.Event()))
+    queued = await job.without_owner().submit(share(asyncio.Event()))
     await asyncio.sleep(0)
 
     # Act
@@ -149,7 +149,7 @@ async def test_job_drain_with_no_timeout_ends_what_runs_cleanly() -> None:
     assert await _settled(job, running.id) is JobStatus.CANCELLED
     assert await _settled(job, queued.id) is JobStatus.QUEUED
     with pytest.raises(JobRefusedError):
-        await job.submit(share(asyncio.Event()))
+        await job.without_owner().submit(share(asyncio.Event()))
 
 
 def _write_when_released(
@@ -182,7 +182,7 @@ async def test_job_ended_at_shutdown_timeout_takes_no_late_writes() -> None:
     finished = threading.Event()
     wrote: list[str] = []
     await tasks.__aenter__()
-    submitted = await job.submit(
+    submitted = await job.without_owner().submit(
         share(started), share(release), share(finished), share(wrote)
     )
     await asyncio.to_thread(started.wait)
@@ -193,7 +193,7 @@ async def test_job_ended_at_shutdown_timeout_takes_no_late_writes() -> None:
     await asyncio.to_thread(finished.wait)
 
     # Assert
-    info = await job.get(submitted.id)
+    info = await job.without_owner().get(submitted.id)
     assert info is not None
     assert info.status is JobStatus.CANCELLED
     assert (info.done, info.total) == (0, None)
@@ -219,11 +219,11 @@ async def test_job_body_raising_a_base_exception_ends_failed() -> None:
     # Act
     with pytest.RaisesGroup(_Abort, flatten_subgroups=True):
         async with tasks:
-            submitted.append((await job.submit()).id)
+            submitted.append((await job.without_owner().submit()).id)
             await asyncio.Event().wait()
 
     # Assert
-    info = await job.get(submitted[0])
+    info = await job.without_owner().get(submitted[0])
     assert info is not None
     assert info.status is JobStatus.FAILED
     assert info.error == "Job failed"
@@ -241,8 +241,8 @@ async def test_job_base_exception_starts_no_queued_job(
     # Act
     with pytest.RaisesGroup(_Abort, flatten_subgroups=True):
         async with tasks:
-            submitted.append((await job.submit()).id)
-            submitted.append((await job.submit()).id)
+            submitted.append((await job.without_owner().submit()).id)
+            submitted.append((await job.without_owner().submit()).id)
             await asyncio.Event().wait()
 
     # Assert
@@ -267,7 +267,7 @@ async def test_job_drain_stops_a_sync_job_at_its_checkpoint() -> None:
     job = tasks.job()(_sync_until_released)
     started, release = threading.Event(), threading.Event()
     await tasks.__aenter__()
-    submitted = await job.submit(share(started), share(release))
+    submitted = await job.without_owner().submit(share(started), share(release))
     await asyncio.to_thread(started.wait)
 
     async with _draining(tasks):
@@ -275,7 +275,7 @@ async def test_job_drain_stops_a_sync_job_at_its_checkpoint() -> None:
         release.set()
 
     # Assert
-    info = await job.get(submitted.id)
+    info = await job.without_owner().get(submitted.id)
     assert info is not None
     assert info.status is JobStatus.CANCELLED
     assert info.done == 0
@@ -314,11 +314,13 @@ async def test_job_app_drains_jobs_before_closing_its_resources() -> None:
     seen: list[bool] = []
 
     async with micro:
-        submitted = await job.submit(share(database), share(seen))
+        submitted = await job.without_owner().submit(
+            share(database), share(seen)
+        )
         # Act: leaving the app drains the tasks.
 
     # Assert
-    info = await job.get(submitted.id)
+    info = await job.without_owner().get(submitted.id)
     assert seen == [True]
     assert info is not None
     assert info.status is JobStatus.SUCCEEDED
@@ -336,7 +338,7 @@ async def test_job_base_exception_refuses_submits_while_it_settles(
 
     async def _submits_first(self: MemoryJobAdapter, **kwargs: object) -> None:
         try:
-            await job.submit()
+            await job.without_owner().submit()
         except JobRefusedError:
             refused.append(True)
         await settle(self, **kwargs)
@@ -346,7 +348,7 @@ async def test_job_base_exception_refuses_submits_while_it_settles(
     # Act
     with pytest.RaisesGroup(_Abort, flatten_subgroups=True):
         async with tasks:
-            await job.submit()
+            await job.without_owner().submit()
             await asyncio.Event().wait()
 
     # Assert

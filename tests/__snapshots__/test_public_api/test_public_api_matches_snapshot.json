@@ -1120,7 +1120,7 @@
     "JobStatus": {
       "()": "(*values)"
     },
-    "OwnedJob": {
+    "JobView": {
       "()": "(job, owner) -> 'None'"
     },
     "Progress": {
