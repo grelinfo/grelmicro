@@ -285,6 +285,10 @@ A job runs once each time your code submits it, and reports its progress while
 it runs. Use it for work started from a request that takes too long to answer
 in it: an import, a report, a batch handled item by item.
 
+!!! warning "Experimental"
+    On-demand jobs are new, and their design can still change. See the
+    [capability matrix](capabilities.md) for where they run today.
+
 ```python
 --8<-- "task/job.py:1:50"
 ```
