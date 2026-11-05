@@ -6,11 +6,11 @@ Each heading names a few concrete things. They illustrate the direction, they ar
 
 ## The HTTP edge
 
-A pattern you already use should reach the wire without hand-written glue. Every rejection already answers the client as a problem detail. Next: rate limit response headers, admission per route instead of per handler, dependency helpers, and HTTP server metrics.
+A pattern you already use should reach the wire without hand-written glue. Every rejection already answers the client as a problem detail, and rate limit response headers and HTTP server metrics are in. Next: admission per route instead of per handler, and dependency helpers.
 
 ## Checks on the request you were handed
 
-A microservice validates what arrives. It does not run the login. [Client IP](security/clientip.md) and [JWT verification](security/jwt.md) live by that line: signature, expiry, issuer, and audience are checked against a JWKS endpoint whose keys rotate under you. Discovery from an OpenID Connect issuer and [authenticating requests in the HTTP layer](http/authentication.md) are in. Next is publishing protected resource metadata, so a client can find the authorization server from the service itself.
+A microservice validates what arrives. It does not run the login. [Client IP](security/clientip.md) and [JWT verification](security/jwt.md) live by that line: signature, expiry, issuer, and audience are checked against a JWKS endpoint whose keys rotate under you. Discovery from an OpenID Connect issuer, [authenticating requests in the HTTP layer](http/authentication.md), and protected resource metadata, so a client can find the authorization server from the service itself, are in.
 
 A service also calls other services, so it authenticates what it sends: a token for itself, or one exchanged for the user it is serving, fetched from the authorization server and refreshed before it expires. Issuing tokens, storing users, and running a login flow stay out.
 
@@ -30,7 +30,7 @@ Filling the [capability matrix](capabilities.md) is permanent work, not a featur
 
 ## Background work you can reason about
 
-Work that happens without a request should be as easy to state as work that answers one. Common schedules should read at a glance rather than arrive as five cron fields, and a task should pause without a redeploy. A job started on demand should report its progress, not only run on a schedule. An app that only schedules tasks should install and load nothing else. The outbox should state its delivery guarantee in one sentence, which means strict per-key ordering with explicit head-of-line semantics.
+Work that happens without a request should be as easy to state as work that answers one. Common schedules should read at a glance rather than arrive as five cron fields, and a task should pause without a redeploy. A job started on demand should work from any replica: submit on one, then poll or cancel from another. An app that only schedules tasks should install and load nothing else. The outbox should state its delivery guarantee in one sentence, which means strict per-key ordering with explicit head-of-line semantics.
 
 ## A shorter first hour
 
