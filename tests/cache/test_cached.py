@@ -2273,7 +2273,7 @@ async def _wait_for_log(
     """
     deadline = time.monotonic() + max_wait
     while True:
-        found = [r for r in caplog.records if needle in r.message]
+        found = [r for r in caplog.records if needle in r.getMessage()]
         if found or time.monotonic() >= deadline:
             return found
         await asyncio.sleep(0.01)
@@ -2358,6 +2358,28 @@ class TestEarlyRefreshFailureIsObservable:
 
         # Assert
         assert failures
+
+    async def test_wait_for_log_reads_a_record_not_formatted_yet(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A worker thread lists its record before formatting it."""
+        # Arrange
+        record = logging.LogRecord(
+            "grelmicro",
+            logging.WARNING,
+            "",
+            0,
+            "early refresh failed",
+            (),
+            None,
+        )
+        caplog.records.append(record)
+
+        # Act
+        found = await _wait_for_log(caplog, "early refresh failed")
+
+        # Assert
+        assert found == [record]
 
     async def test_cancelled_refresh_is_not_reported(
         self, caplog: pytest.LogCaptureFixture
