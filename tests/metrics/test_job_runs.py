@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -95,3 +96,46 @@ async def test_job_cancelled_records_its_duration_as_an_error(
         "grelmicro.task.name": "import",
         "grelmicro.outcome": "error",
     }
+
+
+async def _takes_an_int(_progress: Progress, count: int) -> None:
+    """Take an int."""
+    _ = count
+
+
+async def test_job_arguments_that_cannot_load_count_as_an_error(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """Arguments that no longer load land on `grelmicro.task.runs`."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job(name="import")(_takes_an_int)
+
+    async with tasks:
+        # Act
+        await job._backend.submit(
+            name=job.name,
+            job_id="stale",
+            owner=None,
+            payload='{"count": "not an int"}',
+            context={},
+            max_queued=None,
+            max_wait=None,
+            keep=None,
+            start_as=None,
+            lease=timedelta(seconds=30),
+        )
+        job._wake.set()
+        await _until_finished(job, "stale")
+
+    # Assert
+    assert metrics_reader.points("grelmicro.task.runs") == [
+        (
+            1,
+            {
+                "grelmicro.task.name": "import",
+                "grelmicro.outcome": "error",
+                "error.type": "ValidationError",
+            },
+        )
+    ]

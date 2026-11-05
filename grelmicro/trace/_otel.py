@@ -8,6 +8,7 @@ for subsequent calls via `functools.cache`.
 
 from __future__ import annotations
 
+import os
 from functools import cache
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
@@ -42,3 +43,13 @@ def get() -> OTel | None:
     except ImportError:
         return None
     return OTel(trace, StatusCode)
+
+
+def exceptions_on_spans() -> bool:
+    """Return whether exceptions go on spans, per `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN`.
+
+    `logs` moves them to the logs signal. `logs/dup` and no value keep them
+    on spans.
+    """
+    choice = os.environ.get("OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN", "")
+    return choice.strip().lower() != "logs"

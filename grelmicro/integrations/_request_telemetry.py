@@ -23,6 +23,7 @@ from opentelemetry.propagators.textmap import Getter
 from opentelemetry.trace import SpanKind, StatusCode
 
 from grelmicro.integrations._fastapi_internals import TELEMETRY_KEY
+from grelmicro.trace._otel import exceptions_on_spans
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping
@@ -122,16 +123,6 @@ _NORMAL_CLOSE: Final = frozenset({1000, 1001})
 
 _VERSION: Final = version("grelmicro")
 """The instrumentation scope version."""
-
-
-def exceptions_on_spans() -> bool:
-    """Return whether exceptions go on spans, per `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN`.
-
-    `logs` moves them to the logs signal. `logs/dup` and no value keep them
-    on spans.
-    """
-    choice = os.environ.get("OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN", "")
-    return choice.strip().lower() != "logs"
 
 
 def known_methods() -> frozenset[str]:

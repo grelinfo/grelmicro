@@ -11,14 +11,16 @@ micro = Grelmicro(uses=[tasks])
 
 
 @tasks.job(max_concurrent=2)
-async def import_rows(progress: Progress, upload_id: str) -> None:
+async def import_rows(progress: Progress, upload_id: str) -> dict[str, int]:
     rows = await load_rows(upload_id)
     progress.total = len(rows)
     for row in rows:
         progress.checkpoint()
         if not row.valid:
             raise JobError(f"Row {row.number} is invalid")
-        progress.advance(result=await save_row(row))
+        await save_row(row)
+        progress.advance()
+    return {"imported": len(rows)}
 
 
 app = FastAPI()
@@ -59,5 +61,5 @@ async def load_rows(upload_id: str) -> list[Row]:
     return [Row(number, valid=True) for number in range(1, 4)]
 
 
-async def save_row(row: Row) -> str:
-    return f"row-{row.number}"
+async def save_row(row: Row) -> None:
+    print(f"Saved row {row.number}")

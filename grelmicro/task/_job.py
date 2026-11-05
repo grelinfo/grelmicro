@@ -10,10 +10,10 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import inspect
+import json
 import secrets
 import threading
-from annotationlib import Format, ForwardRef
-from collections import deque
+from annotationlib import Format
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from logging import getLogger
@@ -25,25 +25,56 @@ from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
-from grelmicro._duration import check_retention, is_int
+from grelmicro._duration import check_duration, check_retention, is_int
 from grelmicro._task import Task
-from grelmicro.clock._seam import monotonic, sleep
+from grelmicro.clock._seam import sleep
 from grelmicro.errors import OutOfContextError
-from grelmicro.task._fire import FireRecorder, first_leaf
-from grelmicro.task._protocol import JobStatus
+from grelmicro.task._fire import FireOutcome, FireRecorder, all_of, first_leaf
+from grelmicro.task._job_arguments import JobArguments, resolve_annotation
+from grelmicro.task._job_trace import (
+    mark_failed,
+    mark_lost,
+    name_error,
+    record_exception,
+    run_span,
+    submitter_context,
+)
+from grelmicro.task._protocol import (
+    JOB_LOST,
+    Beat,
+    Claimed,
+    EndStatus,
+    JobBackend,
+    JobRecord,
+    JobStatus,
+    ProgressUpdate,
+)
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.errors import JobError, JobRefusedError
+from grelmicro.task.memory import MemoryJobAdapter
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Callable
 
 logger = getLogger("grelmicro.task")
 
 _JSON: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
-"""Checks that a reported result is JSON."""
+"""Checks that a returned result is JSON."""
 
 _FAILED = "Job failed"
 """The error a caller sees for any exception but a `JobError`."""
+
+_LEASE = timedelta(seconds=30)
+"""How long a job stays held without a beat."""
+
+_BEAT = timedelta(seconds=1)
+"""How often a replica extends leases, writes counts and reads cancels."""
+
+_SWEEP_EVERY_BEATS = 10
+"""How many beats pass between two sweeps of the store."""
+
+_SWEEP_LIMIT = 100
+"""How many jobs one sweep ends or forgets at most."""
 
 
 class JobInfo(BaseModel, frozen=True):
@@ -61,8 +92,9 @@ class JobInfo(BaseModel, frozen=True):
     total: Annotated[
         int | None, Doc("Items the job expects, or `None` until it says.")
     ]
-    results: Annotated[
-        tuple[JsonValue, ...], Doc("Results the job reported, in order.")
+    result: Annotated[
+        JsonValue | None,
+        Doc("What the body returned, or `None` until it does."),
     ]
     error: Annotated[
         str | None, Doc("Why the job failed, or `None` unless it failed.")
@@ -78,54 +110,50 @@ class JobInfo(BaseModel, frozen=True):
     ]
 
 
-class _Record:
-    """The live state of one job."""
+class _Run:
+    """A job this replica is running: its unwritten counts and its task."""
 
     __slots__ = (
-        "args",
         "cancel_requested",
-        "context",
-        "created_at",
         "done",
-        "error",
-        "expires_at",
-        "finished_at",
+        "ended",
         "id",
-        "kwargs",
         "lock",
-        "owner",
-        "results",
-        "started_at",
-        "status",
+        "started",
         "task",
         "total",
+        "written",
     )
 
-    def __init__(
-        self,
-        job_id: str,
-        owner: str | None,
-        created_at: datetime,
-        args: tuple[Any, ...],
-        kwargs: dict[str, Any],
-    ) -> None:
+    def __init__(self, job_id: str) -> None:
         self.id = job_id
-        self.owner = owner
-        self.args = args
-        self.kwargs = kwargs
-        self.context: contextvars.Context | None = contextvars.copy_context()
         self.lock = threading.Lock()
-        self.status = JobStatus.QUEUED
         self.done = 0
         self.total: int | None = None
-        self.results: list[JsonValue] = []
-        self.error: str | None = None
-        self.created_at = created_at
-        self.started_at: datetime | None = None
-        self.finished_at: datetime | None = None
-        self.expires_at = 0.0
+        self.written = ProgressUpdate(done=0, total=None)
         self.cancel_requested = False
+        self.started = False
+        self.ended = False
         self.task: asyncio.Task[None] | None = None
+
+    def counts(self) -> ProgressUpdate:
+        """Return the counts as they are now."""
+        with self.lock:
+            return ProgressUpdate(done=self.done, total=self.total)
+
+    def changed_counts(self) -> ProgressUpdate | None:
+        """Return the counts when a beat has not written them yet."""
+        counts = self.counts()
+        if counts == self.written:
+            return None
+        self.written = counts
+        return counts
+
+    def end(self) -> ProgressUpdate:
+        """Refuse any later report, and return the last counts."""
+        with self.lock:
+            self.ended = True
+            return ProgressUpdate(done=self.done, total=self.total)
 
 
 class Progress:
@@ -136,29 +164,29 @@ class Progress:
     Read more in the [Progress](../task.md#progress) docs.
     """
 
-    __slots__ = ("_job", "_record")
+    __slots__ = ("_job", "_run")
 
-    def __init__(self, record: _Record, job: Job[...]) -> None:
-        self._record = record
+    def __init__(self, run: _Run, job: Job[...]) -> None:
+        self._run = run
         self._job = job
 
     @property
     def total(self) -> int | None:
         """Items the job expects, or `None` until set."""
-        return self._record.total
+        return self._run.total
 
     @total.setter
     def total(self, value: int | None) -> None:
         if value is not None:
             _check_count(value, "total")
-        with self._record.lock:
+        with self._run.lock:
             self._check_live()
-            self._record.total = value
+            self._run.total = value
 
     @property
     def done(self) -> int:
         """Items reported done so far."""
-        return self._record.done
+        return self._run.done
 
     @property
     def stopping(self) -> bool:
@@ -167,7 +195,7 @@ class Progress:
         `True` once a cancel was requested, or once its tasks started
         shutting down.
         """
-        return self._record.cancel_requested or self._job._stopping  # noqa: SLF001
+        return self._run.cancel_requested or self._job._stopping  # noqa: SLF001
 
     def _check_live(self) -> None:
         """Stop a body that reports after its job ended.
@@ -176,14 +204,14 @@ class Progress:
             asyncio.CancelledError: If the job already ended, such as a
                 sync job cancelled at the shutdown timeout.
         """
-        if self._record.finished_at is not None:
+        if self._run.ended:
             raise asyncio.CancelledError
 
     def checkpoint(self) -> None:
         """Stop here when the job should stop.
 
         Raises `asyncio.CancelledError` once `stopping` is `True`, so the
-        job ends `cancelled` with the results reported so far. Call it
+        job ends `cancelled` with the counts reported so far. Call it
         between two items, where stopping is safe. A sync body stops only
         at a checkpoint.
         """
@@ -193,39 +221,18 @@ class Progress:
     def advance(
         self,
         n: Annotated[int, Doc("Items done since the last call.")] = 1,
-        *,
-        result: Annotated[
-            JsonValue | None,
-            Doc("A result to add to `results`. `None` adds nothing."),
-        ] = None,
     ) -> None:
-        """Report `n` more items done, with an optional result.
-
-        The job keeps a copy of `result`, so changing it afterwards does
-        not change `results`.
+        """Report `n` more items done.
 
         Raises:
-            TypeError: If `n` is not an `int`, or `result` is not JSON: a
-                string, a number, a boolean, or a list or dict of them.
+            TypeError: If `n` is not an `int`.
             ValueError: If `n` is negative.
             asyncio.CancelledError: If the job already ended.
         """
         _check_count(n, "n")
-        if result is not None:
-            try:
-                result = _JSON.validate_python(result, strict=True)
-            except ValidationError:
-                msg = (
-                    "A job result must be JSON: a string, a number, a "
-                    "boolean, or a list or dict of them"
-                )
-                raise TypeError(msg) from None
-        record = self._record
-        with record.lock:
+        with self._run.lock:
             self._check_live()
-            record.done += n
-            if result is not None:
-                record.results.append(result)
+            self._run.done += n
 
 
 class Job[**P](Task):
@@ -242,12 +249,13 @@ class Job[**P](Task):
 
     def __init__(
         self,
-        function: Callable[..., Awaitable[None] | None],
+        function: Callable[..., object],
         *,
         name: str | None = None,
         max_concurrent: int = 1,
-        max_queued: int | None = 100,
-        keep: int | timedelta | None = 3600,
+        max_queued: int | None = None,
+        max_wait: int | timedelta | None = 86400,
+        keep: int | timedelta | None = 86400,
     ) -> None:
         """Initialize the job.
 
@@ -255,12 +263,13 @@ class Job[**P](Task):
             FunctionTypeError: If the function is not supported.
             TypeError: If the function does not take `progress` first.
             ValueError: If `max_concurrent` is not an int of at least 1,
-                `max_queued` is not an int of at least 0, or `keep` is
-                not whole seconds or a `timedelta`, is negative, or is
-                over 100 years.
+                `max_queued` is not an int of at least 0, `max_wait` is not
+                whole seconds or a `timedelta` above zero, `keep` is not whole
+                seconds or a `timedelta` from zero, or either is over 100
+                years.
         """
         alt_name = validate_and_generate_reference(function)
-        self._signature = _check_progress_first(function)
+        signature = _check_progress_first(function)
         if not is_int(max_concurrent) or max_concurrent < 1:
             msg = f"max_concurrent must be an int of at least 1, got {max_concurrent!r}"
             raise ValueError(msg)
@@ -270,6 +279,7 @@ class Job[**P](Task):
             msg = f"max_queued must be an int of at least 0, got {max_queued!r}"
             raise ValueError(msg)
         self._name = name or alt_name
+        self._arguments = JobArguments(self._name, function, signature)
         self._function = function
         self._interruptible = is_async_callable(function)
         self._clock = partial(datetime.now, UTC)
@@ -279,21 +289,21 @@ class Job[**P](Task):
             clock=self._clock,
             cast=False,
             expected=(JobError,),
+            finish=_json_result,
         )
         self._max_concurrent = max_concurrent
         self._max_queued = max_queued
-        self._keep = (
-            None
-            if keep is None
-            else check_retention(keep, "keep").total_seconds()
+        self._max_wait = (
+            None if max_wait is None else check_duration(max_wait, "max_wait")
         )
-        self._finished: deque[_Record] = deque()
-        self._kept = asyncio.Event()
-        self._records: dict[str, _Record] = {}
-        self._unfinished: set[_Record] = set()
-        self._queue: deque[_Record] = deque()
+        self._keep = None if keep is None else check_retention(keep, "keep")
+        self._backend: JobBackend = MemoryJobAdapter()
+        self._runner = secrets.token_urlsafe(16)
+        self._runs: dict[str, _Run] = {}
         self._running = 0
+        self._wake = asyncio.Event()
         self._group: asyncio.TaskGroup | None = None
+        self._context: contextvars.Context | None = None
         self._stopping = False
 
     @property
@@ -318,35 +328,105 @@ class Job[**P](Task):
     ) -> None:
         """Run submitted jobs until `stop` is set, then drain them.
 
-        On `stop`, new submissions are refused, queued jobs end
-        `cancelled`, and running jobs see `Progress.stopping`. The call
-        returns once every running job has ended. When `Tasks` cancels it
-        at its `shutdown_timeout`, the jobs still running are cancelled.
+        On `stop`, this replica refuses new submissions and claims nothing
+        more, queued jobs stay queued in the store, and running jobs see
+        `Progress.stopping`. The call returns once every running job has
+        ended. When `Tasks` cancels it at its `shutdown_timeout`, the jobs
+        still running are cancelled.
         """
         stopped = stop or asyncio.Event()
         self._stopping = False
-        try:
-            async with asyncio.TaskGroup() as group:
-                self._group = group
-                if ready is not None and not ready.done():  # pragma: no branch
-                    ready.set_result(None)
-                sweeper = group.create_task(self._sweep())
-                try:
-                    await stopped.wait()
-                finally:
-                    sweeper.cancel()
-                    self._stop_accepting()
-        finally:
-            self._group = None
+        self._context = contextvars.copy_context()
+        async with self._backend:
+            beating = asyncio.create_task(self._beat_loop())
+            try:
+                async with asyncio.TaskGroup() as group:
+                    self._group = group
+                    if (
+                        ready is not None and not ready.done()
+                    ):  # pragma: no branch
+                        ready.set_result(None)
+                    claimer = group.create_task(self._claim_when_free(group))
+                    try:
+                        await stopped.wait()
+                    finally:
+                        self._stopping = True
+                        claimer.cancel()
+            finally:
+                self._group = None
+                beating.cancel()
 
-    def _stop_accepting(self) -> None:
-        """Refuse new submissions and cancel every job not started yet."""
-        self._stopping = True
-        self._queue.clear()
-        for record in [
-            r for r in self._unfinished if r.status is JobStatus.QUEUED
-        ]:
-            self._settle(record, JobStatus.CANCELLED)
+    async def _beat_loop(self) -> None:
+        """Beat every second and sweep the store now and then, until cancelled."""
+        beats = 0
+        while True:
+            await sleep(_BEAT.total_seconds())
+            await self._beat()
+            self._wake.set()
+            beats += 1
+            if beats % _SWEEP_EVERY_BEATS == 0:
+                await self._backend.reap(limit=_SWEEP_LIMIT)
+                await self._backend.purge(limit=_SWEEP_LIMIT)
+
+    async def _beat(self) -> None:
+        """Extend each lease, write new counts, and read each cancel flag."""
+        if not self._runs:
+            return
+        replies = await self._backend.beat(
+            name=self._name,
+            runner=self._runner,
+            beats=[
+                Beat(run.id, run.changed_counts())
+                for run in self._runs.values()
+            ],
+            lease=_LEASE,
+        )
+        for reply in replies:
+            run = self._runs.get(reply.job_id)
+            if run is not None and (not reply.held or reply.cancel_requested):
+                self._ask_to_stop(run)
+
+    def _ask_to_stop(self, run: _Run) -> None:
+        """Flag `run`, and cancel its task when its body can be interrupted."""
+        if run.cancel_requested:
+            return
+        run.cancel_requested = True
+        if self._interruptible and run.started and run.task is not None:
+            run.task.cancel()
+
+    async def _claim_when_free(self, group: asyncio.TaskGroup) -> None:
+        """Run queued jobs, oldest first, when a slot is free, until cancelled."""
+        while True:
+            await self._wake.wait()
+            self._wake.clear()
+            free = self._max_concurrent - self._running
+            if free <= 0:
+                continue
+            self._running += free
+            claimed = await self._backend.claim(
+                names=[self._name],
+                runner=self._runner,
+                limit=free,
+                lease=_LEASE,
+            )
+            self._running -= free - len(claimed)
+            for job in claimed:
+                self._start(group, job)
+
+    def _start(self, group: asyncio.TaskGroup, job: Claimed) -> None:
+        """Start the body of a job this replica holds, in a slot it reserved."""
+        run = _Run(job.record.id)
+        self._runs[run.id] = run
+        assert self._context is not None  # noqa: S101
+        run.task = group.create_task(
+            self._run_in_span(run, job), context=self._context.copy()
+        )
+        run.task.add_done_callback(self._release)
+
+    def _release(self, _task: asyncio.Task[None]) -> None:
+        """Free the slot of a job task that ended, started or not."""
+        self._running -= 1
+        self._wake.set()
 
     def for_owner(
         self,
@@ -362,7 +442,7 @@ class Job[**P](Task):
         """
         return OwnedJob(self, owner)
 
-    async def submit(self, *args: P.args, **kwargs: P.kwargs) -> JobInfo:
+    async def submit(self, /, *args: P.args, **kwargs: P.kwargs) -> JobInfo:
         """Submit a job with the function's arguments, after `progress`.
 
         Returns at once, before the body starts. The job has no owner, so
@@ -374,7 +454,7 @@ class Job[**P](Task):
             JobRefusedError: If the queue is full, or the tasks are
                 shutting down.
         """
-        return self._submit(None, args, kwargs)
+        return await self._submit(None, args, kwargs)
 
     async def get(
         self, job_id: Annotated[str, Doc("The id `submit` returned.")]
@@ -384,7 +464,7 @@ class Job[**P](Task):
         Returns `None` when no job has that id, or when it has an owner,
         so a caller cannot tell the two apart.
         """
-        return self._get(job_id, None)
+        return await self._get(job_id, None)
 
     async def cancel(
         self, job_id: Annotated[str, Doc("The id `submit` returned.")]
@@ -392,170 +472,162 @@ class Job[**P](Task):
         """Ask the job `job_id` to stop, and return it at once.
 
         A queued job ends `cancelled` right away. A running async body gets
-        `asyncio.CancelledError` at its next `await`. Cancelling a finished
+        `asyncio.CancelledError` at its next `await`, within about a second
+        on another replica. Cancelling a finished
         job changes nothing. Returns `None` when no job has that id, or when it
         has an owner, so a caller cannot tell the two apart.
         """
-        return self._cancel(job_id, None)
+        return await self._cancel(job_id, None)
 
-    def _cancel(self, job_id: str, owner: str | None) -> JobInfo | None:
+    async def _cancel(self, job_id: str, owner: str | None) -> JobInfo | None:
         """Ask the job `job_id` to stop when `owner` owns it."""
-        record = self._find(job_id, owner)
+        record = await self._backend.cancel(
+            name=self._name, job_id=job_id, owner=owner
+        )
         if record is None:
             return None
-        if record.status is JobStatus.QUEUED:
-            record.cancel_requested = True
-            if record.task is None:
-                self._queue.remove(record)
-            self._settle(record, JobStatus.CANCELLED)
-        elif record.status is JobStatus.RUNNING:
-            record.cancel_requested = True
-            if self._interruptible and record.task is not None:
-                record.task.cancel()
-        return _snapshot(self._name, record)
+        run = self._runs.get(job_id)
+        if run is not None:
+            self._ask_to_stop(run)
+        return _info(record)
 
-    def _submit(
+    async def _submit(
         self,
         owner: str | None,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
     ) -> JobInfo:
-        """Record a job for `owner` and start it."""
-        try:
-            self._signature.bind(None, *args, **kwargs)
-        except TypeError as exc:
-            msg = f"Job {self._name!r} cannot take these arguments: {exc}"
-            raise TypeError(msg) from None
+        """Store a job for `owner`, and start it when a slot is free."""
+        payload = self._arguments.encode(args, kwargs)
+        context = submitter_context()
         if self._stopping:
             raise JobRefusedError(
                 name=self._name, reason="the tasks are shutting down"
             )
-        if self._group is None:
-            raise OutOfContextError(self, "submit")
-        self._forget_expired()
-        if self._running >= self._max_concurrent and (
-            self._max_queued is not None
-            and len(self._queue) >= self._max_queued
-        ):
-            raise JobRefusedError(name=self._name, reason="the queue is full")
-        record = _Record(
-            secrets.token_urlsafe(16), owner, self._clock(), args, kwargs
-        )
-        self._records[record.id] = record
-        self._unfinished.add(record)
-        self._queue.append(record)
-        self._dispatch()
-        return _snapshot(self._name, record)
-
-    def _dispatch(self) -> None:
-        """Start queued jobs, oldest first, while a slot is free."""
         group = self._group
-        while (
-            group is not None
-            and not self._stopping
-            and self._queue
-            and self._running < self._max_concurrent
-        ):
-            record = self._queue.popleft()
+        if group is None:
+            raise OutOfContextError(self, "submit")
+        free = self._running < self._max_concurrent
+        if free:
             self._running += 1
-            record.task = group.create_task(
-                self._run(record), context=record.context
-            )
-            record.task.add_done_callback(self._release)
-
-    def _release(self, _task: asyncio.Task[None]) -> None:
-        """Free the slot of a job task that ended, started or not."""
-        self._running -= 1
-        self._dispatch()
-
-    def _get(self, job_id: str, owner: str | None) -> JobInfo | None:
-        """Return the job `job_id` when `owner` owns it, else `None`."""
-        record = self._find(job_id, owner)
-        if record is None:
-            return None
-        return _snapshot(self._name, record)
-
-    def _find(self, job_id: str, owner: str | None) -> _Record | None:
-        """Return the record `job_id` when `owner` owns it, else `None`."""
-        self._forget_expired()
-        record = self._records.get(job_id)
-        if record is None or record.owner != owner:
-            return None
-        return record
-
-    def _settle(self, record: _Record, status: JobStatus) -> None:
-        """End `record` with `status`, drop its call, task and context."""
-        with record.lock:
-            record.status = status
-            record.finished_at = self._clock()
-        record.args, record.kwargs = (), {}
-        record.task = None
-        record.context = None
-        self._unfinished.discard(record)
-        if self._keep is None:
-            return
-        record.expires_at = monotonic() + self._keep
-        self._finished.append(record)
-        self._kept.set()
-        self._forget_expired()
-
-    async def _sweep(self) -> None:
-        """Forget each finished job once its retention ends, until cancelled."""
-        finished = self._finished
-        while True:
-            if finished:
-                await sleep(finished[0].expires_at - monotonic())
-            else:
-                self._kept.clear()
-                await self._kept.wait()
-            self._forget_expired()
-
-    def _forget_expired(self) -> None:
-        """Forget every finished job past its retention.
-
-        Jobs finish in order and share one `keep`, so the oldest expire
-        first and the sweep stops at the first one still kept.
-        """
-        finished = self._finished
-        now = monotonic()
-        while finished and finished[0].expires_at <= now:
-            del self._records[finished.popleft().id]
-
-    async def _run(self, record: _Record) -> None:
-        """Run one job's body and settle its record.
-
-        A job that ended before its first step, cancelled while it waited
-        to start, settles nothing and never calls the body. A body that
-        returns while its task is being cancelled ends `cancelled`. One
-        that raises a `BaseException` other than a cancel ends `failed`,
-        and the exception propagates, and no queued job starts after it.
-        """
+        started = False
         try:
-            if record.status is not JobStatus.QUEUED:
+            submitted = await self._backend.submit(
+                name=self._name,
+                job_id=secrets.token_urlsafe(16),
+                owner=owner,
+                payload=payload,
+                context=context,
+                max_queued=self._max_queued,
+                max_wait=self._max_wait,
+                keep=self._keep,
+                start_as=self._runner if free else None,
+                lease=_LEASE,
+            )
+            started = submitted.started
+        finally:
+            if free and not started:
+                self._running -= 1
+                self._wake.set()
+        if submitted.record is None:
+            raise JobRefusedError(name=self._name, reason="the queue is full")
+        if started:
+            self._start(group, Claimed(submitted.record, payload, context))
+        return _info(submitted.record)
+
+    async def _get(self, job_id: str, owner: str | None) -> JobInfo | None:
+        """Return the job `job_id` when `owner` owns it, else `None`."""
+        record = await self._backend.get(
+            name=self._name, job_id=job_id, owner=owner
+        )
+        return None if record is None else _info(record)
+
+    async def _settle(
+        self,
+        run: _Run,
+        status: EndStatus,
+        error: str | None = None,
+        result: str | None = None,
+    ) -> None:
+        """End a job this replica holds, and stop tracking it.
+
+        A job the store no longer gives this replica stays as the store has
+        it. That is logged, without the job's id, and marked on the span.
+        """
+        counts = run.end()
+        self._runs.pop(run.id, None)
+        if status is JobStatus.FAILED:
+            mark_failed(error or _FAILED)
+        settled = await self._backend.settle(
+            name=self._name,
+            job_id=run.id,
+            runner=self._runner,
+            status=status,
+            error=error,
+            result=result,
+            progress=counts,
+        )
+        if not settled:
+            mark_lost(JOB_LOST)
+            logger.warning(
+                "Job lost, its lease ran out before it ended: %s", self._name
+            )
+
+    async def _run_in_span(self, run: _Run, job: Claimed) -> None:
+        """Run one job inside its span, linked to the code that submitted it."""
+        with run_span(self._name, run.id, job.context):
+            await self._run(run, job.record, job.payload)
+
+    async def _run(self, run: _Run, record: JobRecord, payload: str) -> None:
+        """Run one job's body and settle it.
+
+        A job asked to stop before its first step ends `cancelled` and never
+        calls the body. Arguments that cannot be loaded, whatever loading
+        raises, end the job `failed`, and so does a body that returns anything
+        but JSON. A body that returns while its task is being
+        cancelled ends `cancelled`. One that raises a `BaseException` other
+        than a cancel ends `failed`, the exception propagates, and this
+        replica claims nothing more.
+        """
+        assert record.started_at is not None  # noqa: S101
+        try:
+            if run.cancel_requested:
+                await self._settle(run, JobStatus.CANCELLED)
                 return
-            record.status = JobStatus.RUNNING
-            record.started_at = self._clock()
-            error = await self._fire.run(
-                record.started_at,
-                None,
-                Progress(record, self),
-                *record.args,
-                **record.kwargs,
+            try:
+                args, kwargs = self._arguments.decode(payload)
+            except Exception as error:  # noqa: BLE001
+                name_error(error)
+                self._fire.unrun(record.started_at, FireOutcome.ERROR, error)
+                logger.error(  # noqa: TRY400
+                    "Job arguments could not be loaded: %s: %s",
+                    self._name,
+                    _load_error_types(error),
+                )
+                await self._settle(run, JobStatus.FAILED, _FAILED)
+                return
+            run.started = True
+            ran = await self._fire.run(
+                record.started_at, None, Progress(run, self), *args, **kwargs
             )
             if _cancelling():
-                self._settle(record, JobStatus.CANCELLED)
-            elif error is None:
-                self._settle(record, JobStatus.SUCCEEDED)
+                await self._settle(run, JobStatus.CANCELLED)
+            elif ran.error is not None:
+                name_error(ran.error)
+                if not all_of(ran.error, (JobError,)):
+                    record_exception(ran.error)
+                await self._settle(
+                    run, JobStatus.FAILED, _caller_error(ran.error)
+                )
             else:
-                record.error = _caller_error(error)
-                self._settle(record, JobStatus.FAILED)
+                await self._settle(run, JobStatus.SUCCEEDED, result=ran.value)
         except asyncio.CancelledError:
-            self._settle(record, JobStatus.CANCELLED)
+            await self._settle(run, JobStatus.CANCELLED)
             raise
-        except BaseException:
+        except BaseException as error:
             self._stopping = True
-            record.error = _FAILED
-            self._settle(record, JobStatus.FAILED)
+            name_error(error)
+            await self._settle(run, JobStatus.FAILED, _FAILED)
             raise
 
 
@@ -573,7 +645,7 @@ class OwnedJob[**P]:
         self._job = job
         self._owner = owner
 
-    async def submit(self, *args: P.args, **kwargs: P.kwargs) -> JobInfo:
+    async def submit(self, /, *args: P.args, **kwargs: P.kwargs) -> JobInfo:
         """Submit a job for this owner, with the function's arguments.
 
         Returns at once, before the body starts.
@@ -584,7 +656,7 @@ class OwnedJob[**P]:
             JobRefusedError: If the queue is full, or the tasks are
                 shutting down.
         """
-        return self._job._submit(self._owner, args, kwargs)  # noqa: SLF001
+        return await self._job._submit(self._owner, args, kwargs)  # noqa: SLF001
 
     async def get(
         self, job_id: Annotated[str, Doc("The id `submit` returned.")]
@@ -594,7 +666,7 @@ class OwnedJob[**P]:
         Returns `None` when no job has that id, or when another owner, or
         no owner, submitted it, so a caller cannot tell them apart.
         """
-        return self._job._get(job_id, self._owner)  # noqa: SLF001
+        return await self._job._get(job_id, self._owner)  # noqa: SLF001
 
     async def cancel(
         self, job_id: Annotated[str, Doc("The id `submit` returned.")]
@@ -604,7 +676,7 @@ class OwnedJob[**P]:
         Returns `None` when no job has that id, or when another owner, or
         no owner, submitted it. Such a job is left as it is.
         """
-        return self._job._cancel(job_id, self._owner)  # noqa: SLF001
+        return await self._job._cancel(job_id, self._owner)  # noqa: SLF001
 
 
 def _check_progress_first(function: Callable[..., Any]) -> inspect.Signature:
@@ -644,24 +716,11 @@ def _check_progress_first(function: Callable[..., Any]) -> inspect.Signature:
     )
 
 
-def _resolve(annotation: object, function: Callable[..., Any]) -> object:
-    """Resolve an annotation written as a string or a forward reference.
-
-    Raises:
-        NameError: If it names something the runtime cannot resolve.
-    """
-    if isinstance(annotation, str):
-        annotation = ForwardRef(annotation, owner=function)
-    if isinstance(annotation, ForwardRef):
-        return annotation.evaluate(owner=function)
-    return annotation
-
-
 def _is_progress(
     parameter: inspect.Parameter, function: Callable[..., Any]
 ) -> bool:
     """Return whether `parameter` takes the job's `Progress`."""
-    annotation = _resolve(parameter.annotation, function)
+    annotation = resolve_annotation(parameter.annotation, function)
     if get_origin(annotation) is Annotated:
         annotation = get_args(annotation)[0]
     if annotation is inspect.Parameter.empty:
@@ -680,12 +739,25 @@ def _is_injected(
     if isinstance(parameter.default, markers):
         return True
     try:
-        annotation = _resolve(parameter.annotation, function)
+        annotation = resolve_annotation(parameter.annotation, function)
     except NameError:
         return False
     return get_origin(annotation) is Annotated and any(
         isinstance(marker, markers) for marker in get_args(annotation)[1:]
     )
+
+
+def _json_result(value: object) -> str:
+    """Return what a body returned as JSON text.
+
+    Raises:
+        TypeError: If `value` is not JSON.
+    """
+    try:
+        return json.dumps(_JSON.validate_python(value), allow_nan=False)
+    except ValueError:
+        msg = f"A job body must return JSON, got a {type(value).__name__}"
+        raise TypeError(msg) from None
 
 
 def _caller_error(error: Exception) -> str:
@@ -694,13 +766,17 @@ def _caller_error(error: Exception) -> str:
     A `JobError`, or a group made only of them, shows its first message.
     Anything else shows as `"Job failed"`.
     """
-    if isinstance(error, ExceptionGroup):
-        match, rest = error.split(JobError)
-        if match is not None and rest is None:
-            error = first_leaf(match)
-    if isinstance(error, JobError):
-        return str(error) or _FAILED
-    return _FAILED
+    if not all_of(error, (JobError,)):
+        return _FAILED
+    shown = first_leaf(error) if isinstance(error, ExceptionGroup) else error
+    return str(shown) or _FAILED
+
+
+def _load_error_types(error: Exception) -> list[str]:
+    """Return what kind of errors loading raised, never their values."""
+    if isinstance(error, ValidationError):
+        return [detail["type"] for detail in error.errors()]
+    return [type(error).__name__]
 
 
 def _cancelling() -> bool:
@@ -724,25 +800,18 @@ def _check_count(value: object, what: str) -> None:
         raise ValueError(msg)
 
 
-def _snapshot(name: str, record: _Record) -> JobInfo:
-    """Return a `JobInfo` of `record` as it is now.
-
-    The counts, results and status are read together, so a sync body
-    reporting from its thread never shows half of one report.
-    """
-    with record.lock:
-        status, done, total = record.status, record.done, record.total
-        results, finished_at = tuple(record.results), record.finished_at
+def _info(record: JobRecord) -> JobInfo:
+    """Return what a caller sees of a stored job."""
     return JobInfo(
         id=record.id,
-        name=name,
-        status=status,
-        done=done,
-        total=total,
-        results=results,
+        name=record.name,
+        status=record.status,
+        done=record.done,
+        total=record.total,
+        result=None if record.result is None else json.loads(record.result),
         error=record.error,
         cancel_requested=record.cancel_requested,
         created_at=record.created_at,
         started_at=record.started_at,
-        finished_at=finished_at,
+        finished_at=record.finished_at,
     )

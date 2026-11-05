@@ -459,7 +459,7 @@ class TaskRouter:
             int,
             Doc(
                 """
-                How many jobs of this function run at once, in this process.
+                How many jobs of this function run at once, on each replica.
 
                 Jobs submitted past it wait in a queue and start in
                 submission order as slots free up.
@@ -472,11 +472,23 @@ class TaskRouter:
                 """
                 How many jobs may wait for a slot.
 
-                `submit` raises `JobRefusedError` past it. `0` refuses as
-                soon as every slot runs. `None` means no limit.
+                `submit` raises `JobRefusedError` past it. `0` takes a job
+                only when this replica can start it now. `None` means no
+                limit.
                 """,
             ),
-        ] = 100,
+        ] = None,
+        max_wait: Annotated[
+            int | timedelta | None,
+            Doc(
+                """
+                How long a queued job may wait for a slot.
+
+                Takes whole seconds or a `timedelta`. Past it, the job ends
+                `failed`. `None` means no limit.
+                """,
+            ),
+        ] = 86400,
         keep: Annotated[
             int | timedelta | None,
             Doc(
@@ -488,9 +500,9 @@ class TaskRouter:
                 nothing. `None` means no limit.
                 """,
             ),
-        ] = 3600,
+        ] = 86400,
     ) -> Callable[
-        [Callable[Concatenate[Progress, P], Awaitable[None] | None]],
+        [Callable[Concatenate[Progress, P], object]],
         Job[P],
     ]:
         """Decorate a function to run it once each time it is submitted.
@@ -503,22 +515,22 @@ class TaskRouter:
             TypeError: If the function does not take `progress: Progress`
                 as its first parameter.
             ValueError: If `max_concurrent` is not an int of at least 1,
-                `max_queued` is not an int of at least 0, or `keep` is
-                not whole seconds or a `timedelta`, is negative, or is
-                over 100 years.
+                `max_queued` is not an int of at least 0, `max_wait` is not
+                whole seconds or a `timedelta` above zero, `keep` is not whole
+                seconds or a `timedelta` from zero, or either is over 100
+                years.
         """
         from grelmicro.task._job import Job  # noqa: PLC0415
 
         def decorator(
-            function: Callable[
-                Concatenate[Progress, P], Awaitable[None] | None
-            ],
+            function: Callable[Concatenate[Progress, P], object],
         ) -> Job[P]:
             job: Job[P] = Job(
                 function,
                 name=name,
                 max_concurrent=max_concurrent,
                 max_queued=max_queued,
+                max_wait=max_wait,
                 keep=keep,
             )
             self.add_task(job)

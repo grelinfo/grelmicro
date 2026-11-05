@@ -19,7 +19,8 @@ A job only moves forward, and each move below is one atomic step in the store:
 | `queued` to `failed`, past `max_wait` | `reap`, or a read | past `max_wait` |
 | an end state to gone | `purge`, or the store | past `keep` |
 
-The store's own clock decides every lease and deadline.
+The store's own clock decides every lease and deadline. A job that reaches an
+end state no longer holds its payload or context.
 """
 
 from __future__ import annotations
