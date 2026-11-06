@@ -381,6 +381,11 @@ A job also ends `failed`, with the error `"Job lost"`, when nothing extended its
 lease for 30 seconds. A body that blocks the event loop that long does this, so
 run blocking work in a sync body, which runs in a worker thread.
 
+A store call that fails is tried again each second, and logged at `DEBUG`. A
+replica that cannot reach the store for 30 seconds logs a warning and asks its
+running jobs to stop, since their leases ran out. A job whose end the store
+does not take within 30 seconds logs a warning and reads `"Job lost"`.
+
 ### Owner
 
 `import_rows.for_owner(caller)` is the job as one caller sees it, with
@@ -461,7 +466,8 @@ scheduled tasks do. Keep `max_concurrent` low for long sync jobs.
 Leaving `async with tasks` drains jobs with the scheduled tasks, within the
 same `shutdown_timeout`:
 
-1. `submit` refuses new jobs with `JobRefusedError`.
+1. `submit` refuses new jobs with `JobRefusedError`. A submit already waiting
+   for the store still runs the job it starts.
 2. Queued jobs stay queued and do not start. They are lost with the process.
 3. Running jobs see `progress.stopping` turn `True`. Each stops at its next
    `checkpoint()`, after the item in hand, and releases its locks through
@@ -495,7 +501,9 @@ needs as an argument.
 Each run of a job lands on
 [`grelmicro.task.runs`](metrics.md#every-fire-lands-on-grelmicrotaskruns) under
 the job's name, like a scheduled fire. A cancelled run counts no run, and its
-`grelmicro.task.duration` reads as an error.
+`grelmicro.task.duration` reads as an error. A run that returned on a job the
+store lost counts as an `error` with `error.type` set to `job_lost`, so the
+metric agrees with the job's status.
 
 !!! note "The job decorator goes on top"
     `@tasks.job` returns a `Job`, not the function. A decorator written below it

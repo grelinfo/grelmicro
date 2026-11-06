@@ -312,28 +312,3 @@ async def test_job_with_a_name_already_on_the_store_is_refused() -> None:
     async with one:
         with pytest.raises(ValueError, match="same"):
             await second()
-
-
-async def test_job_store_error_in_the_loop_reaches_the_last_job_to_leave(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A store error that ended the loop is raised, not lost."""
-
-    # Arrange
-    async def _fails(_self: object, **_kwargs: object) -> None:
-        msg = "store down"
-        raise RuntimeError(msg)
-
-    monkeypatch.setattr(MemoryJobAdapter, "claim", _fails)
-    clock = VirtualClock()
-    job = Tasks().job(name="job")(_noop)
-    stop = asyncio.Event()
-
-    # Act / Assert
-    async with clock:
-        running = asyncio.create_task(job(stop=stop))
-        await _settled()
-        await _advance(clock, 1)
-        stop.set()
-        with pytest.RaisesGroup(RuntimeError, flatten_subgroups=True):
-            await running

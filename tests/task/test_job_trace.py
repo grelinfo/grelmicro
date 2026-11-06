@@ -591,7 +591,7 @@ async def test_job_run_span_of_a_store_failure_holds_no_message(
     monkeypatch: pytest.MonkeyPatch,
     signal: str,
 ) -> None:
-    """An error from the store marks the span, with neither event nor text."""
+    """A job whose end the store never took reads lost, without the error."""
     # Arrange
     monkeypatch.setenv("OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN", signal)
 
@@ -600,22 +600,26 @@ async def test_job_run_span_of_a_store_failure_holds_no_message(
         raise RuntimeError(msg)
 
     monkeypatch.setattr(MemoryJobAdapter, "settle", _fails)
+    clock = VirtualClock()
     tasks = Tasks()
     job = tasks.job()(_succeeds)
 
     # Act
-    with pytest.RaisesGroup(RuntimeError, flatten_subgroups=True):
-        async with tasks:
-            await job.without_owner().submit()
-            await asyncio.Event().wait()
+    async with clock, tasks:
+        await job.without_owner().submit()
+        for _ in range(31):
+            await clock.advance(1)
+            for _ in range(10):
+                await asyncio.sleep(0)
 
     # Assert
     run = _run_span(spans, "_succeeds")
     assert run.status.status_code is StatusCode.ERROR
-    assert run.status.description == "Job failed"
+    assert run.status.description == "Job lost"
     assert run.attributes is not None
-    assert run.attributes["error.type"] == "RuntimeError"
+    assert run.attributes["error.type"] == "job_lost"
     assert not run.events
+    assert "store-url-with-password" not in str(run.to_json())
 
 
 async def test_job_settle_runs_inside_the_run_span(
