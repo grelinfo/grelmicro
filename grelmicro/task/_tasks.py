@@ -231,7 +231,11 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
             asyncio.TaskGroup(),
         )
         if self._auto_start:
-            await self.start()
+            try:
+                await self.start()
+            except BaseException as error:
+                await self.__aexit__(type(error), error, error.__traceback__)
+                raise  # pragma: no cover - the task group raises first
         return self
 
     async def __aexit__(
@@ -240,10 +244,22 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None:
-        """Exit the context manager, draining tasks before forcing cancel."""
+        """Exit the context manager, draining tasks before forcing cancel.
+
+        A task that fails cancels the drain. The task group then raises the
+        task's own error, with any error the block raised.
+        """
         if not self._task_group or not self._exit_stack:
             raise OutOfContextError(self, "__aexit__")
-        await self._drain()
+        try:
+            await self._drain()
+        except BaseException as error:  # noqa: BLE001
+            if exc_value is None:
+                exc_type, exc_value, traceback = (
+                    type(error),
+                    error,
+                    error.__traceback__,
+                )
         return await self._exit_stack.__aexit__(exc_type, exc_value, traceback)
 
     async def _drain(self) -> None:

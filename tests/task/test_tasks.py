@@ -1,5 +1,6 @@
 """Test Tasks."""
 
+import asyncio
 from asyncio import Event
 from datetime import timedelta
 
@@ -95,7 +96,6 @@ async def test_tasks_already_started_error() -> None:
 
 async def test_tasks_start_surfaces_early_task_failure() -> None:
     """A task that raises before setting ``ready`` surfaces the error from start()."""
-    import asyncio  # noqa: PLC0415
 
     class FailingTask:
         @property
@@ -126,7 +126,6 @@ async def test_tasks_start_surfaces_early_task_failure() -> None:
 
 async def test_tasks_start_surfaces_early_clean_exit() -> None:
     """A task that returns without setting ``ready`` raises instead of deadlocking."""
-    import asyncio  # noqa: PLC0415
 
     class SilentTask:
         @property
@@ -239,3 +238,147 @@ async def test_tasks_interval_wakes_promptly_on_stop() -> None:
         async with tasks:
             await tasks.start()
             await asyncio.sleep(0.02)
+
+
+class _FailsAt:
+    """A task that raises at start, or once it is asked to stop."""
+
+    def __init__(self, when: str) -> None:
+        self.when = when
+
+    @property
+    def name(self) -> str:
+        return f"fails-at-{self.when}"
+
+    async def __call__(
+        self,
+        *,
+        ready: asyncio.Future[None] | None = None,
+        stop: asyncio.Event | None = None,
+    ) -> None:
+        if self.when == "start":
+            msg = "failed at start"
+            raise RuntimeError(msg)
+        assert ready is not None
+        assert stop is not None
+        ready.set_result(None)
+        await stop.wait()
+        msg = "failed at stop"
+        raise RuntimeError(msg)
+
+
+class _WaitsForStop:
+    """A task that runs until it is asked to stop, and says when it ends."""
+
+    def __init__(self) -> None:
+        self.ended = asyncio.Event()
+
+    @property
+    def name(self) -> str:
+        return "waits-for-stop"
+
+    async def __call__(
+        self,
+        *,
+        ready: asyncio.Future[None] | None = None,
+        stop: asyncio.Event | None = None,
+    ) -> None:
+        assert ready is not None
+        assert stop is not None
+        ready.set_result(None)
+        try:
+            await stop.wait()
+        finally:
+            self.ended.set()
+
+
+@pytest.mark.parametrize("when", ["start", "stop"])
+async def test_tasks_raise_the_error_of_a_task_that_fails(when: str) -> None:
+    """A task failing at start or at stop raises its own error, not a cancel."""
+    # Arrange
+    tasks = Tasks(tasks=[_FailsAt(when)])
+
+    # Act / Assert
+    with pytest.RaisesGroup(
+        pytest.RaisesExc(RuntimeError, match=f"failed at {when}")
+    ):
+        async with tasks:
+            pass
+
+
+async def test_tasks_failing_at_start_end_the_tasks_already_running() -> None:
+    """A failed start leaves no task of the group running."""
+    # Arrange
+    running = _WaitsForStop()
+    tasks = Tasks(tasks=[running, _FailsAt("start")])
+
+    # Act
+    with pytest.RaisesGroup(RuntimeError):
+        async with tasks:
+            pass
+
+    # Assert
+    assert running.ended.is_set()
+
+
+class _IgnoresStop:
+    """A task that keeps running after it is asked to stop."""
+
+    def __init__(self) -> None:
+        self.cancelled = asyncio.Event()
+
+    @property
+    def name(self) -> str:
+        return "ignores-stop"
+
+    async def __call__(
+        self,
+        *,
+        ready: asyncio.Future[None] | None = None,
+        stop: asyncio.Event | None = None,
+    ) -> None:
+        del stop
+        assert ready is not None
+        ready.set_result(None)
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cancelled.set()
+
+
+async def test_tasks_cancelled_while_draining_cancel_their_tasks() -> None:
+    """Cancelling the exit raises the cancel, and ends what still runs."""
+    # Arrange
+    running = _IgnoresStop()
+    tasks = Tasks(tasks=[running])
+
+    async def _run() -> None:
+        async with tasks:
+            pass
+
+    exiting = asyncio.create_task(_run())
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    # Act
+    exiting.cancel()
+
+    # Assert
+    with pytest.raises(asyncio.CancelledError):
+        await exiting
+    assert running.cancelled.is_set()
+
+
+async def test_tasks_raise_the_block_error_with_the_task_error() -> None:
+    """An error from the block and one from a task are raised together."""
+    # Arrange
+    tasks = Tasks(tasks=[_FailsAt("stop")])
+
+    # Act / Assert
+    with pytest.RaisesGroup(
+        pytest.RaisesExc(ValueError, match="block"),
+        pytest.RaisesExc(RuntimeError, match="failed at stop"),
+    ):
+        async with tasks:
+            msg = "block"
+            raise ValueError(msg)
