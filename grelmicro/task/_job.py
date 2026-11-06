@@ -17,7 +17,14 @@ from annotationlib import Format
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from logging import getLogger
-from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    NamedTuple,
+    get_args,
+    get_origin,
+)
 
 from fast_depends.dependencies.model import Dependant  # codespell:ignore
 from fast_depends.library import CustomField
@@ -28,10 +35,11 @@ from grelmicro._async import is_async_callable
 from grelmicro._caller import subject_of
 from grelmicro._duration import check_duration, check_retention, is_int
 from grelmicro._task import Task
+from grelmicro.clock._seam import monotonic, sleep
 from grelmicro.errors import OutOfContextError
 from grelmicro.task._fire import FireOutcome, FireRecorder, all_of, first_leaf
 from grelmicro.task._job_arguments import JobArguments, resolve_annotation
-from grelmicro.task._job_loop import LEASE, JobStoreLoop, store_loop
+from grelmicro.task._job_loop import BEAT, LEASE, JobStoreLoop, store_loop
 from grelmicro.task._job_trace import (
     mark_failed,
     mark_lost,
@@ -102,15 +110,25 @@ class JobInfo(BaseModel, frozen=True):
     ]
 
 
+class _Outcome(NamedTuple):
+    """How a job ended, as this replica writes it to the store."""
+
+    status: EndStatus
+    error: str | None
+    result: str | None
+    progress: ProgressUpdate
+
+
 class _Run:
     """A job this replica is running: its unwritten counts and its task."""
 
     __slots__ = (
         "cancel_requested",
         "done",
-        "ended",
         "id",
         "lock",
+        "outcome",
+        "sending",
         "started",
         "task",
         "total",
@@ -123,29 +141,41 @@ class _Run:
         self.done = 0
         self.total: int | None = None
         self.written = ProgressUpdate(done=0, total=None)
+        self.sending: ProgressUpdate | None = None
         self.cancel_requested = False
         self.started = False
-        self.ended = False
+        self.outcome: _Outcome | None = None
         self.task: asyncio.Task[None] | None = None
 
-    def counts(self) -> ProgressUpdate:
-        """Return the counts as they are now."""
-        with self.lock:
-            return ProgressUpdate(done=self.done, total=self.total)
+    @property
+    def ended(self) -> bool:
+        """Whether the job ended, though the store may not have it yet."""
+        return self.outcome is not None
 
-    def changed_counts(self) -> ProgressUpdate | None:
-        """Return the counts when a beat has not written them yet."""
-        counts = self.counts()
-        if counts == self.written:
-            return None
-        self.written = counts
-        return counts
-
-    def end(self) -> ProgressUpdate:
-        """Refuse any later report, and return the last counts."""
+    def unwritten_counts(self) -> ProgressUpdate | None:
+        """Return the counts when the store does not have them yet."""
         with self.lock:
-            self.ended = True
-            return ProgressUpdate(done=self.done, total=self.total)
+            counts = ProgressUpdate(done=self.done, total=self.total)
+        self.sending = None if counts == self.written else counts
+        return self.sending
+
+    def counts_written(self) -> None:
+        """Note that the store now has the counts the last beat sent."""
+        if self.sending is not None:
+            self.written = self.sending
+            self.sending = None
+
+    def end(
+        self, status: EndStatus, error: str | None, result: str | None
+    ) -> None:
+        """Refuse any later report, and keep how the job ended."""
+        with self.lock:
+            self.outcome = _Outcome(
+                status,
+                error,
+                result,
+                ProgressUpdate(done=self.done, total=self.total),
+            )
 
 
 class Progress:
@@ -282,6 +312,7 @@ class Job[**P](Task):
             cast=False,
             expected=(JobError,),
             finish=_json_result,
+            count_later=True,
         )
         self._max_concurrent = max_concurrent
         self._max_queued = max_queued
@@ -293,6 +324,10 @@ class Job[**P](Task):
         self._loop: JobStoreLoop | None = None
         self._runs: dict[str, _Run] = {}
         self._running = 0
+        self._reserved = 0
+        self._submitting = 0
+        self._no_submits = asyncio.Event()
+        self._no_submits.set()
         self._group: asyncio.TaskGroup | None = None
         self._context: contextvars.Context | None = None
         self._stopping = False
@@ -321,9 +356,10 @@ class Job[**P](Task):
 
         On `stop`, this replica refuses new submissions and claims nothing
         more, queued jobs stay queued in the store, and running jobs see
-        `Progress.stopping`. The call returns once every running job has
+        `Progress.stopping`. A submit the store has not answered yet still
+        runs the job it starts. The call returns once every running job has
         ended. When `Tasks` cancels it at its `shutdown_timeout`, the jobs
-        still running are cancelled.
+        still running are cancelled, and a submit answered later is refused.
         """
         stopped = stop or asyncio.Event()
         self._stopping = False
@@ -341,29 +377,61 @@ class Job[**P](Task):
                 finally:
                     self._stopping = True
                     await loop.finish_round()
+                    if not _cancelling():
+                        await self._no_submits.wait()
         finally:
             self._group = None
-            await loop.leave(self)
+            try:
+                await self._end_unsettled()
+            finally:
+                await loop.leave(self)
+
+    async def _end_unsettled(self) -> None:
+        """Write the end of each job whose task ended before the store took it.
+
+        A task cancelled before its first step ends `cancelled`.
+        """
+        for run in list(self._runs.values()):
+            if run.outcome is None:
+                run.end(JobStatus.CANCELLED, None, None)
+            await self._end_in_store(run, retry=False)
 
     def _beats(self) -> list[Beat]:
-        """Return one entry per running job, with counts that changed."""
+        """Return one entry per running job, with counts the store lacks."""
         return [
-            Beat(self._name, run.id, run.changed_counts())
+            Beat(self._name, run.id, run.unwritten_counts())
             for run in self._runs.values()
         ]
 
     def _read_reply(self, reply: BeatReply) -> None:
         """Stop a run that was cancelled, or that this replica lost."""
         run = self._runs.get(reply.job_id)
-        if run is not None and (not reply.held or reply.cancel_requested):
+        if run is None:
+            return
+        if reply.held:
+            run.counts_written()
+        if not reply.held or reply.cancel_requested:
+            self._ask_to_stop(run)
+
+    def _stop_runs(self) -> None:
+        """Ask every job this replica runs to stop."""
+        for run in self._runs.values():
             self._ask_to_stop(run)
 
     def _ask_to_stop(self, run: _Run) -> None:
-        """Flag `run`, and cancel its task when its body can be interrupted."""
+        """Flag `run`, and cancel its task when its body can be interrupted.
+
+        A run that already ended is left to write its end.
+        """
         if run.cancel_requested:
             return
         run.cancel_requested = True
-        if self._interruptible and run.started and run.task is not None:
+        if (
+            self._interruptible
+            and run.started
+            and not run.ended
+            and run.task is not None
+        ):
             run.task.cancel()
 
     def _reserve_slots(self) -> int:
@@ -372,11 +440,13 @@ class Job[**P](Task):
             return 0
         free = self._max_concurrent - self._running
         self._running += free
+        self._reserved = free
         return free
 
     def _give_back_slots(self, slots: int) -> None:
         """Give back slots a claim did not use."""
         self._running -= slots
+        self._reserved = 0
 
     def _accept(self, job: Claimed) -> None:
         """Start a job the loop claimed, in a slot it reserved."""
@@ -458,6 +528,13 @@ class Job[**P](Task):
         """Store a job for `owner`, and start it when a slot is free."""
         payload = self._arguments.encode(args, kwargs)
         context = submitter_context()
+        while (
+            self._loop is not None
+            and not self._stopping
+            and self._reserved
+            and self._running >= self._max_concurrent
+        ):
+            await self._loop.finish_round()
         if self._stopping:
             raise JobRefusedError(
                 name=self._name, reason="the tasks are shutting down"
@@ -469,6 +546,8 @@ class Job[**P](Task):
         if free:
             self._running += 1
         started = False
+        self._submitting += 1
+        self._no_submits.clear()
         try:
             submitted = await self._backend.submit(
                 name=self._name,
@@ -484,12 +563,20 @@ class Job[**P](Task):
             )
             started = submitted.started
         finally:
+            self._submitting -= 1
+            if not self._submitting:
+                self._no_submits.set()
             if free and not started:
                 self._running -= 1
                 self._wake_loop()
         if submitted.record is None:
             raise JobRefusedError(name=self._name, reason="the queue is full")
         if started:
+            if self._group is not group:
+                self._running -= 1
+                raise JobRefusedError(
+                    name=self._name, reason="the tasks are shutting down"
+                )
             self._start(group, Claimed(submitted.record, payload, context))
         return _info(submitted.record)
 
@@ -506,31 +593,63 @@ class Job[**P](Task):
         status: EndStatus,
         error: str | None = None,
         result: str | None = None,
-    ) -> None:
-        """End a job this replica holds, and stop tracking it.
+    ) -> bool:
+        """End a job this replica holds, and return whether the store took it.
 
         A job the store no longer gives this replica stays as the store has
         it. That is logged, without the job's id, and marked on the span.
         """
-        assert self._loop is not None  # noqa: S101
-        counts = run.end()
-        self._runs.pop(run.id, None)
+        run.end(status, error, result)
         if status is JobStatus.FAILED:
             mark_failed(error or _FAILED)
-        settled = await self._backend.settle(
-            name=self._name,
-            job_id=run.id,
-            runner=self._loop.runner,
-            status=status,
-            error=error,
-            result=result,
-            progress=counts,
-        )
+        settled = await self._end_in_store(run, retry=True)
         if not settled:
             mark_lost(JOB_LOST)
+        return settled
+
+    async def _end_in_store(self, run: _Run, *, retry: bool) -> bool:
+        """Write how `run` ended, stop tracking it, and return whether it took.
+
+        With `retry`, a store error is tried again each beat for one lease,
+        while the beats keep the job held. A run cancelled meanwhile stays
+        tracked, so the job's stop writes its end once more.
+        """
+        assert self._loop is not None  # noqa: S101
+        assert run.outcome is not None  # noqa: S101
+        give_up_at = monotonic() + LEASE.total_seconds()
+        while True:
+            try:
+                settled = await self._backend.settle(
+                    name=self._name,
+                    job_id=run.id,
+                    runner=self._loop.runner,
+                    status=run.outcome.status,
+                    error=run.outcome.error,
+                    result=run.outcome.result,
+                    progress=run.outcome.progress,
+                )
+            except Exception:
+                if retry and monotonic() < give_up_at:
+                    logger.debug(
+                        "Job end failed, retrying: %s",
+                        self._name,
+                        exc_info=True,
+                    )
+                    await sleep(BEAT.total_seconds())
+                    continue
+                logger.warning(
+                    "Job could not be ended in its store: %s",
+                    self._name,
+                    exc_info=True,
+                )
+                settled = False
+            break
+        self._runs.pop(run.id, None)
+        if not settled:
             logger.warning(
                 "Job lost, its lease ran out before it ended: %s", self._name
             )
+        return settled
 
     async def _run_in_span(self, run: _Run, job: Claimed) -> None:
         """Run one job inside its span, linked to the code that submitted it."""
@@ -546,7 +665,8 @@ class Job[**P](Task):
         but JSON. A body that returns while its task is being
         cancelled ends `cancelled`. One that raises a `BaseException` other
         than a cancel ends `failed`, the exception propagates, and this
-        replica claims nothing more.
+        replica claims nothing more. The run is counted once the store has
+        its end, so a job the store lost never counts as a success.
         """
         assert record.started_at is not None  # noqa: S101
         try:
@@ -570,23 +690,37 @@ class Job[**P](Task):
                 record.started_at, None, Progress(run, self), *args, **kwargs
             )
             if _cancelling():
+                self._fire.count(record.started_at, ran, run=False)
                 await self._settle(run, JobStatus.CANCELLED)
             elif ran.error is not None:
                 name_error(ran.error)
                 if not all_of(ran.error, (JobError,)):
                     record_exception(ran.error)
+                self._fire.count(record.started_at, ran)
                 await self._settle(
                     run, JobStatus.FAILED, _caller_error(ran.error)
                 )
             else:
-                await self._settle(run, JobStatus.SUCCEEDED, result=ran.value)
+                settled = False
+                try:
+                    settled = await self._settle(
+                        run, JobStatus.SUCCEEDED, result=ran.value
+                    )
+                finally:
+                    self._fire.count(
+                        record.started_at,
+                        ran,
+                        error_type=None if settled else "job_lost",
+                    )
         except asyncio.CancelledError:
-            await self._settle(run, JobStatus.CANCELLED)
+            if not run.ended:
+                await self._settle(run, JobStatus.CANCELLED)
             raise
         except BaseException as error:
             self._stopping = True
             name_error(error)
-            await self._settle(run, JobStatus.FAILED, _FAILED)
+            if not run.ended:
+                await self._settle(run, JobStatus.FAILED, _FAILED)
             raise
 
 

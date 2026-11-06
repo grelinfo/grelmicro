@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from grelmicro.task import JobStatus, Progress, Tasks
+from grelmicro.task.memory import MemoryJobAdapter
 
 if TYPE_CHECKING:
     from grelmicro.task import Job
@@ -136,6 +137,41 @@ async def test_job_arguments_that_cannot_load_count_as_an_error(
                 "grelmicro.task.name": "import",
                 "grelmicro.outcome": "error",
                 "error.type": "ValidationError",
+            },
+        )
+    ]
+
+
+class _LosesEveryJob(MemoryJobAdapter):
+    """A store that no longer gives the runner any job it ends."""
+
+    async def settle(self, **_kwargs: object) -> bool:
+        return False
+
+
+async def test_job_lost_at_settle_counts_an_error_not_a_success(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """A body that returned on a job the store lost counts as lost."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job(name="import")(_work)
+    job._backend = _LosesEveryJob()
+
+    async with tasks:
+        # Act
+        await job.without_owner().submit(False)  # noqa: FBT003
+        for _ in range(10):
+            await asyncio.sleep(0)
+
+    # Assert
+    assert metrics_reader.points("grelmicro.task.runs") == [
+        (
+            1,
+            {
+                "grelmicro.task.name": "import",
+                "grelmicro.outcome": "error",
+                "error.type": "job_lost",
             },
         )
     ]

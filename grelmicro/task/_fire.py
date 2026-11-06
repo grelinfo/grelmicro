@@ -83,6 +83,7 @@ class FireResult(NamedTuple):
 
     error: Exception | None = None
     value: Any = None
+    duration: float = 0.0
 
 
 class FireRecorder:
@@ -94,6 +95,7 @@ class FireRecorder:
 
     __slots__ = (
         "_clock",
+        "_count_later",
         "_expected",
         "_finish",
         "_function",
@@ -112,6 +114,7 @@ class FireRecorder:
         cast: bool = True,
         expected: tuple[type[Exception], ...] = (),
         finish: Callable[[Any], Any] | None = None,
+        count_later: bool = False,
     ) -> None:
         """Record the fires of the task `name`, timestamped by `clock`.
 
@@ -121,11 +124,13 @@ class FireRecorder:
         exception, or a group made only of them, logs one warning line
         with its first message instead of a traceback. `finish` turns what
         the body returned into the fire's value, and an exception it raises
-        counts as the body's.
+        counts as the body's. With `count_later`, a body that returns or
+        raises is not counted by `run`: the caller counts it with `count`.
         """
         self._name = name
         self._expected = expected
         self._finish = finish
+        self._count_later = count_later
         self._clock = clock
         injected = inject(function, cast=cast)
         self._function: Callable[..., Awaitable[Any]] = (
@@ -189,20 +194,10 @@ class FireRecorder:
                 "grelmicro.task.schedule.delay", delay, self.metric_attrs
             )
         start_monotonic = time.perf_counter()
-        outcome = FireOutcome.ERROR
-        # Assumes failure until the body returns, so a fire cancelled
-        # mid-body records its duration as the error it was.
-        attributes: dict[str, Any] = {
-            "grelmicro.task.name": self._name,
-            "grelmicro.outcome": FireOutcome.ERROR,
-        }
         try:
             value = await self._function(*args, **kwargs)
             if self._finish is not None:
                 value = self._finish(value)
-            outcome = FireOutcome.SUCCESS
-            attributes["grelmicro.outcome"] = FireOutcome.SUCCESS
-            _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
         except Exception as exc:
             if all_of(exc, self._expected):
                 shown = (
@@ -211,22 +206,61 @@ class FireRecorder:
                 logger.warning("Task failed: %s: %s", self._name, shown)
             else:
                 logger.exception("Task execution error: %s", self._name)
-            attributes["error.type"] = type(exc).__name__
-            _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
-            return FireResult(error=exc)
-        else:
-            return FireResult(value=value)
-        finally:
+            ran = FireResult(
+                error=exc, duration=time.perf_counter() - start_monotonic
+            )
+        except BaseException:
             duration = time.perf_counter() - start_monotonic
-            self.last = FireInfo(
-                started_at=started_at, outcome=outcome, duration=duration
+            self.count(started_at, FireResult(duration=duration), run=False)
+            raise
+        else:
+            ran = FireResult(
+                value=value, duration=time.perf_counter() - start_monotonic
             )
-            _emit.record_duration(
-                "grelmicro.task.duration", duration, attributes
-            )
+        finally:
             _emit.add_up_down(
                 "grelmicro.task.active", -1, self.metric_attrs, unit="{run}"
             )
+        if not self._count_later:
+            self.count(started_at, ran)
+        return ran
+
+    def count(
+        self,
+        started_at: datetime,
+        ran: FireResult,
+        *,
+        error_type: str | None = None,
+        run: bool = True,
+    ) -> None:
+        """Record a fire whose body ended.
+
+        The fire is a success when the body returned and no `error_type` is
+        given. Otherwise it is an error of `error_type`, or of the body's
+        exception. With `run` off, the fire counts no run, and its duration
+        reads as an error.
+        """
+        if error_type is None and ran.error is not None:
+            error_type = type(ran.error).__name__
+        outcome = (
+            FireOutcome.SUCCESS
+            if run and error_type is None
+            else FireOutcome.ERROR
+        )
+        attributes: dict[str, Any] = {
+            "grelmicro.task.name": self._name,
+            "grelmicro.outcome": outcome,
+        }
+        if error_type is not None:
+            attributes["error.type"] = error_type
+        if run:
+            _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
+        _emit.record_duration(
+            "grelmicro.task.duration", ran.duration, attributes
+        )
+        self.last = FireInfo(
+            started_at=started_at, outcome=outcome, duration=ran.duration
+        )
 
     async def claimed(
         self, admission: Awaitable[None], at: datetime | None = None

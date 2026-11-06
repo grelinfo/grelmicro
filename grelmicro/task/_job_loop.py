@@ -3,6 +3,10 @@
 Jobs on one store share one loop, so the store sees the same calls for one job
 as for many: one `beat` and at most one `claim` each second, and one sweep now
 and then. The first job to join opens the store, and the last to leave closes it.
+
+A store call that fails is tried again at the next beat. When no beat reached
+the store for a whole lease, the store has given the jobs to others, so the loop
+asks every body to stop.
 """
 
 # ruff: noqa: SLF001
@@ -13,20 +17,23 @@ import asyncio
 import contextlib
 import secrets
 from datetime import timedelta
+from logging import getLogger
 from typing import TYPE_CHECKING, Protocol
 from weakref import WeakKeyDictionary
 
-from grelmicro.clock._seam import sleep
+from grelmicro.clock._seam import monotonic, sleep
 
 if TYPE_CHECKING:
     from grelmicro.task._protocol import Beat, BeatReply, Claimed, JobBackend
 
-__all__ = ["LEASE", "JobStoreLoop", "store_loop"]
+__all__ = ["BEAT", "LEASE", "JobStoreLoop", "store_loop"]
+
+logger = getLogger("grelmicro.task")
 
 LEASE = timedelta(seconds=30)
 """How long a job stays held without a beat."""
 
-_BEAT = timedelta(seconds=1)
+BEAT = timedelta(seconds=1)
 """How often a replica extends leases, writes counts and reads cancels."""
 
 _SWEEP_EVERY_BEATS = 10
@@ -50,6 +57,10 @@ class _Member(Protocol):
 
     def _give_back_slots(self, slots: int) -> None:
         """Give back slots a claim did not use."""
+        ...  # pragma: no cover
+
+    def _stop_runs(self) -> None:
+        """Ask every job this member runs to stop."""
         ...  # pragma: no cover
 
     def _accept(self, job: Claimed) -> None:
@@ -129,17 +140,48 @@ class JobStoreLoop:
     async def _beat_loop(self) -> None:
         """Beat every second and sweep the store now and then."""
         beats = 0
+        held_at = monotonic()
         while True:
-            await sleep(_BEAT.total_seconds())
-            await self._beat()
+            await sleep(BEAT.total_seconds())
+            beat_at = monotonic()
+            error = await self._beat()
+            held_at = (
+                beat_at if error is None else self._missed_beat(held_at, error)
+            )
             self._wake.set()
             beats += 1
             if beats % _SWEEP_EVERY_BEATS == 0:
-                await self._backend.reap(limit=_SWEEP_LIMIT)
-                await self._backend.purge(limit=_SWEEP_LIMIT)
+                await self._sweep()
 
-    async def _beat(self) -> None:
-        """Extend each lease, write new counts, and read each cancel flag."""
+    def _missed_beat(self, held_at: float, error: Exception) -> float:
+        """Stop every body once no beat reached the store for a lease.
+
+        Returns when the jobs were last held, or now when they were let go.
+        """
+        if monotonic() - held_at < LEASE.total_seconds():
+            logger.debug("Job beat failed, retrying", exc_info=error)
+            return held_at
+        logger.warning(
+            "Job store unreachable for a whole lease, stopping its jobs",
+            exc_info=error,
+        )
+        for member in self._members.values():
+            member._stop_runs()
+        return monotonic()
+
+    async def _sweep(self) -> None:
+        """End jobs past their lease or wait, and forget expired ones."""
+        try:
+            await self._backend.reap(limit=_SWEEP_LIMIT)
+            await self._backend.purge(limit=_SWEEP_LIMIT)
+        except Exception:
+            logger.warning("Job store sweep failed", exc_info=True)
+
+    async def _beat(self) -> Exception | None:
+        """Extend each lease, write new counts, and read each cancel flag.
+
+        Returns the store's error, or `None` when it answered.
+        """
         async with self._round:
             beats = [
                 beat
@@ -147,12 +189,16 @@ class JobStoreLoop:
                 for beat in member._beats()
             ]
             if not beats:
-                return
-            replies = await self._backend.beat(
-                runner=self.runner, beats=beats, lease=LEASE
-            )
+                return None
+            try:
+                replies = await self._backend.beat(
+                    runner=self.runner, beats=beats, lease=LEASE
+                )
+            except Exception as error:  # noqa: BLE001
+                return error
             for reply in replies:
                 self._members[reply.name]._read_reply(reply)
+            return None
 
     async def _claim_loop(self) -> None:
         """Run queued jobs, oldest first, when woken."""
@@ -171,9 +217,13 @@ class JobStoreLoop:
             }
             if not slots:
                 return
-            claimed = await self._backend.claim(
-                slots=slots, runner=self.runner, lease=LEASE
-            )
+            try:
+                claimed = await self._backend.claim(
+                    slots=slots, runner=self.runner, lease=LEASE
+                )
+            except Exception:
+                logger.debug("Job claim failed, retrying", exc_info=True)
+                claimed = []
             for job in claimed:
                 slots[job.record.name] -= 1
                 self._members[job.record.name]._accept(job)
