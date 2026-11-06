@@ -81,9 +81,9 @@ _EXPECTED_SUBPACKAGES = {
 _MAX_MODULES = {
     "import": 1,
     "scheduler": 30,
-    "tasks": 129,
-    "starlette": 126,
-    "litestar": 125,
+    "tasks": 131,
+    "starlette": 128,
+    "litestar": 127,
     "redis": 104,
     "postgres": 98,
 }

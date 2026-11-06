@@ -134,10 +134,14 @@ NOT_PER_REQUEST = {
         "Looks for a schedule backend once as a cron task starts on the task "
         "loop, which no request handler enters."
     ),
+    "Job": (
+        "Takes its store once as its tasks start on the task loop, which no "
+        "request handler enters. A submit from a handler reads that store."
+    ),
 }
 """Ambient resolvers a request handler never runs, and why.
 
-Both resolve the same `Coordination` component the locks do, and both do it
+Each resolves the same `Coordination` component the locks do, and each does it
 from the task the app opened rather than from a handler. The lifecycle they
 run under is `async with micro:`, which `install` opens the same way on
 every framework.

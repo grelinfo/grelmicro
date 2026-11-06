@@ -137,7 +137,7 @@
   },
   "grelmicro.coordination": {
     "Coordination": {
-      "()": "(source=None, *, lock=None, leaderelection=None, readwritelock=None, schedule=None, requires=None, name='default') -> 'None'"
+      "()": "(source=None, *, lock=None, leaderelection=None, readwritelock=None, schedule=None, job=None, requires=None, name='default') -> 'None'"
     },
     "CoordinationBackendError": null,
     "CoordinationError": null,
@@ -1108,7 +1108,7 @@
       "()": "(reference) -> None"
     },
     "Job": {
-      "()": "(function, *, name=None, max_concurrent=1, max_queued=None, max_wait=86400, keep=86400) -> 'None'"
+      "()": "(function, *, name=None, max_concurrent=1, max_queued=None, max_wait=86400, keep=86400, backend=None, requires=None) -> 'None'"
     },
     "JobError": null,
     "JobInfo": {

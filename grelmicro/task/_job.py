@@ -14,6 +14,7 @@ import json
 import secrets
 import threading
 from annotationlib import Format
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from logging import getLogger
@@ -33,7 +34,10 @@ from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
 from grelmicro._caller import subject_of
+from grelmicro._config import match_case
+from grelmicro._current_app import _current_micro
 from grelmicro._duration import check_duration, check_retention, is_int
+from grelmicro._environment import Binding, falls_short, label, record
 from grelmicro._task import Task
 from grelmicro.clock._seam import monotonic, sleep
 from grelmicro.errors import OutOfContextError
@@ -62,6 +66,7 @@ from grelmicro.task._protocol import (
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.errors import JobError, JobRefusedError
 from grelmicro.task.memory import MemoryJobAdapter
+from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -278,6 +283,8 @@ class Job[**P](Task):
         max_queued: int | None = None,
         max_wait: int | timedelta | None = 86400,
         keep: int | timedelta | None = 86400,
+        backend: JobBackend | None = None,
+        requires: BackendScope | None = None,
     ) -> None:
         """Initialize the job.
 
@@ -320,7 +327,14 @@ class Job[**P](Task):
             None if max_wait is None else check_duration(max_wait, "max_wait")
         )
         self._keep = None if keep is None else check_retention(keep, "keep")
-        self._backend: JobBackend = MemoryJobAdapter()
+        self._requires: BackendScope = match_case(
+            BackendScope, requires or "cluster"
+        )
+        self._chosen = backend
+        self._fallback = MemoryJobAdapter()
+        self._backend: JobBackend = (
+            self._fallback if backend is None else backend
+        )
         self._loop: JobStoreLoop | None = None
         self._runs: dict[str, _Run] = {}
         self._running = 0
@@ -331,6 +345,11 @@ class Job[**P](Task):
         self._group: asyncio.TaskGroup | None = None
         self._context: contextvars.Context | None = None
         self._stopping = False
+        binding = self._scope_binding()
+        if binding.backend is None or falls_short(
+            binding.backend, self._requires
+        ):
+            record(self, binding)
 
     @property
     def name(self) -> str:
@@ -345,6 +364,52 @@ class Job[**P](Task):
     def function(self) -> Callable[..., Any]:
         """The function the job runs, as it was registered."""
         return self._function
+
+    @property
+    def requires(self) -> BackendScope:
+        """The smallest scope the job's store must reach."""
+        return self._requires
+
+    def _scope_binding(self) -> Binding:
+        """Describe the store this job runs on, for the scope check.
+
+        A store passed as `backend=` is checked on its own. Any other job
+        rides the app's `Coordination`, and without a job store there it
+        lives in the process.
+        """
+        if self._chosen is not None:
+            return Binding(
+                label(self), self._requires, backend=self._chosen, kind="job"
+            )
+        return Binding(
+            label(self),
+            self._requires,
+            rides=("coordination", "default"),
+            attribute="_job_backend",
+            absent=self._fallback,
+            kind="job",
+        )
+
+    def _resolve_backend(self) -> JobBackend:
+        """Return the store this job runs on, read once as its tasks start.
+
+        `backend=` wins. Inside an app, the job takes the store of its
+        `Coordination`. Without one, the job keeps its jobs in this process.
+        A running job keeps its store, so `micro.override(...)` entered after
+        the app opened does not reach it.
+        """
+        if self._chosen is not None:
+            return self._chosen
+        micro = _current_micro.get(None)
+        if micro is not None:
+            from grelmicro._app import resolve_ambient  # noqa: PLC0415
+
+            with suppress(LookupError):
+                coordination = resolve_ambient(("coordination", "default"))
+                store = getattr(coordination, "_job_backend", None)
+                if store is not None:
+                    return store
+        return self._fallback
 
     async def __call__(
         self,
@@ -364,7 +429,8 @@ class Job[**P](Task):
         stopped = stop or asyncio.Event()
         self._stopping = False
         self._context = contextvars.copy_context()
-        loop = store_loop(self._backend)
+        self._backend = self._resolve_backend()
+        loop = store_loop(self._backend, opens=self._backend is self._fallback)
         await loop.join(self)
         self._loop = loop
         try:
