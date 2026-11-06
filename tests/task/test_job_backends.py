@@ -131,7 +131,7 @@ async def test_job_backend_submit_twice_keeps_one_job(store: _Store) -> None:
     # Assert
     assert second.record == first.record
     claimed = await store.backend.claim(
-        names=[NAME], runner="r", limit=10, lease=timedelta(seconds=30)
+        slots={NAME: 10}, runner="r", lease=timedelta(seconds=30)
     )
     assert len(claimed) == 1
 
@@ -186,7 +186,7 @@ async def _claim(
 ) -> list[str]:
     """Claim queued jobs of `NAME`, and return their ids."""
     claimed = await store.backend.claim(
-        names=[NAME], runner=runner, limit=limit, lease=store.lease
+        slots={NAME: limit}, runner=runner, lease=store.lease
     )
     return [job.record.id for job in claimed]
 
@@ -216,7 +216,7 @@ async def test_job_backend_claim_moves_a_job_to_running(store: _Store) -> None:
 
     # Act
     [claimed] = await store.backend.claim(
-        names=[NAME], runner="r", limit=1, lease=store.lease
+        slots={NAME: 1}, runner="r", lease=store.lease
     )
     read = await store.backend.get(name=NAME, job_id=record.id, owner=OWNER)
 
@@ -243,6 +243,53 @@ async def test_job_backend_claim_takes_a_job_at_most_once(
 
     # Assert
     assert sorted([len(first), len(second)]) == [0, 1]
+
+
+async def test_job_backend_claim_gives_each_name_its_own_slots(
+    store: _Store,
+) -> None:
+    """A claim takes up to each name's own number, whatever the others have."""
+    # Arrange
+    other = "app:other"
+    await store.submit()
+    await store.submit()
+    await store.submit(name=other)
+    await store.submit(name=other)
+
+    # Act
+    claimed = await store.backend.claim(
+        slots={NAME: 1, other: 2}, runner="r", lease=store.lease
+    )
+
+    # Assert
+    names = [job.record.name for job in claimed]
+    assert (names.count(NAME), names.count(other)) == (1, 2)
+
+
+async def test_job_backend_beat_covers_jobs_of_several_names(
+    store: _Store,
+) -> None:
+    """One beat covers every job a replica holds, whatever its name."""
+    # Arrange
+    other = "app:other"
+    first = await _running(store)
+    await store.submit(name=other)
+    [second] = await store.backend.claim(
+        slots={other: 1}, runner="r", lease=store.lease
+    )
+
+    # Act
+    replies = await store.backend.beat(
+        runner="r",
+        beats=[Beat(NAME, first.id), Beat(other, second.record.id)],
+        lease=store.lease,
+    )
+
+    # Assert
+    assert [(r.name, r.job_id, r.held) for r in replies] == [
+        (NAME, first.id, True),
+        (other, second.record.id, True),
+    ]
 
 
 async def test_job_backend_claim_takes_only_the_names_given(
@@ -391,9 +438,8 @@ async def test_job_backend_beat_writes_progress_and_bumps_the_version(
 
     # Act
     [reply] = await store.backend.beat(
-        name=NAME,
         runner="r",
-        beats=[Beat(record.id, ProgressUpdate(done=2, total=5))],
+        beats=[Beat(NAME, record.id, ProgressUpdate(done=2, total=5))],
         lease=store.lease,
     )
     read = await _read(store, record.id)
@@ -411,7 +457,7 @@ async def test_job_backend_beat_alone_keeps_the_version(store: _Store) -> None:
 
     # Act
     await store.backend.beat(
-        name=NAME, runner="r", beats=[Beat(record.id)], lease=store.lease
+        runner="r", beats=[Beat(NAME, record.id)], lease=store.lease
     )
 
     # Assert
@@ -427,9 +473,8 @@ async def test_job_backend_beat_from_another_runner_writes_nothing(
 
     # Act
     [reply] = await store.backend.beat(
-        name=NAME,
         runner="stale",
-        beats=[Beat(record.id, ProgressUpdate(done=9, total=9))],
+        beats=[Beat(NAME, record.id, ProgressUpdate(done=9, total=9))],
         lease=store.lease,
     )
 
@@ -447,9 +492,8 @@ async def test_job_backend_beat_handles_each_job_on_its_own(
 
     # Act
     replies = await store.backend.beat(
-        name=NAME,
         runner="r",
-        beats=[Beat("nope"), Beat(record.id)],
+        beats=[Beat(NAME, "nope"), Beat(NAME, record.id)],
         lease=store.lease,
     )
 
@@ -574,7 +618,7 @@ async def test_job_backend_cancel_flags_a_running_job(store: _Store) -> None:
         name=NAME, job_id=record.id, owner=OWNER
     )
     [reply] = await store.backend.beat(
-        name=NAME, runner="r", beats=[Beat(record.id)], lease=store.lease
+        runner="r", beats=[Beat(NAME, record.id)], lease=store.lease
     )
 
     # Assert
@@ -676,7 +720,7 @@ async def test_job_backend_beat_keeps_a_job_alive(store: _Store) -> None:
 
     # Act
     await store.backend.beat(
-        name=NAME, runner="r", beats=[Beat(record.id)], lease=store.lease
+        runner="r", beats=[Beat(NAME, record.id)], lease=store.lease
     )
     await store.elapse(LEASE_TICKS - MARGIN)
 
@@ -693,9 +737,8 @@ async def test_job_backend_lapsed_runner_is_fenced_out(store: _Store) -> None:
 
     # Act
     [reply] = await store.backend.beat(
-        name=NAME,
         runner="r",
-        beats=[Beat(record.id, ProgressUpdate(done=1, total=1))],
+        beats=[Beat(NAME, record.id, ProgressUpdate(done=1, total=1))],
         lease=store.lease,
     )
     settled = await _settle(store, record.id, status=JobStatus.FAILED)
@@ -716,7 +759,7 @@ async def test_job_backend_beat_past_the_lease_cannot_revive_a_job(
 
     # Act
     [reply] = await store.backend.beat(
-        name=NAME, runner="r", beats=[Beat(record.id)], lease=store.lease
+        runner="r", beats=[Beat(NAME, record.id)], lease=store.lease
     )
 
     # Assert
@@ -749,7 +792,7 @@ async def test_job_backend_reap_ends_lapsed_jobs_of_any_name(
     live = await _running(store)
     await store.elapse(LEASE_TICKS - MARGIN)
     await store.backend.beat(
-        name=NAME, runner="r", beats=[Beat(live.id)], lease=store.lease
+        runner="r", beats=[Beat(NAME, live.id)], lease=store.lease
     )
     await store.elapse(2 * MARGIN)
 
@@ -1089,7 +1132,7 @@ async def test_job_backend_context_is_kept_as_submitted(store: _Store) -> None:
 
     # Act
     [claimed] = await store.backend.claim(
-        names=[NAME], runner="r", limit=1, lease=store.lease
+        slots={NAME: 1}, runner="r", lease=store.lease
     )
 
     # Assert
@@ -1102,16 +1145,12 @@ async def test_job_backend_beat_with_the_same_progress_writes_it_once(
     """A retried beat after a lost reply shows no new version."""
     # Arrange
     record = await _running(store)
-    beats = [Beat(record.id, ProgressUpdate(done=2, total=5))]
-    await store.backend.beat(
-        name=NAME, runner="r", beats=beats, lease=store.lease
-    )
+    beats = [Beat(NAME, record.id, ProgressUpdate(done=2, total=5))]
+    await store.backend.beat(runner="r", beats=beats, lease=store.lease)
     first = await _read(store, record.id)
 
     # Act
-    await store.backend.beat(
-        name=NAME, runner="r", beats=beats, lease=store.lease
-    )
+    await store.backend.beat(runner="r", beats=beats, lease=store.lease)
 
     # Assert
     assert await _read(store, record.id) == first
@@ -1170,7 +1209,7 @@ async def test_job_backend_writes_under_another_name_find_nothing(
 
     # Act
     [reply] = await store.backend.beat(
-        name="app:other", runner="r", beats=[Beat(record.id)], lease=store.lease
+        runner="r", beats=[Beat("app:other", record.id)], lease=store.lease
     )
     settled = await store.backend.settle(
         name="app:other",

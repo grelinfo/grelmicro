@@ -452,7 +452,7 @@ async def test_job_arguments_that_cannot_load_fail_only_that_job(
             start_as=None,
             lease=timedelta(seconds=30),
         )
-        job._wake.set()
+        job._wake_loop()
         info = await _ended(job, "broken")
         await other.without_owner().submit(share(ran))
         await asyncio.wait_for(ran.wait(), 5)
@@ -480,7 +480,7 @@ async def test_job_lost_before_it_settles_is_logged_and_marked(
 ) -> None:
     """A job the store no longer gives this replica says so, in log and span."""
     # Arrange
-    monkeypatch.setattr(job_module, "_LEASE", timedelta(milliseconds=10))
+    monkeypatch.setattr(job_module, "LEASE", timedelta(milliseconds=10))
     caplog.set_level(logging.WARNING, logger="grelmicro.task")
     tasks = Tasks()
     job = tasks.job()(_blocks_the_loop)
@@ -715,7 +715,7 @@ async def test_job_lost_without_opentelemetry_still_logs(
     """Without the package, a lost job still reads lost and logs a warning."""
     # Arrange
     monkeypatch.setattr(job_trace, "_otel", lambda: None)
-    monkeypatch.setattr(job_module, "_LEASE", timedelta(milliseconds=10))
+    monkeypatch.setattr(job_module, "LEASE", timedelta(milliseconds=10))
     caplog.set_level(logging.WARNING, logger="grelmicro.task")
     tasks = Tasks()
     job = tasks.job()(_blocks_the_loop)

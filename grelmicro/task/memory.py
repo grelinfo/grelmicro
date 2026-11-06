@@ -190,16 +190,16 @@ class MemoryJobAdapter:
     async def claim(
         self,
         *,
-        names: Sequence[str],
+        slots: Mapping[str, int],
         runner: str,
-        limit: int,
         lease: timedelta,
     ) -> list[Claimed]:
-        """Claim up to `limit` queued jobs, oldest first per name."""
+        """Claim queued jobs up to each name's slots, oldest first per name."""
         claimed: list[Claimed] = []
-        for name in names:
+        for name, free in slots.items():
             queued = self._queued[name]
-            while queued and len(claimed) < limit:
+            taken = 0
+            while queued and taken < free:
                 row = queued[0]
                 if self._catch_up(row):
                     continue
@@ -207,6 +207,7 @@ class MemoryJobAdapter:
                 _start(row, runner, lease)
                 row.version += 1
                 claimed.append(Claimed(row.record(), row.payload, row.context))
+                taken += 1
         return claimed
 
     async def get(
@@ -221,7 +222,6 @@ class MemoryJobAdapter:
     async def beat(
         self,
         *,
-        name: str,
         runner: str,
         beats: Sequence[Beat],
         lease: timedelta,
@@ -229,10 +229,15 @@ class MemoryJobAdapter:
         """Extend each held job's lease, write its progress, read its flag."""
         replies: list[BeatReply] = []
         for beat in beats:
-            row = self._held(name, beat.job_id, runner)
+            row = self._held(beat.name, beat.job_id, runner)
             if row is None:
                 replies.append(
-                    BeatReply(beat.job_id, held=False, cancel_requested=False)
+                    BeatReply(
+                        beat.name,
+                        beat.job_id,
+                        held=False,
+                        cancel_requested=False,
+                    )
                 )
                 continue
             row.lease_until = _after(lease)
@@ -240,6 +245,7 @@ class MemoryJobAdapter:
                 row.version += 1
             replies.append(
                 BeatReply(
+                    beat.name,
                     beat.job_id,
                     held=True,
                     cancel_requested=row.cancel_requested,
