@@ -18,8 +18,8 @@ the algorithm axis within a kind, so several adapters can share one Provider
 (a Redis lock and a Redis cache both run on `RedisProvider`).
 
 The component kinds are `coordination`, `coordination.readwritelock`,
-`coordination.leaderelection`, `coordination.schedule`, `cache`, `ratelimiter`,
-and `circuitbreaker`.
+`coordination.leaderelection`, `coordination.schedule`, `coordination.job`,
+`cache`, `ratelimiter`, and `circuitbreaker`.
 
 ## Publish a third-party integration
 

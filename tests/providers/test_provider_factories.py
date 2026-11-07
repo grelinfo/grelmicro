@@ -25,6 +25,7 @@ PATTERNS = (
     "readwritelock",
     "leaderelection",
     "schedule",
+    "job",
     "cache",
     "outbox",
     "ratelimiter",

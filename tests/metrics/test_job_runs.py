@@ -155,8 +155,7 @@ async def test_job_lost_at_settle_counts_an_error_not_a_success(
     """A body that returned on a job the store lost counts as lost."""
     # Arrange
     tasks = Tasks()
-    job = tasks.job(name="import")(_work)
-    job._backend = _LosesEveryJob()
+    job = tasks.job(name="import", backend=_LosesEveryJob())(_work)
 
     async with tasks:
         # Act

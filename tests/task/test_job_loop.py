@@ -9,7 +9,7 @@ from typing import Any, Self
 import pytest
 
 from grelmicro.clock import VirtualClock
-from grelmicro.task import Job, JobStatus, Progress, Tasks
+from grelmicro.task import JobStatus, Progress, Tasks
 from grelmicro.task.memory import MemoryJobAdapter
 from tests.task._job_shared import share, shared
 
@@ -81,12 +81,6 @@ async def _advance(clock: VirtualClock, seconds: int) -> None:
         await _settled()
 
 
-def _on_store(store: MemoryJobAdapter, *jobs: Job[...]) -> None:
-    """Put `jobs` on one store, as the app's wiring will."""
-    for job in jobs:
-        job._backend = store
-
-
 @pytest.mark.parametrize("how_many", [1, 5])
 async def test_job_store_calls_do_not_grow_with_the_number_of_jobs(
     how_many: int,
@@ -97,8 +91,10 @@ async def test_job_store_calls_do_not_grow_with_the_number_of_jobs(
     store = _CountingStore()
     tasks = Tasks()
     gate = asyncio.Event()
-    jobs = [tasks.job(name=f"job-{i}")(_waits) for i in range(how_many)]
-    _on_store(store, *jobs)
+    jobs = [
+        tasks.job(backend=store, name=f"job-{i}")(_waits)
+        for i in range(how_many)
+    ]
 
     async with clock, tasks:
         for job in jobs:
@@ -126,9 +122,8 @@ async def test_job_idle_jobs_share_one_claim_a_second() -> None:
     clock = VirtualClock()
     store = _CountingStore()
     tasks = Tasks()
-    first = tasks.job(name="first")(_noop)
-    second = tasks.job(name="second")(_noop)
-    _on_store(store, first, second)
+    tasks.job(backend=store, name="first")(_noop)
+    tasks.job(backend=store, name="second")(_noop)
 
     async with clock, tasks:
         await _settled()
@@ -147,9 +142,8 @@ async def test_job_claim_takes_a_job_for_each_name_on_one_store() -> None:
     clock = VirtualClock()
     store = MemoryJobAdapter()
     tasks = Tasks()
-    first = tasks.job(name="first")(_noop)
-    second = tasks.job(name="second")(_noop)
-    _on_store(store, first, second)
+    first = tasks.job(backend=store, name="first")(_noop)
+    second = tasks.job(backend=store, name="second")(_noop)
 
     async with clock, tasks:
         queued = [
@@ -205,8 +199,7 @@ async def test_job_stopping_keeps_a_job_the_store_just_gave_it() -> None:
     clock = VirtualClock()
     store = _SlowClaim()
     tasks = Tasks()
-    job = tasks.job(name="job")(_noop)
-    _on_store(store, job)
+    tasks.job(backend=store, name="job")(_noop)
 
     # Act
     async with clock:
@@ -231,9 +224,8 @@ async def test_job_loop_keeps_beating_for_the_jobs_still_running() -> None:
     clock = VirtualClock()
     store = _CountingStore()
     leaving, staying = Tasks(), Tasks()
-    gone = leaving.job(name="gone")(_noop)
-    kept = staying.job(name="kept")(_waits)
-    _on_store(store, gone, kept)
+    leaving.job(backend=store, name="gone")(_noop)
+    kept = staying.job(backend=store, name="kept")(_waits)
     gate = asyncio.Event()
 
     async with clock, staying:
@@ -251,23 +243,21 @@ async def test_job_loop_keeps_beating_for_the_jobs_still_running() -> None:
     assert store.calls["beat"] == _FEW_SECONDS
 
 
-async def test_job_store_opens_and_closes_once_for_all_its_jobs() -> None:
-    """The first job opens the store, and the last one closes it."""
+async def test_job_leaves_a_store_it_was_given_to_its_owner() -> None:
+    """Whoever built a store passed as `backend=` opens and closes it."""
     # Arrange
     store = _CountingStore()
     tasks = Tasks()
-    first = tasks.job(name="first")(_noop)
-    second = tasks.job(name="second")(_noop)
-    _on_store(store, first, second)
+    tasks.job(backend=store, name="first")(_noop)
+    tasks.job(backend=store, name="second")(_noop)
 
     # Act
     async with tasks:
-        during = store.calls.copy()
+        pass
 
     # Assert
-    assert during["open"] == 1
-    assert during["close"] == 0
-    assert store.calls["close"] == 1
+    assert store.calls["open"] == 0
+    assert store.calls["close"] == 0
 
 
 async def test_job_stopping_claims_nothing_more_on_a_shared_loop() -> None:
@@ -276,9 +266,10 @@ async def test_job_stopping_claims_nothing_more_on_a_shared_loop() -> None:
     clock = VirtualClock()
     store = MemoryJobAdapter()
     leaving, staying = Tasks(), Tasks()
-    draining = leaving.job(name="draining", max_concurrent=2)(_waits)
-    kept = staying.job(name="kept")(_noop)
-    _on_store(store, draining, kept)
+    draining = leaving.job(backend=store, name="draining", max_concurrent=2)(
+        _waits
+    )
+    staying.job(backend=store, name="kept")(_noop)
     gate = asyncio.Event()
 
     async with clock, staying:
@@ -304,9 +295,8 @@ async def test_job_with_a_name_already_on_the_store_is_refused() -> None:
     # Arrange
     store = MemoryJobAdapter()
     one, other = Tasks(), Tasks()
-    first = one.job(name="same")(_noop)
-    second = other.job(name="same")(_noop)
-    _on_store(store, first, second)
+    one.job(backend=store, name="same")(_noop)
+    second = other.job(backend=store, name="same")(_noop)
 
     # Act / Assert
     async with one:

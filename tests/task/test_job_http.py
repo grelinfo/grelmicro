@@ -71,11 +71,12 @@ def test_job_documented_import_flow_works(
     # Arrange
     verifier = FakeVerifier(alice=fake_claims("alice"), bob=fake_claims("bob"))
     monkeypatch.setattr(JWTVerifier, "discover", lambda *_a, **_k: verifier)
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     snippet = _load_job_snippet()
     alice = {"Authorization": "Bearer alice"}
     bob = {"Authorization": "Bearer bob"}
 
-    with TestClient(snippet.app) as client:
+    with snippet.micro.fake(), TestClient(snippet.app) as client:
         # Act
         started = client.post("/imports?upload_id=u-1", headers=alice)
         job_id = started.json()["id"]

@@ -101,6 +101,7 @@ COORDINATION_GROUPS = {
     "readwritelock": "coordination.readwritelock",
     "leaderelection": "coordination.leaderelection",
     "schedule": "coordination.schedule",
+    "job": "coordination.job",
 }
 """The adapter group each coordination backend resolves through."""
 
@@ -130,6 +131,7 @@ def test_a_coordination_group_ships_its_memory_adapter(kind: str) -> None:
         "coordination.readwritelock",
         "coordination.leaderelection",
         "coordination.schedule",
+        "coordination.job",
         "cache",
         "ratelimiter",
         "circuitbreaker",

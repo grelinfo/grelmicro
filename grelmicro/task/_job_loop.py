@@ -2,7 +2,8 @@
 
 Jobs on one store share one loop, so the store sees the same calls for one job
 as for many: one `beat` and at most one `claim` each second, and one sweep now
-and then. The first job to join opens the store, and the last to leave closes it.
+and then. The loop opens and closes only a store the job built itself. Whoever
+built any other store opens and closes it.
 
 A store call that fails is tried again at the next beat. When no beat reached
 the store for a whole lease, the store has given the jobs to others, so the loop
@@ -79,8 +80,9 @@ class _Member(Protocol):
 class JobStoreLoop:
     """Beats, claims and sweeps one store, for every job of a replica on it."""
 
-    def __init__(self, backend: JobBackend) -> None:
+    def __init__(self, backend: JobBackend, *, opens: bool) -> None:
         self._backend = backend
+        self._opens = opens
         self.runner = secrets.token_urlsafe(16)
         """The token this replica holds its jobs with."""
         self._members: dict[str, _Member] = {}
@@ -104,7 +106,8 @@ class JobStoreLoop:
                 msg = f"A job named {member.name!r} is already on this store"
                 raise ValueError(msg)
             if self._task is None:
-                await self._backend.__aenter__()
+                if self._opens:
+                    await self._backend.__aenter__()
                 self._task = asyncio.create_task(self._run())
             self._members[member.name] = member
 
@@ -129,7 +132,8 @@ class JobStoreLoop:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
             finally:
-                await self._backend.__aexit__(None, None, None)
+                if self._opens:
+                    await self._backend.__aexit__(None, None, None)
 
     async def _run(self) -> None:
         """Beat and claim until cancelled."""
@@ -235,9 +239,13 @@ _loops: WeakKeyDictionary[JobBackend, JobStoreLoop] = WeakKeyDictionary()
 """The loop of each store this replica has open."""
 
 
-def store_loop(backend: JobBackend) -> JobStoreLoop:
-    """Return the loop of `backend`, a new one when it has none."""
+def store_loop(backend: JobBackend, *, opens: bool = True) -> JobStoreLoop:
+    """Return the loop of `backend`, a new one when it has none.
+
+    `opens` says whether a new loop opens and closes the store. Only a store
+    the job built is opened here. Whoever built any other store opens it.
+    """
     loop = _loops.get(backend)
     if loop is None:
-        loop = _loops[backend] = JobStoreLoop(backend)
+        loop = _loops[backend] = JobStoreLoop(backend, opens=opens)
     return loop

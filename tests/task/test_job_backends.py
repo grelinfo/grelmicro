@@ -2,14 +2,16 @@
 
 import asyncio
 import secrets
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
 import pytest
+from testcontainers.community.redis import RedisContainer
 
 from grelmicro.clock import VirtualClock
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.task import JobStatus
 from grelmicro.task._protocol import (
     JOB_LOST,
@@ -21,8 +23,13 @@ from grelmicro.task._protocol import (
     ProgressUpdate,
 )
 from grelmicro.task.memory import MemoryJobAdapter
+from grelmicro.task.redis import RedisJobAdapter
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
+"""Thirty seconds of test body.
+
+`func_only` keeps container startup out of the budget.
+"""
 
 NAME = "app:import_rows"
 OWNER = "alice"
@@ -83,10 +90,33 @@ class _Store:
         return submitted.record
 
 
-@pytest.fixture(params=["memory"])
+REAL_TICK = timedelta(milliseconds=50)
+"""A tick on a store with a real clock, so a lease is a second and a half."""
+
+
+@pytest.fixture(scope="module")
+def redis_url() -> Generator[str]:
+    """Start one Redis for the module, and return its URL."""
+    with RedisContainer() as container:
+        yield f"redis://localhost:{container.get_exposed_port(6379)}/0"
+
+
+@pytest.fixture(
+    params=[
+        "memory",
+        pytest.param("redis", marks=[pytest.mark.integration]),
+    ]
+)
 async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
     """Provide each job backend, open."""
-    assert request.param == "memory"
+    if request.param == "redis":
+        provider = RedisProvider(request.getfixturevalue("redis_url"))
+        redis = RedisJobAdapter(
+            provider=provider, prefix=f"{{{secrets.token_hex(8)}}}:"
+        )
+        async with provider, redis:
+            yield _Store(redis, asyncio.sleep, REAL_TICK)
+        return
     backend = MemoryJobAdapter()
     clock = VirtualClock()
     async with clock, backend:

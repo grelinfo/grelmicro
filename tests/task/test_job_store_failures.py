@@ -103,10 +103,8 @@ async def _advance(clock: VirtualClock, seconds: int) -> None:
 
 
 def _job(tasks: Tasks, store: MemoryJobAdapter, **options: Any) -> Job[...]:  # noqa: ANN401
-    """Return a job of `tasks` on `store`, as the app's wiring will."""
-    job = tasks.job(name="import", **options)(_waits)
-    job._backend = store
-    return job
+    """Return a job of `tasks` on `store`."""
+    return tasks.job(name="import", backend=store, **options)(_waits)
 
 
 async def _read(store: MemoryJobAdapter, job_id: str) -> JobInfo:
@@ -153,8 +151,7 @@ async def test_job_store_out_past_the_lease_stops_the_body() -> None:
     clock = VirtualClock()
     store = _FlakyStore()
     tasks = Tasks()
-    job = tasks.job(name="import")(_records_cancel)
-    job._backend = store
+    job = tasks.job(name="import", backend=store)(_records_cancel)
     seen: list[str] = []
 
     async with clock:
@@ -317,8 +314,9 @@ async def test_job_submit_in_flight_at_stop_runs_its_body() -> None:
     # Arrange
     store = _FlakyStore()
     tasks = Tasks()
-    job = tasks.job(name="import", max_concurrent=2)(_notes_stopping)
-    job._backend = store
+    job = tasks.job(name="import", max_concurrent=2, backend=store)(
+        _notes_stopping
+    )
     seen: list[bool] = []
     answer = store.gates["submit"] = asyncio.Event()
 

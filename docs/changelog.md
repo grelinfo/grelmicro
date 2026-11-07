@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+* ✨ `@tasks.job` runs work on demand, once per submit, and reports its progress, status and JSON result to each poll. It is Experimental. ([#1233](https://github.com/grelinfo/grelmicro/pull/1233), [#1275](https://github.com/grelinfo/grelmicro/pull/1275))
+* ✨ Each job call names the job's owner, so a caller only reads and cancels their own jobs. ([#1281](https://github.com/grelinfo/grelmicro/pull/1281))
+* ✨ Jobs run on Redis, so any replica takes a submit, runs the job, and answers a poll or a cancel. ([#1265](https://github.com/grelinfo/grelmicro/issues/1265))
+* ✨ A job finds its store through the app, so a Redis provider in `uses=` is all it takes. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
+* ✨ In `production` and `staging`, an app with a job and no shared store refuses to start with `BackendScopeError`. Pass `requires="process"` to run one replica on purpose. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
+* ✨ A job keeps running through a store outage shorter than 30 seconds. ([#1284](https://github.com/grelinfo/grelmicro/pull/1284))
+
 ### Docs
 * 📝 From `1.0`, an Experimental feature is the one exception to "nothing breaks before `2.0`". It can break in a minor, and it always warns first. ([#1254](https://github.com/grelinfo/grelmicro/pull/1254))
 * 📝 The capability matrix gives each feature a maturity level: Experimental, Preview or Stable, with the last break and serious bug fix behind it. ([#1252](https://github.com/grelinfo/grelmicro/pull/1252))
