@@ -190,6 +190,23 @@ class Grelmicro045Warning(GrelmicroFutureWarning):
     switch_in: ClassVar[str] = "0.45.0"
 
 
+class Grelmicro046Warning(GrelmicroFutureWarning):
+    """Warned for a change that lands in 0.46.0.
+
+    The change is a default, a read-back value, a check result, or a removed
+    name or value.
+
+    A filter on it promotes or silences every change that lands in 0.46.0
+    and leaves the other releases alone:
+
+    ```toml
+    filterwarnings = ["error::grelmicro.Grelmicro046Warning"]
+    ```
+    """
+
+    switch_in: ClassVar[str] = "0.46.0"
+
+
 class MiddlewarePlacementError(GrelmicroError, RuntimeError):
     """Raised when `micro.install(app)` cannot place a middleware that must run.
 

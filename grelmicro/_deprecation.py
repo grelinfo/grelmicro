@@ -14,10 +14,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
-from grelmicro.errors import Grelmicro045Warning, GrelmicroFutureWarning
+from grelmicro.errors import (
+    Grelmicro045Warning,
+    Grelmicro046Warning,
+    GrelmicroFutureWarning,
+)
 
 RELEASE_WARNINGS: dict[str, type[GrelmicroFutureWarning]] = {
-    category.switch_in: category for category in (Grelmicro045Warning,)
+    category.switch_in: category
+    for category in (Grelmicro045Warning, Grelmicro046Warning)
 }
 """The `GrelmicroFutureWarning` subclass of each switching release, by release."""
 
@@ -281,6 +286,18 @@ GATE_BACKEND_STRICT = FutureChange(
 """A gated task that resolves no backend fails the check in a strict tier."""
 
 
+UNKNOWN_REQUIRES = FutureChange(
+    change="`requires=` raises `SettingsValidationError` for a value that "
+    "names no scope",
+    switch_in="0.46.0",
+    keep=None,
+    adopt='requires="cluster"',
+    remedy="Until then the backend scope check passes over it. Pass "
+    '`"process"`, `"host"` or `"cluster"`.',
+)
+"""A component `requires=` that names no scope, in any case, is refused."""
+
+
 FASTAPI_MOVED = Moved(
     module="grelmicro.integrations.fastapi",
     homes={
@@ -397,6 +414,7 @@ SECURITY_MOVED: tuple[Moved, ...] = (
 
 PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     GATE_BACKEND_STRICT,
+    UNKNOWN_REQUIRES,
     ENV_LOAD_DEFAULT_WARNING,
     FORMAT_CASE,
     PROVIDER_CHECKS_NONE,

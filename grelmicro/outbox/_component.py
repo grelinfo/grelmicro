@@ -10,8 +10,9 @@ from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
 from grelmicro._backend_kinds import resolve_source
-from grelmicro._config import env_prefixes, match_case, resolve_config
+from grelmicro._config import env_prefixes, resolve_config
 from grelmicro._duration import NO_LIMIT, check_retention
+from grelmicro._environment import required_scope
 from grelmicro._markers import Registered, mark_registered
 from grelmicro._unset import UNSET, Unset
 from grelmicro.metrics import _emit
@@ -226,8 +227,8 @@ class Outbox:
     ) -> None:
         """Wire the resolved config, backend, and registry onto the instance."""
         self._name = name
-        self._requires: BackendScope = match_case(
-            BackendScope, requires or self.default_requires
+        self._requires: BackendScope = required_scope(
+            requires, self.default_requires
         )
         self._config = config
         resolved = cast(
