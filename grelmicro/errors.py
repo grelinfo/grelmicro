@@ -153,9 +153,10 @@ class UngatedCronWarning(GrelmicroConfigWarning):
 class GrelmicroFutureWarning(FutureWarning):
     """Warned when a default or a name changes in a coming minor release.
 
-    A behavior change warns only while the setting is left at its default.
+    A changed default warns only while the setting is left at its default.
     Choosing the value explicitly keeps the chosen behavior across the switch
-    and emits nothing. A renamed or removed name warns on every use of the
+    and emits nothing. A value that becomes refused warns each time it is
+    passed. A renamed or removed name warns on every use of the
     old name, which is removed in the release the message names.
 
     A category of its own so it can be promoted or filtered precisely:

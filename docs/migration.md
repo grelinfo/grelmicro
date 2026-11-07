@@ -134,12 +134,17 @@ raises](#0-42-raising).
 
 - A `requires=` value that names no scope, such as `requires="clustr"`, still turns the backend scope check off for that component, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Name a scope](#0-45-unknown-requires).
 
+### Changes that raise {#0-45-raising}
+
+- The changes the 0.44 section announces for 0.45.0 switch in this release. Each 0.44 entry that warns with `Grelmicro045Warning` says what to change. [Read the 0.44 changes](#0-44-silent).
+
 ### A `requires=` that names no scope warns {#0-45-unknown-requires}
 
 `requires=` takes `"process"`, `"host"` or `"cluster"`, in any case. Any
 other value warns with `Grelmicro046Warning` at the line that built the
-component. The check still passes over it, so the component starts on any
-backend. From 0.46.0 the same line raises `SettingsValidationError`.
+component, and the warning names the value. The check still passes over it,
+so the component starts on any backend. An empty value reads as the default.
+From 0.46.0 the same line raises `SettingsValidationError`.
 
 ```python
 from grelmicro.coordination import Coordination

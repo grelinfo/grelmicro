@@ -324,25 +324,30 @@ def scope_of(backend: object) -> BackendScope | None:
     return scope if scope in _SCOPE_RANK else None
 
 
+def spelled_scope(value: object) -> BackendScope | None:
+    """Return the scope `value` names in any case, or `None` if it names none."""
+    if not isinstance(value, str):
+        return None
+    scope = match_case(BackendScope, value)
+    return cast("BackendScope", scope) if scope in _SCOPE_RANK else None
+
+
 def required_scope(requires: object, default: BackendScope) -> BackendScope:
     """Return the scope `requires` names in any case, or `default` for None.
 
-    A value that names no scope warns with `UNKNOWN_REQUIRES` at the first
-    line outside grelmicro, and is returned unchanged, so the check passes
-    over it. An empty value reads as `default`.
+    A value that names no scope warns at the first line outside grelmicro.
+    An empty value reads as `default`. Any other is returned unchanged, so
+    the check passes over it.
     """
     if requires is None:
         return default
-    scope = match_case(BackendScope, requires)
-    if not isinstance(scope, str) or scope not in _SCOPE_RANK:
-        from grelmicro._deprecation import UNKNOWN_REQUIRES  # noqa: PLC0415
+    scope = spelled_scope(requires)
+    if scope is not None:
+        return scope
+    from grelmicro._deprecation import unknown_requires  # noqa: PLC0415
 
-        warnings.warn(
-            UNKNOWN_REQUIRES.message,
-            UNKNOWN_REQUIRES.category,
-            skip_file_prefixes=(_PACKAGE_DIR,),
-        )
-    return cast("BackendScope", scope or default)
+    unknown_requires(requires).warn(outside=True)
+    return cast("BackendScope", requires or default)
 
 
 def record(pattern: object, binding: Binding) -> None:

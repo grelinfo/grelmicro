@@ -16,7 +16,7 @@ from grelmicro import (
     GrelmicroConfigWarning,
 )
 from grelmicro._config import flush_ignored_env_reports
-from grelmicro._deprecation import UNKNOWN_REQUIRES
+from grelmicro._deprecation import unknown_requires
 from grelmicro._environment import (
     Binding,
     recorded_bindings,
@@ -893,7 +893,7 @@ def test_a_requirement_naming_no_scope_warns_at_the_line_that_built_it(
     """Each `requires=` warns once, at the user's line, and keeps the value."""
     # Act
     with pytest.warns(
-        Grelmicro046Warning, match=re.escape(UNKNOWN_REQUIRES.message)
+        Grelmicro046Warning, match=re.escape(unknown_requires(_UNKNOWN).message)
     ) as caught:
         component = build(_UNKNOWN)
 
@@ -916,7 +916,7 @@ def test_a_requirement_in_any_case_warns_nothing() -> None:
 def test_an_empty_requirement_warns_and_reads_as_the_default() -> None:
     """`requires=""` names no scope, and reads as the default until 0.46.0."""
     # Act
-    with pytest.warns(Grelmicro046Warning):
+    with pytest.warns(Grelmicro046Warning, match="reads as the default"):
         cache = Cache(MemoryCacheAdapter(), requires=cast("Any", ""))
 
     # Assert
