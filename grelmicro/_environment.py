@@ -4,6 +4,7 @@ Exposes:
 
 - `resolve_environment`: read the declared tier from an argument or
   `GREL_ENVIRONMENT`.
+- `required_scope`: read a component's `requires=` against the scopes.
 - `unmet_requirements`: walk registered items and recorded bindings, and
   return every backend whose scope falls short of what is required of it.
 - `report_unmet_requirements`: raise or warn, by declared tier.
@@ -321,6 +322,32 @@ def scope_of(backend: object) -> BackendScope | None:
     """
     scope = getattr(backend, "scope", None)
     return scope if scope in _SCOPE_RANK else None
+
+
+def spelled_scope(value: object) -> BackendScope | None:
+    """Return the scope `value` names in any case, or `None` if it names none."""
+    if not isinstance(value, str):
+        return None
+    scope = match_case(BackendScope, value)
+    return cast("BackendScope", scope) if scope in _SCOPE_RANK else None
+
+
+def required_scope(requires: object, default: BackendScope) -> BackendScope:
+    """Return the scope `requires` names in any case, or `default` for None.
+
+    A value that names no scope warns at the first line outside grelmicro.
+    An empty value reads as `default`. Any other is returned unchanged, so
+    the check passes over it.
+    """
+    if requires is None:
+        return default
+    scope = spelled_scope(requires)
+    if scope is not None:
+        return scope
+    from grelmicro._deprecation import unknown_requires  # noqa: PLC0415
+
+    unknown_requires(requires).warn(outside=True)
+    return cast("BackendScope", requires or default)
 
 
 def record(pattern: object, binding: Binding) -> None:

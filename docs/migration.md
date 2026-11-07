@@ -128,6 +128,40 @@ raises](#0-42-raising).
 | A `GREL_*` variable applies after upgrading, where it used to warn and be ignored | 0.44 | [Set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
 | `SettingsValidationError` when a component is built, from a `GREL_*` variable with an invalid value such as `GREL_OPS_PORT=abc` | 0.44 | [Fix the variable or set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
 
+## 0.45
+
+### Changes that do not raise {#0-45-silent}
+
+- A `requires=` value that names no scope, such as `requires="clustr"`, still turns the backend scope check off for that component, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Name a scope](#0-45-unknown-requires).
+
+### Changes that raise {#0-45-raising}
+
+- The changes the 0.44 section announces for 0.45.0 switch in this release. Each 0.44 entry that warns with `Grelmicro045Warning` says what to change. [Read the 0.44 changes](#0-44-silent).
+
+### A `requires=` that names no scope warns {#0-45-unknown-requires}
+
+`requires=` takes `"process"`, `"host"` or `"cluster"`, in any case. Any
+other value warns with `Grelmicro046Warning` at the line that built the
+component, and the warning names the value. The check still passes over it,
+so the component starts on any backend. An empty value reads as the default.
+From 0.46.0 the same line raises `SettingsValidationError`.
+
+```python
+from grelmicro.coordination import Coordination
+
+# Before: warns, and the backend scope check is off
+Coordination(redis, requires="clustr")
+
+# After: checked, and the same in 0.46.0
+Coordination(redis, requires="cluster")
+```
+
+`Coordination`, `Outbox`, `Cache`, `RateLimiterComponent`,
+`CircuitBreakerComponent`, `Idempotency` and `IdempotentRequests` all take
+`requires=` and all warn the same way.
+
+Full list: [Unreleased in the changelog](changelog.md#unreleased)
+
 ## 0.44
 
 ### Changes that do not raise {#0-44-silent}

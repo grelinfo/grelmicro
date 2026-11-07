@@ -2,6 +2,7 @@
 
 import gc
 import logging
+import re
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +16,7 @@ from grelmicro import (
     GrelmicroConfigWarning,
 )
 from grelmicro._config import flush_ignored_env_reports
+from grelmicro._deprecation import unknown_requires
 from grelmicro._environment import (
     Binding,
     recorded_bindings,
@@ -37,9 +39,10 @@ from grelmicro.coordination.memory import (
 )
 from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.coordination.sqlite import SQLiteLockAdapter
-from grelmicro.http import IdempotentRequests
+from grelmicro.errors import Grelmicro046Warning, GrelmicroFutureWarning
+from grelmicro.http import IdempotentRequests, IdempotentRequestsConfig
 from grelmicro.idempotency import Idempotency, IdempotencyConfig
-from grelmicro.outbox import Outbox
+from grelmicro.outbox import Outbox, OutboxConfig
 from grelmicro.outbox.memory import MemoryOutboxAdapter
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.sqlite import SQLiteProvider
@@ -814,12 +817,110 @@ def test_a_coordination_only_built_does_not_answer_for_a_lock() -> None:
 
 
 def test_a_requirement_naming_no_scope_is_passed_over() -> None:
-    """A typo in `requires=` does not crash startup, as on a component."""
-    idem = Idempotency("orders", requires=cast("Any", "clustr"))
+    """A typo in `requires=` warns and does not crash startup until 0.46.0."""
+    with pytest.warns(Grelmicro046Warning):
+        idem = Idempotency("orders", requires=cast("Any", "clustr"))
 
     Grelmicro(uses=[Cache(MemoryCacheAdapter())]).check_backends()
 
     del idem
+
+
+_UNKNOWN: Any = "clustr"
+"""A `requires=` value that names no scope."""
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda requires: Coordination(
+                lock=MemoryLockAdapter(), requires=requires
+            ),
+            id="Coordination",
+        ),
+        pytest.param(
+            lambda requires: Outbox(MemoryOutboxAdapter(), requires=requires),
+            id="Outbox",
+        ),
+        pytest.param(
+            lambda requires: Outbox.from_config(
+                MemoryOutboxAdapter(), OutboxConfig(), requires=requires
+            ),
+            id="Outbox.from_config",
+        ),
+        pytest.param(
+            lambda requires: Cache(MemoryCacheAdapter(), requires=requires),
+            id="Cache",
+        ),
+        pytest.param(
+            lambda requires: RateLimiterComponent(
+                MemoryRateLimiterAdapter(), requires=requires
+            ),
+            id="RateLimiterComponent",
+        ),
+        pytest.param(
+            lambda requires: CircuitBreakerComponent(
+                MemoryCircuitBreakerAdapter(), requires=requires
+            ),
+            id="CircuitBreakerComponent",
+        ),
+        pytest.param(
+            lambda requires: Idempotency("orders", requires=requires),
+            id="Idempotency",
+        ),
+        pytest.param(
+            lambda requires: Idempotency.from_config(
+                "orders", IdempotencyConfig(), requires=requires
+            ),
+            id="Idempotency.from_config",
+        ),
+        pytest.param(
+            lambda requires: IdempotentRequests(requires=requires),
+            id="IdempotentRequests",
+        ),
+        pytest.param(
+            lambda requires: IdempotentRequests.from_config(
+                IdempotentRequestsConfig(), requires=requires
+            ),
+            id="IdempotentRequests.from_config",
+        ),
+    ],
+)
+def test_a_requirement_naming_no_scope_warns_at_the_line_that_built_it(
+    build: Callable[[Any], object],
+) -> None:
+    """Each `requires=` warns once, at the user's line, and keeps the value."""
+    # Act
+    with pytest.warns(
+        Grelmicro046Warning, match=re.escape(unknown_requires(_UNKNOWN).message)
+    ) as caught:
+        component = build(_UNKNOWN)
+
+    # Assert
+    assert [warning.filename for warning in caught] == [__file__]
+    assert cast("Any", component).requires == "clustr"
+
+
+def test_a_requirement_in_any_case_warns_nothing() -> None:
+    """`requires="Cluster"` names a scope, so no future warning is raised."""
+    # Act
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", GrelmicroFutureWarning)
+        cache = Cache(MemoryCacheAdapter(), requires=cast("Any", "Cluster"))
+
+    # Assert
+    assert cache.requires == "cluster"
+
+
+def test_an_empty_requirement_warns_and_reads_as_the_default() -> None:
+    """`requires=""` names no scope, and reads as the default until 0.46.0."""
+    # Act
+    with pytest.warns(Grelmicro046Warning, match="reads as the default"):
+        cache = Cache(MemoryCacheAdapter(), requires=cast("Any", ""))
+
+    # Assert
+    assert cache.requires == Cache.default_requires
 
 
 async def test_idempotent_requests_built_in_an_open_app_is_not_recorded() -> (

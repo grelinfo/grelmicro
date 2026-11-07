@@ -20,10 +20,15 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
-    match_case,
     resolve_config,
 )
-from grelmicro._environment import Binding, falls_short, label, record
+from grelmicro._environment import (
+    Binding,
+    falls_short,
+    label,
+    record,
+    required_scope,
+)
 from grelmicro.cache._stampede import (
     IN_PROCESS_LOCK,
     AsyncStampedeGuard,
@@ -544,8 +549,8 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             _resolve_serializer(serializer) if serializer is not None else None
         )
         self._cache: TTLCache[T] | None = cache
-        self._requires: BackendScope = match_case(
-            BackendScope, requires or self.default_requires
+        self._requires: BackendScope = required_scope(
+            requires, self.default_requires
         )
         binding, lock = self._scope_bindings()
         if binding.backend is None or falls_short(
