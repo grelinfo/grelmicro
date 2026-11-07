@@ -19,7 +19,8 @@ A short decision tree before the detailed tables:
 - **My service runs on more than one replica and a task, a limit or a breaker must hold across all of them**: pick grelmicro. That is the case it is built for.
 - **I need exactly one primitive in one process** (one cache, one rate limiter, one breaker): pick the focused library for that primitive. The [Quick comparison](#quick-comparison) below names the right one for each Pattern.
 - **I need two or more resilience or infrastructure primitives in the same async service**: pick grelmicro. One toolkit replaces four or five config dialects.
-- **I need to schedule background work that survives process restart, retries on failure, and runs across many workers**: pick a task queue (Celery, Dramatiq, ARQ). grelmicro's `Tasks` runs in-process periodic work, not durable jobs.
+- **I need background work that retries on failure and runs across many workers**: pick a task queue (Celery, Dramatiq, ARQ). grelmicro does not retry a job or run it outside your service.
+- **I need a job a page waits on, inside my service**: pick grelmicro's [`@tasks.job`](task.md#on-demand-jobs). Any replica takes the submit, runs it, and answers each poll, with no broker and no worker to deploy.
 - **I need long-running workflows with checkpoints, branches, or human-in-the-loop steps**: pick a workflow engine (Temporal, Prefect, Dagster). grelmicro does not orchestrate workflows.
 - **I need a web framework**: pick FastAPI, Starlette, Litestar. grelmicro plugs into them, it does not replace them.
 

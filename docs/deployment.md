@@ -87,6 +87,10 @@ scope 'cluster' in environment 'production'. Use a Redis, Valkey, or
 Postgres backend, or pass requires= to say what reach you want.
 ```
 
+An [on-demand job](task.md#where-jobs-live) requires `cluster` too, because a
+poll or a cancel can reach any replica. It is checked even when the app has no
+job store, since it then keeps its jobs in the process.
+
 Say what you want with `requires=` and the default no longer applies:
 
 ```python

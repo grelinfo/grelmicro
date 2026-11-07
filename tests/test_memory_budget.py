@@ -72,6 +72,7 @@ _EXPECTED_SUBPACKAGES = {
         "http",
         "integrations",
         "resilience",
+        "task",
     },
     "postgres": _COMMON
     | {"cache", "clock", "coordination", "outbox", "resilience"},
@@ -84,7 +85,7 @@ _MAX_MODULES = {
     "tasks": 131,
     "starlette": 128,
     "litestar": 127,
-    "redis": 104,
+    "redis": 107,
     "postgres": 98,
 }
 """The most grelmicro modules each case may load, by case."""
