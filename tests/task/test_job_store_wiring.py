@@ -366,3 +366,26 @@ def test_job_requires_reads_the_declared_reach(
 
     # Assert
     assert job.requires == expected
+
+
+async def test_job_and_its_coordination_falling_short_offer_only_a_job_store() -> (
+    None
+):
+    """With a job among the findings, the fix names a store that holds jobs."""
+    # Arrange
+    tasks = Tasks()
+    tasks.job(name="report")(_noop)
+    micro = Grelmicro(
+        uses=[Coordination(MemoryProvider()), tasks], environment="production"
+    )
+
+    # Act
+    with pytest.raises(BackendScopeError) as error:
+        await micro.__aenter__()
+
+    # Assert
+    message = str(error.value)
+    assert "Job('report')" in message
+    assert "a Redis backend" in message
+    assert "Valkey" not in message
+    assert "Postgres" not in message

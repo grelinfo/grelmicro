@@ -339,7 +339,9 @@ its tasks start, and keeps it while they run.
 
 The [backend check](deployment.md#the-backend-check) explains the scopes behind
 this. Under [`micro.fake()`](testing.md#test-the-app-you-ship), jobs live in
-the process like the rest of the app.
+the process like the rest of the app. Enter it before the app opens: a job
+takes its store as its tasks start, so a fake entered on an open app does not
+reach the jobs already running.
 
 To keep a job on a store of its own, pass it as `backend=`, such as
 `@tasks.job(backend=jobs_redis.job_backend())`. The job does not open that
