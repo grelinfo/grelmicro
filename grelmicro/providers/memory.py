@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from grelmicro.resilience.ratelimiter.memory import (
         MemoryRateLimiterAdapter,
     )
+    from grelmicro.task.memory import MemoryJobAdapter
 
 
 _SQL_OUTBOX_SETTINGS = frozenset({"table", "auto_migrate", "notify"})
@@ -63,6 +64,7 @@ class MemoryProvider(Provider):
         self._lock: MemoryLockAdapter | None = None
         self._leaderelection: MemoryLeaderElectionAdapter | None = None
         self._schedule: MemoryScheduleAdapter | None = None
+        self._job: MemoryJobAdapter | None = None
         self._rwlock: MemoryReadWriteLockAdapter | None = None
         self._cache: MemoryCacheAdapter | None = None
         self._outbox: MemoryOutboxAdapter | None = None
@@ -118,6 +120,14 @@ class MemoryProvider(Provider):
 
             self._schedule = MemoryScheduleAdapter(**kwargs)
         return self._schedule
+
+    def job_backend(self, **kwargs: Any) -> MemoryJobAdapter:  # noqa: ANN401
+        """Return the shared `MemoryJobAdapter` for this provider."""
+        if self._job is None:
+            from grelmicro.task.memory import MemoryJobAdapter  # noqa: PLC0415
+
+            self._job = MemoryJobAdapter(**kwargs)
+        return self._job
 
     def cache_backend(self, **kwargs: Any) -> MemoryCacheAdapter:  # noqa: ANN401
         """Return the shared `MemoryCacheAdapter` for this provider."""

@@ -982,7 +982,9 @@ class Grelmicro:
 
         Entered with `async with` on an app that is already open, it swaps
         the same components for the block instead. Its Providers are already
-        open by then, so they stay open.
+        open by then, so they stay open. Running jobs keep the store they
+        took as their tasks started, so enter it before the app opens to
+        fake their store.
 
         Raises:
             OutOfContextError: If entered with `with` on an app that is

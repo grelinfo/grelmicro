@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from grelmicro.resilience.ratelimiter.redis import (
         RedisRateLimiterAdapter,
     )
+    from grelmicro.task.redis import RedisJobAdapter
 
 
 RedisAnyDsn = Annotated[
@@ -534,6 +535,12 @@ class RedisProvider(Provider):
         )
 
         return RedisScheduleAdapter(provider=self, **kwargs)
+
+    def job_backend(self, **kwargs: Any) -> RedisJobAdapter:  # noqa: ANN401
+        """Build a `RedisJobAdapter` bound to this provider."""
+        from grelmicro.task.redis import RedisJobAdapter  # noqa: PLC0415
+
+        return RedisJobAdapter(provider=self, **kwargs)
 
     def cache_backend(self, **kwargs: Any) -> RedisCacheAdapter:  # noqa: ANN401
         """Build a `RedisCacheAdapter` bound to this provider."""

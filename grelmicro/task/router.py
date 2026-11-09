@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from grelmicro.coordination.leaderelection import LeaderElection
     from grelmicro.coordination.tasklock import TaskLock
     from grelmicro.task._job import Job, Progress
+    from grelmicro.task._protocol import JobBackend
+    from grelmicro.types import BackendScope
 
 
 class TaskRouter:
@@ -501,6 +503,34 @@ class TaskRouter:
                 """,
             ),
         ] = 86400,
+        backend: Annotated[
+            JobBackend | None,
+            Doc(
+                """
+                The store that holds the job's queue, status and result.
+
+                If None, the job takes the job store of the app's
+                `Coordination` when its tasks start, and keeps it while
+                they run. A Redis provider in `uses=` wires one. Without
+                one, jobs live in the process. A store passed here is not
+                opened by the job: open it as you open its provider.
+                """,
+            ),
+        ] = None,
+        requires: Annotated[
+            BackendScope | None,
+            Doc(
+                """
+                The smallest scope the store must reach: `"process"`,
+                `"host"` or `"cluster"`.
+
+                Defaults to `"cluster"`, so any replica can answer a poll or
+                a cancel. Pass `"process"` to run one replica on purpose.
+                Checked when the app opens, see
+                [the backend check](../deployment.md#the-backend-check).
+                """,
+            ),
+        ] = None,
     ) -> Callable[
         [Callable[Concatenate[Progress, P], object]],
         Job[P],
@@ -532,6 +562,8 @@ class TaskRouter:
                 max_queued=max_queued,
                 max_wait=max_wait,
                 keep=keep,
+                backend=backend,
+                requires=requires,
             )
             self.add_task(job)
             # A decorator above `@tasks.job` receives the job, so mark it

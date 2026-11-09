@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, NoReturn, Self
 
 from pydantic import UrlConstraints
 from pydantic_core import MultiHostUrl
@@ -353,6 +353,18 @@ class ValkeyProvider(RedisProvider):
         )
 
         return RedisScheduleAdapter(provider=self, **kwargs)
+
+    def job_backend(self, **kwargs: Any) -> NoReturn:  # noqa: ANN401
+        """Raise, since this Provider ships no job adapter.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        msg = (
+            f"{type(self).__name__} has no job adapter. "
+            "Pass a JobBackend instance to Coordination(job=...) directly."
+        )
+        raise NotImplementedError(msg)
 
     def cache_backend(self, **kwargs: Any) -> RedisCacheAdapter:  # noqa: ANN401
         """Build a `RedisCacheAdapter` bound to this provider."""

@@ -141,15 +141,16 @@ A Redis Cluster shards keys across slots by a hash of the key. A command
 or script that touches several keys must keep them in one slot, or the
 cluster rejects it as a cross-slot error.
 
-The cache adapter and the lock adapter both run multi-key operations.
-On Cluster, give their `prefix` a hash tag so every key they touch lands
-in one slot. A hash tag is any substring in braces: the cluster hashes
-only what is inside the first `{...}`.
+The cache, lock and job adapters run multi-key operations. On Cluster,
+give their `prefix` a hash tag so every key they touch lands in one slot.
+A hash tag is any substring in braces: the cluster hashes only what is
+inside the first `{...}`.
 
 ```python
 provider = RedisProvider("redis+cluster://host1:6379,host2:6379")
 cache = provider.cache_backend(prefix="{myapp}cache")
 lock = provider.lock_backend(prefix="{myapp}")
+jobs = provider.job_backend(prefix="{myapp}jobs:")
 ```
 
 Without a hash tag, the adapter raises a `ValueError` at construction
@@ -163,7 +164,7 @@ CI does not run a real cluster yet, see the
 
 `ValkeyProvider` is a subclass of `RedisProvider`. It connects to a
 [Valkey](https://valkey.io) server using the `valkey-py` client
-(`valkey.asyncio`) and serves the same adapter set.
+(`valkey.asyncio`) and serves the same adapter set, except the job store.
 
 Install the `valkey` extra before using it:
 

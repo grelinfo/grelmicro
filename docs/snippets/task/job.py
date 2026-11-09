@@ -5,12 +5,14 @@ from fastapi import FastAPI, HTTPException
 from grelmicro import Grelmicro
 from grelmicro.http import AuthenticatedRequests
 from grelmicro.integrations.fastapi import CurrentPrincipal
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.security import JWTVerifier
 from grelmicro.task import JobError, JobInfo, Progress, Tasks
 
 tasks = Tasks()
 micro = Grelmicro(
     uses=[
+        RedisProvider(),
         tasks,
         AuthenticatedRequests(
             JWTVerifier.discover(

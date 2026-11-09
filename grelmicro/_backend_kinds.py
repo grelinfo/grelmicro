@@ -21,7 +21,7 @@ from grelmicro._component import instantiate_if_class
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
 
 class BackendKind(NamedTuple):
@@ -142,6 +142,26 @@ _KINDS: Final = (
         "grelmicro.coordination._protocol.ScheduleBackend",
         frozenset({"__aenter__", "__aexit__", "_loop", "claim", "last_fired"}),
         "Coordination(schedule=...)",
+        _COORDINATION,
+    ),
+    _KindRef(
+        "grelmicro.task._protocol.JobBackend",
+        frozenset(
+            {
+                "__aenter__",
+                "__aexit__",
+                "beat",
+                "cancel",
+                "claim",
+                "get",
+                "purge",
+                "reap",
+                "scope",
+                "settle",
+                "submit",
+            }
+        ),
+        "Coordination(job=...)",
         _COORDINATION,
     ),
     _KindRef(
@@ -273,7 +293,7 @@ def resolve_source(
     *,
     owner: str,
     expects: str,
-    protocols: Sequence[type],
+    protocols: Iterable[type],
 ) -> object:
     """Return `source` as a Provider or a backend of the owner's kind.
 
@@ -285,7 +305,8 @@ def resolve_source(
         owner: The Component's name, as the error shows it.
         expects: The backend it takes, as the error shows it, such as
             `a CacheBackend`.
-        protocols: The backend Protocols a backend of its kind satisfies.
+        protocols: The backend Protocols a backend of its kind satisfies,
+            read only when `source` is not a Provider.
 
     Raises:
         TypeError: If `source` is neither a Provider nor a backend matching

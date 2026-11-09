@@ -127,6 +127,9 @@ _ENV = {
     "deployment/composition_root.py": {
         "REDIS_URL": "redis://localhost:6379/0",
     },
+    "task/job.py": {
+        "REDIS_URL": "redis://localhost:6379/0",
+    },
 }
 
 

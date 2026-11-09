@@ -17,6 +17,7 @@ from typing_extensions import Doc
 
 from grelmicro._backend_kinds import (
     BackendKind,
+    load,
     most_specific_backend,
     resolve_source,
 )
@@ -41,6 +42,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from types import TracebackType
 
+    from grelmicro.task._protocol import JobBackend
+
 
 class CoordinationBackend(NamedTuple):
     """One of the backends a `Coordination` holds."""
@@ -51,8 +54,18 @@ class CoordinationBackend(NamedTuple):
     factory: str
     """`Provider` method that builds it."""
 
-    protocol: type
-    """Backend Protocol an instance of it satisfies."""
+    protocol_path: type | str
+    """Backend Protocol an instance of it satisfies, or its import string.
+
+    An import string keeps the Protocol's package unloaded until a backend is
+    matched against it.
+    """
+
+    @property
+    def protocol(self) -> type:
+        """Backend Protocol an instance of it satisfies."""
+        path = self.protocol_path
+        return path if isinstance(path, type) else load(path)
 
 
 COORDINATION_BACKENDS: Final = (
@@ -64,6 +77,9 @@ COORDINATION_BACKENDS: Final = (
         "leaderelection", "leaderelection_backend", LeaderElectionBackend
     ),
     CoordinationBackend("schedule", "schedule_backend", ScheduleBackend),
+    CoordinationBackend(
+        "job", "job_backend", "grelmicro.task._protocol.JobBackend"
+    ),
 )
 """Every backend a `Coordination` holds, in wiring order.
 
@@ -102,8 +118,9 @@ class Coordination:
     A single positional `Provider` resolves every primitive: the component calls
     `provider.lock_backend()` for the lock backend,
     `provider.leaderelection_backend()` for the election backend, and
-    `provider.schedule_backend()` for the cron schedule backend.
-    The `lock=`, `readwritelock=`, `leaderelection=`, and `schedule=` keywords
+    `provider.schedule_backend()` for the cron schedule backend, and
+    `provider.job_backend()` for the store of on-demand jobs.
+    The `lock=`, `readwritelock=`, `leaderelection=`, `schedule=`, and `job=` keywords
     set each backend independently, so locks can run on one vendor and leader
     election on another.
     Each accepts a `Provider`, a backend instance, or a zero-arg class.
@@ -139,12 +156,14 @@ class Coordination:
             | ReadWriteLockBackend
             | LeaderElectionBackend
             | ScheduleBackend
+            | JobBackend
             | type[
                 Provider
                 | LockBackend
                 | ReadWriteLockBackend
                 | LeaderElectionBackend
                 | ScheduleBackend
+                | JobBackend
             ]
             | None,
             Doc(
@@ -217,6 +236,18 @@ class Coordination:
                 """,
             ),
         ] = None,
+        job: Annotated[
+            Provider | JobBackend | type[Provider | JobBackend] | None,
+            Doc(
+                """
+                The store of on-demand jobs, shared by every replica. A
+                `Provider` resolves it via `provider.job_backend()`, a
+                `JobBackend` instance is used directly, and a zero-arg class
+                is instantiated for you. Overrides the job backend resolved
+                from `source`.
+                """,
+            ),
+        ] = None,
         requires: Annotated[
             BackendScope | None,
             Doc(
@@ -249,13 +280,14 @@ class Coordination:
         self._readwritelock_backend: ReadWriteLockBackend | None = None
         self._leaderelection_backend: LeaderElectionBackend | None = None
         self._schedule_backend: ScheduleBackend | None = None
+        self._job_backend: JobBackend | None = None
 
         if source is not None:
             resolved = resolve_source(
                 source,
                 owner="Coordination",
                 expects="a coordination backend",
-                protocols=[slot.protocol for slot in COORDINATION_BACKENDS],
+                protocols=(slot.protocol for slot in COORDINATION_BACKENDS),
             )
             if isinstance(resolved, Provider):
                 self._fill_from_provider(resolved)
@@ -305,6 +337,16 @@ class Coordination:
                 resolved_schedule.schedule_backend()
                 if isinstance(resolved_schedule, Provider)
                 else resolved_schedule
+            )
+
+        if job is not None:
+            resolved_job = cast(
+                "Provider | JobBackend", instantiate_if_class(job)
+            )
+            self._job_backend = (
+                resolved_job.job_backend()
+                if isinstance(resolved_job, Provider)
+                else resolved_job
             )
 
     def _fill_from_provider(self, provider: Provider) -> None:
@@ -396,6 +438,22 @@ class Coordination:
             raise CoordinationBackendError(msg)
         return self._schedule_backend
 
+    @property
+    def job_backend(self) -> JobBackend:
+        """The underlying `JobBackend`, the store of on-demand jobs.
+
+        Raises:
+            CoordinationBackendError: If no job backend is wired.
+        """
+        if self._job_backend is None:
+            msg = (
+                "Coordination has no job backend. "
+                "Pass a job provider as Coordination(provider) or "
+                "Coordination(job=...)."
+            )
+            raise CoordinationBackendError(msg)
+        return self._job_backend
+
     def lock(self, name: str, **kwargs: Any) -> Lock:  # noqa: ANN401
         """Construct a `Lock` bound to this component's lock backend.
 
@@ -477,6 +535,8 @@ class Coordination:
             await self._leaderelection_backend.__aenter__()
         if self._schedule_backend is not None:
             await self._schedule_backend.__aenter__()
+        if self._job_backend is not None:
+            await self._job_backend.__aenter__()
         return self
 
     async def __aexit__(
@@ -502,7 +562,11 @@ class Coordination:
                             exc_type, exc, tb
                         )
                 finally:
-                    if self._schedule_backend is not None:
-                        await self._schedule_backend.__aexit__(
-                            exc_type, exc, tb
-                        )
+                    try:
+                        if self._schedule_backend is not None:
+                            await self._schedule_backend.__aexit__(
+                                exc_type, exc, tb
+                            )
+                    finally:
+                        if self._job_backend is not None:
+                            await self._job_backend.__aexit__(exc_type, exc, tb)

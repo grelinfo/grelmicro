@@ -155,7 +155,7 @@ class Binding:
     """
 
     kind: str | None = None
-    """Component kind of the backend, `"coordination"` or `"cache"`."""
+    """Kind of the backend, `"coordination"`, `"cache"` or `"job"`."""
 
     keyword: str = "requires"
     """The argument that accepts a smaller reach, `lock` on `@cached`."""
@@ -215,7 +215,7 @@ class Unmet:
     """The `Coordination` keyword to register the backend under, if any."""
 
     kind: str | None = None
-    """Component kind of the backends, which decides the backends offered."""
+    """Kind of the backends, which decides the backends offered."""
 
     keyword: str = "requires"
     """The argument that accepts a smaller reach, `lock` on `@cached`."""
@@ -732,8 +732,11 @@ def _backend_names(unmet: Sequence[Unmet]) -> str:
     """Return the backends that reach far enough for every one of `unmet`.
 
     SQLite is named when each requires `host`, and Kubernetes when each is
-    a coordination backend.
+    a coordination backend. With a job store among them, only Redis is
+    named, since it is the one store that holds jobs.
     """
+    if any(entry.kind == "job" for entry in unmet):
+        return "a Redis"
     names = ["Redis", "Valkey", "Postgres"]
     if all(entry.requires == "host" for entry in unmet):
         names.insert(0, "SQLite")

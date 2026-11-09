@@ -1,0 +1,755 @@
+"""Redis Job Adapter.
+
+Every move a job makes is one Lua script, so it is one atomic step on the
+Redis server, timed by the server's own clock.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self
+
+from typing_extensions import Doc
+
+from grelmicro._duration import MICROSECOND, MILLISECOND, round_up
+from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
+from grelmicro.task._protocol import (
+    JOB_LOST,
+    JOB_NOT_STARTED,
+    Beat,
+    BeatReply,
+    Claimed,
+    EndStatus,
+    JobRecord,
+    JobStatus,
+    ProgressUpdate,
+    Submitted,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from types import TracebackType
+
+    from grelmicro.types import BackendScope
+
+_LUA_JOB = (
+    """
+    local now_pair = redis.call('TIME')
+    local now = tonumber(now_pair[1]) * 1000000 + tonumber(now_pair[2])
+    local deadlines = KEYS[1]
+    local JOB_LOST = """
+    + json.dumps(JOB_LOST)
+    + """
+    local JOB_NOT_STARTED = """
+    + json.dumps(JOB_NOT_STARTED)
+    + """
+
+    local function us(value)
+        return string.format('%.0f', value)
+    end
+
+    local function record(key)
+        return redis.call(
+            'HMGET', key,
+            'n', 's', 'v', 'd', 't', 'r', 'e', 'c', 'ca', 'sa', 'fa'
+        )
+    end
+
+    local function owns(stored, has_owner, owner)
+        if has_owner == '1' then
+            return stored == owner
+        end
+        return stored == false
+    end
+
+    local function finish(key, id, status, err, queue, waiting)
+        redis.call('HSET', key, 's', status, 'fa', us(now))
+        if err then
+            redis.call('HSET', key, 'e', err)
+        end
+        redis.call('HDEL', key, 'p', 'x', 'lu', 'sb')
+        redis.call('HINCRBY', key, 'v', 1)
+        redis.call('ZREM', queue, id)
+        redis.call('ZREM', waiting, id)
+        redis.call('ZREM', deadlines, id)
+    end
+
+    local function retain(key)
+        local keep = redis.call('HGET', key, 'k')
+        if keep == '0' then
+            redis.call('DEL', key)
+        elseif keep then
+            redis.call('PEXPIRE', key, keep)
+        end
+    end
+
+    local function catch_up(key, id, queue, waiting)
+        local job = redis.call('HMGET', key, 's', 'lu', 'sb')
+        if job[1] == 'running' and tonumber(job[2]) <= now then
+            redis.call('HDEL', key, 'rn')
+            finish(key, id, 'failed', JOB_LOST, queue, waiting)
+            retain(key)
+            return true
+        end
+        if job[1] == 'queued' and job[3] and tonumber(job[3]) <= now then
+            finish(key, id, 'failed', JOB_NOT_STARTED, queue, waiting)
+            retain(key)
+            return true
+        end
+        return false
+    end
+
+    local function write_progress(key, done, total)
+        redis.call('HSET', key, 'd', done)
+        if total == '' then
+            redis.call('HDEL', key, 't')
+        else
+            redis.call('HSET', key, 't', total)
+        end
+    end
+"""
+)
+"""What every script shares: the server's time and the moves every call makes.
+
+`KEYS[1]` is always the store's deadline index.
+"""
+
+
+class RedisJobAdapter:
+    """Redis job storage backend.
+
+    Wraps a `RedisProvider` and implements the `JobBackend` protocol. Every
+    call is one Lua script, so a job's move and the indexes it touches change
+    in one atomic step. Leases, `max_wait` and the creation and end times
+    follow the Redis server clock, and `keep` is a key expiry on the same
+    clock, so `purge` has nothing left to do.
+
+    Each job is one hash, keyed by its id. Each name has its queue, in
+    submission order, and the queued jobs that have a `max_wait`. One index
+    holds every deadline, so `reap` finds the overdue jobs of every name.
+
+    On a Redis Cluster, the prefix needs a hash tag (`{myapp}`), so every key
+    of the store lands in one slot.
+
+    Pass an explicit `provider=` to share a pool with other components, or
+    rely on the default `env_prefix=` to build one from environment variables.
+    """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
+
+    _KEY_PREFIX = "job:"
+    """Marks the keys of the job store, after the user prefix."""
+
+    _LUA_SUBMIT = (
+        _LUA_JOB
+        + """
+        local key, queue, waiting, order = KEYS[2], KEYS[3], KEYS[4], KEYS[5]
+        local id, name, has_owner, owner = ARGV[1], ARGV[2], ARGV[3], ARGV[4]
+        local has_runner, runner = ARGV[10], ARGV[11]
+        local stored = redis.call('HMGET', key, 'n', 'o')
+        if stored[1] then
+            if stored[1] ~= name or not owns(stored[2], has_owner, owner) then
+                return false
+            end
+            catch_up(key, id, queue, waiting)
+            local job = redis.call('HMGET', key, 's', 'rn', 'sas')
+            if job[1] then
+                local started = job[3] == '1' and job[1] == 'running'
+                    and has_runner == '1' and job[2] == runner
+                return {started and 1 or 0, record(key)}
+            end
+        end
+        local live = redis.call('ZCARD', queue)
+            - redis.call('ZCOUNT', waiting, '-inf', us(now))
+        local start = has_runner == '1' and live == 0
+        local max_queued = tonumber(ARGV[7])
+        if not start and max_queued >= 0 and live >= max_queued then
+            return false
+        end
+        redis.call(
+            'HSET', key, 'n', name, 's', 'queued', 'v', 1, 'd', '0',
+            'c', '0', 'ca', us(now), 'p', ARGV[5], 'x', ARGV[6]
+        )
+        if has_owner == '1' then
+            redis.call('HSET', key, 'o', owner)
+        end
+        if ARGV[9] ~= '' then
+            redis.call('HSET', key, 'k', ARGV[9])
+        end
+        if start then
+            local lease_until = us(now + tonumber(ARGV[12]))
+            redis.call(
+                'HSET', key, 's', 'running', 'rn', runner, 'sas', '1',
+                'sa', us(now), 'lu', lease_until
+            )
+            redis.call('ZADD', deadlines, lease_until, id)
+            return {1, record(key)}
+        end
+        local max_wait = tonumber(ARGV[8])
+        if max_wait >= 0 then
+            local start_by = us(now + max_wait)
+            redis.call('HSET', key, 'sb', start_by)
+            redis.call('ZADD', waiting, start_by, id)
+            redis.call('ZADD', deadlines, start_by, id)
+        end
+        redis.call('ZADD', queue, redis.call('INCR', order), id)
+        return {0, record(key)}
+    """
+    )
+    """Store a job, or refuse it.
+
+    KEYS: deadlines, job, queue, waiting, order. ARGV: id, name, has owner,
+    owner, payload, context, max queued (-1: no limit), max wait in us (-1: no
+    limit), keep in ms ('': no limit), has runner, runner, lease in us.
+    """
+
+    _LUA_CLAIM = (
+        _LUA_JOB
+        + """
+        local jobs, runner, lease = ARGV[1], ARGV[2], tonumber(ARGV[3])
+        local claimed = {}
+        for index = 1, (#KEYS - 1) / 2 do
+            local queue, waiting = KEYS[2 * index], KEYS[2 * index + 1]
+            local free = tonumber(ARGV[3 + index])
+            local taken = 0
+            while taken < free do
+                local head = redis.call('ZRANGE', queue, 0, 0)
+                if #head == 0 then
+                    break
+                end
+                local id = head[1]
+                local key = jobs .. id
+                if redis.call('HGET', key, 's') ~= 'queued' then
+                    redis.call('ZREM', queue, id)
+                    redis.call('ZREM', waiting, id)
+                elseif not catch_up(key, id, queue, waiting) then
+                    local lease_until = us(now + lease)
+                    redis.call('ZREM', queue, id)
+                    redis.call('ZREM', waiting, id)
+                    redis.call(
+                        'HSET', key, 's', 'running', 'rn', runner,
+                        'sa', us(now), 'lu', lease_until
+                    )
+                    redis.call('HDEL', key, 'sb')
+                    redis.call('HINCRBY', key, 'v', 1)
+                    redis.call('ZADD', deadlines, lease_until, id)
+                    claimed[#claimed + 1] = {
+                        id, record(key), redis.call('HMGET', key, 'p', 'x')
+                    }
+                    taken = taken + 1
+                end
+            end
+        end
+        return claimed
+    """
+    )
+    """Claim queued jobs, oldest first per name.
+
+    KEYS: deadlines, then queue and waiting of each name. ARGV: job key
+    prefix, runner, lease in us, then the free slots of each name.
+    """
+
+    _LUA_BEAT = (
+        _LUA_JOB
+        + """
+        local runner, lease = ARGV[1], tonumber(ARGV[2])
+        local replies = {}
+        for index = 1, (#KEYS - 1) / 3 do
+            local key = KEYS[3 * index - 1]
+            local queue, waiting = KEYS[3 * index], KEYS[3 * index + 1]
+            local at = 2 + 5 * (index - 1)
+            local name, id = ARGV[at + 1], ARGV[at + 2]
+            local held, flag = 0, 0
+            if redis.call('HGET', key, 'n') == name then
+                catch_up(key, id, queue, waiting)
+                local job = redis.call('HMGET', key, 's', 'rn', 'c', 'd', 't')
+                if job[1] == 'running' and job[2] == runner then
+                    local lease_until = us(now + lease)
+                    redis.call('HSET', key, 'lu', lease_until)
+                    redis.call('ZADD', deadlines, lease_until, id)
+                    local done, total = ARGV[at + 4], ARGV[at + 5]
+                    if ARGV[at + 3] == '1'
+                        and (job[4] ~= done or (job[5] or '') ~= total) then
+                        write_progress(key, done, total)
+                        redis.call('HINCRBY', key, 'v', 1)
+                    end
+                    held = 1
+                    if job[3] == '1' then
+                        flag = 1
+                    end
+                end
+            end
+            replies[index] = {held, flag}
+        end
+        return replies
+    """
+    )
+    """Extend each held job's lease, write its progress, read its flag.
+
+    KEYS: deadlines, then job, queue and waiting of each beat. ARGV: runner,
+    lease in us, then name, id, has progress, done and total ('': unknown) of
+    each beat.
+    """
+
+    _LUA_SETTLE = (
+        _LUA_JOB
+        + """
+        local key, queue, waiting = KEYS[2], KEYS[3], KEYS[4]
+        local id, status = ARGV[2], ARGV[4]
+        if redis.call('HGET', key, 'n') ~= ARGV[1] then
+            return 0
+        end
+        catch_up(key, id, queue, waiting)
+        local job = redis.call('HMGET', key, 's', 'rn')
+        if not job[1] or job[2] ~= ARGV[3] then
+            return 0
+        end
+        if job[1] ~= 'running' then
+            if job[1] == status then
+                return 1
+            end
+            return 0
+        end
+        if ARGV[9] == '1' then
+            write_progress(key, ARGV[10], ARGV[11])
+        end
+        if ARGV[7] == '1' then
+            redis.call('HSET', key, 'r', ARGV[8])
+        end
+        local err = false
+        if ARGV[5] == '1' then
+            err = ARGV[6]
+        end
+        finish(key, id, status, err, queue, waiting)
+        retain(key)
+        return 1
+    """
+    )
+    """End a running job, and start its retention.
+
+    KEYS: deadlines, job, queue, waiting. ARGV: name, id, runner, status, has
+    error, error, has result, result, has progress, done, total ('': unknown).
+    """
+
+    _LUA_FIND = """
+        local key, queue, waiting = KEYS[2], KEYS[3], KEYS[4]
+        local id = ARGV[2]
+        local stored = redis.call('HMGET', key, 'n', 'o')
+        if stored[1] ~= ARGV[1] or not owns(stored[2], ARGV[3], ARGV[4]) then
+            return false
+        end
+        catch_up(key, id, queue, waiting)
+        if redis.call('EXISTS', key) == 0 then
+            return false
+        end
+    """
+    """Find the job of this name and owner, as it is now.
+
+    KEYS: deadlines, job, queue, waiting. ARGV: name, id, has owner, owner.
+    """
+
+    _LUA_GET = (
+        _LUA_JOB
+        + _LUA_FIND
+        + """
+        return record(key)
+    """
+    )
+    """Return the job when the owner owns it."""
+
+    _LUA_CANCEL = (
+        _LUA_JOB
+        + _LUA_FIND
+        + """
+        local job = redis.call('HMGET', key, 's', 'c')
+        if job[1] == 'queued' then
+            redis.call('HSET', key, 'c', '1')
+            finish(key, id, 'cancelled', false, queue, waiting)
+            local ended = record(key)
+            retain(key)
+            return ended
+        end
+        if job[1] == 'running' and job[2] ~= '1' then
+            redis.call('HSET', key, 'c', '1')
+            redis.call('HINCRBY', key, 'v', 1)
+        end
+        return record(key)
+    """
+    )
+    """Ask the job to stop when the owner owns it, and return it."""
+
+    _LUA_REAP = (
+        _LUA_JOB
+        + """
+        local base, limit = ARGV[1], tonumber(ARGV[2])
+        local reaped = 0
+        while reaped < limit do
+            local due = redis.call(
+                'ZRANGEBYSCORE', deadlines, '-inf', us(now),
+                'LIMIT', 0, limit - reaped
+            )
+            if #due == 0 then
+                break
+            end
+            for _, id in ipairs(due) do
+                local key = base .. 'id:' .. id
+                local name = redis.call('HGET', key, 'n')
+                if name and catch_up(
+                    key, id, base .. 'queue:' .. name, base .. 'wait:' .. name
+                ) then
+                    reaped = reaped + 1
+                else
+                    redis.call('ZREM', deadlines, id)
+                end
+            end
+        end
+        return reaped
+    """
+    )
+    """End jobs past their lease or `max_wait`, whatever their name.
+
+    KEYS: deadlines. ARGV: key prefix of the store, limit.
+    """
+
+    def __init__(
+        self,
+        *,
+        provider: Annotated[
+            RedisProvider | None,
+            Doc(
+                """
+                A pre-built `RedisProvider`. When set, the adapter
+                borrows the provider's client and does not manage
+                its lifecycle.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `RedisProvider` when `provider` is not set. Defaults
+                to `REDIS_`. Use a custom prefix to split pools.
+                """,
+            ),
+        ] = "REDIS_",
+        prefix: Annotated[
+            str,
+            Doc("Prefix prepended to every Redis key (job store isolation)."),
+        ] = "",
+    ) -> None:
+        """Initialize the adapter."""
+        if provider is None:
+            self._provider = RedisProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
+        self._key_prefix = prefix
+        self._base = f"{prefix}{self._KEY_PREFIX}"
+        self._bind_scripts()
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def provider(self) -> RedisProvider:
+        """The bound `RedisProvider`."""
+        return self._provider
+
+    def _bind_scripts(self) -> None:
+        """(Re)register the Lua scripts against the current client."""
+        require_cluster_hash_tag(
+            self._provider, self._key_prefix, adapter="RedisJobAdapter"
+        )
+        client = self._provider.client
+        self._lua_submit = client.register_script(self._LUA_SUBMIT)
+        self._lua_claim = client.register_script(self._LUA_CLAIM)
+        self._lua_beat = client.register_script(self._LUA_BEAT)
+        self._lua_settle = client.register_script(self._LUA_SETTLE)
+        self._lua_get = client.register_script(self._LUA_GET)
+        self._lua_cancel = client.register_script(self._LUA_CANCEL)
+        self._lua_reap = client.register_script(self._LUA_REAP)
+
+    def _rebind_provider(self, provider: RedisProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
+        self._bind_scripts()
+
+    async def __aenter__(self) -> Self:
+        """Open the adapter and its provider when owned."""
+        self._loop = asyncio.get_running_loop()
+        if self._owns_provider:
+            await self._provider.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the provider when owned. External providers are left alone."""
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
+
+    def _keys(self, name: str, job_id: str) -> list[str]:
+        """Return the deadline, job, queue and waiting keys of one job."""
+        return [
+            f"{self._base}deadlines",
+            f"{self._base}id:{job_id}",
+            f"{self._base}queue:{name}",
+            f"{self._base}wait:{name}",
+        ]
+
+    async def submit(
+        self,
+        *,
+        name: str,
+        job_id: str,
+        owner: str | None,
+        payload: str,
+        context: Mapping[str, str],
+        max_queued: int | None,
+        max_wait: timedelta | None,
+        keep: timedelta | None,
+        start_as: str | None,
+        lease: timedelta,
+    ) -> Submitted:
+        """Store a job, or refuse it."""
+        reply = await self._lua_submit(
+            keys=[*self._keys(name, job_id), f"{self._base}order:{name}"],
+            args=[
+                job_id,
+                name,
+                *_optional_arg(owner),
+                payload,
+                json.dumps(dict(context)),
+                -1 if max_queued is None else max_queued,
+                -1 if max_wait is None else round_up(max_wait, MICROSECOND),
+                "" if keep is None else _keep_ms(keep),
+                *_optional_arg(start_as),
+                round_up(lease, MICROSECOND),
+            ],
+            client=self._provider.client,
+        )
+        if reply is None:
+            return Submitted(None, started=False)
+        started, fields = reply
+        return Submitted(_record(job_id, fields), started=bool(started))
+
+    async def claim(
+        self,
+        *,
+        slots: Mapping[str, int],
+        runner: str,
+        lease: timedelta,
+    ) -> list[Claimed]:
+        """Claim queued jobs up to each name's slots, oldest first per name."""
+        names = [name for name, free in slots.items() if free > 0]
+        if not names:
+            return []
+        keys = [f"{self._base}deadlines"]
+        for name in names:
+            keys += [f"{self._base}queue:{name}", f"{self._base}wait:{name}"]
+        reply = await self._lua_claim(
+            keys=keys,
+            args=[
+                f"{self._base}id:",
+                runner,
+                round_up(lease, MICROSECOND),
+                *(slots[name] for name in names),
+            ],
+            client=self._provider.client,
+        )
+        return [
+            Claimed(
+                _record(_text(job_id), fields),
+                payload=_text(payload),
+                context=json.loads(_text(context)),
+            )
+            for job_id, fields, (payload, context) in reply
+        ]
+
+    async def beat(
+        self,
+        *,
+        runner: str,
+        beats: Sequence[Beat],
+        lease: timedelta,
+    ) -> list[BeatReply]:
+        """Extend each held job's lease, write its progress, read its flag."""
+        if not beats:
+            return []
+        keys = [f"{self._base}deadlines"]
+        args: list[str | int] = [runner, round_up(lease, MICROSECOND)]
+        for beat in beats:
+            keys += self._keys(beat.name, beat.job_id)[1:]
+            args += [beat.name, beat.job_id, *_progress_args(beat.progress)]
+        reply = await self._lua_beat(
+            keys=keys, args=args, client=self._provider.client
+        )
+        return [
+            BeatReply(
+                beat.name,
+                beat.job_id,
+                held=bool(held),
+                cancel_requested=bool(flag),
+            )
+            for beat, (held, flag) in zip(beats, reply, strict=True)
+        ]
+
+    async def settle(
+        self,
+        *,
+        name: str,
+        job_id: str,
+        runner: str,
+        status: EndStatus,
+        error: str | None,
+        result: str | None,
+        progress: ProgressUpdate | None,
+    ) -> bool:
+        """End a running job, and start its retention."""
+        return bool(
+            await self._lua_settle(
+                keys=self._keys(name, job_id),
+                args=[
+                    name,
+                    job_id,
+                    runner,
+                    status.value,
+                    *_optional_arg(error),
+                    *_optional_arg(result),
+                    *_progress_args(progress),
+                ],
+                client=self._provider.client,
+            )
+        )
+
+    async def get(
+        self, *, name: str, job_id: str, owner: str | None
+    ) -> JobRecord | None:
+        """Return the job when `owner` owns it, else `None`."""
+        fields = await self._lua_get(
+            keys=self._keys(name, job_id),
+            args=[name, job_id, *_optional_arg(owner)],
+            client=self._provider.client,
+        )
+        return None if fields is None else _record(job_id, fields)
+
+    async def cancel(
+        self, *, name: str, job_id: str, owner: str | None
+    ) -> JobRecord | None:
+        """Ask the job to stop when `owner` owns it, and return it."""
+        fields = await self._lua_cancel(
+            keys=self._keys(name, job_id),
+            args=[name, job_id, *_optional_arg(owner)],
+            client=self._provider.client,
+        )
+        return None if fields is None else _record(job_id, fields)
+
+    async def reap(self, *, limit: int) -> int:
+        """End jobs past their lease or `max_wait`, whatever their name."""
+        return int(
+            await self._lua_reap(
+                keys=[f"{self._base}deadlines"],
+                args=[self._base, limit],
+                client=self._provider.client,
+            )
+        )
+
+    async def purge(self, *, limit: int) -> int:  # noqa: ARG002
+        """Forget ended jobs past their retention, whatever their name.
+
+        Redis expires an ended job on its own once `keep` has passed, so this
+        returns `0`.
+        """
+        return 0
+
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _optional_arg(value: str | None) -> tuple[str, str]:
+    """Return a script's flag and value for text that may be `None`."""
+    return ("0", "") if value is None else ("1", value)
+
+
+def _progress_args(progress: ProgressUpdate | None) -> tuple[str, str, str]:
+    """Return a script's flag, done and total for counts that may be `None`."""
+    if progress is None:
+        return ("0", "", "")
+    total = "" if progress.total is None else str(progress.total)
+    return ("1", str(progress.done), total)
+
+
+def _keep_ms(keep: timedelta) -> int:
+    """Return the retention in whole milliseconds, rounded up.
+
+    Zero keeps nothing. A positive retention is at least one millisecond.
+    """
+    if keep <= timedelta(0):
+        return 0
+    return round_up(keep, MILLISECOND)
+
+
+def _text(value: bytes | str) -> str:
+    """Decode a Redis reply value to `str`."""
+    return value.decode() if isinstance(value, bytes) else value
+
+
+def _optional(value: bytes | str | None) -> str | None:
+    """Decode a Redis field that may be missing."""
+    return None if value is None else _text(value)
+
+
+def _required(value: bytes | str | None, job_id: str) -> str:
+    """Decode a Redis field every stored job has."""
+    if value is None:
+        msg = f"unexpected missing field in stored job {job_id!r}"
+        raise ValueError(msg)
+    return _text(value)
+
+
+def _time(value: bytes | str | None) -> datetime | None:
+    """Read a stored count of microseconds since the epoch as a datetime."""
+    if value is None:
+        return None
+    return _EPOCH + timedelta(microseconds=int(_text(value)))
+
+
+def _record(job_id: str, fields: Sequence[bytes | str | None]) -> JobRecord:
+    """Build a `JobRecord` from the fields a script returns."""
+    (
+        name,
+        status,
+        version,
+        done,
+        total,
+        result,
+        error,
+        cancel,
+        created_at,
+        started_at,
+        finished_at,
+    ) = fields
+    return JobRecord(
+        id=job_id,
+        name=_required(name, job_id),
+        status=JobStatus(_required(status, job_id)),
+        version=int(_required(version, job_id)),
+        done=int(_required(done, job_id)),
+        total=None if total is None else int(_text(total)),
+        result=_optional(result),
+        error=_optional(error),
+        cancel_requested=_optional(cancel) == "1",
+        created_at=_EPOCH
+        + timedelta(microseconds=int(_required(created_at, job_id))),
+        started_at=_time(started_at),
+        finished_at=_time(finished_at),
+    )

@@ -285,12 +285,16 @@ A job runs once each time your code submits it, and reports its progress while
 it runs. Use it for work started from a request that takes too long to answer
 in it: an import, a report, a batch handled item by item.
 
+Any replica of your service can take the submit, run the job, and answer a poll
+or a cancel. There is no broker to run and no worker to deploy. Jobs run inside
+your service, on the Redis it already uses.
+
 !!! warning "Experimental"
     On-demand jobs are new, and their design can still change. See the
     [capability matrix](capabilities.md) for where they run today.
 
 ```python
---8<-- "task/job.py:1:59"
+--8<-- "task/job.py:1:61"
 ```
 
 `@tasks.job` turns the function into a `Job`. Choose who the job belongs to with
@@ -315,10 +319,47 @@ returns it as is:
 }
 ```
 
-!!! warning "One process"
-    A job lives in the process that runs it. Behind a load balancer, a poll that
-    reaches another replica finds nothing. Route a job's requests to one
-    replica, or run one replica.
+For heavy batch work, long pipelines or work that must survive failures and
+retry, use a task queue or a workflow engine. Jobs are for a person or a page
+waiting on an answer.
+
+### Where jobs live
+
+A job finds its store through your app, the way a task with `gate="claim"`
+does. A Redis provider in `uses=` is all it takes. The job takes the store as
+its tasks start, and keeps it while they run.
+
+| What you run | What happens |
+| --- | --- |
+| A Redis provider | Every replica shares the jobs. |
+| No shared store, in `development` or `test` | Jobs live in the process, so tests need no store. |
+| No shared store, in `production` or `staging` | The app refuses to start with `BackendScopeError`, because a poll that reaches another replica would answer `404`. |
+| No shared store, and `GREL_ENVIRONMENT` unset | Jobs live in the process, and the app warns once. |
+| One replica on purpose | Pass `requires="process"`, and jobs live in the process. |
+
+The [backend check](deployment.md#the-backend-check) explains the scopes behind
+this. Under [`micro.fake()`](testing.md#test-the-app-you-ship), jobs live in
+the process like the rest of the app. Enter it before the app opens: a job
+takes its store as its tasks start, so a fake entered on an open app does not
+reach the jobs already running.
+
+To keep a job on a store of its own, pass it as `backend=`, such as
+`@tasks.job(backend=jobs_redis.job_backend())`. The job does not open that
+store. Open it the way you open its provider.
+
+!!! warning "Redis must not evict jobs"
+    Redis frees memory by evicting keys when it reaches `maxmemory`. An
+    `allkeys-*` policy can drop a queued or running job, and nothing reports
+    it. Set `maxmemory-policy` to `noeviction`.
+
+    A `volatile-*` policy evicts only keys with an expiry. Queued and running
+    jobs have none, so it never drops them. A finished job expires after
+    `keep`, so it can be dropped sooner, and a poll then answers `404`.
+
+On a Redis Cluster, the job store needs a prefix with a
+[hash tag](providers/redis.md#the-hash-tag-rule-on-cluster), like every Redis
+store that runs multi-key operations. Wire it yourself:
+`Coordination(job=redis.job_backend(prefix="{myapp}jobs:"))`.
 
 ### Status
 
@@ -327,7 +368,7 @@ returns it as is:
 | `queued` | Waiting for a free slot. |
 | `running` | The body is running. |
 | `succeeded` | The body returned JSON. |
-| `failed` | The body raised or returned something that is not JSON, the job never started in time, or the job was lost. `error` says why. |
+| `failed` | The body raised or returned something that is not JSON, the job never started in time, or the job was lost, such as when the replica running it died. `error` says why. |
 | `cancelled` | Cancelled before or while it ran. |
 
 A job only moves forward: `queued`, then `running`, then one of the last three.
@@ -337,7 +378,8 @@ A job only moves forward: `queued`, then `running`, then one of the last three.
 
 Take `progress: Progress` as the first parameter. Set `progress.total` when you
 know it, and call `progress.advance()` after each item. Progress reaches a poll
-within about a second, and the last of it always arrives with the final status.
+within about a second, from any replica, and the last of it always arrives with
+the final status.
 
 What the body returns reaches `result` once the job ends. It must be JSON: a
 string, a number, a boolean, or a list or dict of them. A body that returns
@@ -346,9 +388,9 @@ and `done` and `total` still show how far it got. To keep partial work, have the
 body save it.
 
 The arguments after `progress` are stored as JSON and rebuilt from the body's
-type hints, so a `datetime`, a `UUID` or a Pydantic model arrives as that type.
-A type hint only your type checker can resolve travels as plain JSON. The body
-gets a copy, never your object.
+type hints, so a `datetime`, a `UUID` or a Pydantic model arrives as that type,
+on whichever replica runs the job. A type hint only your type checker can
+resolve travels as plain JSON. The body gets a copy, never your object.
 
 `submit` raises `TypeError` for arguments the body does not take, for a value
 that does not match its type hint or has no JSON form, and for a value that
@@ -358,9 +400,16 @@ where the job is written, or at the first `submit` when the type is defined
 after the job. Pass an id, and let the body load it.
 
 A dependency the body takes from
-[FastDepends](https://lancetnik.github.io/FastDepends/) is injected, never
-submitted. Give it a default, `client: Client = Depends(get_client)`, so your
-type checker does not ask `submit` for it either.
+[FastDepends](https://lancetnik.github.io/FastDepends/) is injected on the
+replica that runs the job, never submitted. Give it a default,
+`client: Client = Depends(get_client)`, so your type checker does not ask
+`submit` for it either.
+
+### Poll cheaply
+
+A page that polls gets a `304` when nothing changed. Install
+[conditional requests](http/conditional.md), and every response carries an
+`ETag` hashed from its body. The endpoint needs no change.
 
 ### Errors
 
@@ -377,14 +426,10 @@ logs one warning line, with no traceback. Inside a task group in the body, it
 counts when every error the group raised is a `JobError`, and the first message
 is shown.
 
-A job also ends `failed`, with the error `"Job lost"`, when nothing extended its
-lease for 30 seconds. A body that blocks the event loop that long does this, so
-run blocking work in a sync body, which runs in a worker thread.
-
-A store call that fails is tried again each second, and logged at `DEBUG`. A
-replica that cannot reach the store for 30 seconds logs a warning and asks its
-running jobs to stop, since their leases ran out. A job whose end the store
-does not take within 30 seconds logs a warning and reads `"Job lost"`.
+A body that blocks the event loop for 30 seconds stops its replica from
+extending the job's lease, and the job is lost, as described
+[below](#when-a-replica-dies). Run blocking work in a sync body, which runs in a
+worker thread.
 
 ### Owner
 
@@ -412,7 +457,8 @@ never finds them.
 ### Cancel
 
 `cancel` asks the job to stop and returns at once with `cancel_requested`
-set. A queued job ends `cancelled` right away. A running async body gets
+set, from any replica. A queued job ends `cancelled` right away. A running job
+hears about it within about a second, wherever it runs. An async body then gets
 `asyncio.CancelledError` at its next `await` and ends `cancelled`, even if it
 catches the error and returns. Cancelling a finished job changes nothing and
 returns it as it is.
@@ -446,8 +492,8 @@ with a bare `return`.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `max_concurrent` | `1` | Jobs of this function running at once, on each replica. |
-| `max_queued` | `None` | Jobs waiting for a slot. `None` means no limit. Past a limit, `submit` raises `JobRefusedError`. `0` takes a job only when a slot is free now. |
+| `max_concurrent` | `1` | Jobs of this function running at once, on each replica. Three replicas run up to three times this. |
+| `max_queued` | `None` | Jobs waiting for a slot, counted in the store, so across every replica that shares it. `None` means no limit. Past a limit, `submit` raises `JobRefusedError`. `0` takes a job only when this replica can start it now. |
 | `max_wait` | `86400` | How long a queued job may wait for a slot, in seconds or a `timedelta`. Past it, the job ends `failed`. `None` means no limit. |
 | `keep` | `86400` | How long a finished job stays readable, in seconds or a `timedelta`. `0` keeps nothing. `None` means no limit. |
 
@@ -461,17 +507,41 @@ When the queue is full, or the service is shutting down, `submit` raises
 A sync body holds a thread of the default executor for its whole run, as sync
 scheduled tasks do. Keep `max_concurrent` low for long sync jobs.
 
+### When a replica dies
+
+The body runs at most once. A replica running a job extends its lease every
+second. When nothing extends it for 30 seconds, for example after a crash, the
+job reads `failed` with the error `"Job lost"`, and nothing runs it again. The
+page can offer a retry, which submits a new job.
+
+A store call that fails is tried again each second, and logged at `DEBUG`. A
+replica that cannot reach the store for 30 seconds logs a warning and asks its
+running jobs to stop, since their leases ran out: an async body at its next
+`await`, a sync body at its next `checkpoint()`. A body stuck elsewhere can keep
+running after the job reads `failed`. The store refuses its end, and no other
+replica runs it. A job whose end the store does not take within 30 seconds
+logs a warning and reads `"Job lost"`.
+
+!!! warning "A Redis failover can run a body twice"
+    "At most once" holds while Redis keeps the writes it acknowledged. Redis
+    copies a write to its replicas after it acknowledges it, so a failover can
+    lose a recent start, and another replica can start the same job. If a
+    second run would do harm, make the writes it does safe to repeat.
+
 ### Shutdown
 
-Leaving `async with tasks` drains jobs with the scheduled tasks, within the
-same `shutdown_timeout`:
+Leaving `async with tasks` drains this replica's jobs with the scheduled tasks,
+within the same `shutdown_timeout`. Other replicas keep working:
 
-1. `submit` refuses new jobs with `JobRefusedError`. A submit already waiting
-   for the store still runs the job it starts.
-2. Queued jobs stay queued and do not start. They are lost with the process.
+1. `submit` on this replica refuses new jobs with `JobRefusedError`. With
+   error responses installed, it answers `503`, so the client retries on
+   another replica. A submit already
+   waiting for the store still runs the job it starts.
+2. Queued jobs stay queued in the store. Another replica runs them, or this
+   one after a redeploy.
 3. Running jobs see `progress.stopping` turn `True`. Each stops at its next
-   `checkpoint()`, after the item in hand, and releases its locks through
-   `async with` as it unwinds.
+   `checkpoint()`, after the item in hand, ends `cancelled`, and releases its
+   locks through `async with` as it unwinds.
 4. A job still running after `shutdown_timeout` is cancelled at its next
    `await`. A sync job ends `cancelled` at once, and its thread stops at its
    next `checkpoint()`, `advance()` or `total` update.
@@ -481,9 +551,9 @@ job still reaches its database. A sync body that never calls `checkpoint()`
 cannot be stopped: its thread keeps the process alive until it returns or the
 orchestrator kills it.
 
-A job stopped by shutdown is not resumed. The client sees it `cancelled` while
-the process lives, and `404` once it is gone. A queued job reads `queued` until
-then. Submit it again, starting from a cursor the body saved.
+A job stopped by shutdown is not resumed. Submit it again, starting from a
+cursor the body saved. When jobs live in the process, queued jobs are lost with
+it, and a poll answers `404` once it is gone.
 
 ### Logs and traces
 
@@ -492,7 +562,9 @@ view shows both. A failed run marks its span as an error and sets `error.type`.
 An exception other than a `JobError` is also an `exception` event on the span,
 with its message and traceback. Set `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN=logs`
 to leave the event off the span. The log still has it. A cancelled run is not
-marked as an error. The body runs in its own context, not the request's, so context
+marked as an error.
+
+The body runs in its own context, on whichever replica takes it, so context
 variables and log fields from the request do not travel. Pass what the body
 needs as an argument.
 

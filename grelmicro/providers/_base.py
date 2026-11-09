@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         CircuitBreakerBackend,
         RateLimiterBackend,
     )
+    from grelmicro.task._protocol import JobBackend
 
 
 PATTERNS: Final = (
@@ -26,6 +27,7 @@ PATTERNS: Final = (
     "readwritelock",
     "leaderelection",
     "schedule",
+    "job",
     "cache",
     "outbox",
     "ratelimiter",
@@ -185,6 +187,21 @@ class Provider(AbstractAsyncContextManager["Provider"]):
             f"{type(self).__name__} has no schedule adapter. "
             f"Pass a ScheduleBackend instance to Coordination(schedule=...) "
             f"directly."
+        )
+        raise NotImplementedError(msg)
+
+    def job_backend(self, **kwargs: Any) -> JobBackend:  # noqa: ANN401
+        """Return the matching `JobBackend` adapter for this Provider.
+
+        The job backend holds the queue, status and result of on-demand
+        jobs, shared by every replica.
+
+        Raises:
+            NotImplementedError: If this Provider does not ship a job adapter.
+        """
+        msg = (
+            f"{type(self).__name__} has no job adapter. "
+            "Pass a JobBackend instance to Coordination(job=...) directly."
         )
         raise NotImplementedError(msg)
 
