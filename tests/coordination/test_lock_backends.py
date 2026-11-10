@@ -23,6 +23,7 @@ from grelmicro.errors import WouldBlockError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
+from grelmicro.providers.valkey import ValkeyProvider
 from tests._redis_cluster import (
     CLUSTERS,
     cluster_provider,
@@ -56,6 +57,7 @@ def monkeypatch() -> Generator[pytest.MonkeyPatch]:
         "memory",
         "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        pytest.param("valkey", marks=[pytest.mark.integration]),
         pytest.param("redis-sentinel", marks=[pytest.mark.integration]),
         *(
             pytest.param(name, marks=[pytest.mark.integration])
@@ -88,6 +90,9 @@ def container(
     """Test Container for each Backend."""
     if backend_name == "redis":
         with RedisContainer() as container:
+            yield container
+    elif backend_name == "valkey":
+        with RedisContainer(image="valkey/valkey:8.1") as container:
             yield container
     elif backend_name == "postgres":
         monkeypatch.setenv("POSTGRES_HOST", "localhost")
@@ -158,6 +163,13 @@ async def backend(
         port = container.get_exposed_port(6379)
         provider = RedisProvider(f"redis://localhost:{port}/0")
         async with RedisLockAdapter(provider=provider) as backend:
+            yield backend
+    elif backend_name == "valkey" and container:
+        port = container.get_exposed_port(6379)
+        provider = ValkeyProvider(f"redis://localhost:{port}/0")
+        async with RedisLockAdapter(
+            provider=provider, prefix=unique_prefix()
+        ) as backend:
             yield backend
     elif backend_name == "postgres" and container:
         port = container.get_exposed_port(5432)
@@ -503,6 +515,22 @@ async def test_owned_another(backend: LockBackend) -> None:
     # Assert
     assert owned_before is False
     assert owned_after is False
+
+
+async def test_release_another(backend: LockBackend) -> None:
+    """Test a token that does not hold the lock cannot release it."""
+    # Arrange
+    name = "test_release_another" + uuid4().hex
+    holder = uuid4().hex
+    other = uuid4().hex
+
+    # Act
+    await backend.acquire(name=name, token=holder, duration=LONG)
+    released = await backend.release(name=name, token=other)
+
+    # Assert
+    assert released is False
+    assert await backend.owned(name=name, token=holder) is True
 
 
 async def test_a_lease_is_rounded_up_never_down(

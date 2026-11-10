@@ -20,7 +20,13 @@ from grelmicro.cache.ttl import TTLCache
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
-from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
+from grelmicro.providers.valkey import ValkeyProvider
+from tests._redis_cluster import (
+    CLUSTERS,
+    cluster_provider,
+    hash_tag_prefix,
+    unique_prefix,
+)
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
 """Thirty seconds of test body, with container startup left to its own wait."""
@@ -34,6 +40,7 @@ pytestmark = [pytest.mark.timeout(30, func_only=True)]
         "memory",
         "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        pytest.param("valkey", marks=[pytest.mark.integration]),
         *(
             pytest.param(name, marks=[pytest.mark.integration])
             for name in CLUSTERS
@@ -51,10 +58,13 @@ def backend_name(request: pytest.FixtureRequest) -> str:
 def container(
     backend_name: str,
 ) -> Generator[DockerContainer | None]:
-    """Docker container (only for Redis and Postgres)."""
+    """Docker container (only for Redis, Valkey and Postgres)."""
     if backend_name == "redis":
         with RedisContainer() as redis_container:
             yield redis_container
+    elif backend_name == "valkey":
+        with RedisContainer(image="valkey/valkey:8.1") as valkey_container:
+            yield valkey_container
     elif backend_name == "postgres":
         with PostgresContainer() as pg_container:
             yield pg_container
@@ -86,6 +96,13 @@ async def backend(
             prefix="test:",
         ) as redis_backend:
             yield redis_backend
+    elif backend_name == "valkey" and container:
+        port = container.get_exposed_port(6379)
+        async with RedisCacheAdapter(
+            provider=ValkeyProvider(f"redis://localhost:{port}/0"),
+            prefix=unique_prefix(),
+        ) as valkey_backend:
+            yield valkey_backend
     elif backend_name == "postgres" and container:
         port = container.get_exposed_port(5432)
         provider = PostgresProvider(

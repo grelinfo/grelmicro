@@ -26,7 +26,13 @@ from grelmicro.coordination.sqlite import SQLiteReadWriteLockAdapter
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
-from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
+from grelmicro.providers.valkey import ValkeyProvider
+from tests._redis_cluster import (
+    CLUSTERS,
+    cluster_provider,
+    hash_tag_prefix,
+    unique_prefix,
+)
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
 
@@ -48,6 +54,7 @@ def monkeypatch() -> Generator[pytest.MonkeyPatch]:
         "memory",
         "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        pytest.param("valkey", marks=[pytest.mark.integration]),
         *(
             pytest.param(name, marks=[pytest.mark.integration])
             for name in CLUSTERS
@@ -77,6 +84,9 @@ def container(
     """Test Container for each Backend."""
     if backend_name == "redis":
         with RedisContainer() as container:
+            yield container
+    elif backend_name == "valkey":
+        with RedisContainer(image="valkey/valkey:8.1") as container:
             yield container
     elif backend_name == "postgres":
         monkeypatch.setenv("POSTGRES_HOST", "localhost")
@@ -137,6 +147,13 @@ async def backend(
         port = container.get_exposed_port(6379)
         provider = RedisProvider(f"redis://localhost:{port}/0")
         async with RedisReadWriteLockAdapter(provider=provider) as backend:
+            yield backend
+    elif backend_name == "valkey" and container:
+        port = container.get_exposed_port(6379)
+        provider = ValkeyProvider(f"redis://localhost:{port}/0")
+        async with RedisReadWriteLockAdapter(
+            provider=provider, prefix=unique_prefix()
+        ) as backend:
             yield backend
     elif backend_name == "postgres" and container:
         port = container.get_exposed_port(5432)
