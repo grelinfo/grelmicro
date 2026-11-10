@@ -760,11 +760,11 @@ def _backend_names(unmet: Sequence[Unmet]) -> str:
     """Return the backends that reach far enough for every one of `unmet`.
 
     SQLite is named when each requires `host`, and Kubernetes when each is
-    a coordination backend. With a job store among them, only Redis is
-    named, since it is the one store that holds jobs.
+    a coordination backend. With a job store among them, only Redis and
+    Valkey are named, since they are the stores that hold jobs.
     """
     if any(entry.kind == "job" for entry in unmet):
-        return "a Redis"
+        return "a Redis or Valkey"
     names = ["Redis", "Valkey", "Postgres"]
     if all(entry.requires == "host" for entry in unmet):
         names.insert(0, "SQLite")

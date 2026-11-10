@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, NoReturn, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from pydantic import UrlConstraints
 from pydantic_core import MultiHostUrl
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from grelmicro.resilience.ratelimiter.redis import (
         RedisRateLimiterAdapter,
     )
+    from grelmicro.task.redis import RedisJobAdapter
 
 
 ValkeyAnyDsn = Annotated[
@@ -354,17 +355,11 @@ class ValkeyProvider(RedisProvider):
 
         return RedisScheduleAdapter(provider=self, **kwargs)
 
-    def job_backend(self, **kwargs: Any) -> NoReturn:  # noqa: ANN401
-        """Raise, since this Provider ships no job adapter.
+    def job_backend(self, **kwargs: Any) -> RedisJobAdapter:  # noqa: ANN401
+        """Build a `RedisJobAdapter` bound to this provider."""
+        from grelmicro.task.redis import RedisJobAdapter  # noqa: PLC0415
 
-        Raises:
-            NotImplementedError: Always.
-        """
-        msg = (
-            f"{type(self).__name__} has no job adapter. "
-            "Pass a JobBackend instance to Coordination(job=...) directly."
-        )
-        raise NotImplementedError(msg)
+        return RedisJobAdapter(provider=self, **kwargs)
 
     def cache_backend(self, **kwargs: Any) -> RedisCacheAdapter:  # noqa: ANN401
         """Build a `RedisCacheAdapter` bound to this provider."""

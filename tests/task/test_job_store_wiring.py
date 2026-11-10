@@ -80,7 +80,7 @@ async def test_job_without_a_shared_store_is_refused_in_a_strict_environment(
     message = str(error.value)
     assert "Job('report')" in message
     assert "provides scope 'process', but requires scope 'cluster'" in message
-    assert "a Redis provider" in message
+    assert "a Redis or Valkey provider" in message
     assert "Kubernetes" not in message
     assert "pass requires=" in message
 
@@ -393,6 +393,6 @@ async def test_job_and_its_coordination_falling_short_offer_only_a_job_store() -
     # Assert
     message = str(error.value)
     assert "Job('report')" in message
-    assert "a Redis backend" in message
-    assert "Valkey" not in message
+    assert "a Redis or Valkey backend" in message
     assert "Postgres" not in message
+    assert "Kubernetes" not in message

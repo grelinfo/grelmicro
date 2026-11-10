@@ -80,14 +80,18 @@ def test_job_redis_provider_factory_returns_the_adapter() -> None:
     assert backend._key_prefix == "jobs:"
 
 
-def test_job_redis_valkey_provider_ships_no_job_adapter() -> None:
-    """`ValkeyProvider.job_backend()` raises like any provider without one."""
+def test_job_redis_valkey_provider_factory_returns_bound_adapter() -> None:
+    """`ValkeyProvider.job_backend()` returns the Redis adapter on Valkey."""
     # Arrange
     provider = ValkeyProvider(URL)
 
-    # Act & Assert
-    with pytest.raises(NotImplementedError, match="ValkeyProvider has no job"):
-        provider.job_backend()
+    # Act
+    backend = provider.job_backend(prefix="jobs:")
+
+    # Assert
+    assert isinstance(backend, RedisJobAdapter)
+    assert backend.provider is provider
+    assert backend._key_prefix == "jobs:"
 
 
 def test_job_redis_rebind_provider_borrows_it(
