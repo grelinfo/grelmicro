@@ -287,7 +287,7 @@ in it: an import, a report, a batch handled item by item.
 
 Any replica of your service can take the submit, run the job, and answer a poll
 or a cancel. There is no broker to run and no worker to deploy. Jobs run inside
-your service, on the Redis it already uses.
+your service, on the Redis or Valkey it already uses.
 
 !!! warning "Experimental"
     On-demand jobs are new, and their design can still change. See the
@@ -326,12 +326,12 @@ waiting on an answer.
 ### Where jobs live
 
 A job finds its store through your app, the way a task with `gate="claim"`
-does. A Redis provider in `uses=` is all it takes. The job takes the store as
+does. A Redis or Valkey provider in `uses=` is all it takes. The job takes the store as
 its tasks start, and keeps it while they run.
 
 | What you run | What happens |
 | --- | --- |
-| A Redis provider | Every replica shares the jobs. |
+| A Redis or Valkey provider | Every replica shares the jobs. |
 | No shared store, in `development` or `test` | Jobs live in the process, so tests need no store. |
 | No shared store, in `production` or `staging` | The app refuses to start with `BackendScopeError`, because a poll that reaches another replica would answer `404`. |
 | No shared store, and `GREL_ENVIRONMENT` unset | Jobs live in the process, and the app warns once. |
@@ -347,10 +347,10 @@ To keep a job on a store of its own, pass it as `backend=`, such as
 `@tasks.job(backend=jobs_redis.job_backend())`. The job does not open that
 store. Open it the way you open its provider.
 
-!!! warning "Redis must not evict jobs"
-    Redis frees memory by evicting keys when it reaches `maxmemory`. An
-    `allkeys-*` policy can drop a queued or running job, and nothing reports
-    it. Set `maxmemory-policy` to `noeviction`.
+!!! warning "The store must not evict jobs"
+    Redis and Valkey free memory by evicting keys when they reach
+    `maxmemory`. An `allkeys-*` policy can drop a queued or running job, and
+    nothing reports it. Set `maxmemory-policy` to `noeviction`.
 
     A `volatile-*` policy evicts only keys with an expiry. Queued and running
     jobs have none, so it never drops them. A finished job expires after
@@ -522,11 +522,12 @@ running after the job reads `failed`. The store refuses its end, and no other
 replica runs it. A job whose end the store does not take within 30 seconds
 logs a warning and reads `"Job lost"`.
 
-!!! warning "A Redis failover can run a body twice"
-    "At most once" holds while Redis keeps the writes it acknowledged. Redis
-    copies a write to its replicas after it acknowledges it, so a failover can
-    lose a recent start, and another replica can start the same job. If a
-    second run would do harm, make the writes it does safe to repeat.
+!!! warning "A failover can run a body twice"
+    "At most once" holds while the store keeps the writes it acknowledged.
+    Redis and Valkey copy a write to their replicas after they acknowledge it,
+    so a failover can lose a recent start, and another replica can start the
+    same job. If a second run would do harm, make the writes it does safe to
+    repeat.
 
 ### Shutdown
 

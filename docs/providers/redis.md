@@ -164,7 +164,7 @@ CI does not run a real cluster yet, see the
 
 `ValkeyProvider` is a subclass of `RedisProvider`. It connects to a
 [Valkey](https://valkey.io) server using the `valkey-py` client
-(`valkey.asyncio`) and serves the same adapter set, except the job store.
+(`valkey.asyncio`) and serves the same adapter set.
 
 Install the `valkey` extra before using it:
 

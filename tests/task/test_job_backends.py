@@ -12,6 +12,7 @@ from testcontainers.community.redis import RedisContainer
 
 from grelmicro.clock import VirtualClock
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.valkey import ValkeyProvider
 from grelmicro.task import JobStatus
 from grelmicro.task._protocol import (
     JOB_LOST,
@@ -23,7 +24,6 @@ from grelmicro.task._protocol import (
     ProgressUpdate,
 )
 from grelmicro.task.memory import MemoryJobAdapter
-from grelmicro.task.redis import RedisJobAdapter
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
 """Thirty seconds of test body.
@@ -101,21 +101,31 @@ def redis_url() -> Generator[str]:
         yield f"redis://localhost:{container.get_exposed_port(6379)}/0"
 
 
+@pytest.fixture(scope="module")
+def valkey_url() -> Generator[str]:
+    """Start one Valkey for the module, and return its URL."""
+    with RedisContainer(image="valkey/valkey:8.1") as container:
+        yield f"redis://localhost:{container.get_exposed_port(6379)}/0"
+
+
 @pytest.fixture(
     params=[
         "memory",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        pytest.param("valkey", marks=[pytest.mark.integration]),
     ]
 )
 async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
     """Provide each job backend, open."""
-    if request.param == "redis":
-        provider = RedisProvider(request.getfixturevalue("redis_url"))
-        redis = RedisJobAdapter(
-            provider=provider, prefix=f"{{{secrets.token_hex(8)}}}:"
+    if request.param in {"redis", "valkey"}:
+        provider = (
+            RedisProvider(request.getfixturevalue("redis_url"))
+            if request.param == "redis"
+            else ValkeyProvider(request.getfixturevalue("valkey_url"))
         )
-        async with provider, redis:
-            yield _Store(redis, asyncio.sleep, REAL_TICK)
+        adapter = provider.job_backend(prefix=f"{{{secrets.token_hex(8)}}}:")
+        async with provider, adapter:
+            yield _Store(adapter, asyncio.sleep, REAL_TICK)
         return
     backend = MemoryJobAdapter()
     clock = VirtualClock()
