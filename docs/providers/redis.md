@@ -157,8 +157,9 @@ Without a hash tag, the adapter raises a `ValueError` at construction
 that names the fix. Standalone and Sentinel need no hash tag, since every
 key lives on one server. The rate limiter, circuit breaker, schedule, and
 leader-election adapters touch one key per call, so they need no hash tag.
-CI does not run a real cluster yet, see the
-[capability matrix](../capabilities.md#patterns-on-a-backend).
+CI runs these adapters on a real Redis Cluster and a real Valkey Cluster.
+The [capability matrix](../capabilities.md#patterns-on-a-backend) gives
+the level of each one.
 
 ## Valkey
 

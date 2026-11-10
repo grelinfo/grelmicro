@@ -24,6 +24,7 @@ from grelmicro.task._protocol import (
     ProgressUpdate,
 )
 from grelmicro.task.memory import MemoryJobAdapter
+from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
 """Thirty seconds of test body.
@@ -113,17 +114,22 @@ def valkey_url() -> Generator[str]:
         "memory",
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("valkey", marks=[pytest.mark.integration]),
+        *(
+            pytest.param(name, marks=[pytest.mark.integration])
+            for name in CLUSTERS
+        ),
     ]
 )
 async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
     """Provide each job backend, open."""
-    if request.param in {"redis", "valkey"}:
-        provider = (
-            RedisProvider(request.getfixturevalue("redis_url"))
-            if request.param == "redis"
-            else ValkeyProvider(request.getfixturevalue("valkey_url"))
-        )
-        adapter = provider.job_backend(prefix=f"{{{secrets.token_hex(8)}}}:")
+    if request.param in {"redis", "valkey", *CLUSTERS}:
+        if request.param == "redis":
+            provider = RedisProvider(request.getfixturevalue("redis_url"))
+        elif request.param == "valkey":
+            provider = ValkeyProvider(request.getfixturevalue("valkey_url"))
+        else:
+            provider = cluster_provider(request, request.param)
+        adapter = provider.job_backend(prefix=hash_tag_prefix())
         async with provider, adapter:
             yield _Store(adapter, asyncio.sleep, REAL_TICK)
         return

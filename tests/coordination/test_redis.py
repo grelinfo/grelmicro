@@ -14,8 +14,10 @@ from testcontainers.community.redis import RedisContainer
 
 from grelmicro.coordination.redis import RedisLeaderElectionAdapter, _as_str
 from grelmicro.providers.redis import RedisProvider
+from tests._redis_cluster import CLUSTERS, cluster_provider
 
-pytestmark = [pytest.mark.timeout(30)]
+pytestmark = [pytest.mark.timeout(30, func_only=True)]
+"""Thirty seconds of test body, with container startup left to its own wait."""
 
 URL = "redis://:test_password@test_host:1234/0"
 
@@ -155,14 +157,21 @@ def container() -> Generator[RedisContainer]:
         yield container
 
 
-@pytest.fixture
+@pytest.fixture(params=["redis", *CLUSTERS])
 async def backend(
-    container: RedisContainer,
+    request: pytest.FixtureRequest,
 ) -> AsyncGenerator[RedisLeaderElectionAdapter]:
-    """Redis Leader Election Backend bound to the container."""
-    port = container.get_exposed_port(6379)
-    provider = RedisProvider(f"redis://localhost:{port}/0")
-    async with RedisLeaderElectionAdapter(provider=provider) as backend:
+    """Redis Leader Election Backend on a real server and on each cluster."""
+    if request.param in CLUSTERS:
+        provider = cluster_provider(request, request.param)
+    else:
+        container: RedisContainer = request.getfixturevalue("container")
+        port = container.get_exposed_port(6379)
+        provider = RedisProvider(f"redis://localhost:{port}/0")
+    async with (
+        provider,
+        RedisLeaderElectionAdapter(provider=provider) as backend,
+    ):
         yield backend
 
 

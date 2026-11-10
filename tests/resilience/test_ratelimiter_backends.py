@@ -24,8 +24,10 @@ from grelmicro.resilience.ratelimiter import (
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
+from tests._redis_cluster import CLUSTERS, cluster_provider, unique_prefix
 
-pytestmark = [pytest.mark.timeout(30)]
+pytestmark = [pytest.mark.timeout(30, func_only=True)]
+"""Thirty seconds of test body, with container startup left to its own wait."""
 
 LIMIT = 5
 WINDOW = 60
@@ -41,6 +43,10 @@ REFILL_RATE = 0.1  # slow enough to not refill between assertions
         "memory",
         "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        *(
+            pytest.param(name, marks=[pytest.mark.integration])
+            for name in CLUSTERS
+        ),
         pytest.param("postgres", marks=[pytest.mark.integration]),
     ],
     scope="module",
@@ -67,10 +73,21 @@ def container(
 
 @pytest.fixture(scope="module")
 async def backend(
-    backend_name: str, container: DockerContainer | None
+    backend_name: str,
+    container: DockerContainer | None,
+    request: pytest.FixtureRequest,
 ) -> AsyncGenerator[RateLimiterBackend]:
     """Rate limiter backend instance."""
-    if backend_name == "redis" and container:
+    if backend_name in CLUSTERS:
+        provider = cluster_provider(request, backend_name)
+        async with (
+            provider,
+            RedisRateLimiterAdapter(
+                provider=provider, prefix=unique_prefix()
+            ) as cluster_backend,
+        ):
+            yield cluster_backend
+    elif backend_name == "redis" and container:
         port = container.get_exposed_port(6379)
         async with RedisRateLimiterAdapter(
             provider=RedisProvider(f"redis://localhost:{port}/0"),

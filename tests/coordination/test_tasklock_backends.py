@@ -8,6 +8,7 @@ lease times its own way, and Kubernetes keeps them in whole seconds.
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable, Generator
+from contextlib import nullcontext
 from datetime import timedelta
 from itertools import pairwise
 from uuid import uuid4
@@ -21,12 +22,14 @@ from grelmicro.coordination import Coordination
 from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.kubernetes import KubernetesLockAdapter
+from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.valkey import ValkeyProvider
 from grelmicro.task._interval import IntervalTask
+from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
 
@@ -49,8 +52,13 @@ GAP_TOLERANCE = 0.8
 """Share of the interval two runs must stay apart, for a loaded machine."""
 
 
-type LockSource = RedisProvider | PostgresProvider | KubernetesLockAdapter
-"""What a claimed task and a TaskLock take their lock backend from."""
+type LockSource = (
+    RedisProvider | PostgresProvider | KubernetesLockAdapter | RedisLockAdapter
+)
+"""What a claimed task and a TaskLock take their lock backend from.
+
+A cluster gives a lock backend, since its prefix needs a hash tag.
+"""
 
 
 @pytest.fixture(
@@ -58,6 +66,7 @@ type LockSource = RedisProvider | PostgresProvider | KubernetesLockAdapter
     params=[
         "redis",
         "valkey",
+        *CLUSTERS,
         "postgres",
         pytest.param("kubernetes", marks=[pytest.mark.xdist_group("k3s")]),
     ],
@@ -74,6 +83,10 @@ def lock_source(
         with RedisContainer(image="valkey/valkey:8.1") as valkey:
             port = valkey.get_exposed_port(6379)
             yield lambda: ValkeyProvider(f"redis://localhost:{port}/0")
+    elif request.param in CLUSTERS:
+        yield lambda: cluster_provider(request, request.param).lock_backend(
+            prefix=hash_tag_prefix()
+        )
     elif request.param == "postgres":
         with PostgresContainer() as postgres:
             port = postgres.get_exposed_port(5432)
@@ -93,6 +106,10 @@ async def backend(
 ) -> AsyncGenerator[LockBackend]:
     """Open the lock backend of the store."""
     source = lock_source()
+    if isinstance(source, RedisLockAdapter):
+        async with source.provider, source as adapter:
+            yield adapter
+        return
     if isinstance(source, KubernetesLockAdapter):
         async with source as adapter:
             yield adapter
@@ -283,9 +300,17 @@ async def test_a_claimed_task_runs_each_interval_once_across_workers(
         for _ in range(2)
     ]
 
+    source = lock_source()
+    provider = (
+        source.provider
+        if isinstance(source, RedisLockAdapter)
+        else nullcontext()
+    )
+
     # Act
     async with (
-        Grelmicro(uses=[Coordination(lock=lock_source())]),
+        provider,
+        Grelmicro(uses=[Coordination(lock=source)]),
         asyncio.TaskGroup() as tg,
     ):
         for worker in workers:

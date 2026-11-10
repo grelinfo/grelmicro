@@ -19,6 +19,7 @@
 
 ### Internal
 * ✅ `TaskLock` runs on real Redis, Valkey, Postgres and Kubernetes in CI, and its row on the capability matrix moves to Preview there. ([#1255](https://github.com/grelinfo/grelmicro/pull/1255))
+* ✅ `Lock`, `ReadWriteLock`, `TaskLock`, `LeaderElection`, `@tasks.cron`, `Job`, `TTLCache`, `RateLimiter` and `CircuitBreaker` run on a real Redis Cluster and Valkey Cluster in CI. On the capability matrix, their Redis Cluster cells move to Preview, except `ReadWriteLock` and `Job`, which are new. ([#1240](https://github.com/grelinfo/grelmicro/issues/1240), [#1271](https://github.com/grelinfo/grelmicro/issues/1271))
 
 ## 0.44.2 - 2026-10-30
 
