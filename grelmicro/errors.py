@@ -153,9 +153,10 @@ class UngatedCronWarning(GrelmicroConfigWarning):
 class GrelmicroFutureWarning(FutureWarning):
     """Warned when a default or a name changes in a coming minor release.
 
-    A behavior change warns only while the setting is left at its default.
+    A changed default warns only while the setting is left at its default.
     Choosing the value explicitly keeps the chosen behavior across the switch
-    and emits nothing. A renamed or removed name warns on every use of the
+    and emits nothing. A value that becomes refused warns each time it is
+    passed. A renamed or removed name warns on every use of the
     old name, which is removed in the release the message names.
 
     A category of its own so it can be promoted or filtered precisely:
@@ -188,6 +189,23 @@ class Grelmicro045Warning(GrelmicroFutureWarning):
     """
 
     switch_in: ClassVar[str] = "0.45.0"
+
+
+class Grelmicro046Warning(GrelmicroFutureWarning):
+    """Warned for a change that lands in 0.46.0.
+
+    The change is a default, a read-back value, a check result, or a removed
+    name or value.
+
+    A filter on it promotes or silences every change that lands in 0.46.0
+    and leaves the other releases alone:
+
+    ```toml
+    filterwarnings = ["error::grelmicro.Grelmicro046Warning"]
+    ```
+    """
+
+    switch_in: ClassVar[str] = "0.46.0"
 
 
 class MiddlewarePlacementError(GrelmicroError, RuntimeError):

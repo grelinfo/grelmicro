@@ -17,11 +17,16 @@ import logging
 from collections import OrderedDict
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, ClassVar, Final, cast, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 from grelmicro._app import resolve_ambient
-from grelmicro._config import match_case
-from grelmicro._environment import Binding, falls_short, label, record
+from grelmicro._environment import (
+    Binding,
+    falls_short,
+    label,
+    record,
+    spelled_scope,
+)
 from grelmicro.coordination.errors import (
     LockAcquireError,
     LockNotOwnedError,
@@ -41,8 +46,6 @@ logger = logging.getLogger(__name__)
 _SENTINEL = object()
 
 _PER_KEY_LOCK_BUDGET = 1024
-
-_SCOPES: frozenset[object] = frozenset(get_args(BackendScope.__value__))
 
 
 class InProcessLock:
@@ -78,10 +81,9 @@ def check_fold(lock: object) -> BackendScope | None:
     """
     if lock is None:
         return None
-    if isinstance(lock, str):
-        spelled = lock if lock in _SCOPES else match_case(BackendScope, lock)
-        if spelled in _SCOPES:
-            return cast("BackendScope", spelled)
+    spelled = spelled_scope(lock)
+    if spelled is not None:
+        return spelled
     msg = (
         "lock= takes 'process', 'host', 'cluster' or None. "
         "'process' folds concurrent misses in the process, 'host' and "

@@ -34,10 +34,15 @@ from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
 from grelmicro._caller import subject_of
-from grelmicro._config import match_case
 from grelmicro._current_app import _current_micro
 from grelmicro._duration import check_duration, check_retention, is_int
-from grelmicro._environment import Binding, falls_short, label, record
+from grelmicro._environment import (
+    Binding,
+    falls_short,
+    label,
+    record,
+    required_scope,
+)
 from grelmicro._task import Task
 from grelmicro.clock._seam import monotonic, sleep
 from grelmicro.errors import OutOfContextError
@@ -327,9 +332,7 @@ class Job[**P](Task):
             None if max_wait is None else check_duration(max_wait, "max_wait")
         )
         self._keep = None if keep is None else check_retention(keep, "keep")
-        self._requires: BackendScope = match_case(
-            BackendScope, requires or "cluster"
-        )
+        self._requires = required_scope(requires, "cluster")
         self._chosen = backend
         self._fallback = MemoryJobAdapter()
         self._backend: JobBackend = (

@@ -7,7 +7,12 @@ from typing import Any, ClassVar, cast
 
 import pytest
 
-from grelmicro import BackendScopeError, BackendScopeWarning, Grelmicro
+from grelmicro import (
+    BackendScopeError,
+    BackendScopeWarning,
+    Grelmicro,
+    Grelmicro046Warning,
+)
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.errors import CoordinationBackendError
 from grelmicro.coordination.memory import MemoryLockAdapter
@@ -157,10 +162,12 @@ async def test_job_requiring_the_host_is_refused_on_a_process_store() -> None:
 
 
 def test_job_requirement_naming_no_scope_is_passed_over() -> None:
-    """A typo in `requires=` does not crash startup, as on a component."""
+    """A typo in `requires=` warns, and does not crash startup until 0.46.0."""
     # Arrange
     tasks = Tasks()
-    tasks.job(name="report", requires=cast("Any", "clustr"))(_noop)
+    with pytest.warns(Grelmicro046Warning, match="'clustr'") as caught:
+        tasks.job(name="report", requires=cast("Any", "clustr"))(_noop)
+    assert [warning.filename for warning in caught] == [__file__]
 
     # Act and assert
     Grelmicro(uses=[tasks]).check_backends()

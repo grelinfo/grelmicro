@@ -102,6 +102,11 @@ raise it to make the wiring you meant a startup condition: a
 `RateLimiterComponent(redis, requires="cluster")` fails at boot the day
 someone points it at memory.
 
+`requires=` takes `"process"`, `"host"` or `"cluster"`, in any case. Any other
+value warns with `Grelmicro046Warning` and names the value. The check passes
+over it, and an empty value reads as the default. From 0.46.0 it raises
+`SettingsValidationError`.
+
 Only a bound backend is checked. A component you never registered is the
 [documented way](architecture/backends.md#distribution-model) to say you want
 local behavior: a `@cron` with no gate fires on every replica on purpose. Wiring a memory schedule backend instead says you expected the fleet
