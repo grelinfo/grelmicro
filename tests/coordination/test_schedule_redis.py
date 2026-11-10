@@ -11,6 +11,7 @@ from testcontainers.community.redis import RedisContainer
 
 from grelmicro.coordination.redis import RedisScheduleAdapter
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.valkey import ValkeyProvider
 from tests._redis_cluster import CLUSTERS, cluster_provider
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
@@ -129,13 +130,24 @@ def container() -> Generator[RedisContainer]:
         yield container
 
 
-@pytest.fixture(params=["redis", *CLUSTERS])
+@pytest.fixture(scope="module")
+def valkey_container() -> Generator[RedisContainer]:
+    """Valkey Test Container."""
+    with RedisContainer(image="valkey/valkey:8.1") as container:
+        yield container
+
+
+@pytest.fixture(params=["redis", "valkey", *CLUSTERS])
 async def backend(
     request: pytest.FixtureRequest,
 ) -> AsyncGenerator[RedisScheduleAdapter]:
-    """Redis Schedule Adapter on a real server and on each cluster."""
+    """Redis Schedule Adapter on each real server and each cluster."""
     if request.param in CLUSTERS:
         provider = cluster_provider(request, request.param)
+    elif request.param == "valkey":
+        valkey: RedisContainer = request.getfixturevalue("valkey_container")
+        port = valkey.get_exposed_port(6379)
+        provider = ValkeyProvider(f"redis://localhost:{port}/0")
     else:
         container: RedisContainer = request.getfixturevalue("container")
         port = container.get_exposed_port(6379)

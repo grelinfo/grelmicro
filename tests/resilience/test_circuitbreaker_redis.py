@@ -10,6 +10,7 @@ from testcontainers.community.redis import RedisContainer
 from grelmicro._duration import microseconds, seconds_to_microseconds
 from grelmicro.health import HealthChecks
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.valkey import ValkeyProvider
 from grelmicro.resilience import (
     CircuitBreaker,
     CircuitBreakerState,
@@ -94,16 +95,28 @@ def container() -> Generator[RedisContainer]:
         yield redis_container
 
 
-@pytest.fixture(params=["redis", *CLUSTERS])
+@pytest.fixture(scope="module")
+def valkey_container() -> Generator[RedisContainer]:
+    """Docker container running Valkey."""
+    with RedisContainer(image="valkey/valkey:8.1") as valkey_container:
+        yield valkey_container
+
+
+@pytest.fixture(params=["redis", "valkey", *CLUSTERS])
 async def backend(
     request: pytest.FixtureRequest,
 ) -> AsyncGenerator[RedisCircuitBreakerAdapter]:
     """Redis circuit breaker adapter bound to a fresh keyspace per test.
 
-    A cluster is shared, so it takes a new prefix instead of a flush.
+    Valkey and the clusters take a new prefix instead of a flush.
     """
-    if request.param in CLUSTERS:
-        provider = cluster_provider(request, request.param)
+    if request.param in {"valkey", *CLUSTERS}:
+        if request.param == "valkey":
+            valkey: RedisContainer = request.getfixturevalue("valkey_container")
+            port = valkey.get_exposed_port(6379)
+            provider = ValkeyProvider(f"redis://localhost:{port}/0")
+        else:
+            provider = cluster_provider(request, request.param)
         async with (
             provider,
             RedisCircuitBreakerAdapter(
