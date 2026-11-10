@@ -356,10 +356,9 @@ store. Open it the way you open its provider.
     jobs have none, so it never drops them. A finished job expires after
     `keep`, so it can be dropped sooner, and a poll then answers `404`.
 
-On a Redis Cluster, the job store needs a prefix with a
-[hash tag](providers/redis.md#the-hash-tag-rule-on-cluster), like every Redis
-store that runs multi-key operations. Wire it yourself:
-`Coordination(job=redis.job_backend(prefix="{myapp}jobs:"))`.
+On a Redis Cluster, the job store keeps its keys in one slot under its own
+[hash tag](providers/redis.md#the-hash-tag-rule-on-cluster), such as `{job}:`.
+The provider in `uses=` is all it takes there too.
 
 ### Status
 

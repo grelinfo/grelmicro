@@ -123,6 +123,34 @@ def test_describe_reports_provider_env_prefix() -> None:
     assert "REDIS_*" in report.render()
 
 
+def test_describe_reports_provider_key_prefix() -> None:
+    """A Provider with a key prefix shows the namespace its stores write under."""
+    micro = Grelmicro(
+        uses=[RedisProvider("redis://localhost:6379/0", prefix="myapp:")],
+        environment="development",
+    )
+
+    report = micro.describe()
+
+    redis = next(p for p in report.providers if p.short_name == "redis")
+    assert redis.prefix == "myapp:"
+    assert "prefix:   myapp:" in report.render()
+
+
+def test_describe_omits_an_empty_provider_key_prefix() -> None:
+    """A Provider with no key prefix renders no prefix line."""
+    micro = Grelmicro(
+        uses=[RedisProvider("redis://localhost:6379/0")],
+        environment="development",
+    )
+
+    report = micro.describe()
+
+    redis = next(p for p in report.providers if p.short_name == "redis")
+    assert redis.prefix is None
+    assert "prefix:" not in report.render()
+
+
 def test_describe_scope_check_passes_in_development() -> None:
     """A memory backend is the point of `development`, so it is not a failure."""
     micro = Grelmicro(uses=[MemoryProvider()], environment="development")

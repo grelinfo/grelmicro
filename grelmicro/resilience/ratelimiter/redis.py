@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
-from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.redis import RedisProvider, store_prefix
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -81,9 +81,9 @@ class RedisRateLimiterAdapter(RateLimiterBackend):
             str,
             Doc(
                 """
-                Prefix prepended to every Redis key the adapter
-                writes. Use it to avoid collisions with other
-                consumers of the same Redis database.
+                Prefix for every Redis key the adapter writes, after
+                the provider's `prefix`. Use it to avoid collisions with
+                other consumers of the same Redis database.
                 """
             ),
         ] = "",
@@ -107,6 +107,10 @@ class RedisRateLimiterAdapter(RateLimiterBackend):
         """Swap the underlying provider (used by `Grelmicro` for sharing)."""
         self._provider = provider
         self._owns_provider = False
+
+    def _store_prefix(self) -> str:
+        """Return the provider prefix, then this adapter's own."""
+        return store_prefix(self._provider, self._prefix)
 
     async def __aenter__(self) -> Self:
         """Open the rate limiter adapter."""
@@ -136,10 +140,12 @@ class RedisRateLimiterAdapter(RateLimiterBackend):
         match config:
             case TokenBucketConfig():
                 return _RedisTokenBucket(
-                    self._provider.client, self._prefix, config
+                    self._provider.client, self._store_prefix(), config
                 )
             case SlidingWindowConfig():
-                return _RedisGCRA(self._provider.client, self._prefix, config)
+                return _RedisGCRA(
+                    self._provider.client, self._store_prefix(), config
+                )
         raise unsupported_algorithm(config)
 
 

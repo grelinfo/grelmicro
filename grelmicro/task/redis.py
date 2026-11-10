@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro._duration import MICROSECOND, MILLISECOND, round_up
-from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
+from grelmicro.providers.redis import RedisProvider, kind_prefix
 from grelmicro.task._protocol import (
     JOB_LOST,
     JOB_NOT_STARTED,
@@ -130,8 +130,8 @@ class RedisJobAdapter:
     submission order, and the queued jobs that have a `max_wait`. One index
     holds every deadline, so `reap` finds the overdue jobs of every name.
 
-    On a Redis Cluster, the prefix needs a hash tag (`{myapp}`), so every key
-    of the store lands in one slot.
+    On a Redis Cluster, every key of the store lands in one slot: under the
+    hash tag a prefix carries, or under `{<prefix>job}:` when none does.
 
     Pass an explicit `provider=` to share a pool with other components, or
     rely on the default `env_prefix=` to build one from environment variables.
@@ -141,7 +141,7 @@ class RedisJobAdapter:
     """State is shared by every process that connects to it."""
 
     _KEY_PREFIX = "job:"
-    """Marks the keys of the job store, after the user prefix."""
+    """Marks the keys of the job store when the prefix names no kind."""
 
     _LUA_SUBMIT = (
         _LUA_JOB
@@ -439,7 +439,13 @@ class RedisJobAdapter:
         ] = "REDIS_",
         prefix: Annotated[
             str,
-            Doc("Prefix prepended to every Redis key (job store isolation)."),
+            Doc(
+                """
+                Prefix for every Redis key (job store isolation), after the provider's
+                `prefix`. On a Redis Cluster with no hash tag in either, the
+                keys go under `{<prefix>job}:`.
+                """
+            ),
         ] = "",
     ) -> None:
         """Initialize the adapter."""
@@ -450,8 +456,7 @@ class RedisJobAdapter:
             self._provider = provider
             self._owns_provider = False
         self._env_prefix = env_prefix
-        self._key_prefix = prefix
-        self._base = f"{prefix}{self._KEY_PREFIX}"
+        self._prefix = prefix
         self._bind_scripts()
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -462,8 +467,13 @@ class RedisJobAdapter:
 
     def _bind_scripts(self) -> None:
         """(Re)register the Lua scripts against the current client."""
-        require_cluster_hash_tag(
-            self._provider, self._key_prefix, adapter="RedisJobAdapter"
+        self._key_prefix, marked = kind_prefix(
+            self._provider, self._prefix, kind="job"
+        )
+        self._base = (
+            self._key_prefix
+            if marked
+            else f"{self._key_prefix}{self._KEY_PREFIX}"
         )
         client = self._provider.client
         self._lua_submit = client.register_script(self._LUA_SUBMIT)

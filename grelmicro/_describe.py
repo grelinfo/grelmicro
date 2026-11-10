@@ -133,6 +133,15 @@ class ProviderReport:
             """,
         ),
     ] = ()
+    prefix: Annotated[
+        str | None,
+        Doc(
+            """
+            The namespace this Provider puts before every store's own
+            prefix, such as `"myapp:"`. `None` when it has none.
+            """,
+        ),
+    ] = None
 
 
 @dataclass(frozen=True)
@@ -366,11 +375,13 @@ def describe_provider(provider: Provider) -> ProviderReport:
     # to decide what a credential looks like for a given vendor.
     url = getattr(provider, "safe_url", None)
     env_prefix = getattr(provider, "env_prefix", None)
+    prefix = getattr(provider, "prefix", None)
     return ProviderReport(
         short_name=getattr(provider, "short_name", "?"),
         provider=type(provider).__name__,
         url=url if isinstance(url, str) else None,
         env_prefix=env_prefix if isinstance(env_prefix, str) else None,
+        prefix=prefix if isinstance(prefix, str) and prefix else None,
         serves=tuple(serves),
         declines=tuple(declines),
     )
@@ -1297,6 +1308,8 @@ def _render_providers(report: AppReport) -> list[str]:
         lines.append(f"  {provider.short_name}  ({provider.provider}){where}")
         if provider.env_prefix:
             lines.append(f"    env:      {provider.env_prefix}*")
+        if provider.prefix:
+            lines.append(f"    prefix:   {provider.prefix}")
         lines.append(f"    serves:   {', '.join(provider.serves) or 'nothing'}")
         if provider.declines:
             lines.append(f"    declines: {', '.join(provider.declines)}")

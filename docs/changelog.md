@@ -9,9 +9,13 @@
 * ✨ A job finds its store through the app, so a Redis provider in `uses=` is all it takes. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
 * ✨ In `production` and `staging`, an app with a job and no shared store refuses to start with `BackendScopeError`. Pass `requires="process"` to run one replica on purpose. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
 * ✨ A job keeps running through a store outage shorter than 30 seconds. ([#1284](https://github.com/grelinfo/grelmicro/pull/1284))
+* ✨ `RedisProvider(prefix=...)` and `ValkeyProvider(prefix=...)` put one namespace before the keys of every store they build. The lock, read-write lock, cache and job stores add their kind after it, such as `myapp:lock:`. The default is empty, so no key changes. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 
 ### Deprecated
 * 🗑️ A misspelled `requires=` value, such as `requires="clustr"`, warns with `Grelmicro046Warning` on every component and on `@tasks.job`. The warning names the value. The backend scope check passes over it until 0.46.0, then it raises `SettingsValidationError`. Pass `"process"`, `"host"` or `"cluster"`. ([#1286](https://github.com/grelinfo/grelmicro/issues/1286))
+
+### Fixed
+* 🐛 An app on a bare `RedisProvider` or `ValkeyProvider` with a cluster URL starts instead of raising. On Cluster, the cache, lock, read-write lock and job stores put their keys under a hash tag of their own, such as `{lock}:`, when no prefix carries one. A prefix with a tag keeps its keys as they are. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 
 ### Docs
 * 📝 From `1.0`, an Experimental feature is the one exception to "nothing breaks before `2.0`". It can break in a minor, and it always warns first. ([#1254](https://github.com/grelinfo/grelmicro/pull/1254))

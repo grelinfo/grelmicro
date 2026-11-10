@@ -88,6 +88,7 @@ class _StubProvider:
 
     def __init__(self) -> None:
         self.client = MagicMock()
+        self.prefix = ""
         self.enter_count = 0
         self.exit_count = 0
 

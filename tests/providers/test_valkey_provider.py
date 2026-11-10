@@ -426,15 +426,15 @@ class TestSentinelAndCluster:
         assert isinstance(provider.client, ValkeyCluster)
         assert provider.is_cluster is True
 
-    def test_cluster_hash_tag_guard(self) -> None:
-        """The cache guard fires for a tag-less prefix on a Valkey cluster."""
+    def test_cluster_hash_tag(self) -> None:
+        """A cache on a Valkey cluster takes a tag only when it has none."""
         provider = ValkeyProvider("redis+cluster://h1:6379,h2:6379")
 
-        with pytest.raises(ValueError, match="hash tag"):
-            RedisCacheAdapter(provider=provider, prefix="cache")
+        untagged = RedisCacheAdapter(provider=provider, prefix="cache:")
+        tagged = RedisCacheAdapter(provider=provider, prefix="{myapp}cache")
 
-        adapter = RedisCacheAdapter(provider=provider, prefix="{myapp}cache")
-        assert adapter.provider is provider
+        assert untagged._full("k") == "{cache:cache}:k"
+        assert tagged._full("k") == "{myapp}cachek"
 
 
 class TestEntryPoint:

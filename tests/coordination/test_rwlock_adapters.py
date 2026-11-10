@@ -37,6 +37,7 @@ class _StubProvider:
     """Minimal provider-shaped stub tracking enter and exit calls."""
 
     is_cluster = False
+    prefix = ""
 
     def __init__(self) -> None:
         self.client = MagicMock()

@@ -50,6 +50,45 @@ RedisProvider.from_client(client)            # bring-your-own client
 ORM or ODM layer hands back. The provider uses the client as it is, so it
 shares the connection pool that layer already opened.
 
+## Key prefix
+
+Pass `prefix=` to keep every key of your service under one namespace. Every
+store built on the provider puts it before its own `prefix`: the lock,
+read-write lock, leader election, schedule, cache, rate limiter, circuit
+breaker and job stores.
+
+```python
+redis = RedisProvider("redis://localhost:6379/0", prefix="myapp:")
+
+redis.schedule_backend()             # keys under "myapp:"
+redis.lock_backend()                 # keys under "myapp:lock:"
+redis.cache_backend(prefix="users:") # keys under "myapp:users:cache:"
+```
+
+The lock, read-write lock, cache and job stores add their kind after the
+prefixes, so no store reaches into the keys of another. A cache `clear()`
+deletes only the cache keys, never a lock beside them. The other stores
+already mark their keys, such as `myapp:cb:` for the circuit breaker.
+
+| Store | No provider prefix | `prefix="myapp:"` |
+|---|---|---|
+| Lock | `cart`, `fence:cart` | `myapp:lock:cart`, `myapp:lock:fence:cart` |
+| Read-write lock | `cart`, `cart:r`, `cart:i` | `myapp:rwlock:cart`, ... |
+| Cache | `user:1`, `cache:tag:users` | `myapp:cache:user:1`, ... |
+| Job | `job:deadlines`, `job:id:...` | `myapp:job:deadlines`, `myapp:job:id:...` |
+| Leader election | `le_us:primary` | `myapp:le_us:primary` |
+| Schedule | `nightly` | `myapp:nightly` |
+| Rate limiter | `tb:...`, `gcra_us:...` | `myapp:tb:...`, `myapp:gcra_us:...` |
+| Circuit breaker | `cb:payments` | `myapp:cb:payments` |
+
+The default is empty, so no key changes. `RedisConfig` and every
+construction form take the same `prefix`. It is never read from the
+environment, so setting `REDIS_PREFIX` moves no key. `micro.describe()` shows
+it under each provider. A `{` that opens no
+[hash tag](#the-hash-tag-rule-on-cluster) is refused with
+`SettingsValidationError` on every topology, and so is a `}` that closes
+none.
+
 ## Sentinel and Cluster
 
 `RedisProvider` switches topology from the URL scheme. The scheme rides
@@ -76,6 +115,9 @@ topology from them.
 ```python
 RedisProvider("redis+cluster://host1:6379,host2:6379")
 ```
+
+Every store keeps working on Cluster as it is, with no prefix to set. See
+[the hash-tag rule](#the-hash-tag-rule-on-cluster) for where its keys go.
 
 ### Authenticated Sentinels
 
@@ -139,12 +181,28 @@ to ride through the failover.
 
 A Redis Cluster shards keys across slots by a hash of the key. A command
 or script that touches several keys must keep them in one slot, or the
-cluster rejects it as a cross-slot error.
+cluster rejects it as a cross-slot error. A hash tag is a name in braces:
+the cluster hashes only what is inside the first `{...}`.
 
-The cache, lock and job adapters run multi-key operations. On Cluster,
-give their `prefix` a hash tag so every key they touch lands in one slot.
-A hash tag is any substring in braces: the cluster hashes only what is
-inside the first `{...}`.
+The cache, lock, read-write lock and job stores touch several keys at once.
+On Cluster, each one puts its keys under a hash tag of its own when no
+prefix carries one. The tag is the provider prefix, then the store prefix,
+then the store kind:
+
+| Store | No provider prefix | `prefix="myapp:"` | `prefix="{myapp}:"` |
+|---|---|---|---|
+| Lock | `{lock}:cart` | `{myapp:lock}:cart` | `{myapp}:lock:cart` |
+| Read-write lock | `{rwlock}:cart` | `{myapp:rwlock}:cart` | `{myapp}:rwlock:cart` |
+| Cache | `{cache}:user:1` | `{myapp:cache}:user:1` | `{myapp}:cache:user:1` |
+| Job | `{job}:id:...` | `{myapp:job}:id:...` | `{myapp}:job:id:...` |
+
+Each store keeps its keys in one slot, and the stores spread across
+shards. A store prefix joins the tag too: `cache_backend(prefix="users:")`
+with `prefix="myapp:"` writes under `{myapp:users:cache}:`.
+
+To place a store yourself, put a tag in its prefix. With no provider
+prefix, a store prefix that carries a tag is used as it is, so these keys
+stay byte for byte:
 
 ```python
 provider = RedisProvider("redis+cluster://host1:6379,host2:6379")
@@ -153,11 +211,23 @@ lock = provider.lock_backend(prefix="{myapp}")
 jobs = provider.job_backend(prefix="{myapp}jobs:")
 ```
 
-Without a hash tag, the adapter raises a `ValueError` at construction
-that names the fix. Standalone and Sentinel need no hash tag, since every
-key lives on one server. The rate limiter, circuit breaker, schedule, and
-leader-election adapters touch one key per call, so they need no hash tag.
-CI runs these adapters on a real Redis Cluster and a real Valkey Cluster.
+A tag in the provider prefix, such as `prefix="{myapp}:"`, puts every
+store of the provider in that one slot. Each multi-key store still adds its
+kind after it.
+
+A brace that opens or closes no tag, such as `"{myapp"` or `"a}b"`, is
+refused in the provider prefix with `SettingsValidationError`, on every
+topology. A store prefix is refused only on Cluster, for the four stores
+above, when it has braces but no `{name}` anywhere. Keep the first `{` of a
+store prefix around a name: in `"{}{app}"` the cluster reads no tag, and
+the store fails with a cross-slot error.
+
+The rate limiter, circuit breaker, schedule and leader-election stores
+touch one key per call. They never take a tag, so their keys spread across
+shards. Standalone and Sentinel keys never take a tag, since every key
+lives on one server.
+
+CI runs these stores on a real Redis Cluster and a real Valkey Cluster.
 The [capability matrix](../capabilities.md#patterns-on-a-backend) gives
 the level of each one.
 

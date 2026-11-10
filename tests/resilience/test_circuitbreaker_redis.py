@@ -51,13 +51,14 @@ def test_no_provider_builds_implicit_one(
 
 
 def test_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`prefix=` is stored on the backend."""
+    """`prefix=` comes before the breaker key."""
     monkeypatch.setenv("REDIS_URL", URL)
 
     backend = RedisCircuitBreakerAdapter(prefix="myapp:")
+    strategy = backend.bind(name="pay", config=ConsecutiveCountConfig())
 
     assert backend._prefix == "myapp:"
-    assert backend._key_prefix == "myapp:cb:"
+    assert strategy._key == "myapp:cb:pay"  # ty: ignore[unresolved-attribute]
 
 
 def test_is_shared() -> None:
