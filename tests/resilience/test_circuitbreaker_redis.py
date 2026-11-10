@@ -18,6 +18,7 @@ from grelmicro.resilience import (
 )
 from grelmicro.resilience.circuitbreaker.redis import RedisCircuitBreakerAdapter
 from grelmicro.resilience.errors import CircuitBreakerError
+from tests._redis_cluster import CLUSTERS, cluster_provider, unique_prefix
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -82,7 +83,7 @@ def test_bind_rejects_unknown_kind(monkeypatch: pytest.MonkeyPatch) -> None:
 LONG_RESET_TIMEOUT = timedelta(hours=1)
 """A cool-down long enough that the lifetime floor must exceed it."""
 
-_INTEGRATION_TIMEOUT = pytest.mark.timeout(30)
+_INTEGRATION_TIMEOUT = pytest.mark.timeout(30, func_only=True)
 
 
 @pytest.fixture(scope="module")
@@ -92,11 +93,25 @@ def container() -> Generator[RedisContainer]:
         yield redis_container
 
 
-@pytest.fixture
+@pytest.fixture(params=["redis", *CLUSTERS])
 async def backend(
-    container: RedisContainer,
+    request: pytest.FixtureRequest,
 ) -> AsyncGenerator[RedisCircuitBreakerAdapter]:
-    """Redis circuit breaker adapter bound to a fresh keyspace per test."""
+    """Redis circuit breaker adapter bound to a fresh keyspace per test.
+
+    A cluster is shared, so it takes a new prefix instead of a flush.
+    """
+    if request.param in CLUSTERS:
+        provider = cluster_provider(request, request.param)
+        async with (
+            provider,
+            RedisCircuitBreakerAdapter(
+                provider=provider, prefix=unique_prefix()
+            ) as adapter,
+        ):
+            yield adapter
+        return
+    container: RedisContainer = request.getfixturevalue("container")
     port = container.get_exposed_port(6379)
     provider = RedisProvider(f"redis://localhost:{port}/0")
     async with provider:

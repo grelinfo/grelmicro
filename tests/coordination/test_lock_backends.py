@@ -23,6 +23,7 @@ from grelmicro.errors import WouldBlockError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
+from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
 from tests.coordination._k3s import wait_for_k3s
 
 LONG = timedelta(seconds=60)
@@ -49,6 +50,10 @@ def monkeypatch() -> Generator[pytest.MonkeyPatch]:
         "memory",
         "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        *(
+            pytest.param(name, marks=[pytest.mark.integration])
+            for name in CLUSTERS
+        ),
         pytest.param("postgres", marks=[pytest.mark.integration]),
         pytest.param(
             "kubernetes",
@@ -91,7 +96,7 @@ def container(
         )
         monkeypatch.setenv("KUBE_NAMESPACE", "default")
         yield None
-    elif backend_name in ("memory", "sqlite"):
+    elif backend_name in ("memory", "sqlite", *CLUSTERS):
         yield None
 
 
@@ -118,10 +123,21 @@ def expire_wait(backend_name: str, expire_duration: timedelta) -> float:
 
 @pytest.fixture(scope="module")
 async def backend(
-    backend_name: str, container: DockerContainer | None
+    backend_name: str,
+    container: DockerContainer | None,
+    request: pytest.FixtureRequest,
 ) -> AsyncGenerator[LockBackend]:
     """Test Container for each Backend."""
-    if backend_name == "redis" and container:
+    if backend_name in CLUSTERS:
+        provider = cluster_provider(request, backend_name)
+        async with (
+            provider,
+            RedisLockAdapter(
+                provider=provider, prefix=hash_tag_prefix()
+            ) as backend,
+        ):
+            yield backend
+    elif backend_name == "redis" and container:
         port = container.get_exposed_port(6379)
         provider = RedisProvider(f"redis://localhost:{port}/0")
         async with RedisLockAdapter(provider=provider) as backend:

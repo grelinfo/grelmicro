@@ -20,8 +20,10 @@ from grelmicro.cache.ttl import TTLCache
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
+from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
 
-pytestmark = [pytest.mark.timeout(30)]
+pytestmark = [pytest.mark.timeout(30, func_only=True)]
+"""Thirty seconds of test body, with container startup left to its own wait."""
 
 
 # --- Fixtures (parametrized across backends) ---
@@ -32,6 +34,10 @@ pytestmark = [pytest.mark.timeout(30)]
         "memory",
         "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        *(
+            pytest.param(name, marks=[pytest.mark.integration])
+            for name in CLUSTERS
+        ),
         pytest.param("postgres", marks=[pytest.mark.integration]),
     ],
     scope="module",
@@ -61,9 +67,19 @@ async def backend(
     backend_name: str,
     container: DockerContainer | None,
     tmp_path_factory: pytest.TempPathFactory,
+    request: pytest.FixtureRequest,
 ) -> AsyncGenerator[CacheBackend]:
     """Cache backend instance."""
-    if backend_name == "redis" and container:
+    if backend_name in CLUSTERS:
+        provider = cluster_provider(request, backend_name)
+        async with (
+            provider,
+            RedisCacheAdapter(
+                provider=provider, prefix=hash_tag_prefix()
+            ) as cluster_backend,
+        ):
+            yield cluster_backend
+    elif backend_name == "redis" and container:
         port = container.get_exposed_port(6379)
         async with RedisCacheAdapter(
             provider=RedisProvider(f"redis://localhost:{port}/0"),
