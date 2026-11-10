@@ -9,24 +9,36 @@ the default or remove the old name.
 """
 
 import importlib
+import os
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Literal
 
-from grelmicro.errors import Grelmicro045Warning, GrelmicroFutureWarning
+from grelmicro.errors import (
+    Grelmicro045Warning,
+    Grelmicro046Warning,
+    GrelmicroFutureWarning,
+)
+
+_PACKAGE_DIR = f"{Path(__file__).parent}{os.sep}"
+"""Frames under this directory are skipped by `warn(outside=True)`."""
 
 RELEASE_WARNINGS: dict[str, type[GrelmicroFutureWarning]] = {
-    category.switch_in: category for category in (Grelmicro045Warning,)
+    category.switch_in: category
+    for category in (Grelmicro045Warning, Grelmicro046Warning)
 }
 """The `GrelmicroFutureWarning` subclass of each switching release, by release."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FutureChange:
-    """A default that changes in `switch_in`.
+    """A behavior that changes in `switch_in`.
 
-    Warn only while the argument is left at its default.
+    A changed default warns only while the argument is left at its default.
+    A changed check result, or a value that becomes refused, warns each time
+    the check or the value is reached.
     """
 
     change: str
@@ -88,12 +100,21 @@ class FutureChange:
             f"or `{self.adopt}` to adopt the new one now."
         )
 
-    def warn(self, stacklevel: int = 2) -> None:
+    def warn(self, stacklevel: int = 2, *, outside: bool = False) -> None:
         """Emit a `category` warning with `message`.
 
         `stacklevel` counts from the function that calls `warn`, so the
-        default reports the line that called that function.
+        default reports the line that called that function. With `outside`,
+        the warning reports the first line outside grelmicro instead, for a
+        change reached through several grelmicro frames.
         """
+        if outside:
+            warnings.warn(
+                self.message,
+                self.category,
+                skip_file_prefixes=(_PACKAGE_DIR,),
+            )
+            return
         warnings.warn(self.message, self.category, stacklevel=stacklevel + 1)
 
 
@@ -281,6 +302,36 @@ GATE_BACKEND_STRICT = FutureChange(
 """A gated task that resolves no backend fails the check in a strict tier."""
 
 
+UNKNOWN_REQUIRES = FutureChange(
+    change="A `requires=` value that names no scope raises "
+    "`SettingsValidationError`",
+    switch_in="0.46.0",
+    keep=None,
+    adopt='requires="cluster"',
+    remedy='Pass `"process"`, `"host"` or `"cluster"`.',
+)
+"""A component `requires=` that names no scope, in any case, is refused."""
+
+
+def unknown_requires(value: object) -> FutureChange:
+    """Return `UNKNOWN_REQUIRES` worded for the refused `value`.
+
+    It says what `value` does until the switch: an empty one reads as the
+    component's default, and any other turns the backend scope check off.
+    """
+    until = (
+        "Until then it reads as the default."
+        if not value
+        else "Until then the backend scope check passes over it."
+    )
+    return replace(
+        UNKNOWN_REQUIRES,
+        change=f"`requires={value!r}` names no scope, and raises "
+        "`SettingsValidationError`",
+        remedy=f'{until} Pass `"process"`, `"host"` or `"cluster"`.',
+    )
+
+
 FASTAPI_MOVED = Moved(
     module="grelmicro.integrations.fastapi",
     homes={
@@ -397,6 +448,7 @@ SECURITY_MOVED: tuple[Moved, ...] = (
 
 PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     GATE_BACKEND_STRICT,
+    UNKNOWN_REQUIRES,
     ENV_LOAD_DEFAULT_WARNING,
     FORMAT_CASE,
     PROVIDER_CHECKS_NONE,

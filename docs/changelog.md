@@ -10,6 +10,9 @@
 * ✨ In `production` and `staging`, an app with a job and no shared store refuses to start with `BackendScopeError`. Pass `requires="process"` to run one replica on purpose. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
 * ✨ A job keeps running through a store outage shorter than 30 seconds. ([#1284](https://github.com/grelinfo/grelmicro/pull/1284))
 
+### Deprecated
+* 🗑️ A misspelled `requires=` value, such as `requires="clustr"`, warns with `Grelmicro046Warning` on every component and on `@tasks.job`. The warning names the value. The backend scope check passes over it until 0.46.0, then it raises `SettingsValidationError`. Pass `"process"`, `"host"` or `"cluster"`. ([#1286](https://github.com/grelinfo/grelmicro/issues/1286))
+
 ### Docs
 * 📝 From `1.0`, an Experimental feature is the one exception to "nothing breaks before `2.0`". It can break in a minor, and it always warns first. ([#1254](https://github.com/grelinfo/grelmicro/pull/1254))
 * 📝 The capability matrix gives each feature a maturity level: Experimental, Preview or Stable, with the last break and serious bug fix behind it. ([#1252](https://github.com/grelinfo/grelmicro/pull/1252))

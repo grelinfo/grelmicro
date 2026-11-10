@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self, cast
 from typing_extensions import Doc
 
 from grelmicro._backend_kinds import resolve_source
-from grelmicro._config import match_case
+from grelmicro._environment import required_scope
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
 from grelmicro.cache.ttl import TTLCache
@@ -100,8 +100,8 @@ class Cache:
     ) -> None:
         """Initialize the component with the wrapped backend."""
         self._name = name
-        self._requires: BackendScope = match_case(
-            BackendScope, requires or self.default_requires
+        self._requires: BackendScope = required_scope(
+            requires, self.default_requires
         )
         resolved = cast(
             "Provider | CacheBackend",
