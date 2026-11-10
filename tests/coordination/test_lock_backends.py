@@ -23,7 +23,13 @@ from grelmicro.errors import WouldBlockError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
-from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
+from tests._redis_cluster import (
+    CLUSTERS,
+    cluster_provider,
+    hash_tag_prefix,
+    unique_prefix,
+)
+from tests._redis_sentinel import SentinelSet
 from tests.coordination._k3s import wait_for_k3s
 
 LONG = timedelta(seconds=60)
@@ -50,6 +56,7 @@ def monkeypatch() -> Generator[pytest.MonkeyPatch]:
         "memory",
         "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        pytest.param("redis-sentinel", marks=[pytest.mark.integration]),
         *(
             pytest.param(name, marks=[pytest.mark.integration])
             for name in CLUSTERS
@@ -96,7 +103,7 @@ def container(
         )
         monkeypatch.setenv("KUBE_NAMESPACE", "default")
         yield None
-    elif backend_name in ("memory", "sqlite", *CLUSTERS):
+    elif backend_name in ("memory", "sqlite", "redis-sentinel", *CLUSTERS):
         yield None
 
 
@@ -134,6 +141,16 @@ async def backend(
             provider,
             RedisLockAdapter(
                 provider=provider, prefix=hash_tag_prefix()
+            ) as backend,
+        ):
+            yield backend
+    elif backend_name == "redis-sentinel":
+        sentinel_set: SentinelSet = request.getfixturevalue("redis_sentinel")
+        provider = sentinel_set.provider()
+        async with (
+            provider,
+            RedisLockAdapter(
+                provider=provider, prefix=unique_prefix()
             ) as backend,
         ):
             yield backend

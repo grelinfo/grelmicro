@@ -25,6 +25,7 @@ from grelmicro.task._protocol import (
 )
 from grelmicro.task.memory import MemoryJobAdapter
 from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
+from tests._redis_sentinel import SentinelSet
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
 """Thirty seconds of test body.
@@ -114,6 +115,7 @@ def valkey_url() -> Generator[str]:
         "memory",
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("valkey", marks=[pytest.mark.integration]),
+        pytest.param("redis-sentinel", marks=[pytest.mark.integration]),
         *(
             pytest.param(name, marks=[pytest.mark.integration])
             for name in CLUSTERS
@@ -122,9 +124,14 @@ def valkey_url() -> Generator[str]:
 )
 async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
     """Provide each job backend, open."""
-    if request.param in {"redis", "valkey", *CLUSTERS}:
+    if request.param in {"redis", "valkey", "redis-sentinel", *CLUSTERS}:
         if request.param == "redis":
             provider = RedisProvider(request.getfixturevalue("redis_url"))
+        elif request.param == "redis-sentinel":
+            sentinel_set: SentinelSet = request.getfixturevalue(
+                "redis_sentinel"
+            )
+            provider = sentinel_set.provider()
         elif request.param == "valkey":
             provider = ValkeyProvider(request.getfixturevalue("valkey_url"))
         else:

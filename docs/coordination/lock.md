@@ -221,6 +221,14 @@ handle with its own token.
 Every backend mints tokens that are strictly monotonic per name. Redis is
 strictly monotonic against its master.
 
+!!! warning "A failover can hand out a lock twice"
+    Redis and Valkey copy a write to their replicas after they acknowledge it.
+    A lock acquired before the copy reached a replica is lost when that replica
+    becomes the master. The lock then reads free, and the next holder gets the
+    same fencing token. The first holder learns it at its next extend, which
+    raises `LockNotOwnedError`. A lock whose acquire reached the replica stays
+    held, with the same token.
+
 !!! warning "The resource enforces, grelmicro mints"
     A fencing token only protects a resource that checks it. grelmicro hands you
     the token. The resource you write to must record the highest token it has
