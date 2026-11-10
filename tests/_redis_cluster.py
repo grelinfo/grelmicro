@@ -64,7 +64,7 @@ tail -f /dev/null
 """
 
 
-def _free_ports(count: int) -> list[int]:
+def free_ports(count: int) -> list[int]:
     """Return `count` distinct host ports that were free a moment ago.
 
     Each port is bound and released, so a port another process holds is
@@ -117,7 +117,7 @@ def start_cluster(image: str, scheme: str) -> Generator[str]:
     worker may take a port between the probe and the start.
     """
     for attempt in range(_ATTEMPTS):
-        ports = _free_ports(NODES)
+        ports = free_ports(NODES)
         container = _container(image, ports)
         try:
             container.start()

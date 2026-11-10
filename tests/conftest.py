@@ -11,8 +11,8 @@ from grelmicro import _config, _environment
 from grelmicro.clock import VirtualClock
 from grelmicro.log import _queue as log_queue
 
-pytest_plugins = ["tests._redis_cluster"]
-"""The Redis Cluster and Valkey Cluster fixtures, shared by every suite."""
+pytest_plugins = ["tests._redis_cluster", "tests._redis_sentinel"]
+"""The Redis Cluster, Valkey Cluster and Redis Sentinel fixtures."""
 
 
 @pytest.fixture
