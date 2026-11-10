@@ -7,8 +7,8 @@ client are the ones the host reaches, with no address translation.
 
 The fixtures are session scoped and start a cluster only when a test asks
 for one, so each xdist worker that runs a cluster case starts one container
-per server. Tests share it, so every adapter under test takes a prefix with a
-unique hash tag, and no test flushes the cluster.
+per server. Tests share it, so each test keeps to keys of its own, through a
+unique prefix or unique names, and no test flushes the cluster.
 """
 
 from __future__ import annotations

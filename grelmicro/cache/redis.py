@@ -10,7 +10,7 @@ from typing_extensions import Doc
 
 from grelmicro._duration import MILLISECOND, round_up
 from grelmicro.cache._protocol import CacheBackend
-from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
+from grelmicro.providers.redis import RedisProvider, store_prefix
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -121,7 +121,13 @@ class RedisCacheAdapter(CacheBackend):
         ] = "REDIS_",
         prefix: Annotated[
             str,
-            Doc("Prefix prepended to every Redis key (cache namespace)."),
+            Doc(
+                """
+                Prefix for every Redis key (cache namespace), after the provider's
+                `prefix`. On a Redis Cluster with no hash tag in either, the
+                keys go under `{<prefix>cache}:`.
+                """
+            ),
         ] = "",
     ) -> None:
         """Initialize the Redis cache backend."""
@@ -132,11 +138,9 @@ class RedisCacheAdapter(CacheBackend):
             self._provider = provider
             self._owns_provider = False
         self._env_prefix = env_prefix
-        self._key_prefix = prefix
+        self._prefix = prefix
+        self._key_prefix = store_prefix(self._provider, prefix, kind="cache")
         self._loop: asyncio.AbstractEventLoop | None = None
-        require_cluster_hash_tag(
-            self._provider, prefix, adapter="RedisCacheAdapter"
-        )
 
     @property
     def provider(self) -> RedisProvider:
@@ -147,9 +151,7 @@ class RedisCacheAdapter(CacheBackend):
         """Swap the underlying provider (used by `Grelmicro` for sharing)."""
         self._provider = provider
         self._owns_provider = False
-        require_cluster_hash_tag(
-            provider, self._key_prefix, adapter="RedisCacheAdapter"
-        )
+        self._key_prefix = store_prefix(provider, self._prefix, kind="cache")
 
     async def __aenter__(self) -> Self:
         """Open the cache connection."""

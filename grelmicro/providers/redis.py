@@ -90,6 +90,7 @@ class RedisConfig(BaseModel):
     db: int = 0
     password: SecretStr | None = None
     sentinel_password: SecretStr | None = None
+    prefix: str = ""
 
 
 class _RedisEnvSettings(BaseSettings):
@@ -156,6 +157,9 @@ class RedisProvider(Provider):
     _entered: int = 0
     """How many open scopes hold this provider, read by `_is_open`."""
 
+    _prefix: str = ""
+    """Namespace every store built on this provider writes under."""
+
     _redis_class: ClassVar[type[Any]] = Redis
     _cluster_class: ClassVar[type[Any]] = RedisCluster
     _sentinel_class: ClassVar[type[Any]] = Sentinel
@@ -190,6 +194,16 @@ class RedisProvider(Provider):
                 """
             ),
         ] = None,
+        prefix: Annotated[
+            str,
+            Doc(
+                """
+                Namespace for every key the stores built on this provider
+                write, such as `"myapp:"`. Each store puts it before its own
+                `prefix`. Empty by default, so no key changes.
+                """
+            ),
+        ] = "",
         env_prefix: Annotated[
             str,
             Doc(
@@ -212,6 +226,7 @@ class RedisProvider(Provider):
         ] = True,
     ) -> None:
         """Initialize the provider and resolve the connection URL."""
+        self._prefix = _checked_prefix(prefix)
         self._env_prefix = env_prefix
         self._url, resolved_sentinel_password = _resolve_url(
             url=url,
@@ -312,6 +327,7 @@ class RedisProvider(Provider):
                 if config.sentinel_password
                 else None
             ),
+            prefix=config.prefix,
             env_prefix=env_prefix,
             env_load=False,
         )
@@ -334,6 +350,10 @@ class RedisProvider(Provider):
                 """,
             ),
         ] = False,
+        prefix: Annotated[
+            str,
+            Doc("Namespace for every key the provider's stores write."),
+        ] = "",
     ) -> Self:
         """Build a provider that wraps an existing native client.
 
@@ -342,6 +362,7 @@ class RedisProvider(Provider):
         grelmicro components to use it.
         """
         self = cls.__new__(cls)
+        self._prefix = _checked_prefix(prefix)
         self._env_prefix = "REDIS_"
         self._url = ""
         self._sentinel = None
@@ -382,6 +403,10 @@ class RedisProvider(Provider):
                 """,
             ),
         ] = None,
+        prefix: Annotated[
+            str,
+            Doc("Namespace for every key the provider's stores write."),
+        ] = "",
         env_prefix: Annotated[
             str,
             Doc("Environment variable prefix recorded on the provider."),
@@ -401,6 +426,7 @@ class RedisProvider(Provider):
             password=password,
         )
         self = cls.__new__(cls)
+        self._prefix = _checked_prefix(prefix)
         self._env_prefix = env_prefix
         self._url = url
         self._sentinel = None
@@ -421,6 +447,10 @@ class RedisProvider(Provider):
             str | None,
             Doc("Password applied to every cluster connection."),
         ] = None,
+        prefix: Annotated[
+            str,
+            Doc("Namespace for every key the provider's stores write."),
+        ] = "",
         env_prefix: Annotated[
             str,
             Doc("Environment variable prefix recorded on the provider."),
@@ -429,12 +459,13 @@ class RedisProvider(Provider):
         """Build a provider backed by a Redis Cluster.
 
         The cluster client discovers the full topology from the seed
-        nodes and routes each key to its owning slot. Multi-key
-        operations must land in one slot: see the cache hash-tag rule in
-        the [Providers](../providers/index.md) docs.
+        nodes and routes each key to its owning slot. A store that touches
+        several keys at once keeps them in one slot under a hash tag: see
+        the hash-tag rule in the [Redis](../providers/redis.md) docs.
         """
         url = _compose_cluster_url(nodes=nodes, password=password)
         self = cls.__new__(cls)
+        self._prefix = _checked_prefix(prefix)
         self._env_prefix = env_prefix
         self._url = url
         self._sentinel = None
@@ -474,11 +505,19 @@ class RedisProvider(Provider):
         return self._env_prefix
 
     @property
+    def prefix(self) -> str:
+        """Namespace every store built on this provider writes under.
+
+        Each store puts it before its own `prefix`. Empty by default.
+        """
+        return self._prefix
+
+    @property
     def is_cluster(self) -> bool:
         """Whether the underlying client is a Redis Cluster client.
 
-        Adapters that run multi-key commands check this to enforce the
-        single-slot hash-tag rule on Cluster.
+        A store that touches several keys at once reads it to keep them
+        in one slot under a hash tag.
         """
         return isinstance(self._client, RedisCluster)
 
@@ -938,24 +977,94 @@ def _quote_credential(value: str) -> str:
     return quote(value, safe="")
 
 
-_HASH_TAG_RE = re.compile(r"\{[^}]+\}")
+def _breaks_a_tag(prefix: str) -> bool:
+    """Return whether `prefix` has a brace that opens or closes no hash tag.
 
-
-def require_cluster_hash_tag(
-    provider: RedisProvider, prefix: str, *, adapter: str
-) -> None:
-    """Validate that a multi-key adapter is cluster-safe.
-
-    On a Redis Cluster, an adapter that touches several keys in one
-    command or script must keep them in one slot. A hash tag in the
-    prefix (`{myapp}cache`) forces every key under it into the same
-    slot. Raises `ValueError` when the client is a cluster and the
-    prefix has no `{...}` hash tag. No-op for standalone and Sentinel.
+    Redis Cluster hashes what sits between the first `{` and the first `}`
+    after it, when that is not empty. Otherwise it hashes the whole key, so
+    the keys under the prefix spread over many slots. A `}` with no `{`
+    before it closes no tag, and reads as part of the next store's tag.
     """
-    if provider.is_cluster and not _HASH_TAG_RE.search(prefix):
+    start = prefix.find("{")
+    if start >= 0 and prefix.find("}", start + 1) <= start + 1:
+        return True
+    depth = 0
+    for char in prefix:
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            if depth == 0:
+                return True
+            depth -= 1
+    return False
+
+
+def _checked_prefix(prefix: str) -> str:
+    """Return a provider `prefix` once its braces are known to be sound.
+
+    Raises:
+        SettingsValidationError: If `prefix` has a `{` with no matching `}`
+            around a non-empty tag, or a `}` that closes no `{`.
+    """
+    if _breaks_a_tag(prefix):
         msg = (
-            f"{adapter} runs multi-key operations that fail cross-slot on a "
-            f"Redis Cluster. Add a hash tag to the prefix so every key lands "
-            f'in one slot, e.g. prefix="{{myapp}}{prefix or "cache"}".'
+            f"the provider prefix {prefix!r} has a brace that opens or "
+            f"closes no hash tag, so Redis Cluster would spread its keys over "
+            f"many slots. Put a name between a `{{` and a `}}`, such as "
+            f"`{{myapp}}:`, or drop the brace."
         )
         raise SettingsValidationError(msg)
+    return prefix
+
+
+_HASH_TAG_RE = re.compile(r"\{[^}]+\}")
+"""A `{name}` anywhere in a store prefix, the check stores have always run."""
+
+
+def store_prefix(
+    provider: RedisProvider, prefix: str, *, kind: str | None = None
+) -> str:
+    """Return the key prefix a store built on `provider` writes under.
+
+    The provider's `prefix` comes first, then the store's own. A store that
+    touches several keys at once passes its `kind`, such as `"lock"`. When
+    the provider has a prefix, such a store adds `<kind>:` after both, so no
+    store reaches into the keys of another.
+
+    On a Redis Cluster, when the prefix has no brace, a store with a `kind`
+    writes under `{<prefix><kind>}:` instead, so its keys share one slot and
+    the stores spread across shards. A `{name}` in either prefix is kept.
+    Standalone and Sentinel keys never take a tag.
+
+    Raises:
+        SettingsValidationError: On a Redis Cluster, if a store with a `kind`
+            has braces in its prefix but no `{name}`.
+    """
+    return kind_prefix(provider, prefix, kind=kind)[0]
+
+
+def kind_prefix(
+    provider: RedisProvider, prefix: str, *, kind: str | None = None
+) -> tuple[str, bool]:
+    """Return `store_prefix`, and whether it already names the `kind`.
+
+    A store whose keys carry no other marker adds its own when the prefix
+    does not name its kind.
+    """
+    composed = f"{provider.prefix}{prefix}"
+    if kind is None:
+        return composed, False
+    segment = (
+        (f"{composed}{kind}:", True) if provider.prefix else (composed, False)
+    )
+    if not provider.is_cluster or _HASH_TAG_RE.search(composed):
+        return segment
+    if "{" in composed or "}" in composed:
+        msg = (
+            f"the {kind} prefix {composed!r} has braces but no hash tag, so "
+            f"Redis Cluster would spread its keys over many slots. Put a name "
+            f"between a `{{` and a `}}`, such as `{{myapp}}:`, or drop the "
+            f"braces."
+        )
+        raise SettingsValidationError(msg)
+    return f"{{{composed}{kind}}}:", True

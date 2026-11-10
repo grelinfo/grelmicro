@@ -11,6 +11,7 @@ from typing_extensions import Doc
 from grelmicro.providers.redis import (
     RedisConfig,
     RedisProvider,
+    _checked_prefix,
     _RedisEnvSettings,
     _resolve_url,
     _sentinel_kwargs,
@@ -144,6 +145,16 @@ class ValkeyProvider(RedisProvider):
                 """
             ),
         ] = None,
+        prefix: Annotated[
+            str,
+            Doc(
+                """
+                Namespace for every key the stores built on this provider
+                write, such as `"myapp:"`. Each store puts it before its own
+                `prefix`. Empty by default, so no key changes.
+                """
+            ),
+        ] = "",
         env_prefix: Annotated[
             str,
             Doc(
@@ -167,6 +178,7 @@ class ValkeyProvider(RedisProvider):
     ) -> None:
         """Initialize the provider and resolve the connection URL."""
         self._bind_valkey_classes()
+        self._prefix = _checked_prefix(prefix)
         self._env_prefix = env_prefix
         self._url, resolved_sentinel_password = _resolve_url(
             settings_cls=_ValkeyEnvSettings,
@@ -271,6 +283,7 @@ class ValkeyProvider(RedisProvider):
                 if config.sentinel_password
                 else None
             ),
+            prefix=config.prefix,
             env_prefix=env_prefix,
             env_load=False,
         )
@@ -293,6 +306,10 @@ class ValkeyProvider(RedisProvider):
                 """,
             ),
         ] = False,
+        prefix: Annotated[
+            str,
+            Doc("Namespace for every key the provider's stores write."),
+        ] = "",
     ) -> Self:
         """Build a provider that wraps an existing native client.
 
@@ -302,6 +319,7 @@ class ValkeyProvider(RedisProvider):
         """
         cls._bind_valkey_classes()
         self = cls.__new__(cls)
+        self._prefix = _checked_prefix(prefix)
         self._env_prefix = "VALKEY_"
         self._url = ""
         self._sentinel = None

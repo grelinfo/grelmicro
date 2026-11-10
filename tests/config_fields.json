@@ -164,6 +164,7 @@
     "host",
     "password",
     "port",
+    "prefix",
     "sentinel_password",
     "url"
   ],
@@ -176,6 +177,7 @@
     "host",
     "password",
     "port",
+    "prefix",
     "sentinel_password",
     "url"
   ],

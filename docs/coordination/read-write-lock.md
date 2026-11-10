@@ -89,7 +89,7 @@ Every coordination backend implements it.
 
 | Backend | Holds readers in | Notes |
 |---|---|---|
-| Redis, Valkey | A sorted set of reader leases, updated in one server-side step | Fastest. On a cluster, the prefix needs a hash tag. |
+| Redis, Valkey | A sorted set of reader leases, updated in one server-side step | Fastest. Runs on a cluster as it is. |
 | PostgreSQL | Reader rows, updated under an advisory lock (a lock PostgreSQL holds by name) | Tables are created on first connect. Pass `auto_migrate=False` to manage them yourself. |
 | SQLite | Reader rows, updated in one write transaction | One host only. Lease durations round up to the millisecond. |
 | Kubernetes | Annotations on the Lease that holds the writer | Coarse-grained. Every reader extension writes to etcd, and annotation size caps readers in the hundreds. A writer lease rounds up to whole seconds. |

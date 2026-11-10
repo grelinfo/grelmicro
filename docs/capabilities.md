@@ -142,7 +142,7 @@ A level does not say whether replicas share state. See [the backend check](deplo
 ## Pick a backend
 
 - **Memory**: tests and single-process apps.
-- **Redis**: you run Redis and want the lowest latency. Change the URL to use Sentinel or Cluster, see [Providers](providers/index.md). On Cluster, cache, lock and job prefixes need a hash tag.
+- **Redis**: you run Redis and want the lowest latency. Change the URL to use Sentinel or Cluster, see [Providers](providers/index.md). On Cluster, each store keeps its keys in the right slots on its own.
 - **Valkey**: you run Valkey.
 - **Postgres**: Postgres is your only stateful service.
 - **SQLite**: one host, and state must survive restarts. For several hosts, use Redis or Postgres.

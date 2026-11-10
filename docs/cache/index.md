@@ -99,7 +99,7 @@ SQLite is host-scoped: it shares state with the processes on one host only. `Cac
 
 The Postgres adapter stores entries in a single `grelmicro_cache` table keyed on `key TEXT PRIMARY KEY` with `value BYTEA` and `expires_at TIMESTAMPTZ`. `get` filters expired rows with `WHERE expires_at > NOW()`, `set` is one `INSERT ... ON CONFLICT DO UPDATE`, `delete` and `clear` are single statements. The table is created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema. Set `cleanup_interval=` to enable a background janitor that reclaims rows expired for more than one hour.
 
-On a Redis Cluster, give the adapter's `prefix` a hash tag so its multi-key operations stay in one slot. See [the hash-tag rule](../providers/redis.md#the-hash-tag-rule-on-cluster). Use `prefix` on any backend to isolate cache keys from other data in the same server.
+On a Redis Cluster, the adapter keeps its keys in one slot under a hash tag of its own. See [the hash-tag rule](../providers/redis.md#the-hash-tag-rule-on-cluster). Use `prefix` on any backend to isolate cache keys from other data in the same server.
 
 ### Choosing a backend
 

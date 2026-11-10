@@ -250,7 +250,7 @@
       "()": "(method, path, applies=()) -> None"
     },
     "ProviderReport": {
-      "()": "(short_name, provider, url=None, env_prefix=None, serves=(), declines=()) -> None"
+      "()": "(short_name, provider, url=None, env_prefix=None, serves=(), declines=(), prefix=None) -> None"
     },
     "TaskGate": {
       "()": "(*args, **kwargs)"

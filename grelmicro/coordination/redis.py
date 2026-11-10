@@ -18,7 +18,7 @@ from grelmicro.coordination._protocol import (
     ScheduleBackend,
     WriteGrant,
 )
-from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
+from grelmicro.providers.redis import RedisProvider, store_prefix
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -109,7 +109,13 @@ class RedisLockAdapter(LockBackend):
         ] = "REDIS_",
         prefix: Annotated[
             str,
-            Doc("Prefix prepended to every Redis key (lock isolation)."),
+            Doc(
+                """
+                Prefix for every Redis key (lock isolation), after the provider's
+                `prefix`. On a Redis Cluster with no hash tag in either, the
+                keys go under `{<prefix>lock}:`.
+                """
+            ),
         ] = "",
     ) -> None:
         """Initialize the adapter."""
@@ -120,7 +126,7 @@ class RedisLockAdapter(LockBackend):
             self._provider = provider
             self._owns_provider = False
         self._env_prefix = env_prefix
-        self._key_prefix = prefix
+        self._prefix = prefix
         self._bind_scripts()
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -131,8 +137,8 @@ class RedisLockAdapter(LockBackend):
 
     def _bind_scripts(self) -> None:
         """(Re)register the Lua scripts against the current client."""
-        require_cluster_hash_tag(
-            self._provider, self._key_prefix, adapter="RedisLockAdapter"
+        self._key_prefix = store_prefix(
+            self._provider, self._prefix, kind="lock"
         )
         client = self._provider.client
         self._lua_release = client.register_script(self._LUA_RELEASE)
@@ -161,6 +167,10 @@ class RedisLockAdapter(LockBackend):
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
+    def _key(self, name: str) -> str:
+        """Return the lock key for a lock name."""
+        return f"{self._key_prefix}{name}"
+
     def _fence_key(self, name: str) -> str:
         """Return the persistent fence counter key for a lock name."""
         return f"{self._key_prefix}fence:{name}"
@@ -170,7 +180,7 @@ class RedisLockAdapter(LockBackend):
     ) -> int | None:
         """Acquire the lock, returning the fencing token or `None`."""
         fence = await self._lua_acquire(
-            keys=[f"{self._key_prefix}{name}", self._fence_key(name)],
+            keys=[self._key(name), self._fence_key(name)],
             args=[token, _duration_ms(duration)],
             client=self._provider.client,
         )
@@ -180,7 +190,7 @@ class RedisLockAdapter(LockBackend):
         """Release the lock."""
         return bool(
             await self._lua_release(
-                keys=[f"{self._key_prefix}{name}"],
+                keys=[self._key(name)],
                 args=[token],
                 client=self._provider.client,
             )
@@ -188,13 +198,11 @@ class RedisLockAdapter(LockBackend):
 
     async def locked(self, *, name: str) -> bool:
         """Check if the lock is acquired."""
-        return bool(
-            await self._provider.client.get(f"{self._key_prefix}{name}")
-        )
+        return bool(await self._provider.client.get(self._key(name)))
 
     async def owned(self, *, name: str, token: str) -> bool:
         """Check if the lock is owned."""
-        stored = await self._provider.client.get(f"{self._key_prefix}{name}")
+        stored = await self._provider.client.get(self._key(name))
         if stored is None:
             return False
         value = stored.decode() if isinstance(stored, bytes) else stored
@@ -401,7 +409,13 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
         ] = "REDIS_",
         prefix: Annotated[
             str,
-            Doc("Prefix prepended to every Redis key (lock isolation)."),
+            Doc(
+                """
+                Prefix for every Redis key (lock isolation), after the provider's
+                `prefix`. On a Redis Cluster with no hash tag in either, the
+                keys go under `{<prefix>rwlock}:`.
+                """
+            ),
         ] = "",
     ) -> None:
         """Initialize the adapter."""
@@ -412,7 +426,7 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
             self._provider = provider
             self._owns_provider = False
         self._env_prefix = env_prefix
-        self._key_prefix = prefix
+        self._prefix = prefix
         self._bind_scripts()
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -423,10 +437,8 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
 
     def _bind_scripts(self) -> None:
         """(Re)register the Lua scripts against the current client."""
-        require_cluster_hash_tag(
-            self._provider,
-            self._key_prefix,
-            adapter="RedisReadWriteLockAdapter",
+        self._key_prefix = store_prefix(
+            self._provider, self._prefix, kind="rwlock"
         )
         client = self._provider.client
         self._lua_acquire_read = client.register_script(self._LUA_ACQUIRE_READ)
@@ -625,7 +637,10 @@ class RedisScheduleAdapter(ScheduleBackend):
         ] = "REDIS_",
         prefix: Annotated[
             str,
-            Doc("Prefix prepended to every Redis key (schedule isolation)."),
+            Doc(
+                "Prefix for every Redis key (schedule isolation), after the provider's "
+                "`prefix`."
+            ),
         ] = "",
     ) -> None:
         """Initialize the adapter."""
@@ -636,7 +651,7 @@ class RedisScheduleAdapter(ScheduleBackend):
             self._provider = provider
             self._owns_provider = False
         self._env_prefix = env_prefix
-        self._key_prefix = prefix
+        self._prefix = prefix
         self._bind_scripts()
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -647,6 +662,7 @@ class RedisScheduleAdapter(ScheduleBackend):
 
     def _bind_scripts(self) -> None:
         """(Re)register the Lua scripts against the current client."""
+        self._key_prefix = store_prefix(self._provider, self._prefix)
         client = self._provider.client
         self._lua_claim = client.register_script(self._LUA_CLAIM)
 
@@ -852,7 +868,10 @@ class RedisLeaderElectionAdapter:
         ] = "REDIS_",
         prefix: Annotated[
             str,
-            Doc("Prefix prepended to every Redis key (election isolation)."),
+            Doc(
+                "Prefix for every Redis key (election isolation), after the provider's "
+                "`prefix`."
+            ),
         ] = "",
     ) -> None:
         """Initialize the backend."""
@@ -863,7 +882,7 @@ class RedisLeaderElectionAdapter:
             self._provider = provider
             self._owns_provider = False
         self._env_prefix = env_prefix
-        self._key_prefix = prefix
+        self._prefix = prefix
         self._bind_scripts()
 
     @property
@@ -873,6 +892,7 @@ class RedisLeaderElectionAdapter:
 
     def _bind_scripts(self) -> None:
         """(Re)register the Lua scripts against the current client."""
+        self._key_prefix = store_prefix(self._provider, self._prefix)
         client = self._provider.client
         self._lua_acquire = client.register_script(self._LUA_ACQUIRE_OR_RENEW)
         self._lua_release = client.register_script(self._LUA_RELEASE)

@@ -756,74 +756,77 @@ class TestClusterFactory:
         assert provider.is_cluster is True
 
 
-class TestClusterHashTagGuard:
-    """Multi-key adapters demand a hash-tag prefix on Cluster."""
+class TestClusterHashTag:
+    """Multi-key adapters keep their keys in one slot on Cluster."""
 
     @pytest.fixture
     def cluster_provider(self) -> RedisProvider:
         """Return a provider whose client is a `RedisCluster`."""
         return RedisProvider("redis+cluster://h1:6379,h2:6379")
 
-    def test_cache_without_hash_tag_raises(
+    def test_cache_without_hash_tag_takes_its_own(
         self, cluster_provider: RedisProvider
     ) -> None:
-        """The cache adapter rejects a tag-less prefix on Cluster."""
-        with pytest.raises(ValueError, match="hash tag"):
-            RedisCacheAdapter(provider=cluster_provider, prefix="cache")
+        """A tag-less cache prefix goes under the cache's own tag."""
+        adapter = RedisCacheAdapter(provider=cluster_provider, prefix="cache")
+
+        assert adapter._full("k") == "{cachecache}:k"
 
     def test_cache_with_hash_tag_passes(
         self, cluster_provider: RedisProvider
     ) -> None:
-        """A prefix carrying a hash tag is accepted on Cluster."""
+        """A prefix carrying a hash tag is used unchanged on Cluster."""
         adapter = RedisCacheAdapter(
             provider=cluster_provider, prefix="{myapp}cache"
         )
 
-        assert adapter.provider is cluster_provider
+        assert adapter._full("k") == "{myapp}cachek"
 
-    def test_lock_without_hash_tag_raises(
+    def test_lock_without_hash_tag_takes_its_own(
         self, cluster_provider: RedisProvider
     ) -> None:
-        """The lock adapter rejects a tag-less prefix on Cluster."""
-        with pytest.raises(ValueError, match="hash tag"):
-            RedisLockAdapter(provider=cluster_provider, prefix="lock:")
+        """A tag-less lock prefix goes under the lock's own tag."""
+        adapter = RedisLockAdapter(provider=cluster_provider, prefix="lock:")
+
+        assert adapter._key("cart") == "{lock:lock}:cart"
 
     def test_lock_with_hash_tag_passes(
         self, cluster_provider: RedisProvider
     ) -> None:
-        """A prefix carrying a hash tag is accepted on Cluster."""
+        """A prefix carrying a hash tag is used unchanged on Cluster."""
         adapter = RedisLockAdapter(provider=cluster_provider, prefix="{app}")
 
-        assert adapter.provider is cluster_provider
+        assert adapter._key("cart") == "{app}cart"
 
-    def test_rwlock_without_hash_tag_raises(
+    def test_rwlock_without_hash_tag_takes_its_own(
         self, cluster_provider: RedisProvider
     ) -> None:
-        """The read-write lock adapter rejects a tag-less prefix on Cluster."""
-        with pytest.raises(ValueError, match="hash tag"):
-            RedisReadWriteLockAdapter(
-                provider=cluster_provider, prefix="rwlock:"
-            )
+        """A tag-less read-write lock prefix goes under its own tag."""
+        adapter = RedisReadWriteLockAdapter(
+            provider=cluster_provider, prefix="rwlock:"
+        )
+
+        assert adapter._keys("cart")[0] == "{rwlock:rwlock}:cart"
 
     def test_rwlock_with_hash_tag_passes(
         self, cluster_provider: RedisProvider
     ) -> None:
-        """A prefix carrying a hash tag is accepted on Cluster."""
+        """A prefix carrying a hash tag is used unchanged on Cluster."""
         adapter = RedisReadWriteLockAdapter(
             provider=cluster_provider, prefix="{app}"
         )
 
-        assert adapter.provider is cluster_provider
+        assert adapter._keys("cart")[0] == "{app}cart"
 
     def test_standalone_needs_no_hash_tag(self) -> None:
-        """Standalone clients skip the guard entirely."""
+        """Standalone keys take the prefix as it is."""
         provider = RedisProvider(URL)
 
         cache = RedisCacheAdapter(provider=provider, prefix="cache")
         lock = RedisLockAdapter(provider=provider, prefix="lock:")
 
-        assert cache.provider is provider
-        assert lock.provider is provider
+        assert cache._full("k") == "cachek"
+        assert lock._key("cart") == "lock:cart"
 
 
 class TestConfigRedaction:

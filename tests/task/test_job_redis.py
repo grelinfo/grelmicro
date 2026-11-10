@@ -111,14 +111,16 @@ def test_job_redis_rebind_provider_borrows_it(
     assert backend._owns_provider is False
 
 
-def test_job_redis_cluster_prefix_without_hash_tag_is_refused() -> None:
-    """On a Redis Cluster, a prefix with no hash tag is refused."""
+def test_job_redis_cluster_prefix_without_hash_tag_takes_its_own() -> None:
+    """On a Redis Cluster, a prefix with no hash tag goes under `{...job}:`."""
     # Arrange
     provider = RedisProvider("redis+cluster://h1:6379,h2:6379")
 
-    # Act & Assert
-    with pytest.raises(ValueError, match="hash tag"):
-        RedisJobAdapter(provider=provider, prefix="jobs:")
+    # Act
+    backend = RedisJobAdapter(provider=provider, prefix="jobs:")
+
+    # Assert
+    assert backend._base == "{jobs:job}:"
 
 
 def test_job_redis_cluster_prefix_with_hash_tag_is_accepted() -> None:
@@ -154,6 +156,7 @@ class _StubProvider:
     def __init__(self) -> None:
         self.client = MagicMock()
         self.is_cluster = False
+        self.prefix = ""
         self.enter_count = 0
         self.exit_count = 0
 

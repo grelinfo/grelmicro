@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro._duration import SECOND, microseconds, round_up
-from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.redis import RedisProvider, store_prefix
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
     CircuitBreakerSnapshot,
@@ -94,9 +94,9 @@ class RedisCircuitBreakerAdapter(CircuitBreakerBackend):
             str,
             Doc(
                 """
-                Prefix prepended to every Redis key the adapter
-                writes. Use it to avoid collisions with other
-                consumers of the same Redis database.
+                Prefix for every Redis key the adapter writes, after
+                the provider's `prefix`. Use it to avoid collisions with
+                other consumers of the same Redis database.
                 """
             ),
         ] = "",
@@ -110,7 +110,7 @@ class RedisCircuitBreakerAdapter(CircuitBreakerBackend):
             self._owns_provider = False
         self._env_prefix = env_prefix
         self._prefix = prefix
-        self._key_prefix = f"{prefix}{self._KEY_PREFIX}"
+        self._bound_prefix: str | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
@@ -122,6 +122,18 @@ class RedisCircuitBreakerAdapter(CircuitBreakerBackend):
         """Swap the underlying provider (used by `Grelmicro` for sharing)."""
         self._provider = provider
         self._owns_provider = False
+        self._bound_prefix = None
+
+    @property
+    def _key_prefix(self) -> str:
+        """Return the prefix of every breaker key on the current provider.
+
+        Computed on first use and kept until the provider changes, so
+        building the adapter never reads the provider.
+        """
+        if self._bound_prefix is None:
+            self._bound_prefix = f"{store_prefix(self._provider, self._prefix)}{self._KEY_PREFIX}"
+        return self._bound_prefix
 
     async def __aenter__(self) -> Self:
         """Open the circuit breaker adapter."""
