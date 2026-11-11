@@ -8,9 +8,11 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
 from grelmicro.clock import VirtualClock
+from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.providers.valkey import ValkeyProvider
@@ -111,10 +113,19 @@ def valkey_url() -> Generator[str]:
         yield f"redis://localhost:{container.get_exposed_port(6379)}/0"
 
 
+@pytest.fixture(scope="module")
+def postgres_url() -> Generator[str]:
+    """Start one Postgres for the module, and return its URL."""
+    with PostgresContainer() as container:
+        port = container.get_exposed_port(5432)
+        yield f"postgresql://test:test@localhost:{port}/test"
+
+
 @pytest.fixture(
     params=[
         "memory",
         "sqlite",
+        pytest.param("postgres", marks=[pytest.mark.integration]),
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("valkey", marks=[pytest.mark.integration]),
         pytest.param("redis-sentinel", marks=[pytest.mark.integration]),
@@ -141,6 +152,13 @@ async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
         adapter = provider.job_backend(prefix=hash_tag_prefix())
         async with provider, adapter:
             yield _Store(adapter, asyncio.sleep, REAL_TICK)
+        return
+    if request.param == "postgres":
+        postgres = PostgresProvider(request.getfixturevalue("postgres_url"))
+        table_name = f"jobs_{secrets.token_hex(6)}"
+        async with postgres, postgres.job_backend(table_name=table_name) as pg:
+            yield _Store(pg, asyncio.sleep, REAL_TICK)
+            await postgres.client.execute(f"DROP TABLE IF EXISTS {table_name}")
         return
     if request.param == "sqlite":
         path = request.getfixturevalue("tmp_path") / "jobs.db"

@@ -287,7 +287,7 @@ in it: an import, a report, a batch handled item by item.
 
 Any replica of your service can take the submit, run the job, and answer a poll
 or a cancel. There is no broker to run and no worker to deploy. Jobs run inside
-your service, on the Redis or Valkey it already uses.
+your service, on the Redis, Valkey, or Postgres it already uses.
 
 !!! warning "Experimental"
     On-demand jobs are new, and their design can still change. See the
@@ -326,12 +326,12 @@ waiting on an answer.
 ### Where jobs live
 
 A job finds its store through your app, the way a task with `gate="claim"`
-does. A Redis or Valkey provider in `uses=` is all it takes. The job takes the store as
+does. A Redis, Valkey, or Postgres provider in `uses=` is all it takes. The job takes the store as
 its tasks start, and keeps it while they run.
 
 | What you run | What happens |
 | --- | --- |
-| A Redis or Valkey provider | Every replica shares the jobs. |
+| A Redis, Valkey, or Postgres provider | Every replica shares the jobs. |
 | A SQLite provider, with `requires="host"` | The processes on one host share the jobs, such as the workers behind one port. |
 | No shared store, in `development` or `test` | Jobs live in the process, so tests need no store. |
 | No shared store, in `production` or `staging` | The app refuses to start with `BackendScopeError`, because a poll that reaches another replica would answer `404`. |
@@ -539,9 +539,10 @@ logs a warning and reads `"Job lost"`.
 
 !!! warning "A failover can run a body twice"
     "At most once" holds while the store keeps the writes it acknowledged.
-    Redis and Valkey copy a write to their replicas after they acknowledge it,
-    so a failover can lose a recent start, and another replica can start the
-    same job. If a second run would do harm, make the writes it does safe to
+    Redis and Valkey copy a write to their replicas after they acknowledge it.
+    Postgres does the same unless you set up synchronous replication. So a
+    failover can lose a recent start, and another replica can start the same
+    job. If a second run would do harm, make the writes it does safe to
     repeat.
 
 ### Shutdown

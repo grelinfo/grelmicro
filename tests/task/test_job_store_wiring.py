@@ -3,7 +3,8 @@
 import asyncio
 import warnings
 from pathlib import Path
-from typing import Any, ClassVar, cast
+from types import TracebackType
+from typing import Any, ClassVar, Self, cast
 
 import pytest
 
@@ -16,8 +17,8 @@ from grelmicro import (
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.errors import CoordinationBackendError
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.providers import Provider
 from grelmicro.providers.memory import MemoryProvider
-from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task import JobStatus, Progress, Tasks
 from grelmicro.task.memory import MemoryJobAdapter
@@ -28,8 +29,23 @@ pytestmark = [pytest.mark.timeout(10)]
 STRICT_ENVIRONMENTS: list[Environment] = ["staging", "production"]
 QUIET_ENVIRONMENTS: list[Environment] = ["development", "test"]
 
-_UNREACHABLE_POSTGRES = "postgresql://user:password@127.0.0.1:1/db"
-"""A Postgres the tests never connect to."""
+
+class _NoJobProvider(Provider):
+    """A provider that ships no backend, so no job store either."""
+
+    short_name = "nojob"
+
+    async def __aenter__(self) -> Self:
+        """Open nothing."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close nothing."""
 
 
 class _SharedJobStore(MemoryJobAdapter):
@@ -84,7 +100,7 @@ async def test_job_without_a_shared_store_is_refused_in_a_strict_environment(
     message = str(error.value)
     assert "Job('report')" in message
     assert "provides scope 'process', but requires scope 'cluster'" in message
-    assert "a Redis or Valkey provider" in message
+    assert "a Redis, Valkey, or Postgres provider" in message
     assert "Kubernetes" not in message
     assert "pass requires=" in message
 
@@ -178,8 +194,8 @@ async def test_job_requiring_the_host_offers_sqlite() -> None:
 
     # Assert
     message = str(error.value)
-    assert "a SQLite, Redis, or Valkey provider" in message
-    assert "Postgres" not in message
+    assert "a SQLite, Redis, Valkey, or Postgres provider" in message
+    assert "Kubernetes" not in message
 
 
 @pytest.mark.parametrize("environment", STRICT_ENVIRONMENTS)
@@ -202,7 +218,7 @@ async def test_job_on_sqlite_is_refused_unless_it_requires_the_host(
     # Assert
     message = str(error.value)
     assert "provides scope 'host', but requires scope 'cluster'" in message
-    assert "a Redis or Valkey backend" in message
+    assert "a Redis, Valkey, or Postgres backend" in message
 
 
 @pytest.mark.parametrize("environment", STRICT_ENVIRONMENTS)
@@ -392,7 +408,7 @@ def test_coordination_takes_a_job_store() -> None:
 def test_coordination_on_a_provider_with_no_job_store_has_none() -> None:
     """A provider that ships no job store leaves the slot empty, no error."""
     # Arrange
-    coordination = Coordination(PostgresProvider(_UNREACHABLE_POSTGRES))
+    coordination = Coordination(_NoJobProvider())
 
     # Act and assert
     with pytest.raises(CoordinationBackendError, match="no job backend"):
@@ -402,7 +418,7 @@ def test_coordination_on_a_provider_with_no_job_store_has_none() -> None:
 def test_provider_without_a_job_store_says_so() -> None:
     """The base factory raises, as every other factory does."""
     # Arrange
-    provider = PostgresProvider(_UNREACHABLE_POSTGRES)
+    provider = _NoJobProvider()
 
     # Act and assert
     with pytest.raises(NotImplementedError, match="has no job adapter"):
@@ -465,6 +481,5 @@ async def test_job_and_its_coordination_falling_short_offer_only_a_job_store() -
     # Assert
     message = str(error.value)
     assert "Job('report')" in message
-    assert "a Redis or Valkey backend" in message
-    assert "Postgres" not in message
+    assert "a Redis, Valkey, or Postgres backend" in message
     assert "Kubernetes" not in message
