@@ -10,6 +10,7 @@ import pytest
 from grelmicro.clock import VirtualClock
 from grelmicro.task import Job, JobInfo, JobStatus, Progress, Tasks
 from grelmicro.task._job import _info
+from grelmicro.task._protocol import Settled
 from grelmicro.task.errors import JobRefusedError
 from grelmicro.task.memory import MemoryJobAdapter
 from tests.task._job_shared import share, shared
@@ -475,7 +476,7 @@ class _CrashingStore(MemoryJobAdapter):
         super().__init__()
         self.settles = 0
 
-    async def settle(self, **_kwargs: Any) -> bool:  # noqa: ANN401
+    async def settle(self, **_kwargs: Any) -> Settled:  # noqa: ANN401
         self.settles += 1
         raise _StoreCrash
 

@@ -100,15 +100,16 @@ def run_span(
         yield
 
 
-def mark_lost(description: str) -> None:
+def mark_lost(description: str, error_type: str) -> None:
     """Mark the current span as a job this replica no longer held.
 
-    A no-op when OpenTelemetry is not installed.
+    `description` is the job's error, and `error_type` says why the store
+    took the job. A no-op when OpenTelemetry is not installed.
     """
     otel = _otel()
     if otel is not None:
         span = otel.trace.get_current_span()
-        span.set_attribute("error.type", "job_lost")
+        span.set_attribute("error.type", error_type)
         span.set_status(otel.error, description)
 
 

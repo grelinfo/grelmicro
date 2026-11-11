@@ -491,6 +491,18 @@ class TaskRouter:
                 """,
             ),
         ] = 86400,
+        max_run: Annotated[
+            int | timedelta | None,
+            Doc(
+                """
+                How long a job may run once it starts.
+
+                Takes whole seconds or a `timedelta`, counted from
+                `started_at`. Past it, the job ends `failed` with the error
+                `"Job not finished in time"`. `None` means no limit.
+                """,
+            ),
+        ] = None,
         keep: Annotated[
             int | timedelta | None,
             Doc(
@@ -545,10 +557,10 @@ class TaskRouter:
             TypeError: If the function does not take `progress: Progress`
                 as its first parameter.
             ValueError: If `max_concurrent` is not an int of at least 1,
-                `max_queued` is not an int of at least 0, `max_wait` is not
-                whole seconds or a `timedelta` above zero, `keep` is not whole
-                seconds or a `timedelta` from zero, or either is over 100
-                years.
+                `max_queued` is not an int of at least 0, `max_wait` or
+                `max_run` is not whole seconds or a `timedelta` above zero,
+                `keep` is not whole seconds or a `timedelta` from zero, or
+                any of them is over 100 years.
         """
         from grelmicro.task._job import Job  # noqa: PLC0415
 
@@ -561,6 +573,7 @@ class TaskRouter:
                 max_concurrent=max_concurrent,
                 max_queued=max_queued,
                 max_wait=max_wait,
+                max_run=max_run,
                 keep=keep,
                 backend=backend,
                 requires=requires,

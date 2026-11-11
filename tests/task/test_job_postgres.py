@@ -36,6 +36,7 @@ def _submit_args(job_id: str, **overrides: Any) -> dict[str, Any]:  # noqa: ANN4
         "context": {"trace": "t"},
         "max_queued": None,
         "max_wait": None,
+        "max_run": None,
         "keep": timedelta(hours=1),
         "start_as": None,
         "lease": LEASE,

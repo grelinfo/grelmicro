@@ -20,11 +20,14 @@ from grelmicro.task import JobStatus
 from grelmicro.task._protocol import (
     JOB_LOST,
     JOB_NOT_STARTED,
+    JOB_TIMED_OUT,
     Beat,
+    BeatReply,
     EndStatus,
     JobBackend,
     JobRecord,
     ProgressUpdate,
+    Settled,
 )
 from grelmicro.task.memory import MemoryJobAdapter
 from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
@@ -82,6 +85,7 @@ class _Store:
             "context": {},
             "max_queued": None,
             "max_wait": None,
+            "max_run": None,
             "keep": timedelta(hours=1),
             "start_as": None,
             "lease": self.lease,
@@ -495,8 +499,8 @@ async def _settle(
     error: str | None = None,
     result: str | None = None,
     progress: ProgressUpdate | None = None,
-) -> bool:
-    """End a job as `runner`, and return whether the store took it."""
+) -> Settled:
+    """End a job as `runner`, and return what the store did."""
     return await store.backend.settle(
         name=NAME,
         job_id=job_id,
@@ -600,7 +604,7 @@ async def test_job_backend_settle_ends_the_job_with_its_result(
     read = await _read(store, record.id)
 
     # Assert
-    assert settled is True
+    assert settled == Settled(settled=True, error=None)
     assert read.status is JobStatus.SUCCEEDED
     assert read.result == '{"imported": 3}'
     assert (read.done, read.total) == (3, 3)
@@ -632,7 +636,7 @@ async def test_job_backend_settle_from_another_runner_writes_nothing(
     settled = await _settle(store, record.id, runner="stale")
 
     # Assert
-    assert settled is False
+    assert settled == Settled(settled=False, error=None)
     assert (await _read(store, record.id)).status is JobStatus.RUNNING
 
 
@@ -649,7 +653,7 @@ async def test_job_backend_settle_retry_writes_nothing_more(
     retried = await _settle(store, record.id, result='"first"')
 
     # Assert
-    assert retried is True
+    assert retried == Settled(settled=True, error=None)
     assert await _read(store, record.id) == ended
 
 
@@ -665,7 +669,7 @@ async def test_job_backend_settle_never_leaves_an_end_state(
     settled = await _settle(store, record.id, status=JobStatus.SUCCEEDED)
 
     # Assert
-    assert settled is False
+    assert settled == Settled(settled=False, error=None)
     assert (await _read(store, record.id)).status is JobStatus.CANCELLED
 
 
@@ -720,7 +724,7 @@ async def test_job_backend_cancel_leaves_a_runner_able_to_settle(
     settled = await _settle(store, record.id, status=JobStatus.CANCELLED)
 
     # Assert
-    assert settled is True
+    assert settled == Settled(settled=True, error=None)
 
 
 async def test_job_backend_cancel_changes_nothing_on_an_ended_job(
@@ -824,7 +828,7 @@ async def test_job_backend_lapsed_runner_is_fenced_out(store: _Store) -> None:
 
     # Assert
     assert reply.held is False
-    assert settled is False
+    assert settled == Settled(settled=False, error=JOB_LOST)
     assert await _read(store, record.id) == lost
 
 
@@ -858,7 +862,7 @@ async def test_job_backend_settle_past_the_lease_is_refused(
     settled = await _settle(store, record.id)
 
     # Assert
-    assert settled is False
+    assert settled == Settled(settled=False, error=JOB_LOST)
     assert (await _read(store, record.id)).error == JOB_LOST
 
 
@@ -972,6 +976,230 @@ async def test_job_backend_expired_jobs_leave_the_queue_count(
 
     # Assert
     assert submitted.record is not None
+
+
+MAX_RUN_TICKS = 10
+"""A job's `max_run` in the tests, in ticks, well inside its lease."""
+
+
+async def _beat(store: _Store, job_id: str, runner: str = "r") -> BeatReply:
+    """Beat one job of `NAME` as `runner`, and return the reply."""
+    [reply] = await store.backend.beat(
+        runner=runner, beats=[Beat(NAME, job_id)], lease=store.lease
+    )
+    return reply
+
+
+@pytest.mark.parametrize("start", ["submit", "claim"])
+async def test_job_backend_reads_a_job_past_max_run_as_failed(
+    store: _Store, start: str
+) -> None:
+    """A running job past `max_run` ends `failed`, without any reaper."""
+    # Arrange
+    max_run = store.ticks(MAX_RUN_TICKS)
+    if start == "submit":
+        record = await store.submit(start_as="r", max_run=max_run)
+    else:
+        record = await store.submit(max_run=max_run)
+        assert await _claim(store) == [record.id]
+
+    # Act
+    await store.elapse(MAX_RUN_TICKS + MARGIN)
+    read = await _read(store, record.id)
+
+    # Assert
+    assert read.status is JobStatus.FAILED
+    assert read.error == JOB_TIMED_OUT
+    assert read.finished_at is not None
+    assert await _settle(store, record.id) == Settled(
+        settled=False, error=JOB_TIMED_OUT
+    )
+
+
+async def test_job_backend_settle_past_max_run_with_keep_zero_says_why(
+    store: _Store,
+) -> None:
+    """A settle that ends a job past `max_run` says why, though none is kept."""
+    # Arrange
+    record = await store.submit(
+        start_as="r", max_run=store.ticks(MAX_RUN_TICKS), keep=store.ticks(0)
+    )
+    await store.elapse(MAX_RUN_TICKS + MARGIN)
+
+    # Act
+    settled = await _settle(store, record.id)
+
+    # Assert
+    assert settled == Settled(settled=False, error=JOB_TIMED_OUT)
+    gone = await store.backend.get(name=NAME, job_id=record.id, owner=OWNER)
+    assert gone is None
+
+
+async def test_job_backend_beat_past_max_run_lets_the_job_go(
+    store: _Store,
+) -> None:
+    """A beat past `max_run` is not held, and says why the store ended it."""
+    # Arrange
+    record = await store.submit(
+        start_as="r", max_run=store.ticks(MAX_RUN_TICKS)
+    )
+    await store.elapse(MAX_RUN_TICKS + MARGIN)
+
+    # Act
+    reply = await _beat(store, record.id)
+
+    # Assert
+    assert reply.held is False
+    assert reply.error == JOB_TIMED_OUT
+    assert (await _read(store, record.id)).error == JOB_TIMED_OUT
+
+
+async def test_job_backend_beat_reports_an_end_a_read_made(
+    store: _Store,
+) -> None:
+    """A beat after a read ended the job still says why it ended."""
+    # Arrange
+    record = await store.submit(
+        start_as="r", max_run=store.ticks(MAX_RUN_TICKS)
+    )
+    await store.elapse(MAX_RUN_TICKS + MARGIN)
+    await _read(store, record.id)
+
+    # Act
+    reply = await _beat(store, record.id)
+
+    # Assert
+    assert (reply.held, reply.error) == (False, JOB_TIMED_OUT)
+
+
+async def test_job_backend_beat_past_the_lease_says_the_job_was_lost(
+    store: _Store,
+) -> None:
+    """A lease that lapses before `max_run` ends the job lost."""
+    # Arrange
+    record = await store.submit(
+        start_as="r", max_run=store.ticks(LEASE_TICKS + 4 * MARGIN)
+    )
+    await store.elapse(LEASE_TICKS + MARGIN)
+
+    # Act
+    reply = await _beat(store, record.id)
+
+    # Assert
+    assert (reply.held, reply.error) == (False, JOB_LOST)
+
+
+async def test_job_backend_held_beat_has_no_error(store: _Store) -> None:
+    """A beat on a held job carries no error."""
+    # Arrange
+    record = await store.submit(
+        start_as="r", max_run=store.ticks(MAX_RUN_TICKS)
+    )
+
+    # Act
+    reply = await _beat(store, record.id)
+
+    # Assert
+    assert (reply.held, reply.error) == (True, None)
+
+
+async def test_job_backend_beat_never_pushes_past_max_run(
+    store: _Store,
+) -> None:
+    """A job under `max_run` keeps running, and a beat does not extend it."""
+    # Arrange
+    max_run = LEASE_TICKS + 2 * MARGIN
+    record = await store.submit(start_as="r", max_run=store.ticks(max_run))
+    await store.elapse(LEASE_TICKS - MARGIN)
+    await _beat(store, record.id)
+
+    # Act
+    await store.elapse(2 * MARGIN)
+    under = await _read(store, record.id)
+    await store.elapse(2 * MARGIN)
+    reaped = await store.backend.reap(limit=10)
+    past = await _read(store, record.id)
+
+    # Assert
+    assert under.status is JobStatus.RUNNING
+    assert reaped == 1
+    assert (past.status, past.error) == (JobStatus.FAILED, JOB_TIMED_OUT)
+
+
+async def test_job_backend_reap_ends_jobs_past_max_run(store: _Store) -> None:
+    """`reap` ends a job past `max_run` well before its lease lapses."""
+    # Arrange
+    record = await store.submit(
+        name="app:gone", start_as="r", max_run=store.ticks(MAX_RUN_TICKS)
+    )
+    await store.elapse(MAX_RUN_TICKS + MARGIN)
+
+    # Act
+    reaped = await store.backend.reap(limit=10)
+
+    # Assert
+    assert reaped == 1
+    read = await store.backend.get(
+        name="app:gone", job_id=record.id, owner=OWNER
+    )
+    assert read is not None
+    assert read.error == JOB_TIMED_OUT
+
+
+async def test_job_backend_max_run_none_never_expires(store: _Store) -> None:
+    """With no `max_run`, a running job runs while its beats arrive."""
+    # Arrange
+    record = await _running(store)
+
+    # Act
+    for _ in range(3):
+        await store.elapse(LEASE_TICKS - MARGIN)
+        await _beat(store, record.id)
+
+    # Assert
+    assert (await _read(store, record.id)).status is JobStatus.RUNNING
+
+
+async def test_job_backend_cancelled_job_past_max_run_ends_failed(
+    store: _Store,
+) -> None:
+    """A cancel the body did not settle in time loses to `max_run`."""
+    # Arrange
+    record = await store.submit(
+        start_as="r", max_run=store.ticks(MAX_RUN_TICKS)
+    )
+    await store.backend.cancel(name=NAME, job_id=record.id, owner=OWNER)
+
+    # Act
+    await store.elapse(MAX_RUN_TICKS + MARGIN)
+    read = await _read(store, record.id)
+
+    # Assert
+    assert (read.status, read.error) == (JobStatus.FAILED, JOB_TIMED_OUT)
+    assert read.cancel_requested is True
+    assert await _settle(
+        store, record.id, status=JobStatus.CANCELLED
+    ) == Settled(settled=False, error=JOB_TIMED_OUT)
+
+
+async def test_job_backend_cancel_settled_before_max_run_stays_cancelled(
+    store: _Store,
+) -> None:
+    """A cancel the body settles before `max_run` ends the job `cancelled`."""
+    # Arrange
+    record = await store.submit(
+        start_as="r", max_run=store.ticks(MAX_RUN_TICKS)
+    )
+    await store.backend.cancel(name=NAME, job_id=record.id, owner=OWNER)
+    settled = await _settle(store, record.id, status=JobStatus.CANCELLED)
+
+    # Act
+    await store.elapse(MAX_RUN_TICKS + MARGIN)
+    read = await _read(store, record.id)
+
+    # Assert
+    assert settled == Settled(settled=True, error=None)
+    assert (read.status, read.error) == (JobStatus.CANCELLED, None)
 
 
 @pytest.mark.parametrize(
@@ -1250,7 +1478,7 @@ async def test_job_backend_settle_retried_with_keep_zero_is_refused(
     retried = await _settle(store, submitted.record.id)
 
     # Assert
-    assert retried is False
+    assert retried == Settled(settled=False, error=None)
 
 
 async def test_job_backend_cancel_keeps_the_read_rules(store: _Store) -> None:
@@ -1305,7 +1533,7 @@ async def test_job_backend_writes_under_another_name_find_nothing(
 
     # Assert
     assert reply.held is False
-    assert settled is False
+    assert settled == Settled(settled=False, error=None)
     assert cancelled is None
     assert await _read(store, record.id) == record
 

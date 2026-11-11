@@ -21,6 +21,7 @@ from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.task._protocol import (
     JOB_LOST,
     JOB_NOT_STARTED,
+    JOB_TIMED_OUT,
     Beat,
     BeatReply,
     Claimed,
@@ -28,6 +29,7 @@ from grelmicro.task._protocol import (
     JobRecord,
     JobStatus,
     ProgressUpdate,
+    Settled,
     Submitted,
 )
 
@@ -69,6 +71,7 @@ def _end(now: str) -> str:
         version = version + 1,
         finished_at = {now}::timestamptz,
         due_at = NULL,
+        run_by = NULL,
         expires_at = {now}::timestamptz
             + keep_us * INTERVAL '1 microsecond'
     """
@@ -78,19 +81,27 @@ _CATCH_UP = (
     """
     UPDATE {table_name} SET
         status = 'failed',
-        error = CASE status WHEN 'running' THEN $2::text ELSE $3::text END,
+        error = CASE
+            WHEN status = 'queued' THEN $3::text
+            WHEN run_by <= due_at THEN $5::text
+            ELSE $2::text
+        END,
         runner = NULL,
     """
     + _end("$1")
     + """
     WHERE {where}
       AND status IN ('queued', 'running')
-      AND due_at <= $1::timestamptz;
+      AND due_at <= $1::timestamptz
+    {returning};
     """
 )
-"""End the jobs `where` selects that are past their lease or `max_wait`.
+"""End the jobs `where` selects that are past their lease, `max_wait` or
+`max_run`.
 
-`$1` is the time, `$2` and `$3` the errors, `$4` what `where` reads.
+`$1` is the time, `$2`, `$3` and `$5` the errors, `$4` what `where` reads. A
+running job's `due_at` is the earlier of its lease end and its `run_by`, so
+`run_by <= due_at` means `max_run` passed first.
 """
 
 
@@ -174,12 +185,14 @@ class PostgresJobAdapter:
             payload TEXT,
             context TEXT,
             keep_us BIGINT,
+            max_run_us BIGINT,
             runner TEXT,
             started_at_submit BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NOT NULL,
             started_at TIMESTAMPTZ,
             finished_at TIMESTAMPTZ,
             due_at TIMESTAMPTZ,
+            run_by TIMESTAMPTZ,
             expires_at TIMESTAMPTZ
         );
         CREATE INDEX IF NOT EXISTS {table_name}_queue_idx
@@ -191,9 +204,10 @@ class PostgresJobAdapter:
     """
     """The table and its indexes.
 
-    `seq` keeps submission order. `due_at` is the lease end of a running job
-    and the `max_wait` end of a queued one. `expires_at` is when an ended job
-    stops being kept.
+    `seq` keeps submission order. `due_at` is the earlier of the lease end
+    and the `run_by` of a running job, and the `max_wait` end of a queued
+    one. `run_by` is when a running job passes its `max_run`. `expires_at`
+    is when an ended job stops being kept.
     """
 
     _SQL: ClassVar[dict[str, str]] = {
@@ -208,8 +222,10 @@ class PostgresJobAdapter:
             f"hashtextextended($1::text, {_JOB_ADVISORY_NAMESPACE}));"
         ),
         "now": "SELECT clock_timestamp();",
-        "catch_up": _CATCH_UP.replace("{where}", "id = $4::text"),
-        "catch_up_queue": _CATCH_UP.replace(
+        "catch_up": _CATCH_UP.replace("{where}", "id = $4::text").replace(
+            "{returning}", "RETURNING name, error"
+        ),
+        "catch_up_queue": _CATCH_UP.replace("{returning}", "").replace(
             "{where}",
             """id = ANY(ARRAY(
                 SELECT id FROM {table_name}
@@ -219,7 +235,7 @@ class PostgresJobAdapter:
                 FOR UPDATE SKIP LOCKED
             ))""",
         ),
-        "reap": _CATCH_UP.replace(
+        "reap": _CATCH_UP.replace("{returning}", "").replace(
             "{where}",
             """id = ANY(ARRAY(
                 SELECT id FROM {table_name}
@@ -254,12 +270,14 @@ class PostgresJobAdapter:
         "insert": """
             INSERT INTO {table_name} (
                 id, name, owner, status, version, payload, context, keep_us,
-                runner, started_at_submit, created_at, started_at, due_at
+                max_run_us, runner, started_at_submit, created_at,
+                started_at, due_at, run_by
             )
             VALUES (
                 $1::text, $2::text, $3::text, $4::text, 1, $5::text,
-                $6::text, $7::bigint, $8::text, $9::boolean,
-                $10::timestamptz, $11::timestamptz, $12::timestamptz
+                $6::text, $7::bigint, $13::bigint, $8::text, $9::boolean,
+                $10::timestamptz, $11::timestamptz, $12::timestamptz,
+                $14::timestamptz
             )
             ON CONFLICT (id) DO NOTHING
             RETURNING {record};
@@ -269,7 +287,12 @@ class PostgresJobAdapter:
                 status = 'running',
                 runner = $3::text,
                 started_at = $1::timestamptz,
-                due_at = $4::timestamptz,
+                run_by = $1::timestamptz
+                    + max_run_us * INTERVAL '1 microsecond',
+                due_at = LEAST(
+                    $4::timestamptz,
+                    $1::timestamptz + max_run_us * INTERVAL '1 microsecond'
+                ),
                 version = version + 1
             WHERE status = 'queued' AND id = ANY(ARRAY(
                 SELECT id FROM {table_name}
@@ -285,7 +308,7 @@ class PostgresJobAdapter:
         """,
         "beat": """
             UPDATE {table_name} SET
-                due_at = $2::timestamptz,
+                due_at = LEAST($2::timestamptz, run_by),
                 done = $3::bigint,
                 total = $4::bigint,
                 version = version + $5::bigint
@@ -422,7 +445,7 @@ class PostgresJobAdapter:
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
-    async def submit(
+    async def submit(  # noqa: PLR0913
         self,
         *,
         name: str,
@@ -432,6 +455,7 @@ class PostgresJobAdapter:
         context: Mapping[str, str],
         max_queued: int | None,
         max_wait: timedelta | None,
+        max_run: timedelta | None,
         keep: timedelta | None,
         start_as: str | None,
         lease: timedelta,
@@ -456,10 +480,14 @@ class PostgresJobAdapter:
                     and queued >= max_queued
                 ):
                     return Submitted(None, started=False)
+                run_by = None
                 if runner is None:
                     due_at = None if max_wait is None else now + _span(max_wait)
                 else:
                     due_at = now + _span(lease)
+                    if max_run is not None:
+                        run_by = now + _span(max_run)
+                        due_at = min(due_at, run_by)
                 row = await conn.fetchrow(
                     self._sql["insert"],
                     job_id,
@@ -478,6 +506,8 @@ class PostgresJobAdapter:
                     now,
                     None if runner is None else now,
                     due_at,
+                    None if max_run is None else _us(max_run),
+                    run_by,
                 )
                 if row is not None:
                     return Submitted(_record(row), started=runner is not None)
@@ -533,16 +563,20 @@ class PostgresJobAdapter:
             now,
         ):
             for beat in beats:
-                row = await self._held(
-                    conn, now, beat.name, beat.job_id, runner
-                )
-                if row is None:
+                row, ended = await self._look_up(conn, now, beat.job_id)
+                if (
+                    row is None
+                    or row.record.name != beat.name
+                    or row.record.status is not JobStatus.RUNNING
+                    or row.runner != runner
+                ):
                     replies.append(
                         BeatReply(
                             beat.name,
                             beat.job_id,
                             held=False,
                             cancel_requested=False,
+                            error=_store_error(row, beat.name, ended),
                         )
                     )
                     continue
@@ -582,14 +616,16 @@ class PostgresJobAdapter:
         error: str | None,
         result: str | None,
         progress: ProgressUpdate | None,
-    ) -> bool:
+    ) -> Settled:
         """End a running job, and start its retention."""
         async with self._transaction(ids=[job_id]) as (conn, now):
-            row = await self._find(conn, now, job_id)
+            row, ended = await self._look_up(conn, now, job_id)
             if row is None or row.record.name != name or row.runner != runner:
-                return False
+                return Settled(
+                    settled=False, error=_store_error(row, name, ended)
+                )
             if row.record.status is not JobStatus.RUNNING:
-                return row.record.status is status
+                return Settled(settled=row.record.status is status, error=None)
             done, total = (
                 (row.record.done, row.record.total)
                 if progress is None
@@ -605,7 +641,7 @@ class PostgresJobAdapter:
                 total,
                 now,
             )
-        return True
+        return Settled(settled=True, error=None)
 
     async def get(
         self, *, name: str, job_id: str, owner: str | None
@@ -640,7 +676,7 @@ class PostgresJobAdapter:
         return record
 
     async def reap(self, *, limit: int) -> int:
-        """End jobs past their lease or `max_wait`, whatever their name."""
+        """End jobs past a lease, `max_wait` or `max_run`, of any name."""
         async with self._transaction() as (conn, now):
             return await self._run(conn, "reap", now, limit)
 
@@ -701,7 +737,12 @@ class PostgresJobAdapter:
         """Run a catch-up write at `now`, and return how many rows it ended."""
         return _rows_affected(
             await conn.execute(
-                self._sql[key], now, JOB_LOST, JOB_NOT_STARTED, arg
+                self._sql[key],
+                now,
+                JOB_LOST,
+                JOB_NOT_STARTED,
+                arg,
+                JOB_TIMED_OUT,
             )
         )
 
@@ -709,12 +750,31 @@ class PostgresJobAdapter:
         self, conn: Connection, now: datetime, job_id: str
     ) -> _Stored | None:
         """Return the job as it is now, or `None` when it is gone."""
-        await self._run(conn, "catch_up", now, job_id)
+        stored, _ = await self._look_up(conn, now, job_id)
+        return stored
+
+    async def _look_up(
+        self, conn: Connection, now: datetime, job_id: str
+    ) -> tuple[_Stored | None, tuple[str, str] | None]:
+        """Return the job as it is now, and what a catch-up ended now.
+
+        That is the name and error of the job when this call ended it, so
+        they stay known when the job is gone at once, with `keep` at zero.
+        """
+        ended = await conn.fetchrow(
+            self._sql["catch_up"],
+            now,
+            JOB_LOST,
+            JOB_NOT_STARTED,
+            job_id,
+            JOB_TIMED_OUT,
+        )
         await conn.execute(self._sql["forget"], job_id, now)
         row = await conn.fetchrow(self._sql["find"], job_id)
+        caught = None if ended is None else (ended[0], ended[1])
         if row is None:
-            return None
-        return _Stored(_record(row), row[12], row[13], row[14])
+            return None, caught
+        return _Stored(_record(row), row[12], row[13], row[14]), caught
 
     async def _owned(
         self,
@@ -727,25 +787,6 @@ class PostgresJobAdapter:
         """Return the job when it has this name and `owner` owns it."""
         row = await self._find(conn, now, job_id)
         if row is None or row.record.name != name or row.owner != owner:
-            return None
-        return row
-
-    async def _held(
-        self,
-        conn: Connection,
-        now: datetime,
-        name: str,
-        job_id: str,
-        runner: str,
-    ) -> _Stored | None:
-        """Return the running job when `runner` holds it."""
-        row = await self._find(conn, now, job_id)
-        if (
-            row is None
-            or row.record.name != name
-            or row.record.status is not JobStatus.RUNNING
-            or row.runner != runner
-        ):
             return None
         return row
 
@@ -762,6 +803,20 @@ def _retried(
         and stored.runner == start_as
     )
     return Submitted(stored.record, started=started)
+
+
+def _store_error(
+    row: _Stored | None, name: str, ended: tuple[str, str] | None
+) -> str | None:
+    """Return why the store ended a job `failed`, if it did.
+
+    `ended` is the name and error of the job a catch-up ended in this call.
+    """
+    if ended is not None:
+        return ended[1] if ended[0] == name else None
+    if row is None or row.record.name != name or row.runner is not None:
+        return None
+    return row.record.error if row.record.status is JobStatus.FAILED else None
 
 
 def _us(duration: timedelta) -> int:

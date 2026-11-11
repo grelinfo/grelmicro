@@ -16,6 +16,7 @@ from grelmicro.clock._seam import monotonic
 from grelmicro.task._protocol import (
     JOB_LOST,
     JOB_NOT_STARTED,
+    JOB_TIMED_OUT,
     Beat,
     BeatReply,
     Claimed,
@@ -23,6 +24,7 @@ from grelmicro.task._protocol import (
     JobRecord,
     JobStatus,
     ProgressUpdate,
+    Settled,
     Submitted,
 )
 
@@ -44,6 +46,7 @@ class _Row:
     payload: str
     context: Mapping[str, str]
     keep: timedelta | None
+    max_run: timedelta | None
     created_at: datetime
     status: JobStatus = JobStatus.QUEUED
     version: int = 1
@@ -56,6 +59,7 @@ class _Row:
     started_at_submit: bool = False
     lease_until: float = 0.0
     start_by: float | None = None
+    run_by: float | None = None
     expires_at: float | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -88,6 +92,7 @@ def _start(row: _Row, runner: str, lease: timedelta) -> None:
     row.status = JobStatus.RUNNING
     row.runner = runner
     row.lease_until = _after(lease)
+    row.run_by = _deadline(row.max_run)
     row.started_at = datetime.now(UTC)
 
 
@@ -100,6 +105,13 @@ def _write_progress(row: _Row, progress: ProgressUpdate | None) -> bool:
         return False
     row.done, row.total = progress.done, progress.total
     return True
+
+
+def _store_error(row: _Row | None, name: str) -> str | None:
+    """Return why the store ended the job `row` `failed`, if it did."""
+    if row is None or row.name != name or row.runner is not None:
+        return None
+    return row.error if row.status is JobStatus.FAILED else None
 
 
 def _deadline(after: timedelta | None) -> float | None:
@@ -132,7 +144,7 @@ class MemoryJobAdapter:
     ) -> None:
         """Close the backend."""
 
-    async def submit(
+    async def submit(  # noqa: PLR0913
         self,
         *,
         name: str,
@@ -142,6 +154,7 @@ class MemoryJobAdapter:
         context: Mapping[str, str],
         max_queued: int | None,
         max_wait: timedelta | None,
+        max_run: timedelta | None,
         keep: timedelta | None,
         start_as: str | None,
         lease: timedelta,
@@ -175,6 +188,7 @@ class MemoryJobAdapter:
             payload=payload,
             context=dict(context),
             keep=keep,
+            max_run=max_run,
             created_at=datetime.now(UTC),
             start_by=_deadline(max_wait),
         )
@@ -229,6 +243,7 @@ class MemoryJobAdapter:
         """Extend each held job's lease, write its progress, read its flag."""
         replies: list[BeatReply] = []
         for beat in beats:
+            stored = self._rows.get(beat.job_id)
             row = self._held(beat.name, beat.job_id, runner)
             if row is None:
                 replies.append(
@@ -237,6 +252,7 @@ class MemoryJobAdapter:
                         beat.job_id,
                         held=False,
                         cancel_requested=False,
+                        error=_store_error(stored, beat.name),
                     )
                 )
                 continue
@@ -263,17 +279,18 @@ class MemoryJobAdapter:
         error: str | None,
         result: str | None,
         progress: ProgressUpdate | None,
-    ) -> bool:
+    ) -> Settled:
         """End a running job, and start its retention."""
+        stored = self._rows.get(job_id)
         row = self._find(name, job_id)
         if row is None or row.runner != runner:
-            return False
+            return Settled(settled=False, error=_store_error(stored, name))
         if row.status is not JobStatus.RUNNING:
-            return row.status is status
+            return Settled(settled=row.status is status, error=None)
         _write_progress(row, progress)
         row.result = result
         self._end(row, status, error)
-        return True
+        return Settled(settled=True, error=None)
 
     async def cancel(
         self, *, name: str, job_id: str, owner: str | None
@@ -292,7 +309,7 @@ class MemoryJobAdapter:
         return row.record()
 
     async def reap(self, *, limit: int) -> int:
-        """End jobs past their lease or `max_wait`, whatever their name."""
+        """End jobs past a lease, `max_wait` or `max_run`, of any name."""
         reaped = 0
         for row in list(self._open.values()):
             if reaped == limit:
@@ -337,9 +354,15 @@ class MemoryJobAdapter:
     def _catch_up(self, row: _Row) -> bool:
         """Make the move `row` is overdue for, and return whether it did."""
         now = monotonic()
-        if row.status is JobStatus.RUNNING and row.lease_until <= now:
+        if row.status is JobStatus.RUNNING:
+            ends_at = row.lease_until
+            if row.run_by is not None:
+                ends_at = min(ends_at, row.run_by)
+            if ends_at > now:
+                return False
             row.runner = None
-            self._end(row, JobStatus.FAILED, JOB_LOST)
+            error = JOB_TIMED_OUT if row.run_by == ends_at else JOB_LOST
+            self._end(row, JobStatus.FAILED, error)
             return True
         if (
             row.status is JobStatus.QUEUED

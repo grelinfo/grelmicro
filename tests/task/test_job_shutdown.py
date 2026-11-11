@@ -10,6 +10,7 @@ import pytest
 
 from grelmicro import Grelmicro
 from grelmicro.task import Job, JobRefusedError, JobStatus, Progress, Tasks
+from grelmicro.task._protocol import Settled
 from grelmicro.task.memory import MemoryJobAdapter
 from tests.task._job_shared import share, shared
 
@@ -336,12 +337,14 @@ async def test_job_base_exception_refuses_submits_while_it_settles(
     tasks = Tasks()
     job = tasks.job()(_abort)
 
-    async def _submits_first(self: MemoryJobAdapter, **kwargs: object) -> None:
+    async def _submits_first(
+        self: MemoryJobAdapter, **kwargs: object
+    ) -> Settled:
         try:
             await job.without_owner().submit()
         except JobRefusedError:
             refused.append(True)
-        await settle(self, **kwargs)
+        return await settle(self, **kwargs)
 
     monkeypatch.setattr(MemoryJobAdapter, "settle", _submits_first)
 

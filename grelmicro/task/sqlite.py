@@ -22,6 +22,7 @@ from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task._protocol import (
     JOB_LOST,
     JOB_NOT_STARTED,
+    JOB_TIMED_OUT,
     Beat,
     BeatReply,
     Claimed,
@@ -29,6 +30,7 @@ from grelmicro.task._protocol import (
     JobRecord,
     JobStatus,
     ProgressUpdate,
+    Settled,
     Submitted,
 )
 
@@ -60,6 +62,7 @@ _END = """
     version = version + 1,
     finished_at = :now,
     due_at = NULL,
+    run_by = NULL,
     expires_at = :now + keep_ms
 """
 """What every move to an end state writes besides the status and error.
@@ -71,17 +74,34 @@ _CATCH_UP = (
     """
     UPDATE {table_name} SET
         status = 'failed',
-        error = CASE status WHEN 'running' THEN :lost ELSE :not_started END,
+        error = CASE
+            WHEN status = 'queued' THEN :not_started
+            WHEN run_by <= due_at THEN :timed_out
+            ELSE :lost
+        END,
         runner = NULL,
     """
     + _END
     + """
     WHERE {where}
       AND status IN ('queued', 'running')
-      AND due_at <= :now;
+      AND due_at <= :now
+    {returning};
     """
 )
-"""End the jobs `where` selects that are past their lease or `max_wait`."""
+"""End the jobs `where` selects that are past their lease, `max_wait` or
+`max_run`.
+
+A running job's `due_at` is the earlier of its lease end and its `run_by`, so
+`run_by <= due_at` means `max_run` passed first.
+"""
+
+_ERRORS = {
+    "lost": JOB_LOST,
+    "not_started": JOB_NOT_STARTED,
+    "timed_out": JOB_TIMED_OUT,
+}
+"""The errors a catch-up writes."""
 
 
 class _Stored(NamedTuple):
@@ -151,12 +171,14 @@ class SQLiteJobAdapter:
             payload TEXT,
             context TEXT,
             keep_ms INTEGER,
+            max_run_ms INTEGER,
             runner TEXT,
             started_at_submit INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL,
             started_at INTEGER,
             finished_at INTEGER,
             due_at INTEGER,
+            run_by INTEGER,
             expires_at INTEGER
         );
         """,
@@ -175,17 +197,20 @@ class SQLiteJobAdapter:
     )
     """The table and its indexes.
 
-    `seq` keeps submission order. `due_at` is the lease end of a running job
-    and the `max_wait` end of a queued one. `expires_at` is when an ended job
-    stops being kept.
+    `seq` keeps submission order. `due_at` is the earlier of the lease end
+    and the `run_by` of a running job, and the `max_wait` end of a queued
+    one. `run_by` is when a running job passes its `max_run`. `expires_at`
+    is when an ended job stops being kept.
     """
 
     _SQL: ClassVar[dict[str, str]] = {
-        "catch_up": _CATCH_UP.replace("{where}", "id = :id"),
-        "catch_up_queue": _CATCH_UP.replace(
+        "catch_up": _CATCH_UP.replace("{where}", "id = :id").replace(
+            "{returning}", "RETURNING name, error"
+        ),
+        "catch_up_queue": _CATCH_UP.replace("{returning}", "").replace(
             "{where}", "name = :name AND status = 'queued'"
         ),
-        "reap": _CATCH_UP.replace(
+        "reap": _CATCH_UP.replace("{returning}", "").replace(
             "{where}",
             """seq IN (
                 SELECT seq FROM {table_name}
@@ -213,11 +238,13 @@ class SQLiteJobAdapter:
         "insert": """
             INSERT INTO {table_name} (
                 id, name, owner, status, version, payload, context, keep_ms,
-                runner, started_at_submit, created_at, started_at, due_at
+                max_run_ms, runner, started_at_submit, created_at,
+                started_at, due_at, run_by
             )
             VALUES (
                 :id, :name, :owner, :status, 1, :payload, :context, :keep,
-                :runner, :started, :now, :started_at, :due_at
+                :max_run, :runner, :started, :now, :started_at, :due_at,
+                :run_by
             )
             RETURNING {record};
         """,
@@ -226,7 +253,10 @@ class SQLiteJobAdapter:
                 status = 'running',
                 runner = :runner,
                 started_at = :now,
-                due_at = :now + :lease,
+                run_by = :now + max_run_ms,
+                due_at = min(
+                    :now + :lease, coalesce(:now + max_run_ms, :now + :lease)
+                ),
                 version = version + 1
             WHERE seq IN (
                 SELECT seq FROM {table_name}
@@ -238,7 +268,7 @@ class SQLiteJobAdapter:
         """,
         "beat": """
             UPDATE {table_name} SET
-                due_at = :now + :lease,
+                due_at = min(:now + :lease, coalesce(run_by, :now + :lease)),
                 done = :done,
                 total = :total,
                 version = version + :changed
@@ -369,7 +399,7 @@ class SQLiteJobAdapter:
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
-    async def submit(
+    async def submit(  # noqa: PLR0913
         self,
         *,
         name: str,
@@ -379,6 +409,7 @@ class SQLiteJobAdapter:
         context: Mapping[str, str],
         max_queued: int | None,
         max_wait: timedelta | None,
+        max_run: timedelta | None,
         keep: timedelta | None,
         start_as: str | None,
         lease: timedelta,
@@ -404,10 +435,15 @@ class SQLiteJobAdapter:
                 and queued >= max_queued
             ):
                 return Submitted(None, started=False)
+            max_run_ms = None if max_run is None else _ms(max_run)
+            run_by = None
             if runner is None:
                 due_at = None if max_wait is None else now + _ms(max_wait)
             else:
                 due_at = now + _ms(lease)
+                if max_run_ms is not None:
+                    run_by = now + max_run_ms
+                    due_at = min(due_at, run_by)
             row = await self._fetch(
                 conn,
                 "insert",
@@ -421,10 +457,12 @@ class SQLiteJobAdapter:
                 payload=payload,
                 context=json.dumps(dict(context)),
                 keep=None if keep is None else _ms(keep),
+                max_run=max_run_ms,
                 runner=runner,
                 started=runner is not None,
                 started_at=None if runner is None else now,
                 due_at=due_at,
+                run_by=run_by,
             )
         return Submitted(_record(row), started=runner is not None)
 
@@ -477,16 +515,20 @@ class SQLiteJobAdapter:
         replies: list[BeatReply] = []
         async with self._transaction() as (conn, now):
             for beat in beats:
-                row = await self._held(
-                    conn, now, beat.name, beat.job_id, runner
-                )
-                if row is None:
+                row, ended = await self._look_up(conn, now, beat.job_id)
+                if (
+                    row is None
+                    or row.record.name != beat.name
+                    or row.record.status is not JobStatus.RUNNING
+                    or row.runner != runner
+                ):
                     replies.append(
                         BeatReply(
                             beat.name,
                             beat.job_id,
                             held=False,
                             cancel_requested=False,
+                            error=_store_error(row, beat.name, ended),
                         )
                     )
                     continue
@@ -528,14 +570,16 @@ class SQLiteJobAdapter:
         error: str | None,
         result: str | None,
         progress: ProgressUpdate | None,
-    ) -> bool:
+    ) -> Settled:
         """End a running job, and start its retention."""
         async with self._transaction() as (conn, now):
-            row = await self._find(conn, now, job_id)
+            row, ended = await self._look_up(conn, now, job_id)
             if row is None or row.record.name != name or row.runner != runner:
-                return False
+                return Settled(
+                    settled=False, error=_store_error(row, name, ended)
+                )
             if row.record.status is not JobStatus.RUNNING:
-                return row.record.status is status
+                return Settled(settled=row.record.status is status, error=None)
             done, total = (
                 (row.record.done, row.record.total)
                 if progress is None
@@ -552,7 +596,7 @@ class SQLiteJobAdapter:
                 done=done,
                 total=total,
             )
-        return True
+        return Settled(settled=True, error=None)
 
     async def get(
         self, *, name: str, job_id: str, owner: str | None
@@ -585,7 +629,7 @@ class SQLiteJobAdapter:
         return record
 
     async def reap(self, *, limit: int) -> int:
-        """End jobs past their lease or `max_wait`, whatever their name."""
+        """End jobs past a lease, `max_wait` or `max_run`, of any name."""
         async with self._transaction() as (conn, now):
             return await self._run(conn, "reap", now, limit=limit)
 
@@ -622,8 +666,7 @@ class SQLiteJobAdapter:
         """Run a write at `now`, and return how many rows it changed."""
         async with conn.execute(
             self._sql[key],
-            {"now": now, "lost": JOB_LOST, "not_started": JOB_NOT_STARTED}
-            | params,
+            {"now": now, **_ERRORS} | params,
         ) as cursor:
             return cursor.rowcount
 
@@ -641,12 +684,26 @@ class SQLiteJobAdapter:
         self, conn: Connection, now: int, job_id: str
     ) -> _Stored | None:
         """Return the job as it is now, or `None` when it is gone."""
-        await self._run(conn, "catch_up", now, id=job_id)
+        stored, _ = await self._look_up(conn, now, job_id)
+        return stored
+
+    async def _look_up(
+        self, conn: Connection, now: int, job_id: str
+    ) -> tuple[_Stored | None, tuple[str, str] | None]:
+        """Return the job as it is now, and what a catch-up ended now.
+
+        That is the name and error of the job when this call ended it, so
+        they stay known when the job is gone at once, with `keep` at zero.
+        """
+        ended = await self._fetch(
+            conn, "catch_up", now=now, id=job_id, **_ERRORS
+        )
         await self._run(conn, "forget", now, id=job_id)
         row = await self._fetch(conn, "find", id=job_id)
+        caught = None if ended is None else (ended[0], ended[1])
         if row is None:
-            return None
-        return _Stored(_record(row), row[12], row[13], bool(row[14]))
+            return None, caught
+        return _Stored(_record(row), row[12], row[13], bool(row[14])), caught
 
     async def _owned(
         self,
@@ -662,30 +719,25 @@ class SQLiteJobAdapter:
             return None
         return row
 
-    async def _held(
-        self,
-        conn: Connection,
-        now: int,
-        name: str,
-        job_id: str,
-        runner: str,
-    ) -> _Stored | None:
-        """Return the running job when `runner` holds it."""
-        row = await self._find(conn, now, job_id)
-        if (
-            row is None
-            or row.record.name != name
-            or row.record.status is not JobStatus.RUNNING
-            or row.runner != runner
-        ):
-            return None
-        return row
-
 
 async def _now(conn: Connection) -> int:
     """Read the SQLite clock, in whole milliseconds since the epoch."""
     [[now]] = await conn.execute_fetchall(_SQL_NOW)
     return int(now)
+
+
+def _store_error(
+    row: _Stored | None, name: str, ended: tuple[str, str] | None
+) -> str | None:
+    """Return why the store ended a job `failed`, if it did.
+
+    `ended` is the name and error of the job a catch-up ended in this call.
+    """
+    if ended is not None:
+        return ended[1] if ended[0] == name else None
+    if row is None or row.record.name != name or row.runner is not None:
+        return None
+    return row.record.error if row.record.status is JobStatus.FAILED else None
 
 
 def _ms(duration: timedelta) -> int:

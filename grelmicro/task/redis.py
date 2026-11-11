@@ -18,6 +18,7 @@ from grelmicro.providers.redis import RedisProvider, kind_prefix
 from grelmicro.task._protocol import (
     JOB_LOST,
     JOB_NOT_STARTED,
+    JOB_TIMED_OUT,
     Beat,
     BeatReply,
     Claimed,
@@ -25,6 +26,7 @@ from grelmicro.task._protocol import (
     JobRecord,
     JobStatus,
     ProgressUpdate,
+    Settled,
     Submitted,
 )
 
@@ -44,6 +46,9 @@ _LUA_JOB = (
     + """
     local JOB_NOT_STARTED = """
     + json.dumps(JOB_NOT_STARTED)
+    + """
+    local JOB_TIMED_OUT = """
+    + json.dumps(JOB_TIMED_OUT)
     + """
 
     local function us(value)
@@ -69,7 +74,7 @@ _LUA_JOB = (
         if err then
             redis.call('HSET', key, 'e', err)
         end
-        redis.call('HDEL', key, 'p', 'x', 'lu', 'sb')
+        redis.call('HDEL', key, 'p', 'x', 'lu', 'sb', 'mr', 'rb')
         redis.call('HINCRBY', key, 'v', 1)
         redis.call('ZREM', queue, id)
         redis.call('ZREM', waiting, id)
@@ -86,19 +91,45 @@ _LUA_JOB = (
     end
 
     local function catch_up(key, id, queue, waiting)
-        local job = redis.call('HMGET', key, 's', 'lu', 'sb')
-        if job[1] == 'running' and tonumber(job[2]) <= now then
+        local job = redis.call('HMGET', key, 's', 'lu', 'sb', 'rb')
+        local err = false
+        if job[1] == 'running' then
+            local ends_at, run_by = tonumber(job[2]), tonumber(job[4])
+            err = JOB_LOST
+            if run_by and run_by <= ends_at then
+                ends_at, err = run_by, JOB_TIMED_OUT
+            end
+            if ends_at > now then
+                return false
+            end
             redis.call('HDEL', key, 'rn')
-            finish(key, id, 'failed', JOB_LOST, queue, waiting)
-            retain(key)
-            return true
+        elseif job[1] == 'queued' and job[3] and tonumber(job[3]) <= now then
+            err = JOB_NOT_STARTED
+        else
+            return false
         end
-        if job[1] == 'queued' and job[3] and tonumber(job[3]) <= now then
-            finish(key, id, 'failed', JOB_NOT_STARTED, queue, waiting)
-            retain(key)
-            return true
+        finish(key, id, 'failed', err, queue, waiting)
+        retain(key)
+        return err
+    end
+
+    local function hold(key, id, lease)
+        local lease_until = now + lease
+        redis.call('HSET', key, 'lu', us(lease_until))
+        local run_by = tonumber(redis.call('HGET', key, 'rb'))
+        if run_by and run_by < lease_until then
+            lease_until = run_by
         end
-        return false
+        redis.call('ZADD', deadlines, us(lease_until), id)
+    end
+
+    local function start_running(key, id, runner, lease)
+        redis.call('HSET', key, 's', 'running', 'rn', runner, 'sa', us(now))
+        local max_run = redis.call('HGET', key, 'mr')
+        if max_run then
+            redis.call('HSET', key, 'rb', us(now + tonumber(max_run)))
+        end
+        hold(key, id, lease)
     end
 
     local function write_progress(key, done, total)
@@ -113,7 +144,9 @@ _LUA_JOB = (
 )
 """What every script shares: the server's time and the moves every call makes.
 
-`KEYS[1]` is always the store's deadline index.
+`KEYS[1]` is always the store's deadline index. It scores a running job by
+the earlier of its lease end and its `max_run` end, and a queued one by its
+`max_wait` end. `catch_up` returns the error it ended a job with, or `false`.
 """
 
 
@@ -179,13 +212,12 @@ class RedisJobAdapter:
         if ARGV[9] ~= '' then
             redis.call('HSET', key, 'k', ARGV[9])
         end
+        if ARGV[13] ~= '' then
+            redis.call('HSET', key, 'mr', ARGV[13])
+        end
         if start then
-            local lease_until = us(now + tonumber(ARGV[12]))
-            redis.call(
-                'HSET', key, 's', 'running', 'rn', runner, 'sas', '1',
-                'sa', us(now), 'lu', lease_until
-            )
-            redis.call('ZADD', deadlines, lease_until, id)
+            redis.call('HSET', key, 'sas', '1')
+            start_running(key, id, runner, tonumber(ARGV[12]))
             return {1, record(key)}
         end
         local max_wait = tonumber(ARGV[8])
@@ -203,7 +235,8 @@ class RedisJobAdapter:
 
     KEYS: deadlines, job, queue, waiting, order. ARGV: id, name, has owner,
     owner, payload, context, max queued (-1: no limit), max wait in us (-1: no
-    limit), keep in ms ('': no limit), has runner, runner, lease in us.
+    limit), keep in ms ('': no limit), has runner, runner, lease in us, max
+    run in us ('': no limit).
     """
 
     _LUA_CLAIM = (
@@ -226,16 +259,11 @@ class RedisJobAdapter:
                     redis.call('ZREM', queue, id)
                     redis.call('ZREM', waiting, id)
                 elseif not catch_up(key, id, queue, waiting) then
-                    local lease_until = us(now + lease)
                     redis.call('ZREM', queue, id)
                     redis.call('ZREM', waiting, id)
-                    redis.call(
-                        'HSET', key, 's', 'running', 'rn', runner,
-                        'sa', us(now), 'lu', lease_until
-                    )
                     redis.call('HDEL', key, 'sb')
+                    start_running(key, id, runner, lease)
                     redis.call('HINCRBY', key, 'v', 1)
-                    redis.call('ZADD', deadlines, lease_until, id)
                     claimed[#claimed + 1] = {
                         id, record(key), redis.call('HMGET', key, 'p', 'x')
                     }
@@ -262,14 +290,19 @@ class RedisJobAdapter:
             local queue, waiting = KEYS[3 * index], KEYS[3 * index + 1]
             local at = 2 + 5 * (index - 1)
             local name, id = ARGV[at + 1], ARGV[at + 2]
-            local held, flag = 0, 0
+            local held, flag, err = 0, 0, ''
             if redis.call('HGET', key, 'n') == name then
-                catch_up(key, id, queue, waiting)
-                local job = redis.call('HMGET', key, 's', 'rn', 'c', 'd', 't')
+                local ended = catch_up(key, id, queue, waiting)
+                local job = redis.call(
+                    'HMGET', key, 's', 'rn', 'c', 'd', 't', 'e'
+                )
+                if ended then
+                    err = ended
+                elseif job[1] == 'failed' and not job[2] then
+                    err = job[6]
+                end
                 if job[1] == 'running' and job[2] == runner then
-                    local lease_until = us(now + lease)
-                    redis.call('HSET', key, 'lu', lease_until)
-                    redis.call('ZADD', deadlines, lease_until, id)
+                    hold(key, id, lease)
                     local done, total = ARGV[at + 4], ARGV[at + 5]
                     if ARGV[at + 3] == '1'
                         and (job[4] ~= done or (job[5] or '') ~= total) then
@@ -282,7 +315,7 @@ class RedisJobAdapter:
                     end
                 end
             end
-            replies[index] = {held, flag}
+            replies[index] = {held, flag, err}
         end
         return replies
     """
@@ -291,7 +324,8 @@ class RedisJobAdapter:
 
     KEYS: deadlines, then job, queue and waiting of each beat. ARGV: runner,
     lease in us, then name, id, has progress, done and total ('': unknown) of
-    each beat.
+    each beat. Each reply is held, flag, and the error the store ended the job
+    with ('': none).
     """
 
     _LUA_SETTLE = (
@@ -300,18 +334,24 @@ class RedisJobAdapter:
         local key, queue, waiting = KEYS[2], KEYS[3], KEYS[4]
         local id, status = ARGV[2], ARGV[4]
         if redis.call('HGET', key, 'n') ~= ARGV[1] then
-            return 0
+            return {0, ''}
         end
-        catch_up(key, id, queue, waiting)
-        local job = redis.call('HMGET', key, 's', 'rn')
+        local ended = catch_up(key, id, queue, waiting)
+        local job = redis.call('HMGET', key, 's', 'rn', 'e')
         if not job[1] or job[2] ~= ARGV[3] then
-            return 0
+            if ended then
+                return {0, ended}
+            end
+            if job[1] == 'failed' and not job[2] then
+                return {0, job[3]}
+            end
+            return {0, ''}
         end
         if job[1] ~= 'running' then
             if job[1] == status then
-                return 1
+                return {1, ''}
             end
-            return 0
+            return {0, ''}
         end
         if ARGV[9] == '1' then
             write_progress(key, ARGV[10], ARGV[11])
@@ -325,13 +365,15 @@ class RedisJobAdapter:
         end
         finish(key, id, status, err, queue, waiting)
         retain(key)
-        return 1
+        return {1, ''}
     """
     )
     """End a running job, and start its retention.
 
     KEYS: deadlines, job, queue, waiting. ARGV: name, id, runner, status, has
     error, error, has result, result, has progress, done, total ('': unknown).
+    The reply is settled, and the error the store ended the job with ('':
+    none).
     """
 
     _LUA_FIND = """
@@ -409,7 +451,7 @@ class RedisJobAdapter:
         return reaped
     """
     )
-    """End jobs past their lease or `max_wait`, whatever their name.
+    """End jobs past a lease, `max_wait` or `max_run`, of any name.
 
     KEYS: deadlines. ARGV: key prefix of the store, limit.
     """
@@ -516,7 +558,7 @@ class RedisJobAdapter:
             f"{self._base}wait:{name}",
         ]
 
-    async def submit(
+    async def submit(  # noqa: PLR0913
         self,
         *,
         name: str,
@@ -526,6 +568,7 @@ class RedisJobAdapter:
         context: Mapping[str, str],
         max_queued: int | None,
         max_wait: timedelta | None,
+        max_run: timedelta | None,
         keep: timedelta | None,
         start_as: str | None,
         lease: timedelta,
@@ -544,6 +587,7 @@ class RedisJobAdapter:
                 "" if keep is None else _keep_ms(keep),
                 *_optional_arg(start_as),
                 round_up(lease, MICROSECOND),
+                "" if max_run is None else round_up(max_run, MICROSECOND),
             ],
             client=self._provider.client,
         )
@@ -609,8 +653,9 @@ class RedisJobAdapter:
                 beat.job_id,
                 held=bool(held),
                 cancel_requested=bool(flag),
+                error=_optional(error or None),
             )
-            for beat, (held, flag) in zip(beats, reply, strict=True)
+            for beat, (held, flag, error) in zip(beats, reply, strict=True)
         ]
 
     async def settle(
@@ -623,23 +668,22 @@ class RedisJobAdapter:
         error: str | None,
         result: str | None,
         progress: ProgressUpdate | None,
-    ) -> bool:
+    ) -> Settled:
         """End a running job, and start its retention."""
-        return bool(
-            await self._lua_settle(
-                keys=self._keys(name, job_id),
-                args=[
-                    name,
-                    job_id,
-                    runner,
-                    status.value,
-                    *_optional_arg(error),
-                    *_optional_arg(result),
-                    *_progress_args(progress),
-                ],
-                client=self._provider.client,
-            )
+        settled, ended = await self._lua_settle(
+            keys=self._keys(name, job_id),
+            args=[
+                name,
+                job_id,
+                runner,
+                status.value,
+                *_optional_arg(error),
+                *_optional_arg(result),
+                *_progress_args(progress),
+            ],
+            client=self._provider.client,
         )
+        return Settled(settled=bool(settled), error=_optional(ended or None))
 
     async def get(
         self, *, name: str, job_id: str, owner: str | None
@@ -664,7 +708,7 @@ class RedisJobAdapter:
         return None if fields is None else _record(job_id, fields)
 
     async def reap(self, *, limit: int) -> int:
-        """End jobs past their lease or `max_wait`, whatever their name."""
+        """End jobs past a lease, `max_wait` or `max_run`, of any name."""
         return int(
             await self._lua_reap(
                 keys=[f"{self._base}deadlines"],

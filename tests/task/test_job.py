@@ -7,6 +7,7 @@ import gc
 import json
 import logging
 import threading
+import time
 import weakref
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -1336,6 +1337,144 @@ async def test_job_max_wait_ends_a_job_that_never_got_a_slot() -> None:
     assert read.error == "Job not started in time"
 
 
+async def test_job_max_run_cancels_an_async_body_and_reads_failed() -> None:
+    """An async body past `max_run` stops at its next `await`, `failed`."""
+    # Arrange
+    clock = VirtualClock()
+    tasks = Tasks()
+    job = tasks.job(max_run=5)(_one_then_wait)
+    gate = asyncio.Event()
+
+    async with clock, tasks:
+        submitted = await job.without_owner().submit(share(gate))
+        await _statuses(job, [submitted.id])
+        # Act
+        await _advance_in_steps(clock, 7)
+        settled = await job.without_owner().get(submitted.id)
+        running = job._runs.copy()
+
+    # Assert
+    assert settled is not None
+    assert settled.status is JobStatus.FAILED
+    assert settled.error == "Job not finished in time"
+    assert settled.done == 1
+    assert running == {}
+    assert not gate.is_set()
+
+
+async def test_job_max_run_none_lets_a_body_run_on() -> None:
+    """With no `max_run`, a body runs as long as its beats arrive."""
+    # Arrange
+    clock = VirtualClock()
+    tasks = Tasks()
+    job = tasks.job()(_wait_for)
+    gate = asyncio.Event()
+
+    async with clock, tasks:
+        submitted = await job.without_owner().submit(share(gate))
+        await _statuses(job, [submitted.id])
+        # Act
+        await _advance_in_steps(clock, 70)
+        read = await job.without_owner().get(submitted.id)
+        gate.set()
+
+    # Assert
+    assert read is not None
+    assert read.status is JobStatus.RUNNING
+
+
+def _sync_checkpoint_loop(progress: Progress, started: str) -> None:
+    """Report one item, then stop only at a checkpoint."""
+    progress.advance()
+    shared(started).set()
+    while True:
+        progress.checkpoint()
+        time.sleep(0.001)
+
+
+async def test_job_max_run_stops_a_sync_body_at_its_checkpoint() -> None:
+    """A sync body past `max_run` stops at its next `checkpoint()`."""
+    # Arrange
+    clock = VirtualClock()
+    tasks = Tasks()
+    job = tasks.job(max_run=5)(_sync_checkpoint_loop)
+    started = threading.Event()
+
+    async with clock, tasks:
+        submitted = await job.without_owner().submit(share(started))
+        await asyncio.to_thread(started.wait)
+        # Act
+        await _advance_in_steps(clock, 7)
+        while job._runs:  # noqa: ASYNC110
+            await asyncio.sleep(0.001)
+        settled = await job.without_owner().get(submitted.id)
+
+    # Assert
+    assert settled is not None
+    assert settled.status is JobStatus.FAILED
+    assert settled.error == "Job not finished in time"
+    assert settled.done == 1
+
+
+def _sync_advance_loop(progress: Progress, started: str) -> None:
+    """Report items until stopped, with no checkpoint."""
+    progress.advance()
+    shared(started).set()
+    while True:
+        progress.advance()
+        time.sleep(0.001)
+
+
+async def test_job_max_run_stops_a_sync_body_at_its_next_advance() -> None:
+    """A sync body past `max_run` stops at its next `advance()` too."""
+    # Arrange
+    clock = VirtualClock()
+    tasks = Tasks()
+    job = tasks.job(max_run=5)(_sync_advance_loop)
+    started = threading.Event()
+
+    async with clock, tasks:
+        submitted = await job.without_owner().submit(share(started))
+        await asyncio.to_thread(started.wait)
+        # Act
+        await _advance_in_steps(clock, 7)
+        while job._runs:  # noqa: ASYNC110
+            await asyncio.sleep(0.001)
+        settled = await job.without_owner().get(submitted.id)
+
+    # Assert
+    assert settled is not None
+    assert settled.status is JobStatus.FAILED
+    assert settled.error == "Job not finished in time"
+
+
+async def test_job_max_run_counts_from_the_claim() -> None:
+    """A queued job's `max_run` starts when it starts, not when submitted."""
+    # Arrange
+    clock = VirtualClock()
+    tasks = Tasks()
+    job = tasks.job(max_run=5)(_wait_for)
+    first_gate, second_gate = asyncio.Event(), asyncio.Event()
+
+    async with clock, tasks:
+        first = await job.without_owner().submit(share(first_gate))
+        second = await job.without_owner().submit(share(second_gate))
+        # Act
+        await _advance_in_steps(clock, 7)
+        under = await job.without_owner().get(second.id)
+        await _advance_in_steps(clock, 5)
+        past = await job.without_owner().get(second.id)
+        lapsed = await job.without_owner().get(first.id)
+
+    # Assert
+    assert lapsed is not None
+    assert lapsed.error == "Job not finished in time"
+    assert under is not None
+    assert under.status is JobStatus.RUNNING
+    assert past is not None
+    assert past.error == "Job not finished in time"
+
+
 async def _takes_a_number(_progress: Progress, number: int) -> None:
     """Take an argument with a type hint."""
 
@@ -1356,6 +1495,7 @@ async def test_job_stored_arguments_that_no_longer_match_end_failed() -> None:
             context={},
             max_queued=None,
             max_wait=None,
+            max_run=None,
             keep=None,
             start_as=None,
             lease=timedelta(seconds=30),
@@ -1406,6 +1546,7 @@ async def test_job_free_slot_never_jumps_an_older_queued_job() -> None:
             context={},
             max_queued=None,
             max_wait=None,
+            max_run=None,
             keep=None,
             start_as=None,
             lease=timedelta(seconds=30),
@@ -1491,6 +1632,7 @@ async def test_job_beat_claims_a_job_another_replica_queued() -> None:
             context={},
             max_queued=None,
             max_wait=None,
+            max_run=None,
             keep=None,
             start_as=None,
             lease=timedelta(seconds=30),
@@ -1608,6 +1750,7 @@ async def test_job_stored_arguments_that_no_longer_match_stay_out_of_the_log(
             context={},
             max_queued=None,
             max_wait=None,
+            max_run=None,
             keep=None,
             start_as=None,
             lease=timedelta(seconds=30),
