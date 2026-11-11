@@ -1115,6 +1115,9 @@
     "JobInfo": {
       "()": "(*, id, name, status, done, total, result, error, cancel_requested, created_at, started_at, finished_at) -> None"
     },
+    "JobPage": {
+      "()": "(*, jobs, next) -> None"
+    },
     "JobRefusedError": {
       "()": "(*, name, reason) -> None"
     },

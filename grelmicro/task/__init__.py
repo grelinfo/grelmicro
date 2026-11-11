@@ -11,6 +11,7 @@ if _typing.TYPE_CHECKING:
     from grelmicro.task._job import (
         Job,
         JobInfo,
+        JobPage,
         JobStatus,
         JobView,
         Progress,
@@ -36,6 +37,7 @@ __all__ = [
     "Job",
     "JobError",
     "JobInfo",
+    "JobPage",
     "JobRefusedError",
     "JobStatus",
     "JobView",
@@ -58,6 +60,7 @@ _LAZY: dict[str, str] = {
     "Job": "grelmicro.task._job",
     "JobError": "grelmicro.task.errors",
     "JobInfo": "grelmicro.task._job",
+    "JobPage": "grelmicro.task._job",
     "JobRefusedError": "grelmicro.task.errors",
     "JobStatus": "grelmicro.task._job",
     "JobView": "grelmicro.task._job",

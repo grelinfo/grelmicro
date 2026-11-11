@@ -27,6 +27,7 @@ from grelmicro.task import (
     Job,
     JobError,
     JobInfo,
+    JobPage,
     JobRefusedError,
     JobStatus,
     JobView,
@@ -279,9 +280,9 @@ async def test_job_get_returns_none_for_an_unknown_id() -> None:
     assert info is None
 
 
-@pytest.mark.parametrize("method", ["submit", "get", "cancel"])
+@pytest.mark.parametrize("method", ["submit", "get", "cancel", "list"])
 def test_job_needs_a_choice_of_owner_first(method: str) -> None:
-    """`Job` has no `submit`, `get` or `cancel` of its own."""
+    """`Job` has no `submit`, `get`, `cancel` or `list` of its own."""
     # Arrange
     job = Tasks().job()(_noop)
 
@@ -2001,3 +2002,141 @@ async def test_job_unpacked_positionals_arrive_as_their_types(
 
     # Assert
     assert info.result == ["int", "datetime"]
+
+
+async def test_job_list_returns_a_page_of_the_owner_s_jobs() -> None:
+    """`list` returns the owner's jobs newest first, and `next` pages on."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        alice = job.for_owner("alice")
+        ids = [(await alice.submit()).id for _ in range(3)]
+        await job.for_owner("bob").submit()
+        await job.without_owner().submit()
+        # Act
+        first = await alice.list(limit=2)
+        assert first.next is not None
+        second = await alice.list(limit=2, after=first.next)
+
+    # Assert
+    assert isinstance(first, JobPage)
+    assert [info.id for info in first.jobs] == [ids[2], ids[1]]
+    assert [info.id for info in second.jobs] == [ids[0]]
+    assert second.next is None
+
+
+async def test_job_list_keeps_only_the_status_asked() -> None:
+    """`status` takes a `JobStatus`, or its value as a string."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        view = job.for_owner("alice")
+        submitted = await view.submit()
+        await _settle(view, submitted.id)
+        # Act
+        succeeded = await view.list(status=JobStatus.SUCCEEDED)
+        by_value = await view.list(status="succeeded")  # type: ignore[arg-type] # ty: ignore[invalid-argument-type]
+        running = await view.list(status=JobStatus.RUNNING)
+
+    # Assert
+    assert [info.id for info in succeeded.jobs] == [submitted.id]
+    assert by_value == succeeded
+    assert running == JobPage(jobs=[], next=None)
+
+
+@pytest.mark.parametrize("limit", [0, 101, -1, True, 1.5, "5", None])
+async def test_job_list_refuses_a_limit_out_of_range(
+    limit: Any,  # noqa: ANN401
+) -> None:
+    """`limit` takes an int from 1 to 100, and raises `ValueError` else."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        # Act / Assert
+        with pytest.raises(ValueError, match="limit must be an int from 1"):
+            await job.for_owner("alice").list(limit=limit)
+
+
+@pytest.mark.parametrize("limit", [1, 100])
+async def test_job_list_takes_a_limit_at_each_bound(limit: int) -> None:
+    """`limit` takes 1 and 100."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        # Act
+        page = await job.for_owner("alice").list(limit=limit)
+
+    # Assert
+    assert page == JobPage(jobs=[], next=None)
+
+
+@pytest.mark.parametrize("after", ["", "nope", "MA", 5])
+async def test_job_list_refuses_a_cursor_no_page_returned(
+    after: Any,  # noqa: ANN401
+) -> None:
+    """An `after` that is no page's `next` raises `ValueError`."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        # Act / Assert
+        with pytest.raises(ValueError, match="cursor"):
+            await job.for_owner("alice").list(after=after)
+
+
+async def test_job_list_refuses_a_status_that_is_not_one() -> None:
+    """A `status` that names no status raises `ValueError`."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        # Act / Assert
+        with pytest.raises(ValueError, match="done"):
+            await job.for_owner("alice").list(status="done")  # type: ignore[arg-type] # ty: ignore[invalid-argument-type]
+
+
+async def test_job_list_without_an_owner_raises() -> None:
+    """Jobs with no owner are never listed, since their id protects them."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        await job.without_owner().submit()
+        # Act / Assert
+        with pytest.raises(TypeError, match=r"list\(\) needs an owner"):
+            await job.without_owner().list()
+
+
+async def test_job_page_serializes_for_an_endpoint() -> None:
+    """A `JobPage` is a frozen Pydantic model with `jobs` and `next`."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    async with tasks:
+        view = job.for_owner("alice")
+        await view.submit()
+        submitted = await view.submit()
+        page = await view.list(limit=1)
+
+    # Act
+    data = json.loads(page.model_dump_json())
+
+    # Assert
+    assert list(data) == ["jobs", "next"]
+    assert data["jobs"][0]["id"] == submitted.id
+    assert isinstance(data["next"], str)
+    assert JobPage.model_validate_json(page.model_dump_json()) == page
+    with pytest.raises(ValueError, match="frozen"):
+        page.next = None  # type: ignore[misc] # ty: ignore[invalid-assignment]

@@ -20,6 +20,7 @@ from grelmicro.coordination.sqlite import _immediate
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task._protocol import (
+    FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
     JOB_TIMED_OUT,
@@ -29,12 +30,17 @@ from grelmicro.task._protocol import (
     EndStatus,
     JobRecord,
     JobStatus,
+    Listed,
     ProgressUpdate,
     Settled,
     Submitted,
+    page_of,
+    read_cursor,
+    scan_limit,
 )
 
 if TYPE_CHECKING:
+    import builtins
     from collections.abc import AsyncGenerator, Mapping, Sequence
     from types import TracebackType
 
@@ -157,7 +163,7 @@ class SQLiteJobAdapter:
     _SQL_CREATE = (
         """
         CREATE TABLE IF NOT EXISTS {table_name} (
-            seq INTEGER PRIMARY KEY,
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
             id TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
             owner TEXT,
@@ -194,13 +200,18 @@ class SQLiteJobAdapter:
         CREATE INDEX IF NOT EXISTS {table_name}_expires_at_idx
             ON {table_name} (expires_at) WHERE expires_at IS NOT NULL;
         """,
+        """
+        CREATE INDEX IF NOT EXISTS {table_name}_owner_idx
+            ON {table_name} (name, owner, seq) WHERE owner IS NOT NULL;
+        """,
     )
     """The table and its indexes.
 
-    `seq` keeps submission order. `due_at` is the earlier of the lease end
-    and the `run_by` of a running job, and the `max_wait` end of a queued
-    one. `run_by` is when a running job passes its `max_run`. `expires_at`
-    is when an ended job stops being kept.
+    `seq` keeps submission order and never takes a value twice. `due_at` is
+    the earlier of the lease end and the `run_by` of a running job, and the
+    `max_wait` end of a queued one. `run_by` is when a running job passes its
+    `max_run`. `expires_at` is when an ended job stops being kept. The owner
+    index serves `list`.
     """
 
     _SQL: ClassVar[dict[str, str]] = {
@@ -210,6 +221,30 @@ class SQLiteJobAdapter:
         "catch_up_queue": _CATCH_UP.replace("{returning}", "").replace(
             "{where}", "name = :name AND status = 'queued'"
         ),
+        # The unary plus keeps the owner index out, so the due index finds
+        # the few overdue jobs instead of every job the owner has.
+        "catch_up_owner": _CATCH_UP.replace("{returning}", "").replace(
+            "{where}", "+name = :name AND +owner = :owner"
+        ),
+        "scan": """
+            SELECT count(*), min(seq) FROM (
+                SELECT seq FROM {table_name}
+                WHERE name = :name AND owner = :owner AND seq < :below
+                ORDER BY seq DESC
+                LIMIT :bound
+            );
+        """,
+        "list": """
+            SELECT seq, {record} FROM {table_name}
+            WHERE name = :name
+              AND owner = :owner
+              AND seq < :below
+              AND seq >= :floor
+              AND (expires_at IS NULL OR expires_at > :now)
+              AND (:status IS NULL OR status = :status)
+            ORDER BY seq DESC
+            LIMIT :limit;
+        """,
         "reap": _CATCH_UP.replace("{returning}", "").replace(
             "{where}",
             """seq IN (
@@ -472,12 +507,12 @@ class SQLiteJobAdapter:
         slots: Mapping[str, int],
         runner: str,
         lease: timedelta,
-    ) -> list[Claimed]:
+    ) -> builtins.list[Claimed]:
         """Claim queued jobs up to each name's slots, oldest first per name."""
         names = [name for name, free in slots.items() if free > 0]
         if not names:
             return []
-        claimed: list[Claimed] = []
+        claimed: builtins.list[Claimed] = []
         async with self._transaction() as (conn, now):
             for name in names:
                 await self._run(conn, "catch_up_queue", now, name=name)
@@ -508,11 +543,11 @@ class SQLiteJobAdapter:
         runner: str,
         beats: Sequence[Beat],
         lease: timedelta,
-    ) -> list[BeatReply]:
+    ) -> builtins.list[BeatReply]:
         """Extend each held job's lease, write its progress, read its flag."""
         if not beats:
             return []
-        replies: list[BeatReply] = []
+        replies: builtins.list[BeatReply] = []
         async with self._transaction() as (conn, now):
             for beat in beats:
                 row, ended = await self._look_up(conn, now, beat.job_id)
@@ -627,6 +662,48 @@ class SQLiteJobAdapter:
                 flagged = await self._fetch(conn, "cancel_running", id=job_id)
                 return _record(flagged)
         return record
+
+    async def list(
+        self,
+        *,
+        name: str,
+        owner: str,
+        status: JobStatus | None,
+        limit: int,
+        after: str | None,
+    ) -> Listed:
+        """Return the jobs of `name` that `owner` owns, newest submitted first.
+
+        The owner's jobs that are past a lease, `max_wait` or `max_run` end
+        first, in the same transaction.
+        """
+        below = FIRST if after is None else read_cursor(after)
+        async with self._transaction() as (conn, now):
+            await self._run(conn, "catch_up_owner", now, name=name, owner=owner)
+            bound = scan_limit(limit)
+            scanned, floor = await self._fetch(
+                conn, "scan", name=name, owner=owner, below=below, bound=bound
+            )
+            if not scanned:
+                return Listed([], None)
+            async with conn.execute(
+                self._sql["list"],
+                {
+                    "now": now,
+                    "name": name,
+                    "owner": owner,
+                    "below": below,
+                    "floor": floor,
+                    "status": None if status is None else status.value,
+                    "limit": limit + 1,
+                },
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return page_of(
+            [(row[0], _record(row[1:])) for row in rows],
+            limit,
+            floor if scanned == bound else None,
+        )
 
     async def reap(self, *, limit: int) -> int:
         """End jobs past a lease, `max_wait` or `max_run`, of any name."""

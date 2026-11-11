@@ -128,6 +128,37 @@ class JobInfo(BaseModel, frozen=True):
     ]
 
 
+class JobPage(BaseModel, frozen=True):
+    """One page of an owner's jobs, newest first.
+
+    Read more in the [Reattach after a reload](../task.md#reattach-after-a-reload)
+    docs.
+    """
+
+    jobs: Annotated[
+        list[JobInfo],
+        Doc(
+            """
+            The jobs on this page, newest submitted first. It can hold fewer
+            than `limit` jobs while more follow.
+            """
+        ),
+    ]
+    next: Annotated[
+        str | None,
+        Doc(
+            """
+            Pass it as `after` to read the next page. `None` on the last
+            page.
+            """
+        ),
+    ]
+
+
+_LIST_LIMIT = 100
+"""The most jobs one page holds."""
+
+
 class _Outcome(NamedTuple):
     """How a job ended, as this replica writes it to the store."""
 
@@ -584,9 +615,9 @@ class Job[**P](Task):
     ) -> JobView[P]:
         """Return this job as `owner` sees it.
 
-        `submit` on it records `owner` with the job, and `get` and `cancel`
-        find only the jobs `owner` submitted. A caller is keyed by its issuer
-        and subject together.
+        `submit` on it records `owner` with the job, and `get`, `cancel` and
+        `list` find only the jobs `owner` submitted. A caller is keyed by its
+        issuer and subject together.
 
         Raises:
             TypeError: If `owner` is neither a string nor a caller.
@@ -600,7 +631,7 @@ class Job[**P](Task):
 
         Only its id protects such a job, so use this for a job your service
         submits for itself, whose id never reaches a caller. Use `for_owner`
-        for any job a caller reaches.
+        for any job a caller reaches. Its `list` raises `TypeError`.
         """
         return JobView(self, None)
 
@@ -615,6 +646,28 @@ class Job[**P](Task):
         if run is not None:
             self._ask_to_stop(run)
         return _info(record)
+
+    async def _list(
+        self,
+        owner: str,
+        status: JobStatus | None,
+        limit: int,
+        after: str | None,
+    ) -> JobPage:
+        """Return a page of the jobs `owner` owns, newest first."""
+        if not is_int(limit) or not 1 <= limit <= _LIST_LIMIT:
+            msg = f"limit must be an int from 1 to {_LIST_LIMIT}, got {limit!r}"
+            raise ValueError(msg)
+        listed = await self._backend.list(
+            name=self._name,
+            owner=owner,
+            status=None if status is None else JobStatus(status),
+            limit=limit,
+            after=after,
+        )
+        return JobPage(
+            jobs=[_info(record) for record in listed.records], next=listed.next
+        )
 
     async def _submit(
         self,
@@ -953,6 +1006,51 @@ class JobView[**P]:
         another owner. Such a job is left as it is.
         """
         return await self._job._cancel(job_id, self._owner)  # noqa: SLF001
+
+    async def list(
+        self,
+        *,
+        status: Annotated[
+            JobStatus | None,
+            Doc("Keep only the jobs in this status. `None` keeps every one."),
+        ] = None,
+        limit: Annotated[
+            int, Doc("How many jobs one page holds at most, from 1 to 100.")
+        ] = 25,
+        after: Annotated[
+            str | None,
+            Doc(
+                """
+                The `next` of the previous page, to read the page after it.
+                `None` reads the first page.
+                """
+            ),
+        ] = None,
+    ) -> JobPage:
+        """Return a page of this owner's jobs, newest first, from any replica.
+
+        Only the jobs still readable are listed: a job past its `keep` is
+        gone. A job reads as `get` returns it, so one whose replica died
+        reads `failed`, and `status` keeps the jobs by that status. A job
+        submitted after a page was read never shows on the pages after it.
+
+        A page can hold fewer than `limit` jobs while more follow, since one
+        call reads a bounded part of the owner's jobs. Read pages until
+        `next` is `None`.
+
+        Raises:
+            TypeError: If this is the view of `without_owner()`.
+            ValueError: If `limit` is not an int from 1 to 100, `status` is
+                not a status, or `after` is not a `next` a page returned.
+        """
+        if self._owner is None:
+            msg = (
+                "list() needs an owner. Call it on for_owner(owner): a job "
+                "without an owner is protected only by its id, so it is "
+                "never listed."
+            )
+            raise TypeError(msg)
+        return await self._job._list(self._owner, status, limit, after)  # noqa: SLF001
 
 
 def _check_progress_first(function: Callable[..., Any]) -> inspect.Signature:
