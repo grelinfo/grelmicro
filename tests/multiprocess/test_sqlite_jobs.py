@@ -61,6 +61,7 @@ async def _submit(
                 context={"trace": "t"},
                 max_queued=max_queued,
                 max_wait=None,
+                max_run=None,
                 keep=KEEP,
                 start_as=None,
                 lease=LEASE,
@@ -113,7 +114,7 @@ async def _run_one(barrier: Barrier, results: Results, path: str) -> None:
             progress=ProgressUpdate(3, 3),
         )
     results.append(
-        (claimed.payload, dict(claimed.context), reply.held, settled)
+        (claimed.payload, dict(claimed.context), reply.held, settled.settled)
     )
 
 

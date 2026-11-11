@@ -383,7 +383,7 @@ The provider in `uses=` is all it takes there too.
 | `queued` | Waiting for a free slot. |
 | `running` | The body is running. |
 | `succeeded` | The body returned JSON. |
-| `failed` | The body raised or returned something that is not JSON, the job never started in time, or the job was lost, such as when the replica running it died. `error` says why. |
+| `failed` | The body raised or returned something that is not JSON, the job never started in time, ran past `max_run`, or was lost, such as when the replica running it died. `error` says why. |
 | `cancelled` | Cancelled before or while it ran. |
 
 A job only moves forward: `queued`, then `running`, then one of the last three.
@@ -510,6 +510,7 @@ with a bare `return`.
 | `max_concurrent` | `1` | Jobs of this function running at once, on each replica. Three replicas run up to three times this. |
 | `max_queued` | `None` | Jobs waiting for a slot, counted in the store, so across every replica that shares it. `None` means no limit. Past a limit, `submit` raises `JobRefusedError`. `0` takes a job only when this replica can start it now. |
 | `max_wait` | `86400` | How long a queued job may wait for a slot, in seconds or a `timedelta`. Past it, the job ends `failed`. `None` means no limit. |
+| `max_run` | `None` | How long a job may run, in seconds or a `timedelta`, counted from `started_at`. Past it, the job ends `failed` with the error `"Job not finished in time"`. `None` means no limit. |
 | `keep` | `86400` | How long a finished job stays readable, in seconds or a `timedelta`. `0` keeps nothing. `None` means no limit. |
 
 With no limit, a flood of submits grows the store. If callers can flood you, set
@@ -521,6 +522,28 @@ When the queue is full, or the service is shutting down, `submit` raises
 
 A sync body holds a thread of the default executor for its whole run, as sync
 scheduled tasks do. Keep `max_concurrent` low for long sync jobs.
+
+### Stop a job that runs too long
+
+Set `max_run` to bound how long a job runs:
+
+```python title="fragment"
+@tasks.job(max_run=600)
+async def import_rows(progress: Progress, upload_id: str) -> None: ...
+```
+
+Past `max_run`, the job reads `failed` with the error
+`"Job not finished in time"`, from any replica. The body hears about it within
+about a second, while the store is reachable. An async body then gets
+`asyncio.CancelledError` at its next `await`. A sync body stops at its next
+`checkpoint()`, `advance()` or `total` update, and keeps its slot until its
+thread returns. A sync body that calls none of them cannot be stopped.
+
+`max_wait` bounds the time in the queue, and `max_run` the time after the job
+starts. The lease of [a replica that dies](#when-a-replica-dies) and the
+`shutdown_timeout` work on their own, and the first limit reached ends the
+job. A cancelled job still running at `max_run` ends `failed`. A job stopped by `max_run` is not run again. The page can offer a
+retry, which submits a new job.
 
 ### When a replica dies
 
@@ -590,9 +613,10 @@ needs as an argument.
 Each run of a job lands on
 [`grelmicro.task.runs`](metrics.md#every-fire-lands-on-grelmicrotaskruns) under
 the job's name, like a scheduled fire. A cancelled run counts no run, and its
-`grelmicro.task.duration` reads as an error. A run that returned on a job the
-store lost counts as an `error` with `error.type` set to `job_lost`, so the
-metric agrees with the job's status.
+`grelmicro.task.duration` reads as an error. A run whose job the store ended
+counts as an `error`, whether the body returned, raised or stopped. Its
+`error.type` is `job_lost` for a lapsed lease, and `job_timed_out` for a run
+past `max_run`. So the metric agrees with the job's status.
 
 !!! note "The job decorator goes on top"
     `@tasks.job` returns a `Job`, not the function. A decorator written below it

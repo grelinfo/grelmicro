@@ -104,6 +104,7 @@ async def _apply(  # noqa: C901, PLR0912, PLR0915
                 context={},
                 max_queued=MAX_QUEUED,
                 max_wait=MAX_WAIT,
+                max_run=None,
                 keep=KEEP,
                 start_as=start_as,
                 lease=LEASE,
@@ -153,7 +154,7 @@ async def _apply(  # noqa: C901, PLR0912, PLR0915
                 progress=None,
             )
             after = await backend.get(name=NAME, job_id=job_id, owner=OWNER)
-            if not settled:
+            if not settled.settled:
                 assert after == before, "a refused settle wrote"
                 return
             assert runner == model.holder(job_id), "fence: a settle got through"

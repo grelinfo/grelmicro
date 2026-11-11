@@ -175,6 +175,7 @@ async def _queue_as_another_replica(store: MemoryJobAdapter, name: str) -> str:
         context={},
         max_queued=None,
         max_wait=None,
+        max_run=None,
         keep=timedelta(hours=1),
         start_as=None,
         lease=timedelta(seconds=30),

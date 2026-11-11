@@ -10,6 +10,7 @@
 * ✨ Jobs run on Postgres, so any replica takes a submit, runs the job, and answers a poll or a cancel. ([#1266](https://github.com/grelinfo/grelmicro/issues/1266))
 * ✨ A job finds its store through the app, so a Redis provider in `uses=` is all it takes. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
 * ✨ In `production` and `staging`, an app with a job and no shared store refuses to start with `BackendScopeError`. Pass `requires="process"` to run one replica on purpose. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
+* ✨ `@tasks.job(max_run=...)` bounds how long a job runs. Past it, the job ends `failed` with the error `"Job not finished in time"`. ([#1261](https://github.com/grelinfo/grelmicro/issues/1261))
 * ✨ A job keeps running through a store outage shorter than 30 seconds. ([#1284](https://github.com/grelinfo/grelmicro/pull/1284))
 * ✨ `RedisProvider(prefix=...)` and `ValkeyProvider(prefix=...)` put one namespace before the keys of every store they build. The lock, read-write lock, cache and job stores add their kind after it, such as `myapp:lock:`. The default is empty, so no key changes. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 

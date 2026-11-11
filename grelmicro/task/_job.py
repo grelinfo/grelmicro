@@ -13,6 +13,7 @@ import inspect
 import json
 import secrets
 import threading
+import time
 from annotationlib import Format
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
@@ -46,7 +47,13 @@ from grelmicro._environment import (
 from grelmicro._task import Task
 from grelmicro.clock._seam import monotonic, sleep
 from grelmicro.errors import OutOfContextError
-from grelmicro.task._fire import FireOutcome, FireRecorder, all_of, first_leaf
+from grelmicro.task._fire import (
+    FireOutcome,
+    FireRecorder,
+    FireResult,
+    all_of,
+    first_leaf,
+)
 from grelmicro.task._job_arguments import JobArguments, resolve_annotation
 from grelmicro.task._job_loop import BEAT, LEASE, JobStoreLoop, store_loop
 from grelmicro.task._job_trace import (
@@ -59,6 +66,7 @@ from grelmicro.task._job_trace import (
 )
 from grelmicro.task._protocol import (
     JOB_LOST,
+    JOB_TIMED_OUT,
     Beat,
     BeatReply,
     Claimed,
@@ -135,6 +143,7 @@ class _Run:
     __slots__ = (
         "cancel_requested",
         "done",
+        "ended_by",
         "id",
         "lock",
         "outcome",
@@ -153,6 +162,8 @@ class _Run:
         self.written = ProgressUpdate(done=0, total=None)
         self.sending: ProgressUpdate | None = None
         self.cancel_requested = False
+        self.ended_by: str | None = None
+        """The error the store ended the job with, once a beat or settle said."""
         self.started = False
         self.outcome: _Outcome | None = None
         self.task: asyncio.Task[None] | None = None
@@ -168,6 +179,16 @@ class _Run:
             counts = ProgressUpdate(done=self.done, total=self.total)
         self.sending = None if counts == self.written else counts
         return self.sending
+
+    def lost(self) -> tuple[str, str]:
+        """Return why the store took the job from this replica.
+
+        The first item is the job's error, the second its `error.type`. A
+        job the store took with no reason given reads as lost.
+        """
+        if self.ended_by == JOB_TIMED_OUT:
+            return JOB_TIMED_OUT, "job_timed_out"
+        return JOB_LOST, "job_lost"
 
     def counts_written(self) -> None:
         """Note that the store now has the counts the last beat sent."""
@@ -234,9 +255,10 @@ class Progress:
 
         Raises:
             asyncio.CancelledError: If the job already ended, such as a
-                sync job cancelled at the shutdown timeout.
+                sync job cancelled at the shutdown timeout, or one the store
+                ended past its `max_run`.
         """
-        if self._run.ended:
+        if self._run.ended or self._run.ended_by is not None:
             raise asyncio.CancelledError
 
     def checkpoint(self) -> None:
@@ -287,6 +309,7 @@ class Job[**P](Task):
         max_concurrent: int = 1,
         max_queued: int | None = None,
         max_wait: int | timedelta | None = 86400,
+        max_run: int | timedelta | None = None,
         keep: int | timedelta | None = 86400,
         backend: JobBackend | None = None,
         requires: BackendScope | None = None,
@@ -297,10 +320,10 @@ class Job[**P](Task):
             FunctionTypeError: If the function is not supported.
             TypeError: If the function does not take `progress` first.
             ValueError: If `max_concurrent` is not an int of at least 1,
-                `max_queued` is not an int of at least 0, `max_wait` is not
-                whole seconds or a `timedelta` above zero, `keep` is not whole
-                seconds or a `timedelta` from zero, or either is over 100
-                years.
+                `max_queued` is not an int of at least 0, `max_wait` or
+                `max_run` is not whole seconds or a `timedelta` above zero,
+                `keep` is not whole seconds or a `timedelta` from zero, or
+                any of them is over 100 years.
         """
         alt_name = validate_and_generate_reference(function)
         signature = _check_progress_first(function)
@@ -330,6 +353,9 @@ class Job[**P](Task):
         self._max_queued = max_queued
         self._max_wait = (
             None if max_wait is None else check_duration(max_wait, "max_wait")
+        )
+        self._max_run = (
+            None if max_run is None else check_duration(max_run, "max_run")
         )
         self._keep = None if keep is None else check_retention(keep, "keep")
         self._requires = required_scope(requires, "cluster")
@@ -479,6 +505,8 @@ class Job[**P](Task):
             return
         if reply.held:
             run.counts_written()
+        else:
+            run.ended_by = reply.error or JOB_LOST
         if not reply.held or reply.cancel_requested:
             self._ask_to_stop(run)
 
@@ -626,6 +654,7 @@ class Job[**P](Task):
                 context=context,
                 max_queued=self._max_queued,
                 max_wait=self._max_wait,
+                max_run=self._max_run,
                 keep=self._keep,
                 start_as=loop.runner if free else None,
                 lease=LEASE,
@@ -673,7 +702,7 @@ class Job[**P](Task):
             mark_failed(error or _FAILED)
         settled = await self._end_in_store(run, retry=True)
         if not settled:
-            mark_lost(JOB_LOST)
+            mark_lost(*run.lost())
         return settled
 
     async def _end_in_store(self, run: _Run, *, retry: bool) -> bool:
@@ -688,7 +717,7 @@ class Job[**P](Task):
         give_up_at = monotonic() + LEASE.total_seconds()
         while True:
             try:
-                settled = await self._backend.settle(
+                reply = await self._backend.settle(
                     name=self._name,
                     job_id=run.id,
                     runner=self._loop.runner,
@@ -712,9 +741,17 @@ class Job[**P](Task):
                     exc_info=True,
                 )
                 settled = False
+            else:
+                settled = reply.settled
+                if not settled and run.ended_by is None:
+                    run.ended_by = reply.error
             break
         self._runs.pop(run.id, None)
-        if not settled:
+        if not settled and run.ended_by == JOB_TIMED_OUT:
+            logger.warning(
+                "Job not finished in time, its max_run passed: %s", self._name
+            )
+        elif not settled:
             logger.warning(
                 "Job lost, its lease ran out before it ended: %s", self._name
             )
@@ -735,9 +772,13 @@ class Job[**P](Task):
         cancelled ends `cancelled`. One that raises a `BaseException` other
         than a cancel ends `failed`, the exception propagates, and this
         replica claims nothing more. The run is counted once the store has
-        its end, so a job the store lost never counts as a success.
+        its end. A job the store ended itself, past its lease or `max_run`,
+        counts as an error of that kind, whatever the body did.
         """
         assert record.started_at is not None  # noqa: S101
+        # Set when the body raises a `BaseException`. Every other await here
+        # is a settle, which ends the run before it can be interrupted.
+        stopped: FireResult | None = None
         try:
             if run.cancel_requested:
                 await self._settle(run, JobStatus.CANCELLED)
@@ -755,42 +796,87 @@ class Job[**P](Task):
                 await self._settle(run, JobStatus.FAILED, _FAILED)
                 return
             run.started = True
-            ran = await self._fire.run(
-                record.started_at, None, Progress(run, self), *args, **kwargs
-            )
-            if _cancelling():
-                self._fire.count(record.started_at, ran, run=False)
-                await self._settle(run, JobStatus.CANCELLED)
-            elif ran.error is not None:
-                name_error(ran.error)
-                if not all_of(ran.error, (JobError,)):
-                    record_exception(ran.error)
-                self._fire.count(record.started_at, ran)
-                await self._settle(
-                    run, JobStatus.FAILED, _caller_error(ran.error)
+            began = time.perf_counter()
+            try:
+                ran = await self._fire.run(
+                    record.started_at,
+                    None,
+                    Progress(run, self),
+                    *args,
+                    **kwargs,
                 )
-            else:
-                settled = False
-                try:
-                    settled = await self._settle(
-                        run, JobStatus.SUCCEEDED, result=ran.value
-                    )
-                finally:
-                    self._fire.count(
-                        record.started_at,
-                        ran,
-                        error_type=None if settled else "job_lost",
-                    )
+            except BaseException:
+                stopped = FireResult(duration=time.perf_counter() - began)
+                raise
+            await self._end_ran(run, record.started_at, ran)
         except asyncio.CancelledError:
-            if not run.ended:
-                await self._settle(run, JobStatus.CANCELLED)
+            if not run.ended and stopped is not None:
+                await self._end_and_count(
+                    run, record.started_at, stopped, JobStatus.CANCELLED
+                )
             raise
         except BaseException as error:
             self._stopping = True
             name_error(error)
-            if not run.ended:
-                await self._settle(run, JobStatus.FAILED, _FAILED)
+            if not run.ended and stopped is not None:
+                await self._end_and_count(
+                    run, record.started_at, stopped, JobStatus.FAILED, _FAILED
+                )
             raise
+
+    async def _end_ran(
+        self, run: _Run, started_at: datetime, ran: FireResult
+    ) -> None:
+        """End a job whose body returned or raised an `Exception`."""
+        if _cancelling():
+            await self._end_and_count(run, started_at, ran, JobStatus.CANCELLED)
+        elif ran.error is not None:
+            name_error(ran.error)
+            if not all_of(ran.error, (JobError,)):
+                record_exception(ran.error)
+            await self._end_and_count(
+                run,
+                started_at,
+                ran,
+                JobStatus.FAILED,
+                _caller_error(ran.error),
+            )
+        else:
+            await self._end_and_count(
+                run,
+                started_at,
+                ran,
+                JobStatus.SUCCEEDED,
+                result=ran.value,
+            )
+
+    async def _end_and_count(
+        self,
+        run: _Run,
+        started_at: datetime,
+        ran: FireResult,
+        status: EndStatus,
+        error: str | None = None,
+        result: str | None = None,
+    ) -> None:
+        """End a job whose body ran, then count the run by the store's answer.
+
+        A run the store refused counts as an error of why the store ended
+        it. A run the store took counts as the body ended: a success, the
+        body's error, or no run for a cancel or a `BaseException`.
+        """
+        settled = False
+        try:
+            settled = await self._settle(run, status, error, result)
+        finally:
+            if not settled:
+                self._fire.count(started_at, ran, error_type=run.lost()[1])
+            elif status is JobStatus.CANCELLED or (
+                status is JobStatus.FAILED and ran.error is None
+            ):
+                self._fire.count(started_at, ran, run=False)
+            else:
+                self._fire.count(started_at, ran)
 
 
 def _owner_key(owner: str | Principal) -> str:

@@ -85,6 +85,13 @@ async def _unannotated(progress) -> None:  # noqa: ANN001
         pytest.param({"max_wait": -1}, id="max_wait-negative"),
         pytest.param({"max_wait": 1.5}, id="max_wait-float"),
         pytest.param({"max_wait": 0}, id="max_wait-zero"),
+        pytest.param({"max_run": -1}, id="max_run-negative"),
+        pytest.param({"max_run": 1.5}, id="max_run-float"),
+        pytest.param({"max_run": 0}, id="max_run-zero"),
+        pytest.param({"max_run": timedelta(0)}, id="max_run-zero-timedelta"),
+        pytest.param(
+            {"max_run": timedelta(days=365 * 101)}, id="max_run-too-long"
+        ),
         pytest.param({"keep": 1.5}, id="keep-float"),
         pytest.param({"keep": timedelta(days=365 * 101)}, id="keep-too-long"),
     ],
@@ -210,11 +217,12 @@ _ONE_DAY = 86400
 def test_job_limits_default_to_no_queue_limit_and_one_day(
     written: Callable[..., Any],
 ) -> None:
-    """A job has no queue limit, and waits and stays readable for a day."""
+    """A job has no queue or run limit, and waits and stays readable a day."""
     # Act
     parameters = inspect.signature(written).parameters
 
     # Assert
     assert parameters["max_queued"].default is None
     assert parameters["max_wait"].default == _ONE_DAY
+    assert parameters["max_run"].default is None
     assert parameters["keep"].default == _ONE_DAY

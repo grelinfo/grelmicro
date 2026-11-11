@@ -263,6 +263,7 @@ async def _submit(
         context={},
         max_queued=None,
         max_wait=timedelta(minutes=1),
+        max_run=None,
         keep=keep,
         start_as=start_as,
         lease=timedelta(seconds=30),

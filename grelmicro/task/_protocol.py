@@ -16,11 +16,13 @@ A job only moves forward, and each move below is one atomic step in the store:
 | `queued` to `cancelled` | `cancel` | owner matches |
 | `running`, cancel flag set | `cancel` | owner matches |
 | `running` to `failed`, lease lapsed | `reap`, or a read | lease lapsed |
+| `running` to `failed`, past `max_run` | `reap`, or a read | past `max_run` |
 | `queued` to `failed`, past `max_wait` | `reap`, or a read | past `max_wait` |
 | an end state to gone | `purge`, or the store | past `keep` |
 
-The store's own clock decides every lease and deadline. A job that reaches an
-end state no longer holds its payload or context.
+A job past both its lease and its `max_run` ends with the error of the one
+that passed first. The store's own clock decides every lease and deadline. A
+job that reaches an end state no longer holds its payload or context.
 """
 
 from __future__ import annotations
@@ -52,6 +54,9 @@ JOB_LOST = "Job lost"
 
 JOB_NOT_STARTED = "Job not started in time"
 """The error of a queued job past its `max_wait`."""
+
+JOB_TIMED_OUT = "Job not finished in time"
+"""The error of a running job past its `max_run`."""
 
 
 class JobStatus(StrEnum):
@@ -137,6 +142,10 @@ class BeatReply:
         bool, Doc("Whether the runner still holds the job. If not, stop.")
     ]
     cancel_requested: Annotated[bool, Doc("Whether a cancel was requested.")]
+    error: Annotated[
+        str | None,
+        Doc("Why the store ended the job, when it no longer holds it."),
+    ] = None
 
 
 class Submitted(NamedTuple):
@@ -144,6 +153,16 @@ class Submitted(NamedTuple):
 
     record: Annotated[JobRecord | None, Doc("The job, or `None` if refused.")]
     started: Annotated[bool, Doc("Whether the caller must run the body now.")]
+
+
+class Settled(NamedTuple):
+    """What a `settle` did."""
+
+    settled: Annotated[bool, Doc("Whether the store took the end.")]
+    error: Annotated[
+        str | None,
+        Doc("Why the store ended the job itself, when it refused."),
+    ]
 
 
 @runtime_checkable
@@ -166,7 +185,7 @@ class JobBackend(Protocol):
         """Close the backend."""
         ...
 
-    async def submit(
+    async def submit(  # noqa: PLR0913
         self,
         *,
         name: Annotated[str, Doc("The job's name.")],
@@ -188,6 +207,10 @@ class JobBackend(Protocol):
             timedelta | None,
             Doc("How long the job may stay queued. `None`: no limit."),
         ],
+        max_run: Annotated[
+            timedelta | None,
+            Doc("How long the job may run once it starts. `None`: no limit."),
+        ],
         keep: Annotated[
             timedelta | None,
             Doc("How long the ended job stays readable. `None`: no limit."),
@@ -204,6 +227,8 @@ class JobBackend(Protocol):
         `running`, held by that runner, and `started` is `True`. Otherwise it
         is `queued`, unless `max_queued` jobs of the name already are: then
         `record` is `None`. `max_queued=0` therefore means run now or refuse.
+        The job keeps its `max_run`, counted from when it starts, on
+        whichever runner starts it.
 
         A retried `submit` with the same `job_id` returns the stored job and
         stores nothing. `started` is `True` only when the first call started
@@ -241,7 +266,9 @@ class JobBackend(Protocol):
         """Extend each held job's lease, write its progress, read its flag.
 
         A job this runner no longer holds comes back with `held=False`, and
-        nothing of its entry is written.
+        nothing of its entry is written. When the store ended that job
+        `failed` itself, such as past its lease or `max_run`, `error` says
+        why.
         """
         ...
 
@@ -255,13 +282,16 @@ class JobBackend(Protocol):
         error: Annotated[str | None, Doc("Why the job failed.")],
         result: Annotated[str | None, Doc("The result, as opaque JSON.")],
         progress: Annotated[ProgressUpdate | None, Doc("The last counts.")],
-    ) -> bool:
+    ) -> Settled:
         """End a running job, and start its retention.
 
-        Returns `False`, and writes nothing, when `runner` no longer holds
-        the job. Retrying with the same arguments after a lost reply returns
-        `True` and writes nothing more, while the job is still kept. With
-        `keep` at zero the job is already gone, so the retry returns `False`.
+        Refuses, and writes nothing, when `runner` no longer holds the job.
+        When the store ended the job `failed` itself, such as past its lease
+        or `max_run`, `error` says why. It is `None` for a job that is gone
+        or that another runner ended. Retrying with the same arguments
+        after a lost reply is taken and writes nothing more, while the job
+        is still kept. With `keep` at zero the job is already gone, so the
+        retry is refused.
         """
         ...
 
@@ -274,9 +304,9 @@ class JobBackend(Protocol):
     ) -> JobRecord | None:
         """Return the job when `owner` owns it, else `None`.
 
-        A read never shows a job as `running` past its lease, or `queued`
-        past its `max_wait`: it makes that move first. A job past its
-        retention reads as `None`.
+        A read never shows a job as `running` past its lease or its
+        `max_run`, or `queued` past its `max_wait`: it makes that move
+        first. A job past its retention reads as `None`.
         """
         ...
 
@@ -298,7 +328,7 @@ class JobBackend(Protocol):
     async def reap(
         self, *, limit: Annotated[int, Doc("How many jobs to end at most.")]
     ) -> int:
-        """End jobs past their lease or `max_wait`, whatever their name."""
+        """End jobs past a lease, `max_wait` or `max_run`, of any name."""
         ...
 
     async def purge(

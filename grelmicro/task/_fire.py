@@ -124,8 +124,9 @@ class FireRecorder:
         exception, or a group made only of them, logs one warning line
         with its first message instead of a traceback. `finish` turns what
         the body returned into the fire's value, and an exception it raises
-        counts as the body's. With `count_later`, a body that returns or
-        raises is not counted by `run`: the caller counts it with `count`.
+        counts as the body's. With `count_later`, a body that returns, raises
+        or is cancelled is not counted by `run`: the caller counts it with
+        `count`.
         """
         self._name = name
         self._expected = expected
@@ -210,8 +211,9 @@ class FireRecorder:
                 error=exc, duration=time.perf_counter() - start_monotonic
             )
         except BaseException:
-            duration = time.perf_counter() - start_monotonic
-            self.count(started_at, FireResult(duration=duration), run=False)
+            if not self._count_later:
+                duration = time.perf_counter() - start_monotonic
+                self.count(started_at, FireResult(duration=duration), run=False)
             raise
         else:
             ran = FireResult(

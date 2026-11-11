@@ -22,6 +22,7 @@ from grelmicro.clock import VirtualClock
 from grelmicro.task import Job, JobError, JobInfo, JobStatus, Progress, Tasks
 from grelmicro.task import _job as job_module
 from grelmicro.task import _job_trace as job_trace
+from grelmicro.task._protocol import Settled
 from grelmicro.task.memory import MemoryJobAdapter
 from tests.task._job_shared import share, shared
 
@@ -375,6 +376,7 @@ async def test_job_run_span_of_stale_arguments_holds_no_value(
             context={},
             max_queued=None,
             max_wait=None,
+            max_run=None,
             keep=None,
             start_as=None,
             lease=timedelta(seconds=30),
@@ -448,6 +450,7 @@ async def test_job_arguments_that_cannot_load_fail_only_that_job(
             context={},
             max_queued=None,
             max_wait=None,
+            max_run=None,
             keep=None,
             start_as=None,
             lease=timedelta(seconds=30),
@@ -500,6 +503,44 @@ async def test_job_lost_before_it_settles_is_logged_and_marked(
     [record] = [r for r in caplog.records if r.name == "grelmicro.task"]
     assert record.levelno == logging.WARNING
     assert job.name in record.getMessage()
+    assert submitted.id not in record.getMessage()
+
+
+async def _runs_on(progress: Progress) -> None:
+    """Run until cancelled."""
+    _ = progress
+    await asyncio.Event().wait()
+
+
+async def test_job_past_max_run_is_logged_and_marked_timed_out(
+    spans: InMemorySpanExporter, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A job stopped by `max_run` says so, in log and span."""
+    # Arrange
+    caplog.set_level(logging.WARNING, logger="grelmicro.task")
+    clock = VirtualClock()
+    tasks = Tasks()
+    job = tasks.job(max_run=5)(_runs_on)
+
+    # Act
+    async with clock, tasks:
+        submitted = await job.without_owner().submit()
+        for _ in range(7):
+            await clock.advance(1)
+            for _ in range(5):
+                await asyncio.sleep(0)
+        while job._runs:  # noqa: ASYNC110
+            await asyncio.sleep(0)
+
+    # Assert
+    run = _run_span(spans, "_runs_on")
+    assert run.status.status_code is StatusCode.ERROR
+    assert run.status.description == "Job not finished in time"
+    assert run.attributes is not None
+    assert run.attributes["error.type"] == "job_timed_out"
+    [record] = [r for r in caplog.records if r.name == "grelmicro.task"]
+    assert record.levelno == logging.WARNING
+    assert "max_run" in record.getMessage()
     assert submitted.id not in record.getMessage()
 
 
@@ -630,9 +671,9 @@ async def test_job_settle_runs_inside_the_run_span(
     seen: list[int] = []
     settle: Any = MemoryJobAdapter.settle
 
-    async def _spying(self: MemoryJobAdapter, **kwargs: object) -> None:
+    async def _spying(self: MemoryJobAdapter, **kwargs: object) -> Settled:
         seen.append(trace.get_current_span().get_span_context().trace_id)
-        await settle(self, **kwargs)
+        return await settle(self, **kwargs)
 
     monkeypatch.setattr(MemoryJobAdapter, "settle", _spying)
     tasks = Tasks()
