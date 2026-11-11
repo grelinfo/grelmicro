@@ -100,6 +100,7 @@ sqlite = "grelmicro.coordination.sqlite:SQLiteScheduleAdapter"
 
 [project.entry-points."grelmicro.coordination.job.adapters"]
 memory = "grelmicro.task.memory:MemoryJobAdapter"
+postgres = "grelmicro.task.postgres:PostgresJobAdapter"
 redis = "grelmicro.task.redis:RedisJobAdapter"
 sqlite = "grelmicro.task.sqlite:SQLiteJobAdapter"
 

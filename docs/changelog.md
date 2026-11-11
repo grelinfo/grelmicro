@@ -7,6 +7,7 @@
 * ✨ Each job call names the job's owner, so a caller only reads and cancels their own jobs. ([#1281](https://github.com/grelinfo/grelmicro/pull/1281))
 * ✨ Jobs run on Redis and Valkey, so any replica takes a submit, runs the job, and answers a poll or a cancel. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287), [#1270](https://github.com/grelinfo/grelmicro/issues/1270))
 * ✨ Jobs run on SQLite, so the processes on one host share them. Pass `requires="host"` to the job and its `Coordination`. ([#1269](https://github.com/grelinfo/grelmicro/issues/1269))
+* ✨ Jobs run on Postgres, so any replica takes a submit, runs the job, and answers a poll or a cancel. ([#1266](https://github.com/grelinfo/grelmicro/issues/1266))
 * ✨ A job finds its store through the app, so a Redis provider in `uses=` is all it takes. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
 * ✨ In `production` and `staging`, an app with a job and no shared store refuses to start with `BackendScopeError`. Pass `requires="process"` to run one replica on purpose. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
 * ✨ A job keeps running through a store outage shorter than 30 seconds. ([#1284](https://github.com/grelinfo/grelmicro/pull/1284))

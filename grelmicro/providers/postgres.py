@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from grelmicro.resilience.ratelimiter.postgres import (
         PostgresRateLimiterAdapter,
     )
+    from grelmicro.task.postgres import PostgresJobAdapter
 
 
 class PostgresConfig(BaseModel):
@@ -449,6 +450,12 @@ class PostgresProvider(Provider):
         )
 
         return PostgresScheduleAdapter(provider=self, **kwargs)
+
+    def job_backend(self, **kwargs: Any) -> PostgresJobAdapter:  # noqa: ANN401
+        """Build a `PostgresJobAdapter` bound to this provider."""
+        from grelmicro.task.postgres import PostgresJobAdapter  # noqa: PLC0415
+
+        return PostgresJobAdapter(provider=self, **kwargs)
 
     def cache_backend(self, **kwargs: Any) -> PostgresCacheAdapter:  # noqa: ANN401
         """Build a `PostgresCacheAdapter` bound to this provider."""
