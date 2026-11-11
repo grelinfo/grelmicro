@@ -17,6 +17,7 @@ from grelmicro.coordination import Coordination
 from grelmicro.coordination.errors import CoordinationBackendError
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task import JobStatus, Progress, Tasks
 from grelmicro.task.memory import MemoryJobAdapter
@@ -26,6 +27,9 @@ pytestmark = [pytest.mark.timeout(10)]
 
 STRICT_ENVIRONMENTS: list[Environment] = ["staging", "production"]
 QUIET_ENVIRONMENTS: list[Environment] = ["development", "test"]
+
+_UNREACHABLE_POSTGRES = "postgresql://user:password@127.0.0.1:1/db"
+"""A Postgres the tests never connect to."""
 
 
 class _SharedJobStore(MemoryJobAdapter):
@@ -159,6 +163,76 @@ async def test_job_requiring_the_host_is_refused_on_a_process_store() -> None:
     # Act and assert
     with pytest.raises(BackendScopeError, match="requires scope 'host'"):
         await micro.__aenter__()
+
+
+async def test_job_requiring_the_host_offers_sqlite() -> None:
+    """SQLite reaches far enough for `host`, so the fix names it."""
+    # Arrange
+    tasks = Tasks()
+    tasks.job(name="report", requires="host")(_noop)
+    micro = Grelmicro(uses=[tasks], environment="production")
+
+    # Act
+    with pytest.raises(BackendScopeError) as error:
+        await micro.__aenter__()
+
+    # Assert
+    message = str(error.value)
+    assert "a SQLite, Redis, or Valkey provider" in message
+    assert "Postgres" not in message
+
+
+@pytest.mark.parametrize("environment", STRICT_ENVIRONMENTS)
+async def test_job_on_sqlite_is_refused_unless_it_requires_the_host(
+    environment: Environment, tmp_path: Path
+) -> None:
+    """SQLite is shared by one host only, so a job must say that is enough."""
+    # Arrange
+    tasks = Tasks()
+    tasks.job(name="report")(_noop)
+    micro = Grelmicro(
+        uses=[SQLiteProvider(tmp_path / "jobs.db"), tasks],
+        environment=environment,
+    )
+
+    # Act
+    with pytest.raises(BackendScopeError) as error:
+        await micro.__aenter__()
+
+    # Assert
+    message = str(error.value)
+    assert "provides scope 'host', but requires scope 'cluster'" in message
+    assert "a Redis or Valkey backend" in message
+
+
+@pytest.mark.parametrize("environment", STRICT_ENVIRONMENTS)
+async def test_job_on_sqlite_requiring_the_host_runs_in_a_strict_environment(
+    environment: Environment, tmp_path: Path
+) -> None:
+    """With `requires="host"`, a job on SQLite starts and runs to its end."""
+    # Arrange
+    sqlite = SQLiteProvider(tmp_path / "jobs.db")
+    tasks = Tasks()
+    job = tasks.job(name="report", requires="host")(_noop)
+    micro = Grelmicro(
+        uses=[Coordination(sqlite, requires="host"), tasks],
+        environment=environment,
+    )
+
+    async with micro:
+        # Act
+        submitted = await job.without_owner().submit()
+        for _ in range(100):
+            read = await sqlite.job_backend().get(
+                name="report", job_id=submitted.id, owner=None
+            )
+            if read is not None and read.status is JobStatus.SUCCEEDED:
+                break
+            await asyncio.sleep(0.01)
+
+    # Assert
+    assert read is not None
+    assert read.status is JobStatus.SUCCEEDED
 
 
 def test_job_requirement_naming_no_scope_is_passed_over() -> None:
@@ -315,12 +389,10 @@ def test_coordination_takes_a_job_store() -> None:
     assert from_keyword.job_backend is memory.job_backend()
 
 
-def test_coordination_on_a_provider_with_no_job_store_has_none(
-    tmp_path: Path,
-) -> None:
+def test_coordination_on_a_provider_with_no_job_store_has_none() -> None:
     """A provider that ships no job store leaves the slot empty, no error."""
     # Arrange
-    coordination = Coordination(SQLiteProvider(tmp_path / "db.sqlite"))
+    coordination = Coordination(PostgresProvider(_UNREACHABLE_POSTGRES))
 
     # Act and assert
     with pytest.raises(CoordinationBackendError, match="no job backend"):
@@ -330,7 +402,7 @@ def test_coordination_on_a_provider_with_no_job_store_has_none(
 def test_provider_without_a_job_store_says_so() -> None:
     """The base factory raises, as every other factory does."""
     # Arrange
-    provider = SQLiteProvider(":memory:")
+    provider = PostgresProvider(_UNREACHABLE_POSTGRES)
 
     # Act and assert
     with pytest.raises(NotImplementedError, match="has no job adapter"):

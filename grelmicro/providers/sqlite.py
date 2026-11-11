@@ -32,6 +32,7 @@ if TYPE_CHECKING:
         SQLiteCircuitBreakerAdapter,
     )
     from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
+    from grelmicro.task.sqlite import SQLiteJobAdapter
 
 logger = getLogger("grelmicro.providers")
 
@@ -407,6 +408,12 @@ class SQLiteProvider(Provider):
         )
 
         return SQLiteScheduleAdapter(provider=self, **kwargs)
+
+    def job_backend(self, **kwargs: Any) -> SQLiteJobAdapter:  # noqa: ANN401
+        """Build a `SQLiteJobAdapter` bound to this provider."""
+        from grelmicro.task.sqlite import SQLiteJobAdapter  # noqa: PLC0415
+
+        return SQLiteJobAdapter(provider=self, **kwargs)
 
     def cache_backend(self, **kwargs: Any) -> SQLiteCacheAdapter:  # noqa: ANN401
         """Build a `SQLiteCacheAdapter` bound to this provider."""

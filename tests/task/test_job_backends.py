@@ -12,6 +12,7 @@ from testcontainers.community.redis import RedisContainer
 
 from grelmicro.clock import VirtualClock
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.providers.valkey import ValkeyProvider
 from grelmicro.task import JobStatus
 from grelmicro.task._protocol import (
@@ -113,6 +114,7 @@ def valkey_url() -> Generator[str]:
 @pytest.fixture(
     params=[
         "memory",
+        "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("valkey", marks=[pytest.mark.integration]),
         pytest.param("redis-sentinel", marks=[pytest.mark.integration]),
@@ -138,6 +140,12 @@ async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
             provider = cluster_provider(request, request.param)
         adapter = provider.job_backend(prefix=hash_tag_prefix())
         async with provider, adapter:
+            yield _Store(adapter, asyncio.sleep, REAL_TICK)
+        return
+    if request.param == "sqlite":
+        path = request.getfixturevalue("tmp_path") / "jobs.db"
+        sqlite = SQLiteProvider(path)
+        async with sqlite, sqlite.job_backend() as adapter:
             yield _Store(adapter, asyncio.sleep, REAL_TICK)
         return
     backend = MemoryJobAdapter()
