@@ -332,10 +332,26 @@ its tasks start, and keeps it while they run.
 | What you run | What happens |
 | --- | --- |
 | A Redis or Valkey provider | Every replica shares the jobs. |
+| A SQLite provider, with `requires="host"` | The processes on one host share the jobs, such as the workers behind one port. |
 | No shared store, in `development` or `test` | Jobs live in the process, so tests need no store. |
 | No shared store, in `production` or `staging` | The app refuses to start with `BackendScopeError`, because a poll that reaches another replica would answer `404`. |
 | No shared store, and `GREL_ENVIRONMENT` unset | Jobs live in the process, and the app warns once. |
 | One replica on purpose | Pass `requires="process"`, and jobs live in the process. |
+
+SQLite keeps the jobs in a file, so they reach only the processes on that
+host. A job requires `cluster` by default, so it refuses to start on SQLite in
+`production` or `staging`. Pass `requires="host"` to the job, and to the
+`Coordination` that holds the store:
+
+```python
+sqlite = SQLiteProvider("app.db")
+tasks = Tasks()
+micro = Grelmicro(uses=[Coordination(sqlite, requires="host"), tasks])
+
+
+@tasks.job(requires="host")
+async def import_rows(progress: Progress) -> None: ...
+```
 
 The [backend check](deployment.md#the-backend-check) explains the scopes behind
 this. Under [`micro.fake()`](testing.md#test-the-app-you-ship), jobs live in

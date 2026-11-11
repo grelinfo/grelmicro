@@ -269,7 +269,7 @@ Each Provider exposes factory methods that return its matching adapter:
 | `.outbox_backend(**kwargs)`         | `OutboxBackend` impl          |      N/A      |      N/A       |        ✓         |      N/A       |       ✓        |
 | `.ratelimiter_backend(**kwargs)`    | `RateLimiterBackend` impl     |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 | `.circuitbreaker_backend(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
-| `.job_backend(**kwargs)`            | `JobBackend` impl             |       ✓       |       ✓        |       N/A        |      N/A       |       ✓        |
+| `.job_backend(**kwargs)`            | `JobBackend` impl             |       ✓       |       ✓        |       N/A        |       ✓        |       ✓        |
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
