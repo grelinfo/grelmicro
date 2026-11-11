@@ -7,6 +7,7 @@ atomic step.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from typing import TYPE_CHECKING, ClassVar, Self
 
 from grelmicro.clock._seam import monotonic
 from grelmicro.task._protocol import (
+    FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
     JOB_TIMED_OUT,
@@ -23,12 +25,17 @@ from grelmicro.task._protocol import (
     EndStatus,
     JobRecord,
     JobStatus,
+    Listed,
     ProgressUpdate,
     Settled,
     Submitted,
+    page_of,
+    read_cursor,
+    scan_limit,
 )
 
 if TYPE_CHECKING:
+    import builtins
     from collections.abc import Mapping, Sequence
     from datetime import timedelta
     from types import TracebackType
@@ -41,6 +48,7 @@ class _Row:
     """A stored job."""
 
     id: str
+    seq: int
     name: str
     owner: str | None
     payload: str
@@ -114,6 +122,11 @@ def _store_error(row: _Row | None, name: str) -> str | None:
     return row.error if row.status is JobStatus.FAILED else None
 
 
+def _seq(row: _Row) -> int:
+    """Return the submission order of `row`."""
+    return row.seq
+
+
 def _deadline(after: timedelta | None) -> float | None:
     """Return the time `after` from now, or `None` for no limit."""
     return None if after is None else _after(after)
@@ -131,6 +144,11 @@ class MemoryJobAdapter:
         self._queued: defaultdict[str, deque[_Row]] = defaultdict(deque)
         self._open: dict[str, _Row] = {}
         self._expiring: dict[str, _Row] = {}
+        self._owned: defaultdict[tuple[str, str], builtins.list[_Row]] = (
+            defaultdict(list)
+        )
+        """The jobs of each name and owner, in submission order."""
+        self._seq = 0
 
     async def __aenter__(self) -> Self:
         """Open the backend."""
@@ -181,8 +199,10 @@ class MemoryJobAdapter:
             and len(queued) >= max_queued
         ):
             return Submitted(None, started=False)
+        self._seq += 1
         row = _Row(
             id=job_id,
+            seq=self._seq,
             name=name,
             owner=owner,
             payload=payload,
@@ -194,6 +214,8 @@ class MemoryJobAdapter:
         )
         self._rows[job_id] = row
         self._open[job_id] = row
+        if owner is not None:
+            self._owned[name, owner].append(row)
         if runner is None:
             queued.append(row)
         else:
@@ -207,9 +229,9 @@ class MemoryJobAdapter:
         slots: Mapping[str, int],
         runner: str,
         lease: timedelta,
-    ) -> list[Claimed]:
+    ) -> builtins.list[Claimed]:
         """Claim queued jobs up to each name's slots, oldest first per name."""
-        claimed: list[Claimed] = []
+        claimed: builtins.list[Claimed] = []
         for name, free in slots.items():
             queued = self._queued[name]
             taken = 0
@@ -239,9 +261,9 @@ class MemoryJobAdapter:
         runner: str,
         beats: Sequence[Beat],
         lease: timedelta,
-    ) -> list[BeatReply]:
+    ) -> builtins.list[BeatReply]:
         """Extend each held job's lease, write its progress, read its flag."""
-        replies: list[BeatReply] = []
+        replies: builtins.list[BeatReply] = []
         for beat in beats:
             stored = self._rows.get(beat.job_id)
             row = self._held(beat.name, beat.job_id, runner)
@@ -307,6 +329,32 @@ class MemoryJobAdapter:
             row.cancel_requested = True
             row.version += 1
         return row.record()
+
+    async def list(
+        self,
+        *,
+        name: str,
+        owner: str,
+        status: JobStatus | None,
+        limit: int,
+        after: str | None,
+    ) -> Listed:
+        """Return the jobs of `name` that `owner` owns, newest submitted first."""
+        below = FIRST if after is None else read_cursor(after)
+        owned = self._owned.get((name, owner), [])
+        end = bisect_left(owned, below, key=_seq)
+        bound = scan_limit(limit)
+        scanned = owned[max(0, end - bound) : end]
+        found: builtins.list[tuple[int, JobRecord]] = []
+        for row in reversed(scanned):
+            if self._find(name, row.id) is None:
+                continue
+            if status is None or row.status == status:
+                found.append((row.seq, row.record()))
+                if len(found) > limit:
+                    return page_of(found, limit, None)
+        stopped = scanned[0].seq if len(scanned) == bound else None
+        return page_of(found, limit, stopped)
 
     async def reap(self, *, limit: int) -> int:
         """End jobs past a lease, `max_wait` or `max_run`, of any name."""
@@ -393,3 +441,8 @@ class MemoryJobAdapter:
         """Remove an ended job for good."""
         del self._rows[row.id]
         del self._expiring[row.id]
+        if row.owner is not None:
+            owned = self._owned[row.name, row.owner]
+            del owned[bisect_left(owned, row.seq, key=_seq)]
+            if not owned:
+                del self._owned[row.name, row.owner]

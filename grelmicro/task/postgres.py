@@ -19,6 +19,7 @@ from grelmicro._duration import microseconds
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.task._protocol import (
+    FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
     JOB_TIMED_OUT,
@@ -28,12 +29,17 @@ from grelmicro.task._protocol import (
     EndStatus,
     JobRecord,
     JobStatus,
+    Listed,
     ProgressUpdate,
     Settled,
     Submitted,
+    page_of,
+    read_cursor,
+    scan_limit,
 )
 
 if TYPE_CHECKING:
+    import builtins
     from collections.abc import AsyncGenerator, Mapping, Sequence
     from datetime import datetime
     from types import TracebackType
@@ -201,13 +207,15 @@ class PostgresJobAdapter:
             ON {table_name} (due_at) WHERE due_at IS NOT NULL;
         CREATE INDEX IF NOT EXISTS {table_name}_expires_at_idx
             ON {table_name} (expires_at) WHERE expires_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS {table_name}_owner_idx
+            ON {table_name} (name, owner, seq) WHERE owner IS NOT NULL;
     """
     """The table and its indexes.
 
     `seq` keeps submission order. `due_at` is the earlier of the lease end
     and the `run_by` of a running job, and the `max_wait` end of a queued
     one. `run_by` is when a running job passes its `max_run`. `expires_at`
-    is when an ended job stops being kept.
+    is when an ended job stops being kept. The owner index serves `list`.
     """
 
     _SQL: ClassVar[dict[str, str]] = {
@@ -235,6 +243,45 @@ class PostgresJobAdapter:
                 FOR UPDATE SKIP LOCKED
             ))""",
         ),
+        "lock_owner": """
+            SELECT 1 FROM {table_name}
+            WHERE name = $1::text
+              AND owner = $2::text
+              AND status IN ('queued', 'running')
+              AND due_at <= $3::timestamptz
+            ORDER BY id
+            FOR UPDATE;
+        """,
+        "catch_up_owner": _CATCH_UP.replace("{returning}", "").replace(
+            "{where}",
+            """id = ANY(ARRAY(
+                SELECT id FROM {table_name}
+                WHERE name = $4::text
+                  AND owner = $6::text
+                  AND status IN ('queued', 'running')
+                  AND due_at <= $1::timestamptz
+                FOR UPDATE SKIP LOCKED
+            ))""",
+        ),
+        "scan": """
+            SELECT count(*), min(seq) FROM (
+                SELECT seq FROM {table_name}
+                WHERE name = $1::text AND owner = $2::text AND seq < $3::bigint
+                ORDER BY seq DESC
+                LIMIT $4::bigint
+            ) AS scanned;
+        """,
+        "list": """
+            SELECT seq, {record} FROM {table_name}
+            WHERE name = $1::text
+              AND owner = $2::text
+              AND seq < $3::bigint
+              AND seq >= $7::bigint
+              AND (expires_at IS NULL OR expires_at > $4::timestamptz)
+              AND ($5::text IS NULL OR status = $5::text)
+            ORDER BY seq DESC
+            LIMIT $6::bigint;
+        """,
         "reap": _CATCH_UP.replace("{returning}", "").replace(
             "{where}",
             """id = ANY(ARRAY(
@@ -520,12 +567,12 @@ class PostgresJobAdapter:
         slots: Mapping[str, int],
         runner: str,
         lease: timedelta,
-    ) -> list[Claimed]:
+    ) -> builtins.list[Claimed]:
         """Claim queued jobs up to each name's slots, oldest first per name."""
         names = [name for name, free in slots.items() if free > 0]
         if not names:
             return []
-        claimed: list[Claimed] = []
+        claimed: builtins.list[Claimed] = []
         async with self._transaction() as (conn, now):
             for name in names:
                 await self._run(conn, "catch_up_queue", now, name)
@@ -553,11 +600,11 @@ class PostgresJobAdapter:
         runner: str,
         beats: Sequence[Beat],
         lease: timedelta,
-    ) -> list[BeatReply]:
+    ) -> builtins.list[BeatReply]:
         """Extend each held job's lease, write its progress, read its flag."""
         if not beats:
             return []
-        replies: list[BeatReply] = []
+        replies: builtins.list[BeatReply] = []
         async with self._transaction(ids=[b.job_id for b in beats]) as (
             conn,
             now,
@@ -674,6 +721,58 @@ class PostgresJobAdapter:
                 )
                 return _record(flagged)
         return record
+
+    async def list(
+        self,
+        *,
+        name: str,
+        owner: str,
+        status: JobStatus | None,
+        limit: int,
+        after: str | None,
+    ) -> Listed:
+        """Return the jobs of `name` that `owner` owns, newest submitted first.
+
+        The owner's jobs past a lease, `max_wait` or `max_run` end first, in
+        the same transaction. It locks them in id order, as `beat` does,
+        then reads the clock again, so each end follows the move it waited
+        for. A job that came due since, and that another move holds, is
+        left to that move.
+        """
+        below = FIRST if after is None else read_cursor(after)
+        async with self._transaction() as (conn, began):
+            await conn.execute(self._sql["lock_owner"], name, owner, began)
+            now = await conn.fetchval(self._sql["now"])
+            await conn.execute(
+                self._sql["catch_up_owner"],
+                now,
+                JOB_LOST,
+                JOB_NOT_STARTED,
+                name,
+                JOB_TIMED_OUT,
+                owner,
+            )
+            bound = scan_limit(limit)
+            scanned, floor = await conn.fetchrow(
+                self._sql["scan"], name, owner, below, bound
+            )
+            if not scanned:
+                return Listed([], None)
+            rows = await conn.fetch(
+                self._sql["list"],
+                name,
+                owner,
+                below,
+                now,
+                None if status is None else status.value,
+                limit + 1,
+                floor,
+            )
+        return page_of(
+            [(row[0], _record(tuple(row)[1:])) for row in rows],
+            limit,
+            floor if scanned == bound else None,
+        )
 
     async def reap(self, *, limit: int) -> int:
         """End jobs past a lease, `max_wait` or `max_run`, of any name."""
