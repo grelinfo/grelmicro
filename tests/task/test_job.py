@@ -610,6 +610,35 @@ async def test_job_keep_none_keeps_a_finished_job() -> None:
     assert info is not None
 
 
+@pytest.mark.parametrize(
+    ("succeeded", "failed", "kept"),
+    [
+        pytest.param(1, None, [False, True], id="capped"),
+        pytest.param(None, 1, [True, True], id="other-kind"),
+        pytest.param(None, None, [True, True], id="no-cap"),
+    ],
+)
+async def test_job_max_kept_reaches_the_store(
+    succeeded: int | None, failed: int | None, kept: list[bool]
+) -> None:
+    """A job's caps apply to the runs it stores."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job(max_kept_succeeded=succeeded, max_kept_failed=failed)(_noop)
+    view = job.without_owner()
+
+    async with tasks:
+        first = await view.submit()
+        await _settle(view, first.id)
+        # Act
+        second = await view.submit()
+        await _settle(view, second.id)
+        read = [await view.get(first.id), await view.get(second.id)]
+
+    # Assert
+    assert [info is not None for info in read] == kept
+
+
 async def test_job_keep_never_forgets_a_running_job() -> None:
     """Retention counts from the end, so a long run stays readable."""
     # Arrange
@@ -1498,6 +1527,8 @@ async def test_job_stored_arguments_that_no_longer_match_end_failed() -> None:
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )
@@ -1549,6 +1580,8 @@ async def test_job_free_slot_never_jumps_an_older_queued_job() -> None:
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )
@@ -1635,6 +1668,8 @@ async def test_job_beat_claims_a_job_another_replica_queued() -> None:
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )
@@ -1753,6 +1788,8 @@ async def test_job_stored_arguments_that_no_longer_match_stay_out_of_the_log(
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )

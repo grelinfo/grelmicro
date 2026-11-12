@@ -35,6 +35,8 @@ def _submit_args(job_id: str, **overrides: Any) -> dict[str, Any]:  # noqa: ANN4
         "max_wait": None,
         "max_run": None,
         "keep": timedelta(hours=1),
+        "max_kept_succeeded": None,
+        "max_kept_failed": None,
         "start_as": None,
         "lease": LEASE,
         **overrides,

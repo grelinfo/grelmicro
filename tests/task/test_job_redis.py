@@ -271,6 +271,7 @@ async def _submit(
     keep: timedelta | None = timedelta(hours=1),
     start_as: str | None = None,
     owner: str | None = None,
+    max_kept_succeeded: int | None = None,
 ) -> None:
     """Store a job that waits at most a minute."""
     await backend.submit(
@@ -283,6 +284,8 @@ async def _submit(
         max_wait=timedelta(minutes=1),
         max_run=None,
         keep=keep,
+        max_kept_succeeded=max_kept_succeeded,
+        max_kept_failed=None,
         start_as=start_as,
         lease=timedelta(seconds=30),
     )
@@ -381,7 +384,7 @@ async def _owned(backend: RedisJobAdapter) -> int:
 
 async def _due(backend: RedisJobAdapter) -> int:
     """Return how many owner index entries wait for their expiry."""
-    return await backend.provider.client.zcard(f"{backend._base}owned:expires")
+    return await backend.provider.client.zcard(f"{backend._base}expires")
 
 
 async def _cancel_many(
@@ -507,3 +510,108 @@ async def test_job_redis_list_drops_a_member_whose_job_is_gone(
     # Assert
     assert [record.id for record in listed.records] == ["kept"]
     assert await _owned(backend) == 1
+
+
+async def _kept_index(backend: RedisJobAdapter) -> int:
+    """Return how many members the kept index of succeeded jobs holds."""
+    client = backend.provider.client
+    return await client.zcard(f"{backend._base}kept:succeeded:{NAME}")
+
+
+async def _kept_ends(backend: RedisJobAdapter) -> list[bytes]:
+    """Return the members of the expiry twin of the kept index."""
+    client = backend.provider.client
+    return await client.zrange(
+        f"{backend._base}kept-ends:succeeded:{NAME}", 0, -1
+    )
+
+
+@pytest.mark.integration
+async def test_job_redis_max_kept_leaves_no_entry_of_a_forgotten_job(
+    backend: RedisJobAdapter,
+) -> None:
+    """A job the cap forgets leaves its hash and every index entry behind."""
+    # Arrange
+    client = backend.provider.client
+    for job_id in ("old", "new"):
+        await _submit(
+            backend, job_id, start_as="r", owner=OWNER, max_kept_succeeded=1
+        )
+
+    # Act
+    await _settle(backend, "old")
+    await _settle(backend, "new")
+
+    # Assert
+    deadlines, job, queue, waiting = backend._keys(NAME, "old")
+    assert await client.exists(job, deadlines, queue, waiting) == 0
+    assert await client.zrange(backend._owned_key(NAME, OWNER), 0, -1) == [
+        b"new"
+    ]
+    assert await _kept_index(backend) == 1
+    assert await _kept_ends(backend) == [b"new"]
+    assert await _due(backend) == 2  # noqa: PLR2004
+
+
+@pytest.mark.integration
+async def test_job_redis_purge_cleans_the_kept_index(
+    backend: RedisJobAdapter,
+) -> None:
+    """A job past its `keep` leaves the kept index at a `purge`."""
+    # Arrange
+    await _submit(
+        backend,
+        "j",
+        start_as="r",
+        owner=OWNER,
+        keep=timedelta(milliseconds=5),
+        max_kept_succeeded=10,
+    )
+    await _settle(backend, "j")
+    await asyncio.sleep(0.05)
+
+    # Act
+    purged = await backend.purge(limit=100)
+
+    # Assert
+    assert purged == 2  # noqa: PLR2004
+    assert await _kept_index(backend) == 0
+    assert await _kept_ends(backend) == []
+    assert await _owned(backend) == 0
+    assert await _due(backend) == 0
+
+
+@pytest.mark.integration
+async def test_job_redis_max_kept_drops_a_member_whose_job_is_gone(
+    backend: RedisJobAdapter,
+) -> None:
+    """A member whose job hash is gone, such as evicted, frees its place."""
+    # Arrange
+    await _submit(backend, "gone", start_as="r", max_kept_succeeded=1)
+    await _settle(backend, "gone")
+    await backend.provider.client.delete(backend._keys(NAME, "gone")[1])
+    await _submit(backend, "kept", start_as="r", max_kept_succeeded=1)
+
+    # Act
+    await _settle(backend, "kept")
+
+    # Assert
+    assert await _kept_index(backend) == 1
+    assert await _due(backend) == 1
+    assert await backend.get(name=NAME, job_id="kept", owner=None) is not None
+
+
+@pytest.mark.integration
+async def test_job_redis_max_kept_writes_no_index_without_a_cap(
+    backend: RedisJobAdapter,
+) -> None:
+    """A job with no cap adds nothing to a kept index."""
+    # Arrange
+    await _submit(backend, "j", start_as="r")
+
+    # Act
+    await _settle(backend, "j")
+
+    # Assert
+    keys = await backend.provider.client.keys(f"{backend._base}kept:*")
+    assert keys == []

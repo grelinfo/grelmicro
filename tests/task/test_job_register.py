@@ -72,6 +72,18 @@ async def _unannotated(progress) -> None:  # noqa: ANN001
     """Take an unannotated `progress`."""
 
 
+def test_job_register_takes_the_largest_caps() -> None:
+    """Each cap takes any int from 0 to `2**63 - 1`."""
+    # Arrange
+    tasks = Tasks()
+
+    # Act
+    job = tasks.job(max_kept_succeeded=2**63 - 1, max_kept_failed=0)(_noop)
+
+    # Assert
+    assert job._max_kept_succeeded == 2**63 - 1
+
+
 @pytest.mark.parametrize(
     "limits",
     [
@@ -81,6 +93,24 @@ async def _unannotated(progress) -> None:  # noqa: ANN001
         pytest.param({"max_concurrent": True}, id="max_concurrent-bool"),
         pytest.param({"max_queued": 1.5}, id="max_queued-float"),
         pytest.param({"max_queued": True}, id="max_queued-bool"),
+        pytest.param(
+            {"max_kept_succeeded": -1}, id="max_kept_succeeded-negative"
+        ),
+        pytest.param(
+            {"max_kept_succeeded": 1.5}, id="max_kept_succeeded-float"
+        ),
+        pytest.param(
+            {"max_kept_succeeded": True}, id="max_kept_succeeded-bool"
+        ),
+        pytest.param({"max_kept_failed": -1}, id="max_kept_failed-negative"),
+        pytest.param({"max_kept_failed": 1.5}, id="max_kept_failed-float"),
+        pytest.param({"max_kept_failed": "2"}, id="max_kept_failed-str"),
+        pytest.param(
+            {"max_kept_succeeded": 2**63}, id="max_kept_succeeded-too-large"
+        ),
+        pytest.param(
+            {"max_kept_failed": 2**63}, id="max_kept_failed-too-large"
+        ),
         pytest.param({"keep": -1}, id="keep-negative"),
         pytest.param({"max_wait": -1}, id="max_wait-negative"),
         pytest.param({"max_wait": 1.5}, id="max_wait-float"),
