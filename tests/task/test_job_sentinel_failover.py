@@ -63,6 +63,8 @@ async def _submit(backend: JobBackend) -> JobRecord:
         max_wait=None,
         max_run=None,
         keep=timedelta(hours=1),
+        max_kept_succeeded=None,
+        max_kept_failed=None,
         start_as=None,
         lease=LEASE,
     )

@@ -11,6 +11,7 @@ from bisect import bisect_left
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from heapq import heappop, heappush
 from typing import TYPE_CHECKING, ClassVar, Self
 
 from grelmicro.clock._seam import monotonic
@@ -55,6 +56,8 @@ class _Row:
     context: Mapping[str, str]
     keep: timedelta | None
     max_run: timedelta | None
+    max_kept_succeeded: int | None
+    max_kept_failed: int | None
     created_at: datetime
     status: JobStatus = JobStatus.QUEUED
     version: int = 1
@@ -148,6 +151,14 @@ class MemoryJobAdapter:
             defaultdict(list)
         )
         """The jobs of each name and owner, in submission order."""
+        self._kept: defaultdict[tuple[str, bool], dict[str, _Row]] = (
+            defaultdict(dict)
+        )
+        """The ended jobs of each name, by success or not, in end order."""
+        self._kept_ends: defaultdict[
+            tuple[str, bool], builtins.list[tuple[float, int, _Row]]
+        ] = defaultdict(list)
+        """When each kept job of `_kept` expires, soonest first, as a heap."""
         self._seq = 0
 
     async def __aenter__(self) -> Self:
@@ -174,6 +185,8 @@ class MemoryJobAdapter:
         max_wait: timedelta | None,
         max_run: timedelta | None,
         keep: timedelta | None,
+        max_kept_succeeded: int | None,
+        max_kept_failed: int | None,
         start_as: str | None,
         lease: timedelta,
     ) -> Submitted:
@@ -209,6 +222,8 @@ class MemoryJobAdapter:
             context=dict(context),
             keep=keep,
             max_run=max_run,
+            max_kept_succeeded=max_kept_succeeded,
+            max_kept_failed=max_kept_failed,
             created_at=datetime.now(UTC),
             start_by=_deadline(max_wait),
         )
@@ -394,6 +409,8 @@ class MemoryJobAdapter:
         if row is None:
             return None
         self._catch_up(row)
+        if self._rows.get(job_id) is not row:
+            return None
         if row.expires_at is not None and row.expires_at <= monotonic():
             self._forget(row)
             return None
@@ -425,7 +442,10 @@ class MemoryJobAdapter:
     def _end(
         self, row: _Row, status: EndStatus, error: str | None = None
     ) -> None:
-        """Move `row` to an end state, drop its arguments, start its retention."""
+        """Move `row` to an end state, drop its arguments, start its retention.
+
+        Past the cap of its kind, the oldest ended jobs of its name go.
+        """
         row.status = status
         row.error = error
         row.payload = ""
@@ -436,11 +456,32 @@ class MemoryJobAdapter:
         del self._open[row.id]
         if row.expires_at is not None:
             self._expiring[row.id] = row
+        succeeded = status is JobStatus.SUCCEEDED
+        cap = row.max_kept_succeeded if succeeded else row.max_kept_failed
+        if cap is not None:
+            index = (row.name, succeeded)
+            kept, ends = self._kept[index], self._kept_ends[index]
+            now = monotonic()
+            while ends and ends[0][0] <= now:
+                _, _, expired = heappop(ends)
+                if kept.get(expired.id) is expired:
+                    self._forget(expired)
+            kept, ends = self._kept[index], self._kept_ends[index]
+            kept[row.id] = row
+            if row.expires_at is not None:
+                heappush(ends, (row.expires_at, row.seq, row))
+            while len(kept) > cap:
+                self._forget(next(iter(kept.values())))
 
     def _forget(self, row: _Row) -> None:
         """Remove an ended job for good."""
         del self._rows[row.id]
-        del self._expiring[row.id]
+        self._expiring.pop(row.id, None)
+        index = (row.name, row.status is JobStatus.SUCCEEDED)
+        kept = self._kept.get(index)
+        if kept is not None and kept.pop(row.id, None) is not None and not kept:
+            del self._kept[index]
+            self._kept_ends.pop(index, None)
         if row.owner is not None:
             owned = self._owned[row.name, row.owner]
             del owned[bisect_left(owned, row.seq, key=_seq)]

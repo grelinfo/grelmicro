@@ -12,6 +12,7 @@
 * ✨ In `production` and `staging`, an app with a job and no shared store refuses to start with `BackendScopeError`. Pass `requires="process"` to run one replica on purpose. ([#1287](https://github.com/grelinfo/grelmicro/pull/1287))
 * ✨ `@tasks.job(max_run=...)` bounds how long a job runs. Past it, the job ends `failed` with the error `"Job not finished in time"`. ([#1261](https://github.com/grelinfo/grelmicro/issues/1261))
 * ✨ `for_owner(owner).list()` returns a page of the owner's jobs, newest first, so a page finds its jobs again after a reload. It takes `status`, `limit` and the `after` cursor of the previous page. ([#1260](https://github.com/grelinfo/grelmicro/issues/1260))
+* ✨ `@tasks.job(max_kept_succeeded=..., max_kept_failed=...)` caps how many finished jobs of a function stay readable. Past a cap, the job that finished first is forgotten. ([#1235](https://github.com/grelinfo/grelmicro/issues/1235))
 * ✨ A job keeps running through a store outage shorter than 30 seconds. ([#1284](https://github.com/grelinfo/grelmicro/pull/1284))
 * ✨ `RedisProvider(prefix=...)` and `ValkeyProvider(prefix=...)` put one namespace before the keys of every store they build. The lock, read-write lock, cache and job stores add their kind after it, such as `myapp:lock:`. The default is empty, so no key changes. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 

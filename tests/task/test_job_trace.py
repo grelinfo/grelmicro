@@ -378,6 +378,8 @@ async def test_job_run_span_of_stale_arguments_holds_no_value(
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )
@@ -452,6 +454,8 @@ async def test_job_arguments_that_cannot_load_fail_only_that_job(
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )

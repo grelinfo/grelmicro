@@ -1109,7 +1109,7 @@
       "()": "(reference) -> None"
     },
     "Job": {
-      "()": "(function, *, name=None, max_concurrent=1, max_queued=None, max_wait=86400, max_run=None, keep=86400, backend=None, requires=None) -> 'None'"
+      "()": "(function, *, name=None, max_concurrent=1, max_queued=None, max_wait=86400, max_run=None, keep=86400, max_kept_succeeded=None, max_kept_failed=None, backend=None, requires=None) -> 'None'"
     },
     "JobError": null,
     "JobInfo": {
