@@ -17,7 +17,10 @@ from typing_extensions import Doc
 
 from grelmicro._duration import microseconds
 from grelmicro.errors import SettingsValidationError
-from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.postgres import (
+    PostgresProvider,
+    _longest_table_name,
+)
 from grelmicro.task._protocol import (
     FIRST,
     JOB_LOST,
@@ -129,12 +132,10 @@ class _Stored(NamedTuple):
     started_at_submit: bool
 
 
-_TABLE_NAME_MAX = 48
-"""The longest table name whose index names stay within 63 bytes.
-
-Postgres cuts an identifier at 63 bytes, and the longest index suffix,
-`_expires_at_idx`, takes 15 of them.
-"""
+_TABLE_NAME_MAX = _longest_table_name(
+    "_queue_idx", "_due_at_idx", "_expires_at_idx", "_owner_idx", "_kept_idx"
+)
+"""The longest table name that keeps every name built from it whole."""
 
 
 class PostgresJobAdapter:

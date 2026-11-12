@@ -21,7 +21,11 @@ from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._protocol import OutboxBackend
 from grelmicro.outbox.errors import OutboxHandleError, OutboxTransactionError
 from grelmicro.providers._sqlalchemy import EnginePool
-from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.postgres import (
+    PostgresProvider,
+    _longest_table_name,
+    _warn_long_table_name,
+)
 
 logger = getLogger("grelmicro.outbox")
 
@@ -32,6 +36,10 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from grelmicro.types import BackendScope
+
+
+_TABLE_NAME_MAX = _longest_table_name("_claim_idx", "_dedup_idx", "_wake")
+"""The longest table name that keeps every name built from it whole."""
 
 
 class PostgresOutboxAdapter(OutboxBackend):
@@ -175,6 +183,12 @@ class PostgresOutboxAdapter(OutboxBackend):
     ) -> None:
         """Initialize the Postgres outbox backend."""
         _validate_table(table)
+        _warn_long_table_name(
+            table,
+            adapter="PostgresOutboxAdapter",
+            argument="table",
+            longest=_TABLE_NAME_MAX,
+        )
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)
             self._owns_provider = True
@@ -227,7 +241,14 @@ class PostgresOutboxAdapter(OutboxBackend):
         op.execute(PostgresOutboxAdapter.create_table_sql())
         ```
         """
-        return cls._SQL_MIGRATE.format(table=_validate_table(table))
+        _validate_table(table)
+        _warn_long_table_name(
+            table,
+            adapter="PostgresOutboxAdapter.create_table_sql",
+            argument="table",
+            longest=_TABLE_NAME_MAX,
+        )
+        return cls._SQL_MIGRATE.format(table=table)
 
     @classmethod
     def drop_table_sql(

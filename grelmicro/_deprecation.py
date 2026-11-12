@@ -332,6 +332,37 @@ def unknown_requires(value: object) -> FutureChange:
     )
 
 
+LONG_TABLE_NAME = FutureChange(
+    change="A Postgres table name that cuts a name built from it raises "
+    "`SettingsValidationError`",
+    switch_in="0.46.0",
+    keep=None,
+    adopt="table_name=",
+    remedy="Pass a shorter table name.",
+)
+"""A Postgres table name that cuts a name built from it is refused."""
+
+
+def long_table_name(
+    value: str, *, adapter: str, argument: str, longest: int
+) -> FutureChange:
+    """Return `LONG_TABLE_NAME` worded for the refused `value`.
+
+    `adapter` is the call that took `value` as `argument`, and `longest` is
+    the longest table name it takes.
+    """
+    return replace(
+        LONG_TABLE_NAME,
+        change=f"`{adapter}({argument}={value!r})` is longer than the "
+        f"{longest} characters it takes, and raises `SettingsValidationError`",
+        adopt=f"{argument}=",
+        remedy="Until then Postgres cuts the names the adapter builds from "
+        "it, such as its indexes and functions, at 63 bytes, so one can be "
+        "left out or replace another with no error. "
+        f"Pass a `{argument}` of {longest} characters or fewer.",
+    )
+
+
 FASTAPI_MOVED = Moved(
     module="grelmicro.integrations.fastapi",
     homes={
@@ -449,6 +480,7 @@ SECURITY_MOVED: tuple[Moved, ...] = (
 PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     GATE_BACKEND_STRICT,
     UNKNOWN_REQUIRES,
+    LONG_TABLE_NAME,
     ENV_LOAD_DEFAULT_WARNING,
     FORMAT_CASE,
     PROVIDER_CHECKS_NONE,

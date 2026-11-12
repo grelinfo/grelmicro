@@ -133,6 +133,7 @@ raises](#0-42-raising).
 ### Changes that do not raise {#0-45-silent}
 
 - A misspelled `requires=` value, such as `requires="clustr"`, still turns the backend scope check off for that component, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Name a scope](#0-45-unknown-requires).
+- A Postgres table name too long for the names an adapter builds from it still works as before, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Pass a shorter name](#0-45-long-table-name).
 
 ### Changes that raise {#0-45-raising}
 
@@ -159,6 +160,44 @@ Coordination(redis, requires="cluster")
 `Coordination`, `Outbox`, `Cache`, `RateLimiterComponent`,
 `CircuitBreakerComponent`, `Idempotency`, `IdempotentRequests` and
 `@tasks.job` all take `requires=` and all warn the same way.
+
+### A Postgres table name too long for the names built from it warns {#0-45-long-table-name}
+
+Postgres cuts an identifier at 63 bytes. A Postgres adapter builds names
+from its table name, such as its indexes and functions, so a long table
+name cuts them. Two names can then be cut to one. The second index is left
+out, or the second function replaces the first, with no error. A table
+name that cuts a name built from it now warns with `Grelmicro046Warning`
+at the line that built the adapter. The warning names the longest table
+name the adapter takes. The adapter still works as before. From 0.46.0 the
+same line raises `SettingsValidationError`.
+
+| Adapter | Longest table name |
+| --- | --- |
+| `PostgresCacheAdapter(table_name=)` | 48 |
+| `PostgresOutboxAdapter(table=)` and `create_table_sql()` | 53 |
+| `PostgresRateLimiterAdapter(table_name=)` | 47 |
+| `PostgresCircuitBreakerAdapter(table_name=)` | 42 |
+| `PostgresReadWriteLockAdapter(table_name=)` | 46 |
+| `PostgresLeaderElectionAdapter(table_name=)` | 40 |
+
+`PostgresLockAdapter` and `PostgresScheduleAdapter` build no name from
+their table name, so they take any table name as before.
+
+```python
+from grelmicro.cache.postgres import PostgresCacheAdapter
+
+# Before: warns, and Postgres cuts the names built from it
+PostgresCacheAdapter(table_name="orders_service_cache_entries_for_the_eu_region_v2")
+
+# After: every name stays whole, and the same in 0.46.0
+PostgresCacheAdapter(table_name="orders_cache_eu_v2")
+```
+
+A table already created under a long name keeps its indexes and
+functions. Rename the table in your own migration before 0.46.0. The
+adapter creates its functions again under the new name, so drop the ones
+left under the old name.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 
