@@ -800,3 +800,42 @@ class TestLoadObject:
 
         assert _load_object("[1, 2]") == {}
         assert _load_object(42) == {}
+
+
+@pytest.mark.integration
+async def test_postgres_concurrent_claims_stay_within_their_limit() -> None:
+    """Concurrent claims never return more than their limit or a message twice."""
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
+
+    with PostgresContainer() as container:
+        port = container.get_exposed_port(5432)
+        url = f"postgresql://test:test@localhost:{port}/test"
+        provider = PostgresProvider(url)
+        async with (
+            provider,
+            PostgresOutboxAdapter(provider=provider, notify=False) as backend,
+        ):
+            async with (
+                provider.client.acquire() as conn,
+                conn.transaction(),
+            ):
+                for n in range(200):
+                    await backend.enqueue(
+                        conn,
+                        OutboxRecord(id=uuid7(), topic="job", payload={"n": n}),
+                    )
+
+            # Act
+            batches = await asyncio.gather(
+                *(
+                    backend.claim(topics=["job"], limit=2, lease=LEASE)
+                    for _ in range(40)
+                )
+            )
+
+    # Assert
+    assert all(len(batch) <= 2 for batch in batches)  # noqa: PLR2004
+    ids = [record.id for batch in batches for record in batch]
+    assert len(ids) == len(set(ids))

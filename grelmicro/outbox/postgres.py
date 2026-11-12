@@ -108,7 +108,7 @@ class PostgresOutboxAdapter(OutboxBackend):
             state = 'processing',
             available_at = NOW() + $3::bigint * INTERVAL '1 microsecond',
             attempts = attempts + 1
-        WHERE id IN (
+        WHERE id = ANY(ARRAY(
             SELECT id FROM {table}
             WHERE topic = ANY($1)
               AND (state = 'pending' OR state = 'processing')
@@ -116,7 +116,7 @@ class PostgresOutboxAdapter(OutboxBackend):
             ORDER BY available_at, id
             FOR UPDATE SKIP LOCKED
             LIMIT $2
-        )
+        ))
         RETURNING id, topic, key, payload, headers, attempts;
     """
 
