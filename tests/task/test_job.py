@@ -6,6 +6,8 @@ import contextvars
 import gc
 import json
 import logging
+import subprocess
+import sys
 import threading
 import time
 import weakref
@@ -2177,3 +2179,37 @@ async def test_job_page_serializes_for_an_endpoint() -> None:
     assert JobPage.model_validate_json(page.model_dump_json()) == page
     with pytest.raises(ValueError, match="frozen"):
         page.next = None  # type: ignore[misc] # ty: ignore[invalid-assignment]
+
+
+_FREEZE_AFTER_IMPORT = """
+import datetime
+real_datetime = datetime.datetime
+from freezegun import freeze_time
+from pydantic import BaseModel
+
+class Loaded(BaseModel):
+    count: int
+
+import grelmicro.task
+
+with freeze_time():
+    pass
+
+print(datetime.datetime is real_datetime, grelmicro.task.JobInfo.__name__)
+"""
+"""Load Pydantic, import `grelmicro.task`, then freeze time once."""
+
+
+def test_freeze_time_after_task_import_leaves_datetime_real() -> None:
+    """`freeze_time()` starts and stops cleanly after `import grelmicro.task`."""
+    # Act
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", _FREEZE_AFTER_IMPORT],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    # Assert
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["True", "JobInfo"]

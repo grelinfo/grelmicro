@@ -30,7 +30,13 @@ from typing import (
 
 from fast_depends.dependencies.model import Dependant  # codespell:ignore
 from fast_depends.library import CustomField
-from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+)
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
@@ -118,12 +124,12 @@ class JobInfo(BaseModel, frozen=True):
         str | None, Doc("Why the job failed, or `None` unless it failed.")
     ]
     cancel_requested: Annotated[bool, Doc("Whether a cancel was requested.")]
-    created_at: Annotated[datetime, Doc("When the job was submitted.")]
+    created_at: Annotated[AwareDatetime, Doc("When the job was submitted.")]
     started_at: Annotated[
-        datetime | None, Doc("When the body started, or `None` before.")
+        AwareDatetime | None, Doc("When the body started, or `None` before.")
     ]
     finished_at: Annotated[
-        datetime | None,
+        AwareDatetime | None,
         Doc("When the job reached an end state, or `None` before."),
     ]
 
