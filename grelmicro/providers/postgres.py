@@ -713,3 +713,32 @@ def _compose_url(
         port=port,
         path=database,
     ).unicode_string()
+
+
+_IDENTIFIER_MAX = 63
+"""The longest identifier Postgres keeps, in bytes. It cuts a longer one."""
+
+
+def _longest_table_name(*suffixes: str) -> int:
+    """Return the longest table name that keeps every `table + suffix` whole.
+
+    A table name is a SQL identifier, so each of its characters is one byte.
+    """
+    return _IDENTIFIER_MAX - max(len(suffix.encode()) for suffix in suffixes)
+
+
+def _warn_long_table_name(
+    value: str, *, adapter: str, argument: str, longest: int
+) -> None:
+    """Warn when `value` is longer than `longest`, at the first line outside grelmicro.
+
+    `adapter` is the call that took `value` as `argument`. A name within
+    `longest` warns nothing.
+    """
+    if len(value) <= longest:
+        return
+    from grelmicro._deprecation import long_table_name  # noqa: PLC0415
+
+    long_table_name(
+        value, adapter=adapter, argument=argument, longest=longest
+    ).warn(outside=True)

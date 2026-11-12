@@ -13,7 +13,11 @@ from typing_extensions import Doc
 from grelmicro._duration import microseconds
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
-from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.postgres import (
+    PostgresProvider,
+    _longest_table_name,
+    _warn_long_table_name,
+)
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
     CircuitBreakerSnapshot,
@@ -89,6 +93,18 @@ _SQL_TIME = {
 
 A stored time stays in seconds, and reads back exact to the microsecond.
 """
+
+
+_TABLE_NAME_MAX = _longest_table_name(
+    "_updated_at_idx",
+    "_cb_try_acquire_v2",
+    "_cb_record_error_v2",
+    "_cb_record_success_v2",
+    "_cb_transition_v2",
+    "_cb_cleanup_v2",
+    "_cb_get_state_v2",
+)
+"""The longest table name that keeps every name built from it whole."""
 
 
 class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
@@ -540,6 +556,12 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise SettingsValidationError(msg)
+        _warn_long_table_name(
+            table_name,
+            adapter="PostgresCircuitBreakerAdapter",
+            argument="table_name",
+            longest=_TABLE_NAME_MAX,
+        )
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)

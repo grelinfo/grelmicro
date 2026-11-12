@@ -21,7 +21,11 @@ from grelmicro.coordination._protocol import (
     WriteGrant,
 )
 from grelmicro.errors import SettingsValidationError
-from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.postgres import (
+    PostgresProvider,
+    _longest_table_name,
+    _warn_long_table_name,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -305,6 +309,12 @@ _READ_WRITE_ADVISORY_NAMESPACE = 0x67726C72_776C636B
 seed. A distinct seed gives read-write lock names their own 64-bit lock id
 space, isolated from any other advisory lock in the same database.
 """
+
+
+_RWLOCK_TABLE_NAME_MAX = _longest_table_name(
+    "_holders", "_acquire_read_v2", "_acquire_write_v2", "_downgrade_v2"
+)
+"""The longest table name that keeps every name built from it whole."""
 
 
 class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
@@ -592,6 +602,12 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise SettingsValidationError(msg)
+        _warn_long_table_name(
+            table_name,
+            adapter="PostgresReadWriteLockAdapter",
+            argument="table_name",
+            longest=_RWLOCK_TABLE_NAME_MAX,
+        )
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)
@@ -913,6 +929,10 @@ isolated from any other advisory lock in the same database.
 """
 
 
+_LEADER_TABLE_NAME_MAX = _longest_table_name("_le_acquire_or_renew_v2")
+"""The longest table name that keeps every name built from it whole."""
+
+
 class PostgresLeaderElectionAdapter:
     """Postgres leader election adapter.
 
@@ -1113,6 +1133,12 @@ class PostgresLeaderElectionAdapter:
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise SettingsValidationError(msg)
+        _warn_long_table_name(
+            table_name,
+            adapter="PostgresLeaderElectionAdapter",
+            argument="table_name",
+            longest=_LEADER_TABLE_NAME_MAX,
+        )
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)

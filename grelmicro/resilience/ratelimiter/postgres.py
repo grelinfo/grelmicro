@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro.errors import SettingsValidationError
-from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.postgres import (
+    PostgresProvider,
+    _longest_table_name,
+    _warn_long_table_name,
+)
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -34,6 +38,16 @@ _RATE_LIMITER_ADVISORY_NAMESPACE = 0x67726C72_72746C6D
 seed. A distinct seed gives rate-limiter keys their own 64-bit lock id
 space, isolated from any other advisory lock in the same database.
 """
+
+
+_TABLE_NAME_MAX = _longest_table_name(
+    "_updated_at_idx",
+    "_tb_acquire",
+    "_tb_peek",
+    "_gcra_us_acquire",
+    "_gcra_us_peek",
+)
+"""The longest table name that keeps every name built from it whole."""
 
 
 class PostgresRateLimiterAdapter(RateLimiterBackend):
@@ -307,6 +321,12 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise SettingsValidationError(msg)
+        _warn_long_table_name(
+            table_name,
+            adapter="PostgresRateLimiterAdapter",
+            argument="table_name",
+            longest=_TABLE_NAME_MAX,
+        )
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)
