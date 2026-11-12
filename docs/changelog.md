@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Breaking
+* 💥 `LogConfig.format` reads back in lowercase, such as `"json"`, and defaults to `"auto"`. Input still matches in any case. `LogFormat` no longer lists the uppercase spellings. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
+* 💥 `gate-backend` fails `grelmicro check` and `micro.describe()` in `staging` and `production`. The running app is not affected. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
+* 💥 `HealthChecks(provider_checks=None)` and `HealthChecks.from_config(provider_checks=None)` raise `SettingsValidationError`. Pass `provider_checks="off"` to register no provider checks, or omit the argument for `"report"`. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
+* 💥 `EnvLoadDefaultWarning` is removed. Filter on `EnvLoadOffWarning` instead. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
+* 💥 The names `grelmicro.integrations.fastapi`, `grelmicro.integrations.starlette` and `grelmicro.integrations.litestar` only imported in 0.43, such as `RateLimiter`, raise `AttributeError`. So do `AdmissionError` from `grelmicro.security.bans` and `GrelmicroError` from `grelmicro.security.jwt`. Import each one from its home, such as `grelmicro.resilience` or `grelmicro.errors`. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
+
 ### Added
 * ✨ `@tasks.job` runs work on demand, once per submit, and reports its progress, status and JSON result to each poll. It is Experimental. ([#1233](https://github.com/grelinfo/grelmicro/pull/1233), [#1275](https://github.com/grelinfo/grelmicro/pull/1275))
 * ✨ Each job call names the job's owner, so a caller only reads and cancels their own jobs. ([#1281](https://github.com/grelinfo/grelmicro/pull/1281))

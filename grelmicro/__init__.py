@@ -15,9 +15,6 @@ if _typing.TYPE_CHECKING:
     )
     from grelmicro._asgi import GrelmicroMiddleware
     from grelmicro._component import Component, Usable
-    from grelmicro._env_load_warning import (
-        EnvLoadDefaultWarning as EnvLoadDefaultWarning,
-    )
     from grelmicro.config import ExternalConfig
     from grelmicro.errors import (
         AdapterNotRegisteredError,
@@ -64,7 +61,6 @@ __all__ = [
     "ComponentNotRegisteredError",
     "DependencyNotFoundError",
     "DependencyVersionError",
-    "EnvLoadDefaultWarning",
     "EnvLoadOffWarning",
     "EventLoopDeadlockError",
     "ExternalConfig",
@@ -141,7 +137,7 @@ _SUBMODULES = frozenset({"config", "errors", "health", "providers", "types"})
 
 
 def __getattr__(name: str) -> object:
-    """Load `name` from its submodule, or warn on `EnvLoadDefaultWarning`."""
+    """Load `name` from its submodule."""
     module = _LAZY.get(name)
     if module is not None:
         import importlib  # noqa: PLC0415
@@ -153,12 +149,6 @@ def __getattr__(name: str) -> object:
         import importlib  # noqa: PLC0415
 
         return importlib.import_module(f"{__name__}.{name}")
-    if name == "EnvLoadDefaultWarning":
-        from grelmicro._env_load_warning import (  # noqa: PLC0415
-            env_load_default_warning,
-        )
-
-        return env_load_default_warning()
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)
 

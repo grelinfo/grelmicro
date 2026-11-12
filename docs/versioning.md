@@ -41,12 +41,12 @@ then, your code keeps working as it does today. This window grows as the API
 settles, and never shrinks.
 
 Each release that switches has its own warning class, such as
-`Grelmicro045Warning` for `0.45.0`. Turn it into an error in your tests to find
+`Grelmicro046Warning` for `0.46.0`. Turn it into an error in your tests to find
 every line to change before you upgrade:
 
 ```toml
 [tool.pytest.ini_options]
-filterwarnings = ["error::grelmicro.Grelmicro045Warning"]
+filterwarnings = ["error::grelmicro.Grelmicro046Warning"]
 ```
 
 ## Python versions

@@ -1092,11 +1092,9 @@ def _gate_checks(
 ) -> list[CheckReport]:
     """Report each gated task that resolves no backend to claim through.
 
-    One `warn` entry per such task, since such a task runs nothing
-    anywhere. In `staging` and `production` the detail says the check fails
-    there from 0.45.0, and building the report warns with
-    `Grelmicro045Warning` at the line that called `micro.describe()`. One
-    `ok` entry when every gated task resolves one.
+    One entry per such task, since such a task runs nothing anywhere. The
+    entry fails in `staging` and `production` and warns in any other tier.
+    One `ok` entry when every gated task resolves one.
     Nothing without a gated task.
     """
     from grelmicro._environment import STRICT_ENVIRONMENTS  # noqa: PLC0415
@@ -1113,17 +1111,12 @@ def _gate_checks(
                 detail="every gated task resolves its claim backend",
             )
         ]
-    suffix = ""
-    if environment in STRICT_ENVIRONMENTS:
-        from grelmicro._deprecation import GATE_BACKEND_STRICT  # noqa: PLC0415
-
-        GATE_BACKEND_STRICT.warn(stacklevel=5)
-        suffix = " It fails in staging and production from 0.45.0."
+    status: CheckStatus = (
+        "fail" if environment in STRICT_ENVIRONMENTS else "warn"
+    )
     return [
         CheckReport(
-            name=GATE_BACKEND,
-            status="warn",
-            detail=_gate_finding(task) + suffix,
+            name=GATE_BACKEND, status=status, detail=_gate_finding(task)
         )
         for task in missing
     ]

@@ -12,13 +12,10 @@ from grelmicro._config import (
     flush_ignored_env_reports,
     resolve_config,
 )
-from grelmicro._deprecation import ENV_LOAD_DEFAULT_WARNING, PENDING
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import (
     EnvLoadOffWarning,
-    Grelmicro045Warning,
-    GrelmicroFutureWarning,
 )
 from grelmicro.http import OpsServer
 from grelmicro.resilience import Fallback
@@ -468,28 +465,18 @@ def test_unread_fallback_env_reports_the_diagnostic(
         Fallback("prices", when=ValueError, factory=_zero)
 
 
-def test_env_load_default_warning_is_pending_removal() -> None:
-    """`EnvLoadDefaultWarning` is no longer emitted and is removed in 0.45.0."""
-    assert ENV_LOAD_DEFAULT_WARNING in PENDING
-    assert ENV_LOAD_DEFAULT_WARNING.removed_in == "0.45.0"
-    assert ENV_LOAD_DEFAULT_WARNING.message == (
-        "`EnvLoadDefaultWarning` is removed in 0.45.0. "
-        "Use `EnvLoadOffWarning` instead."
-    )
-
-
 @pytest.mark.parametrize("module", ["grelmicro", "grelmicro.errors"])
-def test_env_load_default_warning_still_imports_and_warns(module: str) -> None:
-    """The old name still resolves, warns, and keeps its parent categories."""
+def test_env_load_default_warning_is_removed(module: str) -> None:
+    """`EnvLoadDefaultWarning` raises `AttributeError` like any missing name."""
     import importlib  # noqa: PLC0415
 
     package = importlib.import_module(module)
 
-    with pytest.warns(Grelmicro045Warning, match="EnvLoadDefaultWarning"):
-        category = package.EnvLoadDefaultWarning
-
-    assert issubclass(category, Grelmicro045Warning)
-    assert issubclass(category, EnvLoadOffWarning)
-    assert issubclass(category, GrelmicroFutureWarning)
-    assert category.code == EnvLoadOffWarning.code
-    assert category.__module__ == "grelmicro.errors"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(
+            AttributeError,
+            match=f"^module '{module}' has no attribute 'EnvLoadDefaultWarning'$",
+        ):
+            package.EnvLoadDefaultWarning  # noqa: B018
+    assert "EnvLoadDefaultWarning" not in dir(package)

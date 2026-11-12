@@ -2,17 +2,12 @@
 
 import re
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, ClassVar, cast, get_args
+from typing import Any, ClassVar, cast, get_args
 
 from pydantic import ValidationError
 from pydantic_core import ErrorType
 
 from grelmicro._guards import is_instance
-
-if TYPE_CHECKING:
-    from grelmicro._env_load_warning import (
-        EnvLoadDefaultWarning as EnvLoadDefaultWarning,  # noqa: PLC0414
-    )
 
 
 class GrelmicroError(Exception):
@@ -166,7 +161,7 @@ class GrelmicroFutureWarning(FutureWarning):
     ```
 
     Each switching release also has its own subclass, such as
-    `Grelmicro045Warning` for every change that lands in 0.45.0. The
+    `Grelmicro046Warning` for every change that lands in 0.46.0. The
     `switch_in` attribute is that release.
     """
 
@@ -186,6 +181,9 @@ class Grelmicro045Warning(GrelmicroFutureWarning):
     ```toml
     filterwarnings = ["error::grelmicro.Grelmicro045Warning"]
     ```
+
+    Every change it announced has landed, so grelmicro no longer emits it.
+    It stays importable, so a filter that names it keeps loading.
     """
 
     switch_in: ClassVar[str] = "0.45.0"
@@ -769,15 +767,3 @@ Below this the value is as likely to be a word in the surrounding sentence
 as it is to be the rejected input, and removing it would garble the message
 without protecting anything.
 """
-
-
-def __getattr__(name: str) -> object:
-    """Return `EnvLoadDefaultWarning`, removed in 0.45.0, with a warning."""
-    if name == "EnvLoadDefaultWarning":
-        from grelmicro._env_load_warning import (  # noqa: PLC0415
-            env_load_default_warning,
-        )
-
-        return env_load_default_warning()
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)

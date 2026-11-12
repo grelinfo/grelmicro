@@ -72,7 +72,7 @@ configuration it names. Each entry below says which.
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
 | `leader-not-running` | `LeaderNotRunningWarning` | none | A task is gated on a leader election that does not run, so it skips every fire. |
 | `ungated-cron` | `UngatedCronWarning` | none | A cron task with no `gate=` runs each fire on every worker, although a schedule backend is registered. |
-| `gate-backend` | `Grelmicro045Warning` in `staging` and `production` | none | A gated task resolves no backend to claim through, so every fire runs nothing. Reported by `grelmicro check` and `micro.describe()`. |
+| `gate-backend` | none | none | A gated task resolves no backend to claim through, so every fire runs nothing. Reported by `grelmicro check` and `micro.describe()`. |
 | `health-not-served` | `HealthNotServedWarning` | none | A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404. |
 | `routes-not-declared` | `RoutesNotDeclaredWarning` | none | `AuthenticatedRequests` is installed through an integration with no `install_route_gate`, so every route needs a credential, `Anonymous()` included. `grelmicro check` also reports an HTTP integration with no `route_declarations` when a component acting per endpoint is registered. |
 
@@ -188,10 +188,9 @@ for an interval task. With none to resolve, every fire reports a
 [`Coordination`](coordination/index.md) that holds that backend, or pass
 `backend=` to the task or its `TaskLock`.
 
-`python -m grelmicro check` and `micro.describe()` report it as a warning in
-every tier, since such a task runs nothing anywhere. In `staging` and
-`production` the report says it fails there from 0.45.0, and building the
-report warns with `Grelmicro045Warning`.
+`python -m grelmicro check` and `micro.describe()` report it as a failure in
+`staging` and `production`, and as a warning in any other tier, since such a
+task runs nothing anywhere. The running app is not affected.
 
 ### `health-not-served`
 

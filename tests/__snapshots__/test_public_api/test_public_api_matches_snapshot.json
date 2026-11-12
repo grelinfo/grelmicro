@@ -24,7 +24,6 @@
     "DependencyVersionError": {
       "()": "(*, module, version, floor, extra) -> None"
     },
-    "EnvLoadDefaultWarning": null,
     "EnvLoadOffWarning": null,
     "EventLoopDeadlockError": null,
     "ExternalConfig": {
@@ -581,7 +580,7 @@
     },
     "LogBackend": null,
     "LogConfig": {
-      "()": "(*, backend='stdlib', level='INFO', format='AUTO', timezone='UTC', json_serializer='auto', caller_enabled=False, otel_enabled=True, uvicorn_enabled=True, queue_enabled=False, queue_size=10000) -> None"
+      "()": "(*, backend='stdlib', level='INFO', format='auto', timezone='UTC', json_serializer='auto', caller_enabled=False, otel_enabled=True, uvicorn_enabled=True, queue_enabled=False, queue_size=10000) -> None"
     },
     "LogError": null,
     "LogFormat": null,

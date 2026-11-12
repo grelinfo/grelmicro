@@ -1,22 +1,18 @@
-"""The names an integration module served in 0.43 keep loading, with a warning.
+"""The names an integration module served in 0.43 are gone from it.
 
 `from grelmicro.integrations.fastapi import RateLimiter` worked in 0.43.1
-because the module imported the class for its own use. Each such name now
-loads from its home on access and warns that it leaves the module in 0.45.0.
+because the module imported the class for its own use. 0.44 served each such
+name with a warning, and 0.45.0 removes them, so each raises `AttributeError`
+like any missing attribute.
 """
 
 from __future__ import annotations
 
 import importlib
-import subprocess
-import sys
 import warnings
 from typing import TYPE_CHECKING
 
 import pytest
-
-from grelmicro._deprecation import FACADE_MOVES
-from grelmicro.errors import Grelmicro045Warning
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -124,32 +120,20 @@ def _facade(name: str) -> ModuleType:
     return importlib.import_module(name)
 
 
-@pytest.mark.parametrize("module", sorted(_SERVED_IN_0_43))
-def test_table_holds_every_name_served_in_0_43(module: str) -> None:
-    """Each module lists exactly the names it served in 0.43.1 and dropped."""
-    assert set(FACADE_MOVES[module].homes) == _SERVED_IN_0_43[module]
-
-
 @pytest.mark.parametrize(("module", "name"), _CASES)
-def test_moved_name_loads_its_home_object_with_a_warning(
-    module: str, name: str
-) -> None:
-    """The name is its home module's object and warns at the caller."""
+def test_moved_name_raises_attribute_error(module: str, name: str) -> None:
+    """Reading the name raises the plain `AttributeError` and warns nothing."""
     # Arrange
     facade = _facade(module)
-    home = FACADE_MOVES[module].homes[name]
 
-    # Act
-    with pytest.warns(Grelmicro045Warning) as caught:
-        value = getattr(facade, name)
-
-    # Assert
-    assert value is getattr(importlib.import_module(home), name)
-    assert len(caught) == 1
-    message = str(caught[0].message)
-    assert message.startswith(f"`{name}` moves out of `{module}` in 0.45.0. ")
-    assert f"`{home}`" in message
-    assert caught[0].filename == __file__
+    # Act / Assert
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(
+            AttributeError,
+            match=f"^module '{module}' has no attribute '{name}'$",
+        ):
+            getattr(facade, name)
 
 
 @pytest.mark.parametrize(("module", "name"), _CASES)
@@ -160,10 +144,6 @@ def test_moved_name_stays_off_the_public_surface(
     # Arrange
     facade = _facade(module)
 
-    # Act
-    with pytest.warns(Grelmicro045Warning):
-        getattr(facade, name)
-
     # Assert
     assert name not in facade.__all__
     assert name not in facade._LAZY
@@ -171,38 +151,10 @@ def test_moved_name_stays_off_the_public_surface(
     assert name not in vars(facade)
 
 
-def test_from_import_warns_at_the_importing_line() -> None:
-    """`from ... import` reports the line of the import statement."""
-    with pytest.warns(Grelmicro045Warning) as caught:
-        from grelmicro.integrations.fastapi import (  # noqa: PLC0415
-            RateLimiter,
-        )
-
-    assert (
-        RateLimiter
-        is importlib.import_module("grelmicro.resilience").RateLimiter
-    )
-    assert caught[0].filename == __file__
-
-
-def test_public_home_message_names_the_module_to_import_from() -> None:
-    """A name with a public home says where to import it from."""
-    moved = FACADE_MOVES["grelmicro.integrations.fastapi"]
-
-    assert moved.message_for("RateLimiter") == (
-        "`RateLimiter` moves out of `grelmicro.integrations.fastapi` in "
-        "0.45.0. Import it from `grelmicro.resilience` instead."
-    )
-
-
-def test_private_home_message_says_the_name_is_private() -> None:
-    """A name with no public home says so and names where it lives."""
-    moved = FACADE_MOVES["grelmicro.integrations.fastapi"]
-
-    assert moved.message_for("spend") == (
-        "`spend` moves out of `grelmicro.integrations.fastapi` in 0.45.0. "
-        "It is private and lives in `grelmicro.http._ratelimit`."
-    )
+def test_from_import_raises_import_error() -> None:
+    """`from ... import` a moved name fails like any missing name."""
+    with pytest.raises(ImportError, match="cannot import name 'RateLimiter'"):
+        exec("from grelmicro.integrations.fastapi import RateLimiter", {})  # noqa: S102
 
 
 @pytest.mark.parametrize("module", sorted(_SERVED_IN_0_43))
@@ -222,32 +174,8 @@ def test_star_import_binds_no_moved_name(module: str) -> None:
 
 @pytest.mark.parametrize("module", sorted(_SERVED_IN_0_43))
 def test_unknown_name_still_raises_attribute_error(module: str) -> None:
-    """A name the module never served raises `AttributeError` naming it."""
+    """Any other missing name raises the same `AttributeError`."""
     facade = _facade(module)
 
     with pytest.raises(AttributeError, match=f"module '{module}' has no attr"):
         facade.missing_name  # noqa: B018
-
-
-@pytest.mark.parametrize("module", sorted(_SERVED_IN_0_43))
-def test_import_and_private_lookups_load_no_table(module: str) -> None:
-    """Importing the module and probing a private name leave the table unloaded."""
-    # Arrange
-    code = (
-        "import importlib, sys\n"
-        f"module = importlib.import_module({module!r})\n"
-        "assert not hasattr(module, '__path__')\n"
-        "assert not hasattr(module, '_private')\n"
-        "print('grelmicro._deprecation' in sys.modules)"
-    )
-
-    # Act
-    result = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", code],
-        capture_output=True,
-        check=True,
-        text=True,
-    )
-
-    # Assert
-    assert result.stdout.strip() == "False"
