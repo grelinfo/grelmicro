@@ -13,7 +13,7 @@ from grelmicro.outbox.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Iterable
 
     from grelmicro.outbox._message import OutboxRecord
 
@@ -45,24 +45,34 @@ class OutboxRegistry:
         """Initialize an empty registry."""
         self._handlers: dict[str, HandlerEntry] = {}
 
-    def register(
-        self,
-        target: type[Any] | str,
-        fn: Callable[[Message[Any]], Awaitable[None]],
-        *,
-        topic: str | None = None,
-    ) -> None:
-        """Register `fn` for a payload model or a topic string.
+    def check(self, entries: Iterable[HandlerEntry]) -> None:
+        """Raise if an entry's topic is taken, or two entries share one.
 
         Raises:
-            HandlerAlreadyRegisteredError: If the topic is already taken.
+            HandlerAlreadyRegisteredError: If a topic is already taken, or
+                two entries share one.
         """
-        resolved = topic or derive_topic(target)
-        if resolved in self._handlers:
-            msg = f"Topic {resolved!r} already has a handler"
-            raise HandlerAlreadyRegisteredError(msg)
-        model = target if isinstance(target, type) else None
-        self._handlers[resolved] = HandlerEntry(resolved, fn, model)
+        held = dict(self._handlers)
+        for entry in entries:
+            existing = held.get(entry.topic)
+            if existing is not None:
+                msg = (
+                    f"Topic {entry.topic!r} already has the handler "
+                    f"{_name(existing.fn)}, so {_name(entry.fn)} is refused"
+                )
+                raise HandlerAlreadyRegisteredError(msg)
+            held[entry.topic] = entry
+
+    def add(self, entries: Iterable[HandlerEntry]) -> None:
+        """Register every entry for its topic, or none of them.
+
+        Raises:
+            HandlerAlreadyRegisteredError: If a topic is already taken, or
+                two entries share one.
+        """
+        entries = list(entries)
+        self.check(entries)
+        self._handlers.update((entry.topic, entry) for entry in entries)
 
     def topics(self) -> list[str]:
         """Return every registered topic."""
@@ -97,3 +107,10 @@ class OutboxRegistry:
             headers=record.headers,
             attempts=record.attempts,
         )
+
+
+def _name(fn: object) -> str:
+    """Return the dotted name of a handler function."""
+    module = getattr(fn, "__module__", None)
+    qualname = getattr(fn, "__qualname__", repr(fn))
+    return f"{module}.{qualname}" if module else qualname

@@ -13,7 +13,6 @@ from grelmicro._backend_kinds import resolve_source
 from grelmicro._config import env_prefixes, resolve_config
 from grelmicro._duration import NO_LIMIT, check_retention
 from grelmicro._environment import required_scope
-from grelmicro._markers import Registered, mark_registered
 from grelmicro._unset import UNSET, Unset
 from grelmicro.metrics import _emit
 from grelmicro.outbox._codec import encode_payload
@@ -23,14 +22,13 @@ from grelmicro.outbox._otel import inject_trace_context
 from grelmicro.outbox._protocol import OutboxBackend
 from grelmicro.outbox._registry import OutboxRegistry, derive_topic
 from grelmicro.outbox._relay import Relay
+from grelmicro.outbox._router import OutboxRouter
 from grelmicro.providers._base import Provider
 from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping
+    from collections.abc import Mapping
     from types import TracebackType
-
-    from grelmicro.outbox._message import Message
 
 
 _NOT_AVAILABLE: Final = (
@@ -61,7 +59,7 @@ def _keep_delivered_kwarg(
     return value
 
 
-class Outbox:
+class Outbox(OutboxRouter):
     """Outbox component: stages messages and runs their handlers.
 
     Registered as `micro.outbox` after `Grelmicro(uses=[Outbox(...)])`.
@@ -124,6 +122,10 @@ class Outbox:
                 [the backend check](../deployment.md#the-backend-check).
                 """,
             ),
+        ] = None,
+        routers: Annotated[
+            list[OutboxRouter] | None,
+            Doc("Routers to include, the same as `include_router` for each."),
         ] = None,
         name: Annotated[str, Doc("Registration name.")] = "default",
         relay: Annotated[
@@ -212,6 +214,7 @@ class Outbox:
                 env_load=env_load,
             ),
             requires=requires,
+            routers=routers,
             name=name,
             shutdown_timeout=shutdown_timeout,
         )
@@ -222,6 +225,7 @@ class Outbox:
         config: OutboxConfig,
         *,
         requires: BackendScope | None,
+        routers: list[OutboxRouter] | None,
         name: str,
         shutdown_timeout: float,
     ) -> None:
@@ -251,6 +255,7 @@ class Outbox:
         self._registry = OutboxRegistry()
         self._relay: Relay | None = None
         self._shutdown_timeout = shutdown_timeout
+        super().__init__(routers=routers)
 
     @classmethod
     def from_config(
@@ -270,6 +275,10 @@ class Outbox:
             BackendScope | None,
             Doc("The smallest backend scope this component accepts."),
         ] = None,
+        routers: Annotated[
+            list[OutboxRouter] | None,
+            Doc("Routers to include, the same as `include_router` for each."),
+        ] = None,
         name: Annotated[str, Doc("Registration name.")] = "default",
         shutdown_timeout: Annotated[
             float, Doc("Seconds to let in-flight handlers drain on shutdown.")
@@ -284,10 +293,15 @@ class Outbox:
             source,
             config,
             requires=requires,
+            routers=routers,
             name=name,
             shutdown_timeout=shutdown_timeout,
         )
         return instance
+
+    def _owned_registry(self) -> OutboxRegistry:
+        """Return the registry the relay reads."""
+        return self._registry
 
     @property
     def name(self) -> str:
@@ -331,32 +345,6 @@ class Outbox:
                 open app, register the `Outbox`.
         """
         return resolve_ambient((cls.kind, name), _NOT_AVAILABLE, name)
-
-    def handler(
-        self,
-        target: Annotated[
-            type[Any] | str,
-            Doc("A payload model or a topic string to bind the handler to."),
-        ],
-        *,
-        topic: Annotated[
-            str | None,
-            Doc("Override the derived topic."),
-        ] = None,
-    ) -> Callable[
-        [Callable[[Message[Any]], Awaitable[None]]],
-        Callable[[Message[Any]], Awaitable[None]],
-    ]:
-        """Register an async handler for a payload model or a topic."""
-
-        def decorator(
-            fn: Callable[[Message[Any]], Awaitable[None]],
-        ) -> Callable[[Message[Any]], Awaitable[None]]:
-            self._registry.register(target, fn, topic=topic)
-            mark_registered(fn, Registered.OUTBOX_HANDLER, self)
-            return fn
-
-        return decorator
 
     async def publish(
         self,

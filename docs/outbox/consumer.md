@@ -32,6 +32,27 @@ Delivery is at least once, so a handler must be idempotent. See
     Written the other way round, the decorator below refuses with a
     `TypeError` that names the right order.
 
+## Split handlers across modules
+
+An `OutboxRouter` groups the handlers of one feature. It needs no provider, so a feature module declares its handlers without importing the module that builds the app. The app then includes the router:
+
+```python title="router.py"
+--8<-- "outbox/router.py"
+```
+
+Output:
+```text title="output"
+billing.order_placed: charge order 42
+```
+
+Include a router in the constructor with `Outbox(postgres, routers=[...])`, or later with `outbox.include_router(router)`. A router includes other routers the same way, so a feature can split its own handlers further.
+
+A router never changes a topic. The topic comes from the payload model or the topic string, so the producer publishes with `outbox.publish` and never needs to know which router handles the message. Set `__outbox_topic__` on the model to give it a namespaced topic such as `billing.order_placed`. A subclass inherits it, so set it again on a subclass that needs a topic of its own.
+
+A router can be included in several outboxes, for example in each app an app factory builds. Including an `Outbox`, a router in itself, or a router an outbox already holds raises `OutboxRouterError`. Two handlers on the same topic raise `HandlerAlreadyRegisteredError` when the second one joins an outbox, and the error names both functions.
+
+A router can be included and a handler added after the outbox started. The relay claims the new topic on its next poll. A router that is never included handles nothing, and its messages stay pending.
+
 ## Publishing to a broker
 
 grelmicro has no publish/subscribe primitive and talks to no broker. Reach for [FastStream](https://faststream.airt.ai/), which covers Kafka, RabbitMQ, NATS, Redis, and MQTT. The two fit together in the handler:
