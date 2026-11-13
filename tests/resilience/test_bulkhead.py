@@ -1380,7 +1380,7 @@ async def test_a_permit_is_returned_when_the_scope_cannot_open() -> None:
         raise ConnectionError(msg)
 
     bulkhead._uses = (_Gate(),)
-    bulkhead._open_uses = refuse  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    bulkhead._open_uses = refuse  # type: ignore[method-assign]
 
     for _ in range(2):
         with pytest.raises(ConnectionError):
@@ -1828,7 +1828,7 @@ async def test_repeated_failed_opens_arm_one_release() -> None:
         releases += 1
         release(exit_stack)
 
-    bulkhead._release_scope = counting_release  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    bulkhead._release_scope = counting_release  # type: ignore[method-assign]
 
     async with Grelmicro() as micro:
         for _ in range(attempts):
@@ -1854,7 +1854,7 @@ async def test_a_failing_borrow_check_records_nothing() -> None:
         drops += 1
         drop(borrowed)  # ty: ignore[invalid-argument-type]
 
-    bulkhead._drop_borrow = counting_drop  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    bulkhead._drop_borrow = counting_drop  # type: ignore[method-assign]
 
     async with Grelmicro(allow_multiple=True, environment="development") as own:
         async with bulkhead:
@@ -1979,7 +1979,7 @@ async def test_borrowing_across_owner_turnover_arms_one_drop() -> None:
         drops += 1
         drop(borrowed)  # ty: ignore[invalid-argument-type]
 
-    bulkhead._drop_borrow = counting_drop  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    bulkhead._drop_borrow = counting_drop  # type: ignore[method-assign]
     survivor = Grelmicro(allow_multiple=True)
 
     async with survivor:
@@ -2076,7 +2076,7 @@ async def test_a_multi_item_scope_forgets_itself_once() -> None:
         log.append("forget")
         forget(scope)  # ty: ignore[invalid-argument-type]
 
-    bulkhead._forget_scope = counting_forget  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    bulkhead._forget_scope = counting_forget  # type: ignore[method-assign]
 
     async with Grelmicro(), bulkhead:
         pass
