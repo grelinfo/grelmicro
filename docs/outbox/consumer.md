@@ -47,7 +47,7 @@ billing.order_placed: charge order 42
 
 Include a router in the constructor with `Outbox(postgres, routers=[...])`, or later with `outbox.include_router(router)`. A router includes other routers the same way, so a feature can split its own handlers further.
 
-A router never changes a topic. The topic comes from the payload model or the topic string, so the producer publishes with `outbox.publish` and never needs to know which router handles the message. Set `__outbox_topic__` on the model to give it a namespaced topic such as `billing.order_placed`. A subclass inherits it, so set it again on a subclass that needs a topic of its own.
+A router never changes a topic. The topic comes from the payload model or the topic string, so the producer publishes with `outbox.publish` and never needs to know which router handles the message. Set `__outbox_topic__` on the model to give it a namespaced topic such as `billing.order_placed`. Set it on each model you publish, a subclass included.
 
 A router can be included in several outboxes, for example in each app an app factory builds. Including an `Outbox`, a router in itself, or a router an outbox already holds raises `OutboxRouterError`. Two handlers on the same topic raise `HandlerAlreadyRegisteredError` when the second one joins an outbox, and the error names both functions.
 
