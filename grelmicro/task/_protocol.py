@@ -20,9 +20,21 @@ A job only moves forward, and each move below is one atomic step in the store:
 | `running` to `failed`, past `max_run` | `reap`, or a read | past `max_run` |
 | `queued` to `failed`, past `max_wait` | `reap`, or a read | past `max_wait` |
 | an end state to gone | `purge`, or the store | past `keep` |
+| an end state to gone | the move that ends a newer job of the name | past its kind's `max_kept_*` |
 
 `list` reads an owner's jobs and makes the moves a read makes, in the same
 step.
+
+A move to an end state also forgets the oldest ended jobs of the name past
+that job's cap, in the same step: `max_kept_succeeded` counts the jobs that
+`succeeded`, and `max_kept_failed` every other end state. A job forgotten
+that way is gone for every read, as one past its `keep` is.
+
+Each job keeps the caps it was submitted with, as it keeps its `keep`. A cap
+counts only the ended jobs of the name that were submitted with a cap of that
+kind and are still inside their own `keep`, so a job submitted with no cap is
+never forgotten by one. When those jobs carry different caps, the cap of the
+job that just ended decides how many of them stay.
 
 A job past both its lease and its `max_run` ends with the error of the one
 that passed first. The store's own clock decides every lease and deadline. A
@@ -291,6 +303,20 @@ class JobBackend(Protocol):
             timedelta | None,
             Doc("How long the ended job stays readable. `None`: no limit."),
         ],
+        max_kept_succeeded: Annotated[
+            int | None,
+            Doc(
+                "Jobs of the name that `succeeded` the store keeps. "
+                "`None`: no limit."
+            ),
+        ],
+        max_kept_failed: Annotated[
+            int | None,
+            Doc(
+                "Jobs of the name in any other end state the store keeps. "
+                "`None`: no limit."
+            ),
+        ],
         start_as: Annotated[
             str | None,
             Doc("The runner, when this replica has a free slot."),
@@ -304,7 +330,8 @@ class JobBackend(Protocol):
         is `queued`, unless `max_queued` jobs of the name already are: then
         `record` is `None`. `max_queued=0` therefore means run now or refuse.
         The job keeps its `max_run`, counted from when it starts, on
-        whichever runner starts it.
+        whichever runner starts it. It keeps its two caps too, and the move
+        that ends it applies the cap of its kind, whoever makes that move.
 
         A retried `submit` with the same `job_id` returns the stored job and
         stores nothing. `started` is `True` only when the first call started
@@ -366,8 +393,9 @@ class JobBackend(Protocol):
         or `max_run`, `error` says why. It is `None` for a job that is gone
         or that another runner ended. Retrying with the same arguments
         after a lost reply is taken and writes nothing more, while the job
-        is still kept. With `keep` at zero the job is already gone, so the
-        retry is refused.
+        is still kept. With `keep` or its kind's cap at zero the job is
+        already gone, so the retry is refused, and so it is once newer ends
+        forgot the job past its cap.
         """
         ...
 

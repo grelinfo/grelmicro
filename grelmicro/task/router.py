@@ -515,6 +515,35 @@ class TaskRouter:
                 """,
             ),
         ] = 86400,
+        max_kept_succeeded: Annotated[
+            int | None,
+            Doc(
+                """
+                How many jobs of this function that succeeded stay readable.
+
+                Counted in the store, across every replica and owner. Past
+                it, the job that finished first is forgotten, even before
+                `keep` runs out, and `get` returns `None` for it. Takes an
+                int from `0` to `2**63 - 1`. `0` keeps nothing. `None` means
+                no limit.
+                """,
+            ),
+        ] = None,
+        max_kept_failed: Annotated[
+            int | None,
+            Doc(
+                """
+                How many jobs of this function that did not succeed stay
+                readable.
+
+                Counts every job that ended `failed` or `cancelled`, in the
+                store, across every replica and owner. Past it, the job that
+                finished first is forgotten, even before `keep` runs out,
+                and `get` returns `None` for it. Takes an int from `0` to
+                `2**63 - 1`. `0` keeps nothing. `None` means no limit.
+                """,
+            ),
+        ] = None,
         backend: Annotated[
             JobBackend | None,
             Doc(
@@ -557,10 +586,12 @@ class TaskRouter:
             TypeError: If the function does not take `progress: Progress`
                 as its first parameter.
             ValueError: If `max_concurrent` is not an int of at least 1,
-                `max_queued` is not an int of at least 0, `max_wait` or
-                `max_run` is not whole seconds or a `timedelta` above zero,
-                `keep` is not whole seconds or a `timedelta` from zero, or
-                any of them is over 100 years.
+                `max_queued` is not an int of at least 0,
+                `max_kept_succeeded` or `max_kept_failed` is not an int from
+                0 to `2**63 - 1`, `max_wait` or `max_run` is not
+                whole seconds or a `timedelta` above zero, `keep` is not
+                whole seconds or a `timedelta` from zero, or any of them is
+                over 100 years.
         """
         from grelmicro.task._job import Job  # noqa: PLC0415
 
@@ -575,6 +606,8 @@ class TaskRouter:
                 max_wait=max_wait,
                 max_run=max_run,
                 keep=keep,
+                max_kept_succeeded=max_kept_succeeded,
+                max_kept_failed=max_kept_failed,
                 backend=backend,
                 requires=requires,
             )

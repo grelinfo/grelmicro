@@ -552,9 +552,33 @@ with a bare `return`.
 | `max_wait` | `86400` | How long a queued job may wait for a slot, in seconds or a `timedelta`. Past it, the job ends `failed`. `None` means no limit. |
 | `max_run` | `None` | How long a job may run, in seconds or a `timedelta`, counted from `started_at`. Past it, the job ends `failed` with the error `"Job not finished in time"`. `None` means no limit. |
 | `keep` | `86400` | How long a finished job stays readable, in seconds or a `timedelta`. `0` keeps nothing. `None` means no limit. |
+| `max_kept_succeeded` | `None` | Jobs of this function that succeeded and stay readable, counted in the store. Past it, the job that finished first is forgotten, and `get` returns `None` for it. `0` keeps nothing. `None` means no limit. |
+| `max_kept_failed` | `None` | Jobs of this function that ended `failed` or `cancelled` and stay readable, counted the same way. `0` keeps nothing. `None` means no limit. |
 
 With no limit, a flood of submits grows the store. If callers can flood you, set
 `max_queued` or put a [rate limit](http/rate-limit.md) on the route.
+
+A finished job is forgotten at whichever limit it reaches first: `keep` or the
+cap of its kind. Set both to bound the store in time and in size:
+
+```python title="fragment"
+@tasks.job(keep=3600, max_kept_succeeded=1000, max_kept_failed=100)
+async def import_rows(progress: Progress, upload_id: str) -> None: ...
+```
+
+`max_queued` bounds the jobs that wait. The two caps bound the jobs that
+finished. Queued and running jobs never count toward a cap.
+
+Each job keeps the caps it was submitted with, as it keeps its `keep`. A cap
+counts only the finished jobs submitted with a cap of that kind, so adding a
+cap in a deploy never removes the jobs that finished before it.
+
+!!! note "A cap counts every owner"
+    Each cap counts the finished jobs of the function, whoever owns them. A
+    caller who submits many jobs can push out the results of other callers
+    before their `keep` runs out, and their poll then answers `404`. Put a
+    [rate limit](http/rate-limit.md) on the route to keep one caller from
+    doing so.
 
 When the queue is full, or the service is shutting down, `submit` raises
 `JobRefusedError`. With [error responses](http/errors.md) installed, it answers

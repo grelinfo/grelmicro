@@ -49,7 +49,7 @@ _LUA_JOB = (
     local now = tonumber(now_pair[1]) * 1000000 + tonumber(now_pair[2])
     local deadlines = KEYS[1]
     local base = string.sub(deadlines, 1, #deadlines - #'deadlines')
-    local expiries = base .. 'owned:expires'
+    local expiries = base .. 'expires'
     local JOB_LOST = """
     + json.dumps(JOB_LOST)
     + """
@@ -94,20 +94,83 @@ _LUA_JOB = (
         return #id .. ':' .. id .. own
     end
 
+    local function ends_of(kept)
+        return base .. 'kept-ends:' .. string.sub(kept, #base + 6)
+    end
+
+    local function unindex(index, id)
+        redis.call('ZREM', index, id)
+        redis.call('ZREM', expiries, owned_entry(index, id))
+        if string.sub(index, 1, #base + 5) == base .. 'kept:' then
+            redis.call('ZREM', ends_of(index), id)
+        end
+    end
+
+    local function forget(key, id)
+        local job = redis.call('HMGET', key, 'ok', 'kk')
+        for _, index in ipairs({job[1], job[2]}) do
+            if index then
+                unindex(index, id)
+            end
+        end
+        redis.call('DEL', key)
+    end
+
+    local function trim(kept, cap)
+        local due = redis.call(
+            'ZRANGEBYSCORE', ends_of(kept), '-inf', us(math.floor(now / 1000))
+        )
+        for _, id in ipairs(due) do
+            unindex(kept, id)
+        end
+        while redis.call('ZCARD', kept) > cap do
+            local id = redis.call('ZRANGE', kept, 0, 0)[1]
+            local key = base .. 'id:' .. id
+            if redis.call('HGET', key, 'kk') == kept then
+                forget(key, id)
+            else
+                unindex(kept, id)
+            end
+        end
+    end
+
     local function retain(key, id)
-        local job = redis.call('HMGET', key, 'k', 'ok')
+        local job = redis.call('HMGET', key, 'k', 'ok', 's', 'n', 'ms', 'mf')
         local keep, own = job[1], job[2]
-        if keep == '0' then
-            if own then
-                redis.call('ZREM', own, id)
+        local kind, cap = 'failed', job[6]
+        if job[3] == 'succeeded' then
+            kind, cap = 'succeeded', job[5]
+        end
+        local kept = false
+        if cap then
+            kept = base .. 'kept:' .. kind .. ':' .. job[4]
+        end
+        if keep == '0' or cap == '0' then
+            forget(key, id)
+            if kept then
+                trim(kept, 0)
             end
-            redis.call('DEL', key)
-        elseif keep then
+            return
+        end
+        if kept then
+            redis.call('HSET', key, 'kk', kept)
+        end
+        if keep then
             redis.call('PEXPIRE', key, keep)
-            if own then
-                local ends = math.floor(now / 1000) + tonumber(keep) + 1
-                redis.call('ZADD', expiries, us(ends), owned_entry(own, id))
+            local ends = us(math.floor(now / 1000) + tonumber(keep) + 1)
+            for _, index in ipairs({own or false, kept}) do
+                if index then
+                    redis.call('ZADD', expiries, ends, owned_entry(index, id))
+                end
             end
+            if kept then
+                redis.call('ZADD', ends_of(kept), ends, id)
+            end
+        end
+        if kept then
+            local order = redis.call('INCR', base .. 'kept-order')
+            redis.call('ZADD', kept, order, id)
+            trim(kept, tonumber(cap))
         end
     end
 
@@ -169,10 +232,17 @@ _LUA_JOB = (
 the earlier of its lease end and its `max_run` end, and a queued one by its
 `max_wait` end. `catch_up` returns the error it ended a job with, or `false`.
 
-An owned job's `ok` field names its owner index. A job that ends with a
-positive `keep` puts an entry in the store's `owned:expires` index, scored by
-when the job expires in ms, so `purge` takes the job out of its owner index
-then. The store's key prefix is `KEYS[1]` without its `deadlines` suffix.
+An owned job's `ok` field names its owner index. A job with a cap of its
+kind of end names its kept index in its `kk` field: the ended jobs of its
+name and kind, scored by end order. Its `kept-ends` twin scores the same
+members by when each expires in ms, by its own `keep`. `trim` first drops
+the members past their own `keep`, then, past the cap, forgets the oldest
+member whose job still names the index, and drops a member whose job is gone.
+A job that ends with a positive `keep` puts one entry per index it is in in
+the store's `expires` index, scored by when the job expires in ms, so `purge`
+takes the job out of each index then. `forget` removes a job with every
+entry that names it. The store's key prefix is `KEYS[1]` without its
+`deadlines` suffix.
 """
 
 
@@ -188,6 +258,10 @@ class RedisJobAdapter:
     Each job is one hash, keyed by its id. Each name has its queue, in
     submission order, and the queued jobs that have a `max_wait`. One index
     holds every deadline, so `reap` finds the overdue jobs of every name.
+    A job with a cap on its kind of end joins a sorted set of the ended jobs
+    of its name and kind, in end order, written only when that cap is set.
+    The move that ends it forgets the oldest past the cap, in the same
+    script, with every index entry that names them.
 
     On a Redis Cluster, every key of the store lands in one slot: under the
     hash tag a prefix carries, or under `{<prefix>job}:` when none does.
@@ -244,6 +318,12 @@ class RedisJobAdapter:
         if ARGV[13] ~= '' then
             redis.call('HSET', key, 'mr', ARGV[13])
         end
+        if ARGV[14] ~= '' then
+            redis.call('HSET', key, 'ms', ARGV[14])
+        end
+        if ARGV[15] ~= '' then
+            redis.call('HSET', key, 'mf', ARGV[15])
+        end
         if start then
             redis.call('HSET', key, 'sas', '1')
             start_running(key, id, runner, tonumber(ARGV[12]))
@@ -266,7 +346,8 @@ class RedisJobAdapter:
     an owner. ARGV: id, name, has owner,
     owner, payload, context, max queued (-1: no limit), max wait in us (-1: no
     limit), keep in ms ('': no limit), has runner, runner, lease in us, max
-    run in us ('': no limit).
+    run in us ('': no limit), max kept succeeded and max kept failed ('': no
+    limit).
     """
 
     _LUA_CLAIM = (
@@ -514,17 +595,19 @@ class RedisJobAdapter:
             local colon = string.find(entry, ':', 1, true)
             local size = tonumber(string.sub(entry, 1, colon - 1))
             local id = string.sub(entry, colon + 1, colon + size)
-            local own = string.sub(entry, colon + size + 1)
-            if redis.call('HGET', base .. 'id:' .. id, 'ok') ~= own then
-                purged = purged + redis.call('ZREM', own, id)
+            local index = string.sub(entry, colon + size + 1)
+            local job = redis.call('HMGET', base .. 'id:' .. id, 'ok', 'kk')
+            if job[1] ~= index and job[2] ~= index then
+                purged = purged + redis.call('ZREM', index, id)
+                unindex(index, id)
             end
         end
         return purged
     """
     )
-    """Take expired jobs out of their owner index, up to a limit.
+    """Take expired jobs out of their owner and kept indexes, up to a limit.
 
-    A job with the same id that the same owner submitted since stays. KEYS:
+    A job with the same id that the same index holds since stays. KEYS:
     deadlines. ARGV: limit. The reply is how many entries it took out.
     """
 
@@ -686,6 +769,8 @@ class RedisJobAdapter:
         max_wait: timedelta | None,
         max_run: timedelta | None,
         keep: timedelta | None,
+        max_kept_succeeded: int | None,
+        max_kept_failed: int | None,
         start_as: str | None,
         lease: timedelta,
     ) -> Submitted:
@@ -708,6 +793,8 @@ class RedisJobAdapter:
                 *_optional_arg(start_as),
                 round_up(lease, MICROSECOND),
                 "" if max_run is None else round_up(max_run, MICROSECOND),
+                "" if max_kept_succeeded is None else max_kept_succeeded,
+                "" if max_kept_failed is None else max_kept_failed,
             ],
             client=self._provider.client,
         )
@@ -879,8 +966,8 @@ class RedisJobAdapter:
         """Forget ended jobs past their retention, whatever their name.
 
         Redis expires an ended job on its own once `keep` has passed. This
-        takes up to `limit` such jobs out of their owner index, and returns
-        how many it took out.
+        takes up to `limit` such jobs out of their owner and kept indexes,
+        and returns how many index entries it took out.
         """
         return int(
             await self._lua_purge(

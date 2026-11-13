@@ -20,6 +20,7 @@ from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
+from tests._future import DEFAULT_TABLE_NAMES
 
 
 def test_ratelimit_exposes_backend() -> None:
@@ -80,6 +81,7 @@ def test_ratelimit_accepts_redis_provider() -> None:
     assert component.backend.provider is provider
 
 
+@DEFAULT_TABLE_NAMES
 def test_ratelimit_accepts_postgres_provider() -> None:
     """`RateLimiterComponent(PostgresProvider(...))` calls `provider.ratelimiter_backend()`."""
     provider = PostgresProvider("postgresql://localhost:5432/app")
@@ -88,6 +90,7 @@ def test_ratelimit_accepts_postgres_provider() -> None:
     assert component.backend.provider is provider
 
 
+@DEFAULT_TABLE_NAMES
 def test_ratelimit_accepts_sqlite_provider() -> None:
     """`RateLimiterComponent(SQLiteProvider(...))` calls `provider.ratelimiter_backend()`."""
     provider = SQLiteProvider("app.db")
@@ -96,6 +99,7 @@ def test_ratelimit_accepts_sqlite_provider() -> None:
     assert component.backend.provider is provider
 
 
+@DEFAULT_TABLE_NAMES
 def test_breaker_with_postgres_provider_builds_shared_adapter() -> None:
     """`CircuitBreakerComponent(PostgresProvider(...))` resolves to the Postgres adapter."""
     provider = PostgresProvider("postgresql://localhost:5432/app")

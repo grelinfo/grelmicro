@@ -515,7 +515,7 @@ class TestBuilders:
         """`provider.lock_backend()` returns an adapter borrowing the provider."""
         provider = PostgresProvider(URL)
 
-        adapter = provider.lock_backend()
+        adapter = provider.lock_backend(table_name="locks")
 
         assert isinstance(adapter, PostgresLockAdapter)
         assert adapter.provider is provider
@@ -531,7 +531,9 @@ class TestBuilders:
     def test_ratelimiter_factory_builds_postgres_adapter(self) -> None:
         """`provider.ratelimiter_backend()` builds a `PostgresRateLimiterAdapter`."""
         provider = PostgresProvider(URL)
-        adapter = provider.ratelimiter_backend()
+        adapter = provider.ratelimiter_backend(
+            table_name="grelmicro_rate_limiter"
+        )
         assert isinstance(adapter, PostgresRateLimiterAdapter)
         assert adapter.provider is provider
 
@@ -552,7 +554,9 @@ class TestBuilders:
     def test_circuitbreaker_factory_builds_postgres_adapter(self) -> None:
         """`provider.circuitbreaker_backend()` builds a `PostgresCircuitBreakerAdapter`."""
         provider = PostgresProvider(URL)
-        adapter = provider.circuitbreaker_backend()
+        adapter = provider.circuitbreaker_backend(
+            table_name="grelmicro_circuit_breaker"
+        )
         assert isinstance(adapter, PostgresCircuitBreakerAdapter)
         assert adapter.provider is provider
 
@@ -571,7 +575,7 @@ class TestRebindProvider:
     def test_sync_adapter_rebind(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """PostgresLockAdapter rebinds to a new provider."""
         monkeypatch.setenv("POSTGRES_URL", URL)
-        adapter = PostgresLockAdapter()
+        adapter = PostgresLockAdapter(table_name="locks")
         assert adapter._owns_provider is True
         owned = PostgresProvider(URL)
 
@@ -585,7 +589,9 @@ class TestRebindProvider:
     ) -> None:
         """PostgresRateLimiterAdapter rebinds to a new provider."""
         monkeypatch.setenv("POSTGRES_URL", URL)
-        adapter = PostgresRateLimiterAdapter()
+        adapter = PostgresRateLimiterAdapter(
+            table_name="grelmicro_rate_limiter"
+        )
         assert adapter._owns_provider is True
         owned = PostgresProvider(URL)
 
@@ -599,7 +605,9 @@ class TestRebindProvider:
     ) -> None:
         """PostgresCircuitBreakerAdapter rebinds to a new provider."""
         monkeypatch.setenv("POSTGRES_URL", URL)
-        adapter = PostgresCircuitBreakerAdapter()
+        adapter = PostgresCircuitBreakerAdapter(
+            table_name="grelmicro_circuit_breaker"
+        )
         assert adapter._owns_provider is True
         owned = PostgresProvider(URL)
 
@@ -617,7 +625,9 @@ class TestBreakerOwnedLifecycle:
     ) -> None:
         """An implicit provider is opened on enter and closed on exit."""
         monkeypatch.setenv("POSTGRES_URL", URL)
-        adapter = PostgresCircuitBreakerAdapter()
+        adapter = PostgresCircuitBreakerAdapter(
+            table_name="grelmicro_circuit_breaker"
+        )
         assert adapter._owns_provider is True
 
         pool = make_pool()
@@ -639,7 +649,7 @@ class TestSharingCache:
         """Two adapters with the same default env_prefix share one provider."""
         monkeypatch.setenv("POSTGRES_URL", URL)
 
-        first = PostgresLockAdapter()
+        first = PostgresLockAdapter(table_name="locks")
         second = PostgresLockAdapter(table_name="other_locks")
         assert first.provider is not second.provider
 
@@ -670,7 +680,9 @@ class TestSharingCache:
         monkeypatch.setenv("WRITE_POSTGRES_URL", URL)
         monkeypatch.setenv("READ_POSTGRES_URL", URL)
 
-        write = PostgresLockAdapter(env_prefix="WRITE_POSTGRES_")
+        write = PostgresLockAdapter(
+            env_prefix="WRITE_POSTGRES_", table_name="locks"
+        )
         read = PostgresLockAdapter(
             env_prefix="READ_POSTGRES_", table_name="read_locks"
         )
@@ -922,7 +934,12 @@ class TestFromEngineAgainstPostgres:
         """A lock acquires and releases through the borrowed engine."""
         provider = PostgresProvider.from_engine(engine)
 
-        async with provider, PostgresLockAdapter(provider=provider) as backend:
+        async with (
+            provider,
+            PostgresLockAdapter(
+                provider=provider, table_name="locks"
+            ) as backend,
+        ):
             name = "engine-lock-" + uuid4().hex
             token = uuid4().hex
 
@@ -1121,7 +1138,12 @@ class TestFromEngineAgainstPostgres:
         name = "engine-rollback-" + uuid4().hex
         token = uuid4().hex
 
-        async with provider, PostgresLockAdapter(provider=provider) as backend:
+        async with (
+            provider,
+            PostgresLockAdapter(
+                provider=provider, table_name="locks"
+            ) as backend,
+        ):
             with contextlib.suppress(RuntimeError):
                 async with engine.begin() as connection:
                     await connection.execute(text("SELECT 1"))

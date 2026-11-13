@@ -6,6 +6,8 @@ import contextvars
 import gc
 import json
 import logging
+import subprocess
+import sys
 import threading
 import time
 import weakref
@@ -608,6 +610,35 @@ async def test_job_keep_none_keeps_a_finished_job() -> None:
 
     # Assert
     assert info is not None
+
+
+@pytest.mark.parametrize(
+    ("succeeded", "failed", "kept"),
+    [
+        pytest.param(1, None, [False, True], id="capped"),
+        pytest.param(None, 1, [True, True], id="other-kind"),
+        pytest.param(None, None, [True, True], id="no-cap"),
+    ],
+)
+async def test_job_max_kept_reaches_the_store(
+    succeeded: int | None, failed: int | None, kept: list[bool]
+) -> None:
+    """A job's caps apply to the runs it stores."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job(max_kept_succeeded=succeeded, max_kept_failed=failed)(_noop)
+    view = job.without_owner()
+
+    async with tasks:
+        first = await view.submit()
+        await _settle(view, first.id)
+        # Act
+        second = await view.submit()
+        await _settle(view, second.id)
+        read = [await view.get(first.id), await view.get(second.id)]
+
+    # Assert
+    assert [info is not None for info in read] == kept
 
 
 async def test_job_keep_never_forgets_a_running_job() -> None:
@@ -1498,6 +1529,8 @@ async def test_job_stored_arguments_that_no_longer_match_end_failed() -> None:
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )
@@ -1549,6 +1582,8 @@ async def test_job_free_slot_never_jumps_an_older_queued_job() -> None:
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )
@@ -1635,6 +1670,8 @@ async def test_job_beat_claims_a_job_another_replica_queued() -> None:
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )
@@ -1753,6 +1790,8 @@ async def test_job_stored_arguments_that_no_longer_match_stay_out_of_the_log(
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )
@@ -2140,3 +2179,37 @@ async def test_job_page_serializes_for_an_endpoint() -> None:
     assert JobPage.model_validate_json(page.model_dump_json()) == page
     with pytest.raises(ValueError, match="frozen"):
         page.next = None  # type: ignore[misc] # ty: ignore[invalid-assignment]
+
+
+_FREEZE_AFTER_IMPORT = """
+import datetime
+real_datetime = datetime.datetime
+from freezegun import freeze_time
+from pydantic import BaseModel
+
+class Loaded(BaseModel):
+    count: int
+
+import grelmicro.task
+
+with freeze_time():
+    pass
+
+print(datetime.datetime is real_datetime, grelmicro.task.JobInfo.__name__)
+"""
+"""Load Pydantic, import `grelmicro.task`, then freeze time once."""
+
+
+def test_freeze_time_after_task_import_leaves_datetime_real() -> None:
+    """`freeze_time()` starts and stops cleanly after `import grelmicro.task`."""
+    # Act
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", _FREEZE_AFTER_IMPORT],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    # Assert
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["True", "JobInfo"]

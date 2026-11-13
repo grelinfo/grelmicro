@@ -119,7 +119,7 @@ async def signup(body: SignUp, session: AsyncSession = Depends(get_session)) -> 
     await Outbox.current().publish(session, WelcomeEmail(to=body.email))
 ```
 
-`Outbox.current(name=...)` selects a named instance. It resolves inside `async with micro:` or after `micro.install(app)`, and raises `OutOfContextError` otherwise. Handlers still register on the instance at wiring time.
+`Outbox.current(name=...)` selects a named instance. It resolves inside `async with micro:` or after `micro.install(app)`, and raises `OutOfContextError` otherwise. Handlers still register on the instance at wiring time, or on an [`OutboxRouter`](consumer.md#split-handlers-across-modules).
 
 ## Delay and deduplication
 

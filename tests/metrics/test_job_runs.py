@@ -132,6 +132,8 @@ async def test_job_arguments_that_cannot_load_count_as_an_error(
             max_wait=None,
             max_run=None,
             keep=None,
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )

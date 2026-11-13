@@ -88,3 +88,50 @@ def stale(
         )
         <= current
     ]
+
+
+DEFAULT_TABLE_NAMES_FILTER = (
+    r"ignore:`\w+\(table_name=\)` defaults to `grelmicro_\w+` from 0\.46\.0"
+    ":grelmicro.errors.Grelmicro046Warning"
+)
+"""The warning filter that quiets the 0.46.0 default table name warning."""
+
+DEFAULT_TABLE_NAMES = pytest.mark.filterwarnings(DEFAULT_TABLE_NAMES_FILTER)
+"""Quiet the 0.46.0 default table name warning in one test.
+
+For a test of a bare provider, or a provider factory called with no
+arguments, which builds each adapter with its default table name, so the
+test has no `table_name=` to pass. Every other warning still fails the test.
+Remove it with the switch in 0.46.0.
+"""
+
+DEFAULT_TABLE_NAME_ADAPTERS = (
+    "PostgresLockAdapter",
+    "PostgresScheduleAdapter",
+    "PostgresRateLimiterAdapter",
+    "PostgresCircuitBreakerAdapter",
+    "SQLiteLockAdapter",
+    "SQLiteReadWriteLockAdapter",
+    "SQLiteScheduleAdapter",
+    "SQLiteRateLimiterAdapter",
+    "SQLiteCircuitBreakerAdapter",
+)
+"""Every adapter whose default table name changes in 0.46.0."""
+
+
+def default_table_names_options() -> list[str]:
+    """Return `pytest -W` options that quiet the 0.46.0 default table name warning.
+
+    A `-W` option matches its message literally, so there is one per adapter.
+    """
+    return [
+        option
+        for adapter in DEFAULT_TABLE_NAME_ADAPTERS
+        for option in (
+            "-W",
+            (
+                f"ignore:`{adapter}(table_name=)` defaults to"
+                ":grelmicro.errors.Grelmicro046Warning"
+            ),
+        )
+    ]

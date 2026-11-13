@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro._duration import MILLISECOND, round_up
+from grelmicro._unset import DefaultTableName, warn_default_table_name
 from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
@@ -22,7 +23,8 @@ from grelmicro.coordination._protocol import (
     WriteGrant,
 )
 from grelmicro.errors import SettingsValidationError
-from grelmicro.providers.sqlite import SQLiteProvider
+from grelmicro.providers._table_names import resolve_table_name
+from grelmicro.providers.sqlite import SQLiteProvider, _warn_split_tables
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -195,8 +197,16 @@ class SQLiteLockAdapter(LockBackend):
             ),
         ] = "SQLITE_",
         table_name: Annotated[
-            str, Doc("The table name to store the locks.")
-        ] = "locks",
+            str,
+            Doc(
+                """
+                The table name to store the locks. Defaults to `locks`,
+                and to `grelmicro_locks` from 0.46.0. Left at its default,
+                opening it warns
+                with `Grelmicro046Warning`.
+                """
+            ),
+        ] = DefaultTableName("locks"),
     ) -> None:
         """Initialize the lock backend."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
@@ -209,6 +219,7 @@ class SQLiteLockAdapter(LockBackend):
         else:
             self._provider = provider
             self._owns_provider = False
+        table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._table_name = table_name
         self._sql = {
@@ -234,6 +245,7 @@ class SQLiteLockAdapter(LockBackend):
 
     async def __aenter__(self) -> Self:
         """Open the adapter and its provider when owned."""
+        warn_default_table_name(self._table_name, adapter="SQLiteLockAdapter")
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
@@ -242,6 +254,11 @@ class SQLiteLockAdapter(LockBackend):
                 self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
                     table_name=self._table_name
                 ),
+            )
+            await _warn_split_tables(
+                self._provider.client,
+                self._table_name,
+                adapter="SQLiteLockAdapter",
             )
         return self
 
@@ -443,8 +460,17 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
             ),
         ] = "SQLITE_",
         table_name: Annotated[
-            str, Doc("The table name to store the read-write locks.")
-        ] = "rwlocks",
+            str,
+            Doc(
+                """
+                The table name to store the read-write locks. Its holders
+                live in a side table named `{table_name}_holders`. Defaults
+                to `rwlocks`, and to `grelmicro_rwlocks` from 0.46.0. Left at
+                its default, opening it warns
+                with `Grelmicro046Warning`.
+                """
+            ),
+        ] = DefaultTableName("rwlocks"),
     ) -> None:
         """Initialize the read-write lock backend."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
@@ -457,6 +483,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
         else:
             self._provider = provider
             self._owns_provider = False
+        table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._table_name = table_name
         self._sql = {
@@ -488,6 +515,9 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
 
     async def __aenter__(self) -> Self:
         """Open the adapter and its provider when owned."""
+        warn_default_table_name(
+            self._table_name, adapter="SQLiteReadWriteLockAdapter"
+        )
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
@@ -496,6 +526,11 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
                 await self._provider.client.execute(
                     sql.format(table_name=self._table_name)
                 )
+            await _warn_split_tables(
+                self._provider.client,
+                self._table_name,
+                adapter="SQLiteReadWriteLockAdapter",
+            )
         return self
 
     async def __aexit__(
@@ -723,8 +758,16 @@ class SQLiteScheduleAdapter(ScheduleBackend):
             ),
         ] = "SQLITE_",
         table_name: Annotated[
-            str, Doc("The table name to store the schedules.")
-        ] = "schedules",
+            str,
+            Doc(
+                """
+                The table name to store the schedules. Defaults to
+                `schedules`, and to `grelmicro_schedules` from 0.46.0. Left
+                at its default, opening it warns
+                with `Grelmicro046Warning`.
+                """
+            ),
+        ] = DefaultTableName("schedules"),
     ) -> None:
         """Initialize the schedule backend."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
@@ -737,6 +780,7 @@ class SQLiteScheduleAdapter(ScheduleBackend):
         else:
             self._provider = provider
             self._owns_provider = False
+        table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._table_name = table_name
         self._claim_sql = self._SQL_CLAIM.format(table_name=table_name)
@@ -757,6 +801,9 @@ class SQLiteScheduleAdapter(ScheduleBackend):
 
     async def __aenter__(self) -> Self:
         """Open the adapter and its provider when owned."""
+        warn_default_table_name(
+            self._table_name, adapter="SQLiteScheduleAdapter"
+        )
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
@@ -765,6 +812,11 @@ class SQLiteScheduleAdapter(ScheduleBackend):
                 self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
                     table_name=self._table_name
                 ),
+            )
+            await _warn_split_tables(
+                self._provider.client,
+                self._table_name,
+                adapter="SQLiteScheduleAdapter",
             )
         return self
 

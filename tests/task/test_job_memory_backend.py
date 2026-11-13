@@ -30,6 +30,8 @@ async def test_job_memory_backend_purge_counts_up_to_its_limit() -> None:
                 max_wait=None,
                 max_run=None,
                 keep=timedelta(seconds=60),
+                max_kept_succeeded=None,
+                max_kept_failed=None,
                 start_as="r",
                 lease=timedelta(seconds=30),
             )
@@ -97,6 +99,8 @@ async def test_job_memory_backend_forgets_arguments_of_a_running_job_that_ends(
             max_wait=None,
             max_run=None,
             keep=timedelta(seconds=600),
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as="r",
             lease=timedelta(seconds=30),
         )
@@ -128,6 +132,8 @@ async def test_job_memory_backend_forgets_arguments_of_a_queued_job_that_ends(
             max_wait=timedelta(seconds=10),
             max_run=None,
             keep=timedelta(seconds=600),
+            max_kept_succeeded=None,
+            max_kept_failed=None,
             start_as=None,
             lease=timedelta(seconds=30),
         )

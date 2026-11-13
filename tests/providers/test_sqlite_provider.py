@@ -34,6 +34,7 @@ from grelmicro.resilience.circuitbreaker.sqlite import (
 )
 from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
 from grelmicro.task import Tasks
+from tests._future import DEFAULT_TABLE_NAMES
 
 BUSY_TIMEOUT_MS = 5000
 """Milliseconds a write waits for a file another process is writing."""
@@ -166,15 +167,23 @@ def test_client_before_open_raises() -> None:
 def test_factories_return_adapters() -> None:
     """The provider builds an adapter for every supported component."""
     provider = SQLiteProvider("x.db")
-    assert isinstance(provider.ratelimiter_backend(), SQLiteRateLimiterAdapter)
-    assert isinstance(provider.lock_backend(), SQLiteLockAdapter)
+    assert isinstance(
+        provider.ratelimiter_backend(table_name="grelmicro_rate_limiter"),
+        SQLiteRateLimiterAdapter,
+    )
+    assert isinstance(
+        provider.lock_backend(table_name="locks"), SQLiteLockAdapter
+    )
     assert isinstance(
         provider.leaderelection_backend(), SQLiteLeaderElectionAdapter
     )
-    assert isinstance(provider.schedule_backend(), SQLiteScheduleAdapter)
+    assert isinstance(
+        provider.schedule_backend(table_name="schedules"), SQLiteScheduleAdapter
+    )
     assert isinstance(provider.cache_backend(), SQLiteCacheAdapter)
     assert isinstance(
-        provider.circuitbreaker_backend(), SQLiteCircuitBreakerAdapter
+        provider.circuitbreaker_backend(table_name="grelmicro_circuit_breaker"),
+        SQLiteCircuitBreakerAdapter,
     )
 
 
@@ -339,10 +348,15 @@ async def test_second_provider_on_a_wal_file_skips_the_switch(
     [
         pytest.param(lambda provider: provider.cache_backend(), id="cache"),
         pytest.param(
-            lambda provider: provider.ratelimiter_backend(), id="ratelimiter"
+            lambda provider: provider.ratelimiter_backend(
+                table_name="grelmicro_rate_limiter"
+            ),
+            id="ratelimiter",
         ),
         pytest.param(
-            lambda provider: provider.circuitbreaker_backend(),
+            lambda provider: provider.circuitbreaker_backend(
+                table_name="grelmicro_circuit_breaker"
+            ),
             id="circuitbreaker",
         ),
     ],
@@ -375,6 +389,7 @@ async def test_schema_init_waits_for_the_shared_connection(
         await adapter.__aexit__(None, None, None)
 
 
+@DEFAULT_TABLE_NAMES
 async def test_cache_and_coordination_share_one_file(tmp_path: Path) -> None:
     """An app wiring a bare provider and a `Coordination` on one file starts.
 

@@ -551,10 +551,10 @@ async def test_a_thread_extension_the_backend_refused_is_counted(
             # Swap the call rather than the backend, so the adapter keeps
             # the event loop it was opened on.
             original = backend.acquire
-            backend.acquire = boom  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+            backend.acquire = boom  # type: ignore[method-assign]
             with pytest.raises(LockExtendError):
                 lock.from_thread.extend()
-            backend.acquire = original  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+            backend.acquire = original  # type: ignore[method-assign]
             lock.from_thread.release()
 
         await asyncio.to_thread(sync)

@@ -332,6 +332,100 @@ def unknown_requires(value: object) -> FutureChange:
     )
 
 
+LONG_TABLE_NAME = FutureChange(
+    change="A Postgres table name that cuts a name built from it raises "
+    "`SettingsValidationError`",
+    switch_in="0.46.0",
+    keep=None,
+    adopt="table_name=",
+    remedy="Pass a shorter table name.",
+)
+"""A Postgres table name that cuts a name built from it is refused."""
+
+
+def long_table_name(
+    value: str, *, adapter: str, argument: str, longest: int
+) -> FutureChange:
+    """Return `LONG_TABLE_NAME` worded for the refused `value`.
+
+    `adapter` is the call that took `value` as `argument`, and `longest` is
+    the longest table name it takes.
+    """
+    return replace(
+        LONG_TABLE_NAME,
+        change=f"`{adapter}({argument}={value!r})` is longer than the "
+        f"{longest} characters it takes, and raises `SettingsValidationError`",
+        adopt=f"{argument}=",
+        remedy="Until then Postgres cuts the names the adapter builds from "
+        "it, such as its indexes and functions, at 63 bytes, so one can be "
+        "left out or replace another with no error. "
+        f"Pass a `{argument}` of {longest} characters or fewer.",
+    )
+
+
+def _table_names_remedy(provider: str) -> str:
+    """Return the advice to pick the table names on `provider`."""
+    return (
+        f'Pass `table_names="legacy"` to `{provider}` to keep the current '
+        'table names, or `table_names="prefixed"` to adopt the new ones now. '
+        "A `table_name=` passed to the store wins."
+    )
+
+
+DEFAULT_TABLE_NAME = FutureChange(
+    change="`PostgresLockAdapter(table_name=)` defaults to `grelmicro_locks`",
+    switch_in="0.46.0",
+    keep='table_names="legacy"',
+    adopt='table_names="prefixed"',
+    remedy=_table_names_remedy("PostgresProvider"),
+)
+"""A default table name takes the `grelmicro_` prefix."""
+
+
+def default_table_name(*, adapter: str, new: str) -> FutureChange:
+    """Return `DEFAULT_TABLE_NAME` worded for `adapter`.
+
+    `new` is its default table name from 0.46.0. The advice names the
+    provider that builds `adapter`.
+    """
+    provider = (
+        "PostgresProvider"
+        if adapter.startswith("Postgres")
+        else "SQLiteProvider"
+    )
+    return replace(
+        DEFAULT_TABLE_NAME,
+        change=f"`{adapter}(table_name=)` defaults to `{new}`",
+        remedy=_table_names_remedy(provider),
+    )
+
+
+SPLIT_TABLES = FutureChange(
+    change="`PostgresLockAdapter` opens `public.locks` while "
+    "`public.grelmicro_locks` exists, the table it defaults to",
+    switch_in="0.46.0",
+    keep=None,
+    adopt="table_names=",
+    remedy="Replicas may be split across the two tables, each seeing only "
+    "its own state. Give every replica the same `table_names=` on its "
+    "provider.",
+)
+"""An adapter opens its old default table while the new one exists."""
+
+
+def split_tables(*, adapter: str, old: str, new: str) -> FutureChange:
+    """Return `SPLIT_TABLES` worded for `adapter`.
+
+    `old` is the table it opens, and `new` the one it defaults to from 0.46.0,
+    each as the message names it.
+    """
+    return replace(
+        SPLIT_TABLES,
+        change=f"`{adapter}` opens `{old}` while `{new}` exists, "
+        "the table it defaults to",
+    )
+
+
 FASTAPI_MOVED = Moved(
     module="grelmicro.integrations.fastapi",
     homes={
@@ -449,6 +543,9 @@ SECURITY_MOVED: tuple[Moved, ...] = (
 PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     GATE_BACKEND_STRICT,
     UNKNOWN_REQUIRES,
+    LONG_TABLE_NAME,
+    DEFAULT_TABLE_NAME,
+    SPLIT_TABLES,
     ENV_LOAD_DEFAULT_WARNING,
     FORMAT_CASE,
     PROVIDER_CHECKS_NONE,

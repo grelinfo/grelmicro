@@ -30,7 +30,13 @@ from typing import (
 
 from fast_depends.dependencies.model import Dependant  # codespell:ignore
 from fast_depends.library import CustomField
-from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+)
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
@@ -118,12 +124,12 @@ class JobInfo(BaseModel, frozen=True):
         str | None, Doc("Why the job failed, or `None` unless it failed.")
     ]
     cancel_requested: Annotated[bool, Doc("Whether a cancel was requested.")]
-    created_at: Annotated[datetime, Doc("When the job was submitted.")]
+    created_at: Annotated[AwareDatetime, Doc("When the job was submitted.")]
     started_at: Annotated[
-        datetime | None, Doc("When the body started, or `None` before.")
+        AwareDatetime | None, Doc("When the body started, or `None` before.")
     ]
     finished_at: Annotated[
-        datetime | None,
+        AwareDatetime | None,
         Doc("When the job reached an end state, or `None` before."),
     ]
 
@@ -157,6 +163,9 @@ class JobPage(BaseModel, frozen=True):
 
 _LIST_LIMIT = 100
 """The most jobs one page holds."""
+
+_MAX_KEPT = 2**63 - 1
+"""The largest cap on kept jobs, so every store can hold it."""
 
 
 class _Outcome(NamedTuple):
@@ -332,7 +341,7 @@ class Job[**P](Task):
     _starts_first = True
     """`Tasks` starts every job before its other tasks."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         function: Callable[..., object],
         *,
@@ -342,6 +351,8 @@ class Job[**P](Task):
         max_wait: int | timedelta | None = 86400,
         max_run: int | timedelta | None = None,
         keep: int | timedelta | None = 86400,
+        max_kept_succeeded: int | None = None,
+        max_kept_failed: int | None = None,
         backend: JobBackend | None = None,
         requires: BackendScope | None = None,
     ) -> None:
@@ -351,10 +362,12 @@ class Job[**P](Task):
             FunctionTypeError: If the function is not supported.
             TypeError: If the function does not take `progress` first.
             ValueError: If `max_concurrent` is not an int of at least 1,
-                `max_queued` is not an int of at least 0, `max_wait` or
-                `max_run` is not whole seconds or a `timedelta` above zero,
-                `keep` is not whole seconds or a `timedelta` from zero, or
-                any of them is over 100 years.
+                `max_queued` is not an int of at least 0,
+                `max_kept_succeeded` or `max_kept_failed` is not an int from
+                0 to `2**63 - 1`, `max_wait` or `max_run` is not
+                whole seconds or a `timedelta` above zero, `keep` is not
+                whole seconds or a `timedelta` from zero, or any of them is
+                over 100 years.
         """
         alt_name = validate_and_generate_reference(function)
         signature = _check_progress_first(function)
@@ -366,6 +379,15 @@ class Job[**P](Task):
         ):
             msg = f"max_queued must be an int of at least 0, got {max_queued!r}"
             raise ValueError(msg)
+        for what, cap in (
+            ("max_kept_succeeded", max_kept_succeeded),
+            ("max_kept_failed", max_kept_failed),
+        ):
+            if cap is not None and (
+                not is_int(cap) or not 0 <= cap <= _MAX_KEPT
+            ):
+                msg = f"{what} must be an int from 0 to 2**63 - 1, got {cap!r}"
+                raise ValueError(msg)
         self._name = name or alt_name
         self._arguments = JobArguments(self._name, function, signature)
         self._function = function
@@ -389,6 +411,8 @@ class Job[**P](Task):
             None if max_run is None else check_duration(max_run, "max_run")
         )
         self._keep = None if keep is None else check_retention(keep, "keep")
+        self._max_kept_succeeded = max_kept_succeeded
+        self._max_kept_failed = max_kept_failed
         self._requires = required_scope(requires, "cluster")
         self._chosen = backend
         self._fallback = MemoryJobAdapter()
@@ -709,6 +733,8 @@ class Job[**P](Task):
                 max_wait=self._max_wait,
                 max_run=self._max_run,
                 keep=self._keep,
+                max_kept_succeeded=self._max_kept_succeeded,
+                max_kept_failed=self._max_kept_failed,
                 start_as=loop.runner if free else None,
                 lease=LEASE,
             )

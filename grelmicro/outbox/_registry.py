@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from grelmicro._wrapping import named
 from grelmicro.outbox._codec import decode_payload
 from grelmicro.outbox._message import Message
 from grelmicro.outbox.errors import (
@@ -13,7 +14,7 @@ from grelmicro.outbox.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Iterable
 
     from grelmicro.outbox._message import OutboxRecord
 
@@ -45,24 +46,27 @@ class OutboxRegistry:
         """Initialize an empty registry."""
         self._handlers: dict[str, HandlerEntry] = {}
 
-    def register(
-        self,
-        target: type[Any] | str,
-        fn: Callable[[Message[Any]], Awaitable[None]],
-        *,
-        topic: str | None = None,
-    ) -> None:
-        """Register `fn` for a payload model or a topic string.
+    def check(self, entries: Iterable[HandlerEntry]) -> None:
+        """Raise if an entry's topic is taken, or two entries share one.
 
         Raises:
-            HandlerAlreadyRegisteredError: If the topic is already taken.
+            HandlerAlreadyRegisteredError: If a topic is already taken, or
+                two entries share one.
         """
-        resolved = topic or derive_topic(target)
-        if resolved in self._handlers:
-            msg = f"Topic {resolved!r} already has a handler"
-            raise HandlerAlreadyRegisteredError(msg)
-        model = target if isinstance(target, type) else None
-        self._handlers[resolved] = HandlerEntry(resolved, fn, model)
+        new: dict[str, HandlerEntry] = {}
+        for entry in entries:
+            existing = self._handlers.get(entry.topic) or new.get(entry.topic)
+            if existing is not None:
+                msg = (
+                    f"Topic {entry.topic!r} already has the handler "
+                    f"{named(existing.fn)}, so {named(entry.fn)} is refused"
+                )
+                raise HandlerAlreadyRegisteredError(msg)
+            new[entry.topic] = entry
+
+    def add(self, entries: Iterable[HandlerEntry]) -> None:
+        """Register every entry for its topic, once `check` passed for them."""
+        self._handlers.update((entry.topic, entry) for entry in entries)
 
     def topics(self) -> list[str]:
         """Return every registered topic."""

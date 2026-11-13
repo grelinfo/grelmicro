@@ -63,6 +63,8 @@ async def _submit(
                 max_wait=None,
                 max_run=None,
                 keep=KEEP,
+                max_kept_succeeded=None,
+                max_kept_failed=None,
                 start_as=None,
                 lease=LEASE,
             )

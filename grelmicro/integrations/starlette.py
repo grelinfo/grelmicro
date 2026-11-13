@@ -222,7 +222,7 @@ def _wire_route_reading(
     def build_middleware_stack() -> ASGIApp:
         return RouteReading(build(), reader=reader)
 
-    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]
     return reader
 
 
@@ -274,7 +274,7 @@ def _wire_request_telemetry(
     def build_middleware_stack() -> ASGIApp:
         return RequestTelemetry(build(), **options)
 
-    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]
 
 
 _TELEMETRY_WIRED: Final[weakref.WeakSet[Starlette]] = weakref.WeakSet()
@@ -717,7 +717,7 @@ def _keep_watching_outside(app: Starlette, watching: Sequence[Any]) -> None:
         app.user_middleware = _binding_first(app.user_middleware, watching)
         return build()
 
-    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]
 
 
 def _keep_binding_outermost(app: Starlette) -> None:
@@ -734,7 +734,7 @@ def _keep_binding_outermost(app: Starlette) -> None:
         app.user_middleware = _binding_first(app.user_middleware)
         return build()
 
-    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]
 
 
 def is_bound(

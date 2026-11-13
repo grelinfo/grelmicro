@@ -11,9 +11,16 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro._duration import microseconds
+from grelmicro._unset import DefaultTableName, warn_default_table_name
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
-from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers._table_names import resolve_table_name
+from grelmicro.providers.postgres import (
+    PostgresProvider,
+    _longest_table_name,
+    _warn_long_table_name,
+    _warn_split_tables,
+)
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
     CircuitBreakerSnapshot,
@@ -89,6 +96,18 @@ _SQL_TIME = {
 
 A stored time stays in seconds, and reads back exact to the microsecond.
 """
+
+
+_TABLE_NAME_MAX = _longest_table_name(
+    "_updated_at_idx",
+    "_cb_try_acquire_v2",
+    "_cb_record_error_v2",
+    "_cb_record_success_v2",
+    "_cb_transition_v2",
+    "_cb_cleanup_v2",
+    "_cb_get_state_v2",
+)
+"""The longest table name that keeps every name built from it whole."""
 
 
 class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
@@ -503,9 +522,13 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                 """
                 Table that stores circuit-breaker state. Auto-created
                 on first connect (set `auto_migrate=False` to opt out).
+                Defaults to `grelmicro_circuit_breaker`, and to
+                `grelmicro_circuitbreaker` from 0.46.0. Left at its
+                default, opening it warns
+                with `Grelmicro046Warning`.
                 """
             ),
-        ] = "grelmicro_circuit_breaker",
+        ] = DefaultTableName("grelmicro_circuit_breaker"),
         auto_migrate: Annotated[
             bool,
             Doc(
@@ -540,6 +563,12 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise SettingsValidationError(msg)
+        _warn_long_table_name(
+            table_name,
+            adapter="PostgresCircuitBreakerAdapter",
+            argument="table_name",
+            longest=_TABLE_NAME_MAX,
+        )
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)
@@ -547,6 +576,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
         else:
             self._provider = provider
             self._owns_provider = False
+        table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._prefix = prefix
         self._key_prefix = f"{prefix}{self._KEY_PREFIX}"
@@ -569,6 +599,9 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
 
     async def __aenter__(self) -> Self:
         """Open the adapter and install the schema when `auto_migrate=True`."""
+        warn_default_table_name(
+            self._table_name, adapter="PostgresCircuitBreakerAdapter"
+        )
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
@@ -611,6 +644,11 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                         **_SQL_TIME,
                     )
                 )
+            await _warn_split_tables(
+                conn,
+                self._table_name,
+                adapter="PostgresCircuitBreakerAdapter",
+            )
 
     async def __aexit__(
         self,

@@ -16,6 +16,7 @@ from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task import JobStatus
 from grelmicro.task._protocol import Beat, JobBackend
 from grelmicro.task.sqlite import SQLiteJobAdapter
+from tests._future import DEFAULT_TABLE_NAMES
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -35,6 +36,8 @@ def _submit_args(job_id: str, **overrides: Any) -> dict[str, Any]:  # noqa: ANN4
         "max_wait": None,
         "max_run": None,
         "keep": timedelta(hours=1),
+        "max_kept_succeeded": None,
+        "max_kept_failed": None,
         "start_as": None,
         "lease": LEASE,
         **overrides,
@@ -158,6 +161,7 @@ async def test_job_sqlite_borrowed_provider_is_left_open(
     await provider.check()
 
 
+@DEFAULT_TABLE_NAMES
 async def test_job_sqlite_app_with_no_job_creates_no_table(
     tmp_path: Path,
 ) -> None:

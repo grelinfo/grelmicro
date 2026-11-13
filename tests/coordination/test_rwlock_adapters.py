@@ -38,6 +38,7 @@ class _StubProvider:
 
     is_cluster = False
     prefix = ""
+    table_names = None
 
     def __init__(self) -> None:
         self.client = MagicMock()
@@ -227,7 +228,7 @@ def test_sqlite_provider_factory() -> None:
     """`SQLiteProvider.readwritelock_backend()` returns a bound adapter."""
     provider = SQLiteProvider(":memory:")
 
-    adapter = provider.readwritelock_backend()
+    adapter = provider.readwritelock_backend(table_name="rwlocks")
 
     assert isinstance(adapter, SQLiteReadWriteLockAdapter)
     assert adapter.provider is provider
