@@ -15,6 +15,7 @@
 * ✨ `@tasks.job(max_kept_succeeded=..., max_kept_failed=...)` caps how many finished jobs of a function stay readable. Past a cap, the job that finished first is forgotten. ([#1235](https://github.com/grelinfo/grelmicro/issues/1235))
 * ✨ A job keeps running through a store outage shorter than 30 seconds. ([#1284](https://github.com/grelinfo/grelmicro/pull/1284))
 * ✨ `RedisProvider(prefix=...)` and `ValkeyProvider(prefix=...)` put one namespace before the keys of every store they build. The lock, read-write lock, cache and job stores add their kind after it, such as `myapp:lock:`. The default is empty, so no key changes. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
+* ✨ An `OutboxRouter` declares outbox handlers in a feature module and needs no provider. Include it with `Outbox(..., routers=[...])` or `outbox.include_router(router)`. ([#1311](https://github.com/grelinfo/grelmicro/issues/1311))
 * ✨ `PostgresProvider(table_names=...)` and `SQLiteProvider(table_names=...)` pick the default table names of every store they build: `"legacy"` keeps the current names and `"prefixed"` gives each the `grelmicro_` prefix. They also read `POSTGRES_TABLE_NAMES` and `SQLITE_TABLE_NAMES`. ([#1152](https://github.com/grelinfo/grelmicro/issues/1152))
 
 ### Deprecated
