@@ -20,7 +20,7 @@ async def test_owns_its_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without a provider the adapter builds and lifecycles its own."""
     monkeypatch.setenv("SQLITE_PATH", ":memory:")
 
-    adapter = SQLiteReadWriteLockAdapter()
+    adapter = SQLiteReadWriteLockAdapter(table_name="rwlocks")
 
     async with adapter:
         assert adapter.provider.client is not None
@@ -36,7 +36,7 @@ async def test_rebind_provider() -> None:
     """A rebound provider is borrowed rather than owned."""
     first = SQLiteProvider(":memory:")
     second = SQLiteProvider(":memory:")
-    adapter = SQLiteReadWriteLockAdapter(provider=first)
+    adapter = SQLiteReadWriteLockAdapter(provider=first, table_name="rwlocks")
 
     adapter._rebind_provider(second)
 
@@ -46,7 +46,12 @@ async def test_rebind_provider() -> None:
 async def test_transaction_rolls_back_on_error() -> None:
     """A statement that fails rolls the transaction back and propagates."""
     provider = SQLiteProvider(":memory:")
-    async with provider, SQLiteReadWriteLockAdapter(provider=provider) as rw:
+    async with (
+        provider,
+        SQLiteReadWriteLockAdapter(
+            provider=provider, table_name="rwlocks"
+        ) as rw,
+    ):
         rw._sql["select_lock"] = "SELECT * FROM does_not_exist;"
 
         with pytest.raises(Exception, match="does_not_exist"):

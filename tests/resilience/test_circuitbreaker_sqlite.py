@@ -39,7 +39,9 @@ def test_explicit_provider_is_borrowed() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = SQLiteProvider(PATH)
 
-    backend = SQLiteCircuitBreakerAdapter(provider=provider)
+    backend = SQLiteCircuitBreakerAdapter(
+        provider=provider, table_name="grelmicro_circuit_breaker"
+    )
 
     assert backend.provider is provider
     assert backend._owns_provider is False
@@ -51,7 +53,9 @@ def test_no_provider_builds_implicit_one(
     """Without `provider=`, the backend builds its own from env vars."""
     monkeypatch.setenv("SQLITE_PATH", PATH)
 
-    backend = SQLiteCircuitBreakerAdapter()
+    backend = SQLiteCircuitBreakerAdapter(
+        table_name="grelmicro_circuit_breaker"
+    )
 
     assert backend.provider.path == PATH
     assert backend._owns_provider is True
@@ -61,7 +65,9 @@ def test_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     """`prefix=` is stored on the backend."""
     monkeypatch.setenv("SQLITE_PATH", PATH)
 
-    backend = SQLiteCircuitBreakerAdapter(prefix="myapp:")
+    backend = SQLiteCircuitBreakerAdapter(
+        prefix="myapp:", table_name="grelmicro_circuit_breaker"
+    )
 
     assert backend._prefix == "myapp:"
     assert backend._key_prefix == "myapp:cb:"
@@ -80,7 +86,9 @@ def test_is_shared() -> None:
 
 def test_rebind_provider_borrows_it() -> None:
     """`_rebind_provider` swaps the provider and marks it as not owned."""
-    backend = SQLiteCircuitBreakerAdapter(provider=SQLiteProvider("a.db"))
+    backend = SQLiteCircuitBreakerAdapter(
+        provider=SQLiteProvider("a.db"), table_name="grelmicro_circuit_breaker"
+    )
     other = SQLiteProvider("b.db")
 
     backend._rebind_provider(other)
@@ -94,7 +102,9 @@ async def test_owned_provider_is_opened_and_closed(
 ) -> None:
     """When owned, the adapter opens and closes its provider itself."""
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "owned.db"))
-    backend = SQLiteCircuitBreakerAdapter()
+    backend = SQLiteCircuitBreakerAdapter(
+        table_name="grelmicro_circuit_breaker"
+    )
     assert backend._owns_provider is True
 
     async with backend:
@@ -116,7 +126,9 @@ async def test_owned_provider_is_opened_and_closed(
 def test_bind_rejects_unknown_kind(monkeypatch: pytest.MonkeyPatch) -> None:
     """`bind` raises NotImplementedError on an unknown algorithm kind."""
     monkeypatch.setenv("SQLITE_PATH", PATH)
-    backend = SQLiteCircuitBreakerAdapter()
+    backend = SQLiteCircuitBreakerAdapter(
+        table_name="grelmicro_circuit_breaker"
+    )
 
     class Fake:
         kind = "failure_rate"
@@ -137,7 +149,9 @@ async def backend(
     provider = SQLiteProvider(str(path))
     async with (
         provider,
-        SQLiteCircuitBreakerAdapter(provider=provider) as adapter,
+        SQLiteCircuitBreakerAdapter(
+            provider=provider, table_name="grelmicro_circuit_breaker"
+        ) as adapter,
     ):
         yield adapter
 
@@ -616,7 +630,9 @@ def test_cleanup_interval_must_be_positive() -> None:
         SettingsValidationError, match="cleanup_interval must be positive"
     ):
         SQLiteCircuitBreakerAdapter(
-            provider=SQLiteProvider("x.db"), cleanup_interval=0
+            provider=SQLiteProvider("x.db"),
+            cleanup_interval=0,
+            table_name="grelmicro_circuit_breaker",
         )
 
 
@@ -626,7 +642,9 @@ async def test_janitor_sweeps_on_its_interval(tmp_path: Path) -> None:
     async with (
         provider,
         SQLiteCircuitBreakerAdapter(
-            provider=provider, cleanup_interval=0.05
+            provider=provider,
+            cleanup_interval=0.05,
+            table_name="grelmicro_circuit_breaker",
         ) as adapter,
     ):
         await _bind(adapter, name="stale").record_outcome(success=False)
@@ -651,7 +669,9 @@ async def test_janitor_survives_a_failing_sweep(
     async with (
         provider,
         SQLiteCircuitBreakerAdapter(
-            provider=provider, cleanup_interval=0.05
+            provider=provider,
+            cleanup_interval=0.05,
+            table_name="grelmicro_circuit_breaker",
         ) as adapter,
     ):
         adapter._cleanup_sql = "DELETE FROM nope WHERE 1;"
@@ -685,7 +705,9 @@ async def test_migrates_a_table_created_before_updated_at(
         await provider.client.commit()
 
         async with SQLiteCircuitBreakerAdapter(
-            provider=provider, cleanup_interval=None
+            provider=provider,
+            cleanup_interval=None,
+            table_name="grelmicro_circuit_breaker",
         ) as adapter:
             strategy = _bind(adapter, name="legacy", error_threshold=1)
             await strategy.record_outcome(success=False)

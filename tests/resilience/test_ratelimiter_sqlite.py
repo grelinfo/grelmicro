@@ -30,7 +30,9 @@ async def adapter(
     provider: SQLiteProvider,
 ) -> AsyncGenerator[SQLiteRateLimiterAdapter]:
     """Rate limiter adapter bound to the provider."""
-    async with provider.ratelimiter_backend() as backend:
+    async with provider.ratelimiter_backend(
+        table_name="grelmicro_rate_limiter"
+    ) as backend:
         yield backend
 
 
@@ -71,7 +73,7 @@ def test_no_provider_builds_implicit_one(
     db_path = tmp_path / "from_env.db"
     monkeypatch.setenv("SQLITE_PATH", str(db_path))
 
-    adapter = SQLiteRateLimiterAdapter()
+    adapter = SQLiteRateLimiterAdapter(table_name="grelmicro_rate_limiter")
 
     assert adapter.provider.path == str(db_path)
     assert adapter._owns_provider is True
@@ -81,7 +83,9 @@ def test_explicit_provider_is_borrowed() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = SQLiteProvider("x.db")
 
-    adapter = SQLiteRateLimiterAdapter(provider=provider)
+    adapter = SQLiteRateLimiterAdapter(
+        provider=provider, table_name="grelmicro_rate_limiter"
+    )
 
     assert adapter.provider is provider
     assert adapter._owns_provider is False
@@ -89,7 +93,9 @@ def test_explicit_provider_is_borrowed() -> None:
 
 def test_bind_before_open_raises() -> None:
     """Binding before the provider is open raises `OutOfContextError`."""
-    adapter = SQLiteRateLimiterAdapter(provider=SQLiteProvider("x.db"))
+    adapter = SQLiteRateLimiterAdapter(
+        provider=SQLiteProvider("x.db"), table_name="grelmicro_rate_limiter"
+    )
     with pytest.raises(OutOfContextError):
         adapter.bind(TokenBucketConfig(capacity=5, refill_rate=1))
 
@@ -99,7 +105,9 @@ async def test_owned_provider_opens_and_closes(
 ) -> None:
     """An implicit (owned) provider is opened on enter and closed on exit."""
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "owned.db"))
-    adapter = SQLiteRateLimiterAdapter()  # builds and owns the provider
+    adapter = SQLiteRateLimiterAdapter(
+        table_name="grelmicro_rate_limiter"
+    )  # builds and owns the provider
     async with adapter:
         strategy = adapter.bind(TokenBucketConfig(capacity=5, refill_rate=1))
         result = await strategy.acquire(key="k", cost=1)
@@ -111,7 +119,9 @@ async def test_owned_provider_opens_and_closes(
 
 def test_rebind_provider_borrows() -> None:
     """`_rebind_provider` swaps the provider and marks it borrowed."""
-    adapter = SQLiteRateLimiterAdapter(provider=SQLiteProvider("a.db"))
+    adapter = SQLiteRateLimiterAdapter(
+        provider=SQLiteProvider("a.db"), table_name="grelmicro_rate_limiter"
+    )
     shared = SQLiteProvider("shared.db")
 
     adapter._rebind_provider(shared)

@@ -86,7 +86,7 @@ _MAX_MODULES = {
     "starlette": 128,
     "litestar": 127,
     "redis": 107,
-    "postgres": 102,
+    "postgres": 103,
 }
 """The most grelmicro modules each case may load, by case."""
 

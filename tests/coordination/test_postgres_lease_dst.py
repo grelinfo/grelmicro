@@ -68,7 +68,9 @@ async def test_postgres_lock_lease_across_dst_change_expires_after_exact_duratio
     """A lock lease across an offset change expires its duration later."""
     # Arrange
     name = uuid4().hex
-    async with PostgresLockAdapter(provider=provider) as backend:
+    async with PostgresLockAdapter(
+        provider=provider, table_name="locks"
+    ) as backend:
         before = await _clock(provider)
 
         # Act
