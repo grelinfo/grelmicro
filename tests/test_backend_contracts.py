@@ -54,6 +54,9 @@ class HostileProvider:
     error, which is a much worse thing to debug at three in the morning.
     """
 
+    table_names = None
+    """A setting the adapter reads when it is built, not a connection."""
+
     def __getattr__(self, name: str) -> object:
         """Fail loudly, naming the attribute `bind` reached for."""
         msg = f"bind touched provider.{name} before checking the kind"
@@ -92,9 +95,14 @@ def _build(module_name: str, class_name: str) -> Any:  # noqa: ANN401
     the whole point.
     """
     cls = getattr(importlib.import_module(module_name), class_name)
-    if "provider" in inspect.signature(cls).parameters:
+    parameters = inspect.signature(cls).parameters
+    if "provider" not in parameters:
+        return cls()
+    table_name = parameters.get("table_name")
+    if table_name is None:
         return cls(provider=HostileProvider())
-    return cls()
+    # The default spelled out, so a default changing in 0.46.0 stays quiet.
+    return cls(provider=HostileProvider(), table_name=str(table_name.default))
 
 
 @pytest.mark.parametrize(

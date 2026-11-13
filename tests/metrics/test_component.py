@@ -219,7 +219,7 @@ async def test_metrics_shutdown_timeout_logs_warning(
         def _slow(*_a: object, **_k: object) -> None:
             time.sleep(0.3)
 
-        provider.shutdown = _slow  # ty: ignore[invalid-assignment]
+        provider.shutdown = _slow
 
     assert any(
         "MeterProvider.shutdown timed out" in record.message
@@ -239,7 +239,7 @@ async def test_metrics_shutdown_exception_logged_not_propagated(
 
     micro = Grelmicro(uses=[Metrics(exporter="none")])
     async with micro:
-        micro.metrics.provider.shutdown = _raise  # ty: ignore[invalid-assignment]
+        micro.metrics.provider.shutdown = _raise
 
     assert any(
         "MeterProvider.shutdown raised an exception" in record.message

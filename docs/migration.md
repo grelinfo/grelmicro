@@ -134,6 +134,7 @@ raises](#0-42-raising).
 
 - A misspelled `requires=` value, such as `requires="clustr"`, still turns the backend scope check off for that component, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Name a scope](#0-45-unknown-requires).
 - A Postgres table name too long for the names an adapter builds from it still works as before, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Pass a shorter name](#0-45-long-table-name).
+- A Postgres or SQLite lock, read-write lock, schedule, rate limiter or circuit breaker adapter left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
 
 ### Changes that raise {#0-45-raising}
 
@@ -198,6 +199,78 @@ A table already created under a long name keeps its indexes and
 functions. Rename the table in your own migration before 0.46.0. The
 adapter creates its functions again under the new name, so drop the ones
 left under the old name.
+
+### Default table names take the `grelmicro_` prefix in 0.46.0 {#0-45-table-prefix}
+
+From 0.46.0, these adapters default to a table name with the `grelmicro_`
+prefix, so their tables sit beside the other grelmicro tables. While the
+default is left, the adapter warns with `Grelmicro046Warning` when it
+opens. It still uses the current table.
+
+| Adapter | Default until 0.46.0 | Default from 0.46.0 |
+| --- | --- | --- |
+| `PostgresLockAdapter`, `SQLiteLockAdapter` | `locks` | `grelmicro_locks` |
+| `SQLiteReadWriteLockAdapter` | `rwlocks` | `grelmicro_rwlocks` |
+| `PostgresScheduleAdapter`, `SQLiteScheduleAdapter` | `schedules` | `grelmicro_schedules` |
+| `PostgresRateLimiterAdapter`, `SQLiteRateLimiterAdapter` | `grelmicro_rate_limiter` | `grelmicro_ratelimiter` |
+| `PostgresCircuitBreakerAdapter`, `SQLiteCircuitBreakerAdapter` | `grelmicro_circuit_breaker` | `grelmicro_circuitbreaker` |
+
+`PostgresReadWriteLockAdapter` already defaults to `grelmicro_rwlocks`.
+`SQLiteReadWriteLockAdapter` keeps its holders in a side table named after
+its table, so `rwlocks_holders` becomes `grelmicro_rwlocks_holders`.
+
+Choose once on the provider with `table_names=`. Every adapter the
+provider builds follows it, and either value silences the warning.
+
+- `"legacy"` keeps the current names, now and after 0.46.0.
+- `"prefixed"` adopts the new names now, so the switch in 0.46.0 changes
+  nothing. Each adapter starts on an empty table.
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.providers.postgres import PostgresProvider
+
+# Before: each adapter warns, and moves to its new table in 0.46.0
+micro = Grelmicro(uses=[PostgresProvider(url)])
+
+# After: keeps the current tables, the same in 0.46.0
+micro = Grelmicro(uses=[PostgresProvider(url, table_names="legacy")])
+```
+
+`SQLiteProvider` takes the same argument. Both providers also read it
+from the environment, as `POSTGRES_TABLE_NAMES` and `SQLITE_TABLE_NAMES`,
+so an adapter that builds its own provider follows it too. A `table_name=`
+passed to an adapter wins over `table_names=`.
+
+To move to the new names with your data, rename the tables in your own
+migration before 0.46.0, then set `table_names="prefixed"`. On Postgres,
+the rate limiter and circuit breaker also name an index and their
+functions after the table, such as `grelmicro_rate_limiter_updated_at_idx`
+and `grelmicro_rate_limiter_tb_acquire`. The adapter creates them again
+under the new name, so drop the ones left under the old name. On SQLite,
+the circuit breaker names an index after the table, and the read-write
+lock names its side table after it.
+
+From 0.46.0, an adapter left at its default checks the database when it
+opens:
+
+- Only the old table exists: the adapter refuses to start with
+  `SettingsValidationError`. The message says to set
+  `table_names="legacy"` or rename the table.
+- Both tables exist: the adapter uses the new one and warns, naming the
+  old one.
+- Only the new table exists, or neither does: the adapter uses the new one.
+
+A rolling deploy to 0.46.0 with the old table still in use would split
+replicas across two tables. Two replicas could hold the same lock, a
+schedule could fire twice, and a rate limit could let twice as much
+through. Setting `table_names=` before you upgrade avoids all of it.
+
+On 0.45, an adapter left at its default also warns when it opens on the
+old table while the new one exists, such as after a rollback from 0.46.
+The warning names both tables, and says replicas may be split across them.
+The adapter checks this when it creates its table, so an adapter built
+with `auto_migrate=False` skips the check.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 

@@ -18,9 +18,11 @@ from grelmicro._duration import (
     microseconds_to_seconds,
     seconds_to_microseconds,
 )
+from grelmicro._unset import DefaultTableName, warn_default_table_name
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
-from grelmicro.providers.sqlite import SQLiteProvider
+from grelmicro.providers._table_names import resolve_table_name
+from grelmicro.providers.sqlite import SQLiteProvider, _warn_split_tables
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
     CircuitBreakerSnapshot,
@@ -177,9 +179,13 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
                 """
                 Table that stores circuit-breaker state. Auto-created
                 on first connect (set `auto_migrate=False` to opt out).
+                Defaults to `grelmicro_circuit_breaker`, and to
+                `grelmicro_circuitbreaker` from 0.46.0. Left at its
+                default, opening it warns
+                with `Grelmicro046Warning`.
                 """
             ),
-        ] = "grelmicro_circuit_breaker",
+        ] = DefaultTableName("grelmicro_circuit_breaker"),
         auto_migrate: Annotated[
             bool,
             Doc(
@@ -220,6 +226,7 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
         else:
             self._provider = provider
             self._owns_provider = False
+        table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._prefix = prefix
         self._key_prefix = f"{prefix}{self._KEY_PREFIX}"
@@ -242,6 +249,9 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
 
     async def __aenter__(self) -> Self:
         """Open the adapter and install the schema when `auto_migrate=True`."""
+        warn_default_table_name(
+            self._table_name, adapter="SQLiteCircuitBreakerAdapter"
+        )
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
@@ -270,6 +280,11 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
                     self._SQL_CREATE_INDEX.format(table_name=self._table_name)
                 )
                 await client.commit()
+                await _warn_split_tables(
+                    client,
+                    self._table_name,
+                    adapter="SQLiteCircuitBreakerAdapter",
+                )
         if self._cleanup_interval is not None:
             self._janitor_task = asyncio.create_task(self._janitor_loop())
         return self

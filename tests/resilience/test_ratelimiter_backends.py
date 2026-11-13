@@ -114,7 +114,9 @@ async def backend(
         async with (
             provider,
             PostgresRateLimiterAdapter(
-                provider=provider, prefix="test:"
+                provider=provider,
+                prefix="test:",
+                table_name="grelmicro_rate_limiter",
             ) as pg_backend,
         ):
             yield pg_backend
@@ -123,7 +125,9 @@ async def backend(
             provider = SQLiteProvider(str(Path(tmpdir) / "rate_limit.db"))
             async with (
                 provider,
-                provider.ratelimiter_backend(prefix="test:") as sqlite_backend,
+                provider.ratelimiter_backend(
+                    prefix="test:", table_name="grelmicro_rate_limiter"
+                ) as sqlite_backend,
             ):
                 yield sqlite_backend
     elif backend_name == "memory":

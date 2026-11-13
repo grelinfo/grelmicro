@@ -2532,7 +2532,7 @@ class TestOpenAPI:
                 schema["security"] = [{"ApiKey": []}]
                 return schema
 
-            app.openapi = with_root_security  # ty: ignore[invalid-assignment]
+            app.openapi = with_root_security
 
         app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
         paths = app.openapi()["paths"]
@@ -4385,7 +4385,7 @@ class TestRoutesMatchedOtherThanByPath:
         """A `matches` set on the route itself counts as one on its class."""
         protected = APIRoute("/items/special", secret)
         framework = protected.matches
-        protected.matches = lambda scope: framework(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        protected.matches = lambda scope: framework(  # type: ignore[method-assign]
             {**scope, "path": scope["path"].lower()}
         )
         app = FastAPI()
@@ -4564,7 +4564,7 @@ class TestRoutesAddedLater:
 
         with TestClient(app) as client:
             framework = protected.matches
-            protected.matches = lambda scope: framework(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+            protected.matches = lambda scope: framework(  # type: ignore[method-assign]
                 {**scope, "path": "/private"}
             )
             refused = client.get("/public")

@@ -42,6 +42,7 @@ from grelmicro.providers._base import Provider
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
+from tests._future import DEFAULT_TABLE_NAMES
 from tests.test_authentication import verifier
 
 if TYPE_CHECKING:
@@ -74,6 +75,7 @@ def test_describe_lists_components() -> None:
     assert cache.backends == ("MemoryCacheAdapter",)
 
 
+@DEFAULT_TABLE_NAMES
 def test_describe_reports_declined_provider_kinds() -> None:
     """A Provider says which kinds it does not serve, not only which it does.
 

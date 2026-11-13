@@ -37,7 +37,9 @@ def test_explicit_provider_is_borrowed() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = PostgresProvider(URL)
 
-    backend = PostgresCircuitBreakerAdapter(provider=provider)
+    backend = PostgresCircuitBreakerAdapter(
+        provider=provider, table_name="grelmicro_circuit_breaker"
+    )
 
     assert backend.provider is provider
     assert backend._owns_provider is False
@@ -49,7 +51,9 @@ def test_no_provider_builds_implicit_one(
     """Without `provider=`, the backend builds its own from env vars."""
     monkeypatch.setenv("POSTGRES_URL", URL)
 
-    backend = PostgresCircuitBreakerAdapter()
+    backend = PostgresCircuitBreakerAdapter(
+        table_name="grelmicro_circuit_breaker"
+    )
 
     assert backend.provider.url == URL
     assert backend._owns_provider is True
@@ -59,7 +63,9 @@ def test_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     """`prefix=` is stored on the backend."""
     monkeypatch.setenv("POSTGRES_URL", URL)
 
-    backend = PostgresCircuitBreakerAdapter(prefix="myapp:")
+    backend = PostgresCircuitBreakerAdapter(
+        prefix="myapp:", table_name="grelmicro_circuit_breaker"
+    )
 
     assert backend._prefix == "myapp:"
     assert backend._key_prefix == "myapp:cb:"
@@ -79,7 +85,9 @@ def test_is_shared() -> None:
 def test_bind_rejects_unknown_kind(monkeypatch: pytest.MonkeyPatch) -> None:
     """`bind` raises NotImplementedError on an unknown algorithm kind."""
     monkeypatch.setenv("POSTGRES_URL", URL)
-    backend = PostgresCircuitBreakerAdapter()
+    backend = PostgresCircuitBreakerAdapter(
+        table_name="grelmicro_circuit_breaker"
+    )
 
     class Fake:
         kind = "failure_rate"
@@ -110,7 +118,9 @@ async def backend(
     provider = PostgresProvider(f"postgresql://test:test@localhost:{port}/test")
     async with (
         provider,
-        PostgresCircuitBreakerAdapter(provider=provider) as adapter,
+        PostgresCircuitBreakerAdapter(
+            provider=provider, table_name="grelmicro_circuit_breaker"
+        ) as adapter,
     ):
         await provider.client.execute("TRUNCATE grelmicro_circuit_breaker;")
         yield adapter
@@ -461,7 +471,9 @@ def test_cleanup_interval_must_be_positive(
     with pytest.raises(
         SettingsValidationError, match="cleanup_interval must be positive"
     ):
-        PostgresCircuitBreakerAdapter(cleanup_interval=0)
+        PostgresCircuitBreakerAdapter(
+            cleanup_interval=0, table_name="grelmicro_circuit_breaker"
+        )
 
 
 @pytest.mark.integration
@@ -475,7 +487,9 @@ async def test_janitor_sweeps_on_its_interval(
     async with (
         provider,
         PostgresCircuitBreakerAdapter(
-            provider=provider, cleanup_interval=0.05
+            provider=provider,
+            cleanup_interval=0.05,
+            table_name="grelmicro_circuit_breaker",
         ) as adapter,
     ):
         await provider.client.execute("TRUNCATE grelmicro_circuit_breaker;")
@@ -503,7 +517,9 @@ async def test_janitor_survives_a_failing_sweep(
     async with (
         provider,
         PostgresCircuitBreakerAdapter(
-            provider=provider, cleanup_interval=0.05
+            provider=provider,
+            cleanup_interval=0.05,
+            table_name="grelmicro_circuit_breaker",
         ) as adapter,
     ):
         adapter._cleanup_sql = "SELECT does_not_exist($1, $2);"
@@ -526,7 +542,9 @@ async def test_no_janitor_when_cleanup_is_disabled(
     async with (
         provider,
         PostgresCircuitBreakerAdapter(
-            provider=provider, cleanup_interval=None
+            provider=provider,
+            cleanup_interval=None,
+            table_name="grelmicro_circuit_breaker",
         ) as adapter,
     ):
         assert adapter._janitor_task is None

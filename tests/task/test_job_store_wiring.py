@@ -23,6 +23,7 @@ from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task import JobStatus, Progress, Tasks
 from grelmicro.task.memory import MemoryJobAdapter
 from grelmicro.types import BackendScope, Environment
+from tests._future import DEFAULT_TABLE_NAMES
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -199,6 +200,7 @@ async def test_job_requiring_the_host_offers_sqlite() -> None:
 
 
 @pytest.mark.parametrize("environment", STRICT_ENVIRONMENTS)
+@DEFAULT_TABLE_NAMES
 async def test_job_on_sqlite_is_refused_unless_it_requires_the_host(
     environment: Environment, tmp_path: Path
 ) -> None:
@@ -222,6 +224,7 @@ async def test_job_on_sqlite_is_refused_unless_it_requires_the_host(
 
 
 @pytest.mark.parametrize("environment", STRICT_ENVIRONMENTS)
+@DEFAULT_TABLE_NAMES
 async def test_job_on_sqlite_requiring_the_host_runs_in_a_strict_environment(
     environment: Environment, tmp_path: Path
 ) -> None:
