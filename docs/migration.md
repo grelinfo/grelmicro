@@ -1603,6 +1603,18 @@ Component claims its own kind and the Provider fills the rest. A Component of a
 kind no Provider serves, such as `HealthChecks`, `Log` or `Trace`, claims
 nothing. Two or more Providers still fill no defaults.
 
+A Provider listed on its own fills every kind it serves that no listed
+Component claims: `Coordination`, `Cache`, `RateLimiterComponent` and
+`CircuitBreakerComponent`. This holds next to other Components too. With
+`uses=[redis, tasks, health]` the app gets a Redis `Coordination`, so a lock,
+and the duplicate-request check of `Idempotency`, go through Redis.
+
+To keep a kind off, pass the Provider only to the Components you want:
+
+```python
+micro = Grelmicro(uses=[Cache(redis), tasks, health])
+```
+
 If you listed every component only to work around that, the short form works:
 
 ```python
