@@ -30,6 +30,7 @@ from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
 from grelmicro.resilience import bulkhead as bulkhead_module
+from tests._future import DEFAULT_TABLE_NAMES
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -419,6 +420,7 @@ def test_uses_leaves_out_a_provider_it_was_not_given() -> None:
     assert all(item is not provider for item in bulkhead._uses)
 
 
+@DEFAULT_TABLE_NAMES
 def test_uses_opens_a_provider_listed_after_its_component() -> None:
     """A Provider listed late moves ahead of the Component that holds it."""
     provider = PostgresProvider(url=_LAZY_URL)

@@ -14,8 +14,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Doc
 
 from grelmicro._config import any_case
+from grelmicro._unset import DefaultTableName
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
+from grelmicro.providers._table_names import (
+    TableNames,
+    resolve_table_names,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -117,6 +122,14 @@ class SQLiteConfig(BaseModel):
         Doc(
             "SQLite `synchronous` mode set on each opened connection. None "
             "keeps SQLite's default, `full`."
+        ),
+    ] = None
+    table_names: Annotated[
+        TableNames | None,
+        any_case(TableNames),
+        Doc(
+            "The default table names of the stores the provider builds, "
+            "`legacy` or `prefixed`. None keeps the current names and warns."
         ),
     ] = None
 
@@ -241,6 +254,22 @@ class SQLiteProvider(Provider):
                 """
             ),
         ] = None,
+        table_names: Annotated[
+            TableNames | None,
+            Doc(
+                """
+                The default table names of the stores this provider builds.
+                `legacy` keeps the current names, such as `locks`.
+                `prefixed` gives each the `grelmicro_` prefix, such as
+                `grelmicro_locks`. Either one silences the
+                `Grelmicro046Warning` a default table name gives. A
+                `table_name=` passed to a store wins. When omitted, it is
+                read from `{env_prefix}TABLE_NAMES`. If that is unset too,
+                stores keep the current names and warn. The default
+                becomes `prefixed` in 0.46.0.
+                """
+            ),
+        ] = None,
         env_prefix: Annotated[
             str,
             Doc(
@@ -268,6 +297,9 @@ class SQLiteProvider(Provider):
         self._synchronous = _resolve_synchronous(
             synchronous, env_prefix, env_load=env_load
         )
+        self._table_names = resolve_table_names(
+            table_names, env_prefix=env_prefix, env_load=env_load
+        )
         self._conn: aiosqlite.Connection | None = None
         self._lock = asyncio.Lock()
         self._own = True
@@ -286,6 +318,7 @@ class SQLiteProvider(Provider):
         return cls(
             path=config.path,
             synchronous=config.synchronous,
+            table_names=config.table_names,
             env_prefix=env_prefix,
             env_load=False,
         )
@@ -308,6 +341,16 @@ class SQLiteProvider(Provider):
                 """
             ),
         ] = False,
+        table_names: Annotated[
+            TableNames | None,
+            Doc(
+                """
+                The default table names of the stores this provider builds,
+                `legacy` or `prefixed`. None keeps the current names and
+                warns. Never read from the environment here.
+                """
+            ),
+        ] = None,
     ) -> Self:
         """Build a provider that wraps an existing `aiosqlite` connection.
 
@@ -318,6 +361,9 @@ class SQLiteProvider(Provider):
         self._env_prefix = "SQLITE_"
         self._path = ""
         self._synchronous = None
+        self._table_names = resolve_table_names(
+            table_names, env_prefix="SQLITE_", env_load=False
+        )
         self._conn = client
         self._lock = asyncio.Lock()
         self._own = own
@@ -327,6 +373,15 @@ class SQLiteProvider(Provider):
     def path(self) -> str:
         """Resolved database path (empty for `from_client` providers)."""
         return self._path
+
+    @property
+    def table_names(self) -> TableNames | None:
+        """The default table names of the stores this provider builds.
+
+        None while it is left unset, so each store keeps its current default
+        table name and warns when it opens.
+        """
+        return self._table_names
 
     @property
     def synchronous(self) -> SQLiteSynchronous | None:
@@ -476,3 +531,32 @@ class SQLiteProvider(Provider):
         if self._own and self._conn is not None:
             await self._conn.close()
             self._conn = None
+
+
+_SQL_TABLE_EXISTS = (
+    "SELECT 1 FROM main.sqlite_schema WHERE type = 'table' AND name = ?;"
+)
+"""One row when the main database holds a table of that name."""
+
+
+async def _warn_split_tables(
+    conn: aiosqlite.Connection, table_name: str, *, adapter: str
+) -> None:
+    """Warn when `table_name` is a default and its 0.46.0 table exists too.
+
+    Run it while holding the provider's connection lock, after the table is
+    created. `adapter` is the class that took `table_name`. The warning
+    reports the first line outside grelmicro. A name passed in checks and
+    warns nothing.
+    """
+    if not isinstance(table_name, DefaultTableName):
+        return
+    async with conn.execute(_SQL_TABLE_EXISTS, (table_name.becomes,)) as cursor:
+        exists = await cursor.fetchone()
+    if exists is None:
+        return
+    from grelmicro._deprecation import split_tables  # noqa: PLC0415
+
+    split_tables(
+        adapter=adapter, old=str(table_name), new=table_name.becomes
+    ).warn(outside=True)

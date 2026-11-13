@@ -22,6 +22,7 @@ from grelmicro.coordination.memory import (
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
+from tests._future import DEFAULT_TABLE_NAMES
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -154,6 +155,7 @@ def test_coordination_accepts_bare_provider_class() -> None:
     assert coordination.lock_backend.__class__.__name__ == "RedisLockAdapter"
 
 
+@DEFAULT_TABLE_NAMES
 def test_lock_keyword_accepts_provider() -> None:
     """`lock=Provider` resolves the lock backend via `provider.lock_backend()`."""
     provider = PostgresProvider("postgresql://localhost:5432/app")
@@ -202,6 +204,7 @@ def test_schedule_backend_without_schedule_raises() -> None:
         _ = coordination.schedule_backend
 
 
+@DEFAULT_TABLE_NAMES
 def test_postgres_provider_resolves_schedule_adapter() -> None:
     """A Postgres provider resolves its schedule adapter from `source`."""
     provider = PostgresProvider("postgresql://localhost:5432/app")
@@ -284,6 +287,7 @@ def test_provider_without_any_adapter_constructs() -> None:
         _ = coordination.schedule_backend
 
 
+@DEFAULT_TABLE_NAMES
 def test_sqlite_provider_serves_every_coordination_backend() -> None:
     """`SQLiteProvider` builds a backend for every coordination kind."""
     # Arrange / Act

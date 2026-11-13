@@ -101,8 +101,17 @@ async def backend(
         async with source as adapter:
             yield adapter
         return
-    async with source, source.lock_backend() as adapter:
+    async with source, _lock_backend(source) as adapter:
         yield adapter
+
+
+def _lock_backend(source: LockSource) -> LockBackend:
+    """Build the lock backend of `source`, with the table name spelled out."""
+    if isinstance(source, KubernetesLockAdapter):
+        return source
+    if isinstance(source, PostgresProvider):
+        return source.lock_backend(table_name="locks")
+    return source.lock_backend()
 
 
 def _peer(backend: LockBackend, name: str) -> TaskLock:
@@ -289,7 +298,7 @@ async def test_a_claimed_task_runs_each_interval_once_across_workers(
 
     # Act
     async with (
-        Grelmicro(uses=[Coordination(lock=lock_source())]),
+        Grelmicro(uses=[Coordination(lock=_lock_backend(lock_source()))]),
         asyncio.TaskGroup() as tg,
     ):
         for worker in workers:
