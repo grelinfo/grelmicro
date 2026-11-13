@@ -1114,7 +1114,7 @@ class _Gating:
                 held.router = app.router
             return build()
 
-        app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]
 
     def route(
         self,
@@ -1245,7 +1245,7 @@ def gate_routes(app: Starlette, gate: Gate) -> None:
             _walk_router(router, "", _Gating([gate], checks=True), frozenset())
         return build()
 
-    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]
 
 
 def _path_under_mounts(own: str, scope: Scope) -> str:

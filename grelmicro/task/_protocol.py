@@ -2,7 +2,8 @@
 
 This module defines a `typing.Protocol`. Methods end with `...` because
 the protocol describes a structural contract, not an implementation.
-Concrete backends (`MemoryJobAdapter`) provide the bodies.
+Concrete backends (`MemoryJobAdapter`) provide the bodies. The list cursor
+helpers that the built-in stores share live here too.
 
 A job only moves forward, and each move below is one atomic step in the store:
 
@@ -19,6 +20,21 @@ A job only moves forward, and each move below is one atomic step in the store:
 | `running` to `failed`, past `max_run` | `reap`, or a read | past `max_run` |
 | `queued` to `failed`, past `max_wait` | `reap`, or a read | past `max_wait` |
 | an end state to gone | `purge`, or the store | past `keep` |
+| an end state to gone | the move that ends a newer job of the name | past its kind's `max_kept_*` |
+
+`list` reads an owner's jobs and makes the moves a read makes, in the same
+step.
+
+A move to an end state also forgets the oldest ended jobs of the name past
+that job's cap, in the same step: `max_kept_succeeded` counts the jobs that
+`succeeded`, and `max_kept_failed` every other end state. A job forgotten
+that way is gone for every read, as one past its `keep` is.
+
+Each job keeps the caps it was submitted with, as it keeps its `keep`. A cap
+counts only the ended jobs of the name that were submitted with a cap of that
+kind and are still inside their own `keep`, so a job submitted with no cap is
+never forgotten by one. When those jobs carry different caps, the cap of the
+job that just ended decides how many of them stay.
 
 A job past both its lease and its `max_run` ends with the error of the one
 that passed first. The store's own clock decides every lease and deadline. A
@@ -27,6 +43,10 @@ job that reaches an end state no longer holds its payload or context.
 
 from __future__ import annotations
 
+import base64
+import binascii
+import builtins
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import (
@@ -155,6 +175,18 @@ class Submitted(NamedTuple):
     started: Annotated[bool, Doc("Whether the caller must run the body now.")]
 
 
+class Listed(NamedTuple):
+    """What a `list` found."""
+
+    records: Annotated[
+        builtins.list[JobRecord], Doc("The jobs, newest submitted first.")
+    ]
+    next: Annotated[
+        str | None,
+        Doc("The cursor of the next page, or `None` on the last page."),
+    ]
+
+
 class Settled(NamedTuple):
     """What a `settle` did."""
 
@@ -163,6 +195,62 @@ class Settled(NamedTuple):
         str | None,
         Doc("Why the store ended the job itself, when it refused."),
     ]
+
+
+FIRST = 2**63 - 1
+"""The order a first page starts below, past any job a store holds."""
+
+_DIGITS = re.compile(r"[1-9][0-9]{0,18}")
+"""An order, as the cursor holds it."""
+
+
+def scan_limit(limit: int) -> int:
+    """Return how many index entries one `list` call reads at most."""
+    return max(4 * limit, 100)
+
+
+def order_cursor(order: int) -> str:
+    """Return the cursor of the page after the job at `order`."""
+    return base64.urlsafe_b64encode(str(order).encode()).rstrip(b"=").decode()
+
+
+def read_cursor(cursor: str) -> int:
+    """Return the order `cursor` names.
+
+    Raises:
+        ValueError: If `cursor` is not one `order_cursor` returned.
+    """
+    if isinstance(cursor, str) and cursor.isascii():
+        padded = cursor + "=" * (-len(cursor) % 4)
+        try:
+            text = base64.urlsafe_b64decode(padded).decode("ascii")
+        except binascii.Error, UnicodeDecodeError:
+            text = ""
+        if _DIGITS.fullmatch(text) and order_cursor(int(text)) == cursor:
+            order = int(text)
+            if order <= FIRST:
+                return order
+    msg = "after must be the cursor of a previous page's `next`"
+    raise ValueError(msg)
+
+
+def page_of(
+    found: Sequence[tuple[int, JobRecord]],
+    limit: int,
+    stopped_at: int | None,
+) -> Listed:
+    """Return a page of at most `limit` jobs from what a `list` scan found.
+
+    `found` holds the matching jobs with their order, newest first, one more
+    than the page when a next page follows. `stopped_at` is the order of the
+    last entry read when the scan reached its bound, else `None`.
+    """
+    records = [record for _, record in found[:limit]]
+    if len(found) > limit:
+        return Listed(records, order_cursor(found[limit - 1][0]))
+    if stopped_at is not None:
+        return Listed(records, order_cursor(stopped_at))
+    return Listed(records, None)
 
 
 @runtime_checkable
@@ -215,6 +303,20 @@ class JobBackend(Protocol):
             timedelta | None,
             Doc("How long the ended job stays readable. `None`: no limit."),
         ],
+        max_kept_succeeded: Annotated[
+            int | None,
+            Doc(
+                "Jobs of the name that `succeeded` the store keeps. "
+                "`None`: no limit."
+            ),
+        ],
+        max_kept_failed: Annotated[
+            int | None,
+            Doc(
+                "Jobs of the name in any other end state the store keeps. "
+                "`None`: no limit."
+            ),
+        ],
         start_as: Annotated[
             str | None,
             Doc("The runner, when this replica has a free slot."),
@@ -228,7 +330,8 @@ class JobBackend(Protocol):
         is `queued`, unless `max_queued` jobs of the name already are: then
         `record` is `None`. `max_queued=0` therefore means run now or refuse.
         The job keeps its `max_run`, counted from when it starts, on
-        whichever runner starts it.
+        whichever runner starts it. It keeps its two caps too, and the move
+        that ends it applies the cap of its kind, whoever makes that move.
 
         A retried `submit` with the same `job_id` returns the stored job and
         stores nothing. `started` is `True` only when the first call started
@@ -248,7 +351,7 @@ class JobBackend(Protocol):
         ],
         runner: Annotated[str, Doc("The token of the claiming runner.")],
         lease: Annotated[timedelta, Doc("The lease on each claimed job.")],
-    ) -> list[Claimed]:
+    ) -> builtins.list[Claimed]:
         """Claim queued jobs up to each name's slots, oldest first per name.
 
         Two concurrent claims never return the same job, and a job is claimed
@@ -262,7 +365,7 @@ class JobBackend(Protocol):
         runner: Annotated[str, Doc("The token of the runner.")],
         beats: Annotated[Sequence[Beat], Doc("One entry per held job.")],
         lease: Annotated[timedelta, Doc("The new lease on each held job.")],
-    ) -> list[BeatReply]:
+    ) -> builtins.list[BeatReply]:
         """Extend each held job's lease, write its progress, read its flag.
 
         A job this runner no longer holds comes back with `held=False`, and
@@ -290,8 +393,9 @@ class JobBackend(Protocol):
         or `max_run`, `error` says why. It is `None` for a job that is gone
         or that another runner ended. Retrying with the same arguments
         after a lost reply is taken and writes nothing more, while the job
-        is still kept. With `keep` at zero the job is already gone, so the
-        retry is refused.
+        is still kept. With `keep` or its kind's cap at zero the job is
+        already gone, so the retry is refused, and so it is once newer ends
+        forgot the job past its cap.
         """
         ...
 
@@ -325,6 +429,41 @@ class JobBackend(Protocol):
         """
         ...
 
+    async def list(
+        self,
+        *,
+        name: Annotated[str, Doc("The job's name.")],
+        owner: Annotated[str, Doc("Whose jobs to list.")],
+        status: Annotated[
+            JobStatus | None, Doc("The status to keep. `None`: every one.")
+        ],
+        limit: Annotated[int, Doc("How many jobs to return at most.")],
+        after: Annotated[
+            str | None,
+            Doc("The `next` of the previous page. `None`: the first page."),
+        ],
+    ) -> Listed:
+        """Return the jobs of `name` that `owner` owns, newest submitted first.
+
+        A job never lists as `running` past its lease or its `max_run`, or
+        `queued` past its `max_wait`: the call makes that move first, as
+        `get` does, and `status` keeps the jobs by their status after it. A
+        job past its retention is not listed. A job with no owner is never
+        listed.
+
+        Pages follow submission order. `next` names a place in that order,
+        not a job, so it still leads on once the job it follows is gone, and
+        a job submitted after a page was read never shows on the pages after
+        it. A call reads at most `scan_limit(limit)` entries of the owner's
+        index. When it reaches that bound first, the page holds fewer than
+        `limit` jobs, and `next` names the last entry read. `next` is `None`
+        only once the call read to the end of the index.
+
+        Raises:
+            ValueError: If `after` is not a cursor this store returned.
+        """
+        ...
+
     async def reap(
         self, *, limit: Annotated[int, Doc("How many jobs to end at most.")]
     ) -> int:
@@ -337,6 +476,6 @@ class JobBackend(Protocol):
         """Forget ended jobs past their retention, whatever their name.
 
         Returns how many it forgot. A store that expires jobs on its own
-        returns `0`.
+        counts the index entries it removed for them.
         """
         ...

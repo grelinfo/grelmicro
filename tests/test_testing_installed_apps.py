@@ -30,6 +30,7 @@ from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.providers.valkey import ValkeyProvider
+from tests._future import DEFAULT_TABLE_NAMES, default_table_names_options
 
 
 async def test_opening_an_open_app_says_it_is_already_open() -> None:
@@ -85,6 +86,7 @@ _CLOSED_PORT = "postgresql://user:password@127.0.0.1:1/db"
 """A Postgres URL nothing listens on, so any connection attempt fails."""
 
 
+@DEFAULT_TABLE_NAMES
 async def test_a_fake_entered_before_open_never_connects() -> None:
     """The app opens on memory, and the Postgres it lists stays closed."""
     postgres = PostgresProvider(_CLOSED_PORT)
@@ -97,6 +99,7 @@ async def test_a_fake_entered_before_open_never_connects() -> None:
         assert postgres not in micro.providers
 
 
+@DEFAULT_TABLE_NAMES
 def test_a_fake_entered_before_the_client_starts_serves_requests() -> None:
     """The one fixture the guide shows: arm, then let the lifespan open."""
     micro = Grelmicro(
@@ -135,6 +138,7 @@ async def test_a_provider_the_fake_skipped_says_how_to_keep_it() -> None:
     assert redis.client is not None
 
 
+@DEFAULT_TABLE_NAMES
 async def test_a_kept_provider_is_opened() -> None:
     """`keep=` opens the real Provider, so a test can reach it directly."""
     postgres = PostgresProvider(_CLOSED_PORT)
@@ -207,6 +211,7 @@ def test_the_documented_fixtures_pass(snippet: str) -> None:
             "no:randomly",
             "-p",
             "no:cacheprovider",
+            *default_table_names_options(),
         ],
         capture_output=True,
         text=True,
@@ -389,6 +394,7 @@ async def test_a_valkey_provider_the_test_opens_itself_works_under_fake() -> (
             _ = valkey.client
 
 
+@DEFAULT_TABLE_NAMES
 async def test_a_provider_nothing_faked_used_stays_open() -> None:
     """A Provider the handlers query directly is not the fake's to close."""
     postgres = PostgresProvider(_CLOSED_PORT)

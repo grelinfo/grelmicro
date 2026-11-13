@@ -106,6 +106,8 @@ async def _apply(  # noqa: C901, PLR0912, PLR0915
                 max_wait=MAX_WAIT,
                 max_run=None,
                 keep=KEEP,
+                max_kept_succeeded=None,
+                max_kept_failed=None,
                 start_as=start_as,
                 lease=LEASE,
             )

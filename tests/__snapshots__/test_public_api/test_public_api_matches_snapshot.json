@@ -642,9 +642,9 @@
       "()": "(id, topic, key, data, payload, headers, attempts) -> None"
     },
     "Outbox": {
-      "()": "(source, *, requires=None, name='default', relay=None, table=None, poll_interval=None, batch_size=None, lease_duration=None, max_attempts=None, retry_base=None, retry_max=None, retry_jitter=None, concurrency=None, dead_letter=None, keep_delivered=UNSET, auto_migrate=None, notify=None, env_load=None, shutdown_timeout=30.0) -> 'None'",
+      "()": "(source, *, requires=None, routers=None, name='default', relay=None, table=None, poll_interval=None, batch_size=None, lease_duration=None, max_attempts=None, retry_base=None, retry_max=None, retry_jitter=None, concurrency=None, dead_letter=None, keep_delivered=UNSET, auto_migrate=None, notify=None, env_load=None, shutdown_timeout=30.0) -> 'None'",
       ".current": "(name='default') -> 'Outbox'",
-      ".from_config": "(source, config, *, requires=None, name='default', shutdown_timeout=30.0) -> 'Self'"
+      ".from_config": "(source, config, *, requires=None, routers=None, name='default', shutdown_timeout=30.0) -> 'Self'"
     },
     "OutboxBackend": {
       "()": "(*args, **kwargs)"
@@ -657,6 +657,10 @@
     "OutboxRecord": {
       "()": "(id, topic, payload, key=None, headers=<factory>, dedup_key=None, attempts=0, available_at=None) -> None"
     },
+    "OutboxRouter": {
+      "()": "(*, routers=None) -> 'None'"
+    },
+    "OutboxRouterError": null,
     "OutboxTransactionError": null,
     "Retry": {
       "()": "(*, delay=None) -> 'None'"
@@ -1109,11 +1113,14 @@
       "()": "(reference) -> None"
     },
     "Job": {
-      "()": "(function, *, name=None, max_concurrent=1, max_queued=None, max_wait=86400, max_run=None, keep=86400, backend=None, requires=None) -> 'None'"
+      "()": "(function, *, name=None, max_concurrent=1, max_queued=None, max_wait=86400, max_run=None, keep=86400, max_kept_succeeded=None, max_kept_failed=None, backend=None, requires=None) -> 'None'"
     },
     "JobError": null,
     "JobInfo": {
       "()": "(*, id, name, status, done, total, result, error, cancel_requested, created_at, started_at, finished_at) -> None"
+    },
+    "JobPage": {
+      "()": "(*, jobs, next) -> None"
     },
     "JobRefusedError": {
       "()": "(*, name, reason) -> None"

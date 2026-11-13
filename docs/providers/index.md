@@ -347,6 +347,15 @@ twice, so keep the default when those matter.
 `from_client` leaves the connection as you set it up: the provider runs no
 PRAGMA on it.
 
+### Table names
+
+`table_names="legacy"` (or `SQLITE_TABLE_NAMES=legacy`) keeps the current
+default table names of the stores the provider builds, such as `locks`.
+`"prefixed"` adopts the `grelmicro_` prefix now, such as `grelmicro_locks`.
+Left unset, each store warns when it opens, because the default becomes
+`"prefixed"` in 0.46.0. See [the 0.45 migration
+notes](../migration.md#0-45-table-prefix).
+
 ## Memory
 
 `MemoryProvider` ships every factory: `.lock_backend()`,

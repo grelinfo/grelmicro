@@ -7,13 +7,16 @@ atomic step.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from heapq import heappop, heappush
 from typing import TYPE_CHECKING, ClassVar, Self
 
 from grelmicro.clock._seam import monotonic
 from grelmicro.task._protocol import (
+    FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
     JOB_TIMED_OUT,
@@ -23,12 +26,17 @@ from grelmicro.task._protocol import (
     EndStatus,
     JobRecord,
     JobStatus,
+    Listed,
     ProgressUpdate,
     Settled,
     Submitted,
+    page_of,
+    read_cursor,
+    scan_limit,
 )
 
 if TYPE_CHECKING:
+    import builtins
     from collections.abc import Mapping, Sequence
     from datetime import timedelta
     from types import TracebackType
@@ -41,12 +49,15 @@ class _Row:
     """A stored job."""
 
     id: str
+    seq: int
     name: str
     owner: str | None
     payload: str
     context: Mapping[str, str]
     keep: timedelta | None
     max_run: timedelta | None
+    max_kept_succeeded: int | None
+    max_kept_failed: int | None
     created_at: datetime
     status: JobStatus = JobStatus.QUEUED
     version: int = 1
@@ -114,6 +125,11 @@ def _store_error(row: _Row | None, name: str) -> str | None:
     return row.error if row.status is JobStatus.FAILED else None
 
 
+def _seq(row: _Row) -> int:
+    """Return the submission order of `row`."""
+    return row.seq
+
+
 def _deadline(after: timedelta | None) -> float | None:
     """Return the time `after` from now, or `None` for no limit."""
     return None if after is None else _after(after)
@@ -131,6 +147,19 @@ class MemoryJobAdapter:
         self._queued: defaultdict[str, deque[_Row]] = defaultdict(deque)
         self._open: dict[str, _Row] = {}
         self._expiring: dict[str, _Row] = {}
+        self._owned: defaultdict[tuple[str, str], builtins.list[_Row]] = (
+            defaultdict(list)
+        )
+        """The jobs of each name and owner, in submission order."""
+        self._kept: defaultdict[tuple[str, bool], dict[str, _Row]] = (
+            defaultdict(dict)
+        )
+        """The ended jobs of each name, by success or not, in end order."""
+        self._kept_ends: defaultdict[
+            tuple[str, bool], builtins.list[tuple[float, int, _Row]]
+        ] = defaultdict(list)
+        """When each kept job of `_kept` expires, soonest first, as a heap."""
+        self._seq = 0
 
     async def __aenter__(self) -> Self:
         """Open the backend."""
@@ -156,6 +185,8 @@ class MemoryJobAdapter:
         max_wait: timedelta | None,
         max_run: timedelta | None,
         keep: timedelta | None,
+        max_kept_succeeded: int | None,
+        max_kept_failed: int | None,
         start_as: str | None,
         lease: timedelta,
     ) -> Submitted:
@@ -181,19 +212,25 @@ class MemoryJobAdapter:
             and len(queued) >= max_queued
         ):
             return Submitted(None, started=False)
+        self._seq += 1
         row = _Row(
             id=job_id,
+            seq=self._seq,
             name=name,
             owner=owner,
             payload=payload,
             context=dict(context),
             keep=keep,
             max_run=max_run,
+            max_kept_succeeded=max_kept_succeeded,
+            max_kept_failed=max_kept_failed,
             created_at=datetime.now(UTC),
             start_by=_deadline(max_wait),
         )
         self._rows[job_id] = row
         self._open[job_id] = row
+        if owner is not None:
+            self._owned[name, owner].append(row)
         if runner is None:
             queued.append(row)
         else:
@@ -207,9 +244,9 @@ class MemoryJobAdapter:
         slots: Mapping[str, int],
         runner: str,
         lease: timedelta,
-    ) -> list[Claimed]:
+    ) -> builtins.list[Claimed]:
         """Claim queued jobs up to each name's slots, oldest first per name."""
-        claimed: list[Claimed] = []
+        claimed: builtins.list[Claimed] = []
         for name, free in slots.items():
             queued = self._queued[name]
             taken = 0
@@ -239,9 +276,9 @@ class MemoryJobAdapter:
         runner: str,
         beats: Sequence[Beat],
         lease: timedelta,
-    ) -> list[BeatReply]:
+    ) -> builtins.list[BeatReply]:
         """Extend each held job's lease, write its progress, read its flag."""
-        replies: list[BeatReply] = []
+        replies: builtins.list[BeatReply] = []
         for beat in beats:
             stored = self._rows.get(beat.job_id)
             row = self._held(beat.name, beat.job_id, runner)
@@ -308,6 +345,32 @@ class MemoryJobAdapter:
             row.version += 1
         return row.record()
 
+    async def list(
+        self,
+        *,
+        name: str,
+        owner: str,
+        status: JobStatus | None,
+        limit: int,
+        after: str | None,
+    ) -> Listed:
+        """Return the jobs of `name` that `owner` owns, newest submitted first."""
+        below = FIRST if after is None else read_cursor(after)
+        owned = self._owned.get((name, owner), [])
+        end = bisect_left(owned, below, key=_seq)
+        bound = scan_limit(limit)
+        scanned = owned[max(0, end - bound) : end]
+        found: builtins.list[tuple[int, JobRecord]] = []
+        for row in reversed(scanned):
+            if self._find(name, row.id) is None:
+                continue
+            if status is None or row.status == status:
+                found.append((row.seq, row.record()))
+                if len(found) > limit:
+                    return page_of(found, limit, None)
+        stopped = scanned[0].seq if len(scanned) == bound else None
+        return page_of(found, limit, stopped)
+
     async def reap(self, *, limit: int) -> int:
         """End jobs past a lease, `max_wait` or `max_run`, of any name."""
         reaped = 0
@@ -346,6 +409,8 @@ class MemoryJobAdapter:
         if row is None:
             return None
         self._catch_up(row)
+        if self._rows.get(job_id) is not row:
+            return None
         if row.expires_at is not None and row.expires_at <= monotonic():
             self._forget(row)
             return None
@@ -377,7 +442,10 @@ class MemoryJobAdapter:
     def _end(
         self, row: _Row, status: EndStatus, error: str | None = None
     ) -> None:
-        """Move `row` to an end state, drop its arguments, start its retention."""
+        """Move `row` to an end state, drop its arguments, start its retention.
+
+        Past the cap of its kind, the oldest ended jobs of its name go.
+        """
         row.status = status
         row.error = error
         row.payload = ""
@@ -388,8 +456,34 @@ class MemoryJobAdapter:
         del self._open[row.id]
         if row.expires_at is not None:
             self._expiring[row.id] = row
+        succeeded = status is JobStatus.SUCCEEDED
+        cap = row.max_kept_succeeded if succeeded else row.max_kept_failed
+        if cap is not None:
+            index = (row.name, succeeded)
+            kept, ends = self._kept[index], self._kept_ends[index]
+            now = monotonic()
+            while ends and ends[0][0] <= now:
+                _, _, expired = heappop(ends)
+                if kept.get(expired.id) is expired:
+                    self._forget(expired)
+            kept, ends = self._kept[index], self._kept_ends[index]
+            kept[row.id] = row
+            if row.expires_at is not None:
+                heappush(ends, (row.expires_at, row.seq, row))
+            while len(kept) > cap:
+                self._forget(next(iter(kept.values())))
 
     def _forget(self, row: _Row) -> None:
         """Remove an ended job for good."""
         del self._rows[row.id]
-        del self._expiring[row.id]
+        self._expiring.pop(row.id, None)
+        index = (row.name, row.status is JobStatus.SUCCEEDED)
+        kept = self._kept.get(index)
+        if kept is not None and kept.pop(row.id, None) is not None and not kept:
+            del self._kept[index]
+            self._kept_ends.pop(index, None)
+        if row.owner is not None:
+            owned = self._owned[row.name, row.owner]
+            del owned[bisect_left(owned, row.seq, key=_seq)]
+            if not owned:
+                del self._owned[row.name, row.owner]

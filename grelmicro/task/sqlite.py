@@ -20,6 +20,7 @@ from grelmicro.coordination.sqlite import _immediate
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task._protocol import (
+    FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
     JOB_TIMED_OUT,
@@ -29,13 +30,18 @@ from grelmicro.task._protocol import (
     EndStatus,
     JobRecord,
     JobStatus,
+    Listed,
     ProgressUpdate,
     Settled,
     Submitted,
+    page_of,
+    read_cursor,
+    scan_limit,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Mapping, Sequence
+    import builtins
+    from collections.abc import AsyncGenerator, Iterable, Mapping, Sequence
     from types import TracebackType
 
     from aiosqlite import Connection
@@ -95,6 +101,15 @@ _CATCH_UP = (
 A running job's `due_at` is the earlier of its lease end and its `run_by`, so
 `run_by <= due_at` means `max_run` passed first.
 """
+
+_CAPPED = (
+    "CASE WHEN status = 'succeeded' THEN max_kept_succeeded "
+    "ELSE max_kept_failed END IS NOT NULL"
+)
+"""Whether an ended job carries a cap of its kind, so a cap counts it."""
+
+_ENDED = "name, status = 'succeeded', max_kept_failed"
+"""What a move to `failed` returns for the cap of each job it ended."""
 
 _ERRORS = {
     "lost": JOB_LOST,
@@ -157,7 +172,7 @@ class SQLiteJobAdapter:
     _SQL_CREATE = (
         """
         CREATE TABLE IF NOT EXISTS {table_name} (
-            seq INTEGER PRIMARY KEY,
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
             id TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
             owner TEXT,
@@ -172,6 +187,8 @@ class SQLiteJobAdapter:
             context TEXT,
             keep_ms INTEGER,
             max_run_ms INTEGER,
+            max_kept_succeeded INTEGER,
+            max_kept_failed INTEGER,
             runner TEXT,
             started_at_submit INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL,
@@ -194,23 +211,57 @@ class SQLiteJobAdapter:
         CREATE INDEX IF NOT EXISTS {table_name}_expires_at_idx
             ON {table_name} (expires_at) WHERE expires_at IS NOT NULL;
         """,
+        """
+        CREATE INDEX IF NOT EXISTS {table_name}_owner_idx
+            ON {table_name} (name, owner, seq) WHERE owner IS NOT NULL;
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS {table_name}_kept_idx
+            ON {table_name} (name, (status = 'succeeded'), finished_at, seq)
+            WHERE finished_at IS NOT NULL AND {capped};
+        """,
     )
     """The table and its indexes.
 
-    `seq` keeps submission order. `due_at` is the earlier of the lease end
-    and the `run_by` of a running job, and the `max_wait` end of a queued
-    one. `run_by` is when a running job passes its `max_run`. `expires_at`
-    is when an ended job stops being kept.
+    `seq` keeps submission order and never takes a value twice. `due_at` is
+    the earlier of the lease end and the `run_by` of a running job, and the
+    `max_wait` end of a queued one. `run_by` is when a running job passes its
+    `max_run`. `expires_at` is when an ended job stops being kept. The owner
+    index serves `list`, and the kept index the caps on ended jobs.
     """
 
     _SQL: ClassVar[dict[str, str]] = {
         "catch_up": _CATCH_UP.replace("{where}", "id = :id").replace(
-            "{returning}", "RETURNING name, error"
+            "{returning}", f"RETURNING error, {_ENDED}"
         ),
-        "catch_up_queue": _CATCH_UP.replace("{returning}", "").replace(
-            "{where}", "name = :name AND status = 'queued'"
-        ),
-        "reap": _CATCH_UP.replace("{returning}", "").replace(
+        "catch_up_queue": _CATCH_UP.replace(
+            "{returning}", f"RETURNING {_ENDED}"
+        ).replace("{where}", "name = :name AND status = 'queued'"),
+        # The unary plus keeps the owner index out, so the due index finds
+        # the few overdue jobs instead of every job the owner has.
+        "catch_up_owner": _CATCH_UP.replace(
+            "{returning}", f"RETURNING {_ENDED}"
+        ).replace("{where}", "+name = :name AND +owner = :owner"),
+        "scan": """
+            SELECT count(*), min(seq) FROM (
+                SELECT seq FROM {table_name}
+                WHERE name = :name AND owner = :owner AND seq < :below
+                ORDER BY seq DESC
+                LIMIT :bound
+            );
+        """,
+        "list": """
+            SELECT seq, {record} FROM {table_name}
+            WHERE name = :name
+              AND owner = :owner
+              AND seq < :below
+              AND seq >= :floor
+              AND (expires_at IS NULL OR expires_at > :now)
+              AND (:status IS NULL OR status = :status)
+            ORDER BY seq DESC
+            LIMIT :limit;
+        """,
+        "reap": _CATCH_UP.replace("{returning}", f"RETURNING {_ENDED}").replace(
             "{where}",
             """seq IN (
                 SELECT seq FROM {table_name}
@@ -218,6 +269,18 @@ class SQLiteJobAdapter:
                 LIMIT :limit
             )""",
         ),
+        "trim": """
+            DELETE FROM {table_name} WHERE seq IN (
+                SELECT seq FROM {table_name}
+                WHERE name = :name
+                  AND (status = 'succeeded') = :succeeded
+                  AND finished_at IS NOT NULL
+                  AND {capped}
+                  AND (expires_at IS NULL OR expires_at > :now)
+                ORDER BY finished_at DESC, seq DESC
+                LIMIT -1 OFFSET :cap
+            );
+        """,
         "forget": """
             DELETE FROM {table_name} WHERE id = :id AND expires_at <= :now;
         """,
@@ -238,13 +301,13 @@ class SQLiteJobAdapter:
         "insert": """
             INSERT INTO {table_name} (
                 id, name, owner, status, version, payload, context, keep_ms,
-                max_run_ms, runner, started_at_submit, created_at,
-                started_at, due_at, run_by
+                max_run_ms, max_kept_succeeded, max_kept_failed, runner,
+                started_at_submit, created_at, started_at, due_at, run_by
             )
             VALUES (
                 :id, :name, :owner, :status, 1, :payload, :context, :keep,
-                :max_run, :runner, :started, :now, :started_at, :due_at,
-                :run_by
+                :max_run, :max_kept_succeeded, :max_kept_failed, :runner,
+                :started, :now, :started_at, :due_at, :run_by
             )
             RETURNING {record};
         """,
@@ -285,7 +348,11 @@ class SQLiteJobAdapter:
             """
             + _END
             + """
-            WHERE id = :id;
+            WHERE id = :id
+            RETURNING name, status = 'succeeded', CASE
+                WHEN status = 'succeeded' THEN max_kept_succeeded
+                ELSE max_kept_failed
+            END;
             """
         ),
         "cancel_queued": (
@@ -297,7 +364,9 @@ class SQLiteJobAdapter:
             + _END
             + """
             WHERE id = :id
-            RETURNING {record};
+            RETURNING {record}, """
+            + _ENDED
+            + """;
             """
         ),
         "cancel_running": """
@@ -369,7 +438,9 @@ class SQLiteJobAdapter:
         self._table_name = table_name
         self._migrated = not auto_migrate
         self._sql = {
-            key: template.format(table_name=table_name, record=_RECORD)
+            key: template.format(
+                table_name=table_name, record=_RECORD, capped=_CAPPED
+            )
             for key, template in self._SQL.items()
         }
 
@@ -411,6 +482,8 @@ class SQLiteJobAdapter:
         max_wait: timedelta | None,
         max_run: timedelta | None,
         keep: timedelta | None,
+        max_kept_succeeded: int | None,
+        max_kept_failed: int | None,
         start_as: str | None,
         lease: timedelta,
     ) -> Submitted:
@@ -426,7 +499,7 @@ class SQLiteJobAdapter:
                     and stored.runner == start_as
                 )
                 return Submitted(stored.record, started=started)
-            await self._run(conn, "catch_up_queue", now, name=name)
+            await self._end(conn, "catch_up_queue", now, name=name)
             [queued] = await self._fetch(conn, "count_queued", name=name)
             runner = None if queued else start_as
             if (
@@ -458,6 +531,8 @@ class SQLiteJobAdapter:
                 context=json.dumps(dict(context)),
                 keep=None if keep is None else _ms(keep),
                 max_run=max_run_ms,
+                max_kept_succeeded=max_kept_succeeded,
+                max_kept_failed=max_kept_failed,
                 runner=runner,
                 started=runner is not None,
                 started_at=None if runner is None else now,
@@ -472,15 +547,15 @@ class SQLiteJobAdapter:
         slots: Mapping[str, int],
         runner: str,
         lease: timedelta,
-    ) -> list[Claimed]:
+    ) -> builtins.list[Claimed]:
         """Claim queued jobs up to each name's slots, oldest first per name."""
         names = [name for name, free in slots.items() if free > 0]
         if not names:
             return []
-        claimed: list[Claimed] = []
+        claimed: builtins.list[Claimed] = []
         async with self._transaction() as (conn, now):
             for name in names:
-                await self._run(conn, "catch_up_queue", now, name=name)
+                await self._end(conn, "catch_up_queue", now, name=name)
                 async with conn.execute(
                     self._sql["claim"],
                     {
@@ -508,11 +583,11 @@ class SQLiteJobAdapter:
         runner: str,
         beats: Sequence[Beat],
         lease: timedelta,
-    ) -> list[BeatReply]:
+    ) -> builtins.list[BeatReply]:
         """Extend each held job's lease, write its progress, read its flag."""
         if not beats:
             return []
-        replies: list[BeatReply] = []
+        replies: builtins.list[BeatReply] = []
         async with self._transaction() as (conn, now):
             for beat in beats:
                 row, ended = await self._look_up(conn, now, beat.job_id)
@@ -585,7 +660,7 @@ class SQLiteJobAdapter:
                 if progress is None
                 else (progress.done, progress.total)
             )
-            await self._run(
+            await self._end(
                 conn,
                 "settle",
                 now,
@@ -619,6 +694,7 @@ class SQLiteJobAdapter:
                 ended = await self._fetch(
                     conn, "cancel_queued", now=now, id=job_id
                 )
+                await self._trim(conn, now, [ended[-3:]])
                 return _record(ended)
             if (
                 record.status is JobStatus.RUNNING
@@ -628,10 +704,52 @@ class SQLiteJobAdapter:
                 return _record(flagged)
         return record
 
+    async def list(
+        self,
+        *,
+        name: str,
+        owner: str,
+        status: JobStatus | None,
+        limit: int,
+        after: str | None,
+    ) -> Listed:
+        """Return the jobs of `name` that `owner` owns, newest submitted first.
+
+        The owner's jobs that are past a lease, `max_wait` or `max_run` end
+        first, in the same transaction.
+        """
+        below = FIRST if after is None else read_cursor(after)
+        async with self._transaction() as (conn, now):
+            await self._end(conn, "catch_up_owner", now, name=name, owner=owner)
+            bound = scan_limit(limit)
+            scanned, floor = await self._fetch(
+                conn, "scan", name=name, owner=owner, below=below, bound=bound
+            )
+            if not scanned:
+                return Listed([], None)
+            async with conn.execute(
+                self._sql["list"],
+                {
+                    "now": now,
+                    "name": name,
+                    "owner": owner,
+                    "below": below,
+                    "floor": floor,
+                    "status": None if status is None else status.value,
+                    "limit": limit + 1,
+                },
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return page_of(
+            [(row[0], _record(row[1:])) for row in rows],
+            limit,
+            floor if scanned == bound else None,
+        )
+
     async def reap(self, *, limit: int) -> int:
         """End jobs past a lease, `max_wait` or `max_run`, of any name."""
         async with self._transaction() as (conn, now):
-            return await self._run(conn, "reap", now, limit=limit)
+            return await self._end(conn, "reap", now, limit=limit)
 
     async def purge(self, *, limit: int) -> int:
         """Forget ended jobs past their retention, whatever their name.
@@ -652,7 +770,9 @@ class SQLiteJobAdapter:
         async with _immediate(self._provider) as conn:
             if not self._migrated:
                 for sql in self._SQL_CREATE:
-                    await conn.execute(sql.format(table_name=self._table_name))
+                    await conn.execute(
+                        sql.format(table_name=self._table_name, capped=_CAPPED)
+                    )
             yield conn, await _now(conn)
         self._migrated = True
 
@@ -669,6 +789,44 @@ class SQLiteJobAdapter:
             {"now": now, **_ERRORS} | params,
         ) as cursor:
             return cursor.rowcount
+
+    async def _end(
+        self,
+        conn: Connection,
+        key: str,
+        now: int,
+        **params: Any,  # noqa: ANN401
+    ) -> int:
+        """Run a move to an end state, apply the caps, and return the count.
+
+        The move returns the name, success and cap of each job it ended.
+        """
+        async with conn.execute(
+            self._sql[key],
+            {"now": now, **_ERRORS} | params,
+        ) as cursor:
+            ended = list(await cursor.fetchall())
+        await self._trim(conn, now, ended)
+        return len(ended)
+
+    async def _trim(
+        self, conn: Connection, now: int, ended: Iterable[Sequence[Any]]
+    ) -> None:
+        """Forget the oldest ended jobs past the cap of each job that ended.
+
+        Each item of `ended` is a job's name, whether it succeeded, and the
+        cap of its kind, `None` for no cap.
+        """
+        for name, succeeded, cap in {tuple(row) for row in ended}:
+            if cap is not None:
+                await self._run(
+                    conn,
+                    "trim",
+                    now,
+                    name=name,
+                    succeeded=succeeded,
+                    cap=cap,
+                )
 
     async def _fetch(
         self,
@@ -698,9 +856,12 @@ class SQLiteJobAdapter:
         ended = await self._fetch(
             conn, "catch_up", now=now, id=job_id, **_ERRORS
         )
+        caught = None
+        if ended is not None:
+            caught = (ended[1], ended[0])
+            await self._trim(conn, now, [ended[1:]])
         await self._run(conn, "forget", now, id=job_id)
         row = await self._fetch(conn, "find", id=job_id)
-        caught = None if ended is None else (ended[0], ended[1])
         if row is None:
             return None, caught
         return _Stored(_record(row), row[12], row[13], bool(row[14])), caught

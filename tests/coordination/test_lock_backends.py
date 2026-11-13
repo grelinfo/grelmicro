@@ -176,14 +176,22 @@ async def backend(
         provider = PostgresProvider(
             f"postgresql://test:test@localhost:{port}/test"
         )
-        async with provider, PostgresLockAdapter(provider=provider) as backend:
+        async with (
+            provider,
+            PostgresLockAdapter(
+                provider=provider, table_name="locks"
+            ) as backend,
+        ):
             yield backend
     elif backend_name == "memory":
         async with MemoryLockAdapter() as backend:
             yield backend
     elif backend_name == "sqlite":
         provider = SQLiteProvider(":memory:")
-        async with provider, SQLiteLockAdapter(provider=provider) as backend:
+        async with (
+            provider,
+            SQLiteLockAdapter(provider=provider, table_name="locks") as backend,
+        ):
             yield backend
     elif backend_name == "kubernetes":
         # `container` points the adapter at the shared k3s server through

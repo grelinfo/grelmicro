@@ -154,6 +154,7 @@ _KINDS: Final = (
                 "cancel",
                 "claim",
                 "get",
+                "list",
                 "purge",
                 "reap",
                 "scope",

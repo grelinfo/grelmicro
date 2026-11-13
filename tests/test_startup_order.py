@@ -24,6 +24,7 @@ from grelmicro.outbox.memory import MemoryOutboxAdapter
 from grelmicro.providers import Provider
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task import Tasks
+from tests._future import DEFAULT_TABLE_NAMES
 
 FIRST_RUN_TIMEOUT = 5
 """Seconds to wait for the first run. A failed first run never comes back
@@ -73,6 +74,7 @@ _WIRINGS: dict[str, Wiring] = {
 
 
 @pytest.mark.parametrize("wiring", _WIRINGS.values(), ids=_WIRINGS.keys())
+@DEFAULT_TABLE_NAMES
 async def test_first_claimed_run_succeeds_on_sqlite(
     tmp_path: Path, wiring: Wiring
 ) -> None:
@@ -102,6 +104,7 @@ def postgres_url() -> Generator[str]:
     [_WIRINGS["provider-first"], _WIRINGS["tasks-first"]],
     ids=["provider-first", "tasks-first"],
 )
+@DEFAULT_TABLE_NAMES
 async def test_first_claimed_run_succeeds_on_postgres(
     postgres_url: str, wiring: Wiring
 ) -> None:
@@ -130,6 +133,7 @@ async def _on_ping(message: Message[_Ping]) -> None:
         _handled.append(message.attempts)
 
 
+@DEFAULT_TABLE_NAMES
 async def test_first_outbox_delivery_finds_its_lock_open(
     tmp_path: Path,
 ) -> None:
@@ -151,6 +155,7 @@ async def test_first_outbox_delivery_finds_its_lock_open(
     assert _handled == [1]
 
 
+@DEFAULT_TABLE_NAMES
 async def test_runners_open_last_and_close_first(tmp_path: Path) -> None:
     """The outbox and then the tasks open after every other item.
 
@@ -168,6 +173,7 @@ async def test_runners_open_last_and_close_first(tmp_path: Path) -> None:
     assert order[-2:] == [outbox, tasks]
 
 
+@DEFAULT_TABLE_NAMES
 async def test_strict_opens_tasks_after_the_provider_listed_later(
     tmp_path: Path,
 ) -> None:

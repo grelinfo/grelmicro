@@ -26,8 +26,10 @@ from grelmicro.task._protocol import (
     EndStatus,
     JobBackend,
     JobRecord,
+    Listed,
     ProgressUpdate,
     Settled,
+    scan_limit,
 )
 from grelmicro.task.memory import MemoryJobAdapter
 from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
@@ -61,6 +63,13 @@ class _Store:
     backend: JobBackend
     advance: Callable[[float], Awaitable[object]]
     tick: timedelta = timedelta(seconds=1)
+    twin: JobBackend | None = None
+    """Another replica's client to the same store, when not `backend`."""
+
+    @property
+    def replicas(self) -> tuple[JobBackend, JobBackend]:
+        """Return two clients to the store, as two replicas hold them."""
+        return self.backend, self.twin or self.backend
 
     @property
     def lease(self) -> timedelta:
@@ -87,6 +96,8 @@ class _Store:
             "max_wait": None,
             "max_run": None,
             "keep": timedelta(hours=1),
+            "max_kept_succeeded": None,
+            "max_kept_failed": None,
             "start_as": None,
             "lease": self.lease,
             **overrides,
@@ -153,27 +164,46 @@ async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
             provider = ValkeyProvider(request.getfixturevalue("valkey_url"))
         else:
             provider = cluster_provider(request, request.param)
-        adapter = provider.job_backend(prefix=hash_tag_prefix())
-        async with provider, adapter:
-            yield _Store(adapter, asyncio.sleep, REAL_TICK)
+        prefix = hash_tag_prefix()
+        adapter = provider.job_backend(prefix=prefix)
+        twin = provider.job_backend(prefix=prefix)
+        async with provider, adapter, twin:
+            yield _Store(adapter, asyncio.sleep, REAL_TICK, twin)
         return
     if request.param == "postgres":
         postgres = PostgresProvider(request.getfixturevalue("postgres_url"))
         table_name = f"jobs_{secrets.token_hex(6)}"
-        async with postgres, postgres.job_backend(table_name=table_name) as pg:
-            yield _Store(pg, asyncio.sleep, REAL_TICK)
+        async with (
+            postgres,
+            postgres.job_backend(table_name=table_name) as pg,
+            postgres.job_backend(table_name=table_name) as pg_twin,
+        ):
+            yield _Store(pg, asyncio.sleep, REAL_TICK, pg_twin)
             await postgres.client.execute(f"DROP TABLE IF EXISTS {table_name}")
         return
     if request.param == "sqlite":
         path = request.getfixturevalue("tmp_path") / "jobs.db"
         sqlite = SQLiteProvider(path)
-        async with sqlite, sqlite.job_backend() as adapter:
-            yield _Store(adapter, asyncio.sleep, REAL_TICK)
+        other = SQLiteProvider(path)
+        async with (
+            sqlite,
+            other,
+            sqlite.job_backend() as adapter,
+            other.job_backend() as twin,
+        ):
+            yield _Store(adapter, asyncio.sleep, REAL_TICK, twin)
         return
     backend = MemoryJobAdapter()
     clock = VirtualClock()
     async with clock, backend:
-        yield _Store(backend, clock.advance)
+        yield _Store(backend, clock.advance, twin=_memory_twin(backend))
+
+
+def _memory_twin(backend: MemoryJobAdapter) -> MemoryJobAdapter:
+    """Return another client to the jobs `backend` holds, as a replica's."""
+    twin = MemoryJobAdapter()
+    vars(twin).update(vars(backend))
+    return twin
 
 
 async def test_job_backend_submit_stores_a_queued_job(store: _Store) -> None:
@@ -1568,3 +1598,775 @@ async def test_job_backend_claim_empty_when_every_job_expired(
 
     # Assert
     assert claimed == []
+
+
+async def _list(
+    store: _Store,
+    owner: str = OWNER,
+    status: JobStatus | None = None,
+    limit: int = 25,
+    after: str | None = None,
+) -> Listed:
+    """List the jobs of `NAME` that `owner` owns."""
+    return await store.backend.list(
+        name=NAME, owner=owner, status=status, limit=limit, after=after
+    )
+
+
+def _ids(listed: Listed) -> list[str]:
+    """Return the ids a list returned, in its order."""
+    return [record.id for record in listed.records]
+
+
+async def test_job_backend_list_returns_the_newest_first(store: _Store) -> None:
+    """An owner's jobs list in reverse submission order, on one page."""
+    # Arrange
+    jobs = [await store.submit() for _ in range(3)]
+
+    # Act
+    listed = await _list(store)
+
+    # Assert
+    assert listed.records == list(reversed(jobs))
+    assert listed.next is None
+
+
+async def test_job_backend_list_with_no_job_is_empty(store: _Store) -> None:
+    """An owner with no job lists nothing, on a last page."""
+    # Act
+    listed = await _list(store)
+
+    # Assert
+    assert listed == Listed(records=[], next=None)
+
+
+async def test_job_backend_list_keeps_only_the_status_asked(
+    store: _Store,
+) -> None:
+    """`status` keeps the jobs in that status, and `None` keeps every one."""
+    # Arrange
+    ended = await _running(store)
+    await _settle(store, ended.id)
+    running = await _running(store)
+    queued = await store.submit()
+
+    # Act
+    only_running = await _list(store, status=JobStatus.RUNNING)
+    only_queued = await _list(store, status=JobStatus.QUEUED)
+    only_ended = await _list(store, status=JobStatus.SUCCEEDED)
+    none_failed = await _list(store, status=JobStatus.FAILED)
+    every = await _list(store)
+
+    # Assert
+    assert _ids(only_running) == [running.id]
+    assert _ids(only_queued) == [queued.id]
+    assert _ids(only_ended) == [ended.id]
+    assert none_failed == Listed(records=[], next=None)
+    assert _ids(every) == [queued.id, running.id, ended.id]
+
+
+@pytest.mark.parametrize("count", [5, 4], ids=["partial-last", "full-last"])
+async def test_job_backend_list_pages_until_next_is_none(
+    store: _Store, count: int
+) -> None:
+    """Each page holds at most `limit` jobs, and `next` leads to the rest."""
+    # Arrange
+    jobs = [await store.submit() for _ in range(count)]
+    newest_first = [job.id for job in reversed(jobs)]
+
+    # Act
+    pages: list[list[str]] = []
+    after: str | None = None
+    while True:
+        listed = await _list(store, limit=2, after=after)
+        pages.append(_ids(listed))
+        if listed.next is None:
+            break
+        after = listed.next
+
+    # Assert
+    assert [job_id for page in pages for job_id in page] == newest_first
+    assert all(len(page) == 2 for page in pages[:-1])  # noqa: PLR2004
+    assert len(pages) == (count + 1) // 2
+    assert pages[-1]
+
+
+async def test_job_backend_list_next_page_ignores_newer_jobs(
+    store: _Store,
+) -> None:
+    """A job submitted between two pages neither repeats nor skips one."""
+    # Arrange
+    jobs = [await store.submit() for _ in range(4)]
+    first = await _list(store, limit=2)
+
+    # Act
+    newer = await store.submit()
+    second = await _list(store, limit=2, after=first.next)
+    fresh = await _list(store, limit=1)
+
+    # Assert
+    assert _ids(first) == [jobs[3].id, jobs[2].id]
+    assert _ids(second) == [jobs[1].id, jobs[0].id]
+    assert second.next is None
+    assert _ids(fresh) == [newer.id]
+
+
+async def test_job_backend_list_shows_only_the_owner_s_jobs(
+    store: _Store,
+) -> None:
+    """Jobs of another owner, of no owner, or of another name never list."""
+    # Arrange
+    mine = await store.submit()
+    await store.submit(owner="bob")
+    await store.submit(owner=None)
+    await store.submit(owner="")
+    await store.submit(name="app:other")
+
+    # Act
+    listed = await _list(store)
+    bob = await _list(store, owner="bob")
+    empty = await _list(store, owner="")
+
+    # Assert
+    assert _ids(listed) == [mine.id]
+    assert len(bob.records) == 1
+    assert bob.records[0].id != mine.id
+    assert len(empty.records) == 1
+    assert empty.records[0].id not in {mine.id, bob.records[0].id}
+
+
+async def test_job_backend_list_skips_a_job_past_keep(store: _Store) -> None:
+    """A forgotten job is not listed, and a cursor naming it still pages on."""
+    # Arrange
+    oldest = await _running(store)
+    gone = await store.submit(start_as="r", keep=store.ticks(10))
+    newest = await _running(store)
+    first = await _list(store, limit=2)
+    assert _ids(first) == [newest.id, gone.id]
+    await _settle(store, gone.id)
+
+    # Act
+    await store.elapse(10 + MARGIN)
+    second = await _list(store, limit=2, after=first.next)
+    every = await _list(store)
+
+    # Assert
+    assert _ids(second) == [oldest.id]
+    assert second.next is None
+    assert _ids(every) == [newest.id, oldest.id]
+
+
+async def test_job_backend_list_skips_a_job_kept_for_zero(
+    store: _Store,
+) -> None:
+    """A job that ends with `keep` at zero is gone from the list at once."""
+    # Arrange
+    kept = await store.submit()
+    gone = await store.submit(start_as="r", keep=timedelta(0))
+    assert gone.status is JobStatus.QUEUED
+    await store.backend.cancel(name=NAME, job_id=gone.id, owner=OWNER)
+
+    # Act
+    listed = await _list(store)
+
+    # Assert
+    assert _ids(listed) == [kept.id]
+
+
+async def test_job_backend_list_shows_a_lapsed_job_as_failed(
+    store: _Store,
+) -> None:
+    """A job past its lease lists `failed`, as a read moves it."""
+    # Arrange
+    record = await _running(store)
+
+    # Act
+    await store.elapse(LEASE_TICKS + MARGIN)
+    listed = await _list(store)
+    running = await _list(store, status=JobStatus.RUNNING)
+
+    # Assert
+    [read] = listed.records
+    assert read.status is JobStatus.FAILED
+    assert read.error == JOB_LOST
+    assert read.version == record.version + 1
+    assert running.records == []
+    assert await _read(store, record.id) == read
+    assert await _settle(store, record.id) == Settled(
+        settled=False, error=JOB_LOST
+    )
+
+
+async def test_job_backend_list_shows_a_job_past_max_wait_as_failed(
+    store: _Store,
+) -> None:
+    """A queued job past its `max_wait` lists `failed`, out of the queue."""
+    # Arrange
+    record = await store.submit(max_wait=store.ticks(10))
+
+    # Act
+    await store.elapse(10 + MARGIN)
+    listed = await _list(store, status=JobStatus.FAILED)
+
+    # Assert
+    [read] = listed.records
+    assert read.id == record.id
+    assert read.error == JOB_NOT_STARTED
+    assert await _claim(store) == []
+
+
+async def test_job_backend_list_shows_a_job_past_max_run_as_failed(
+    store: _Store,
+) -> None:
+    """A running job past its `max_run` lists `failed`."""
+    # Arrange
+    record = await store.submit(
+        start_as="r", max_run=store.ticks(MAX_RUN_TICKS)
+    )
+
+    # Act
+    await store.elapse(MAX_RUN_TICKS + MARGIN)
+    listed = await _list(store)
+
+    # Assert
+    [read] = listed.records
+    assert read.id == record.id
+    assert read.status is JobStatus.FAILED
+    assert read.error == JOB_TIMED_OUT
+
+
+async def test_job_backend_list_with_a_lapsed_keep_zero_job_lists_nothing(
+    store: _Store,
+) -> None:
+    """A job a list ends with `keep` at zero is gone at once."""
+    # Arrange
+    await store.submit(start_as="r", keep=timedelta(0))
+
+    # Act
+    await store.elapse(LEASE_TICKS + MARGIN)
+    listed = await _list(store)
+
+    # Assert
+    assert listed == Listed(records=[], next=None)
+
+
+@pytest.mark.parametrize(
+    "after",
+    [
+        "",
+        "not a cursor",
+        "!!!!",
+        "LTE",
+        "MA",
+        "eA",
+        "MQ=",
+        "OTk5OTk5OTk5OTk5OTk5OTk5OQ",
+    ],
+    ids=[
+        "empty",
+        "spaces",
+        "symbols",
+        "negative",
+        "zero",
+        "letters",
+        "padded",
+        "past-the-largest-order",
+    ],
+)
+async def test_job_backend_list_refuses_a_cursor_it_cannot_read(
+    store: _Store, after: str
+) -> None:
+    """A cursor no list returned raises `ValueError`."""
+    # Act & Assert
+    with pytest.raises(ValueError, match="cursor"):
+        await _list(store, after=after)
+
+
+def _expected_pages(
+    matches: list[bool], ids: list[str], limit: int
+) -> list[list[str]]:
+    """Return the pages a list must return, scanning at most its bound.
+
+    `matches` and `ids` run newest first, one entry per job in the index.
+    """
+    bound = scan_limit(limit)
+    pages: list[list[str]] = []
+    position = 0
+    while True:
+        found: list[int] = []
+        scanned = 0
+        while position < len(ids) and scanned < bound and len(found) <= limit:
+            if matches[position]:
+                found.append(position)
+            scanned += 1
+            position += 1
+        if len(found) > limit:
+            pages.append([ids[index] for index in found[:limit]])
+            position = found[limit - 1] + 1
+        elif scanned == bound:
+            pages.append([ids[index] for index in found])
+        else:
+            pages.append([ids[index] for index in found])
+            return pages
+
+
+async def test_job_backend_list_with_a_sparse_filter_pages_in_bounded_steps(
+    store: _Store,
+) -> None:
+    """A sparse `status` gives short pages, and their cursors reach every job.
+
+    No page reads more than the store's bound of index entries, so a page can
+    hold fewer than `limit` jobs while more follow.
+    """
+    # Arrange
+    count, every, limit = 250, 60, 3
+    ids: list[str] = []
+    for index in range(count):
+        record = await store.submit()
+        if index % every == 0:
+            await store.backend.cancel(name=NAME, job_id=record.id, owner=OWNER)
+        ids.append(record.id)
+    newest_first = list(reversed(ids))
+    matches = [(count - 1 - index) % every == 0 for index in range(count)]
+    expected = _expected_pages(matches, newest_first, limit)
+
+    # Act
+    pages: list[list[str]] = []
+    after: str | None = None
+    while True:
+        listed = await _list(
+            store, status=JobStatus.CANCELLED, limit=limit, after=after
+        )
+        pages.append(_ids(listed))
+        if listed.next is None:
+            break
+        after = listed.next
+
+    # Assert
+    assert pages == expected
+    assert [job_id for page in pages for job_id in page] == [
+        job_id
+        for job_id, matched in zip(newest_first, matches, strict=True)
+        if matched
+    ]
+    assert any(len(page) < limit for page in pages[:-1])
+
+
+async def test_job_backend_list_never_reuses_an_order_after_a_purge(
+    store: _Store,
+) -> None:
+    """A job submitted after a page never shows on the next page.
+
+    That holds even once the newest jobs before it are forgotten.
+    """
+    # Arrange
+    jobs = [await store.submit(keep=timedelta(0)) for _ in range(4)]
+    first = await _list(store, limit=2)
+    assert _ids(first) == [jobs[3].id, jobs[2].id]
+    for job in jobs[1:]:
+        await store.backend.cancel(name=NAME, job_id=job.id, owner=OWNER)
+    await store.backend.purge(limit=100)
+
+    # Act
+    newer = await store.submit()
+    second = await _list(store, limit=2, after=first.next)
+
+    # Assert
+    assert _ids(second) == [jobs[0].id]
+    assert newer.id not in _ids(second)
+
+
+async def _ended(
+    store: _Store,
+    *,
+    status: EndStatus = JobStatus.SUCCEEDED,
+    **overrides: Any,  # noqa: ANN401
+) -> str:
+    """Store a job, end it in `status`, and return its id.
+
+    A `cancelled` job ends by a cancel while it is queued. Any other ends by
+    its runner's settle.
+    """
+    if status is JobStatus.CANCELLED:
+        queued = await store.submit(**overrides)
+        await store.backend.cancel(name=NAME, job_id=queued.id, owner=OWNER)
+        return queued.id
+    running = await store.submit(start_as="r", **overrides)
+    error = None if status is JobStatus.SUCCEEDED else "boom"
+    await _settle(store, running.id, status=status, error=error)
+    return running.id
+
+
+async def _kept(store: _Store, job_ids: list[str]) -> list[bool]:
+    """Return whether each job still reads back."""
+    return [
+        await store.backend.get(name=NAME, job_id=job_id, owner=OWNER)
+        is not None
+        for job_id in job_ids
+    ]
+
+
+async def test_job_backend_max_kept_succeeded_forgets_the_oldest(
+    store: _Store,
+) -> None:
+    """Past `max_kept_succeeded`, the run that succeeded first is forgotten."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_succeeded": 2}
+    first = await _ended(store, **caps)
+    second = await _ended(store, **caps)
+
+    # Act
+    third = await _ended(store, **caps)
+
+    # Assert
+    assert await _kept(store, [first, second, third]) == [False, True, True]
+
+
+async def test_job_backend_max_kept_failed_counts_failed_and_cancelled(
+    store: _Store,
+) -> None:
+    """`max_kept_failed` counts every end state but a success, as one."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_failed": 2}
+    failed = await _ended(store, status=JobStatus.FAILED, **caps)
+    running = await store.submit(start_as="r", **caps)
+    await _settle(store, running.id, status=JobStatus.CANCELLED)
+    cancelled_by_runner = running.id
+
+    # Act
+    cancelled = await _ended(store, status=JobStatus.CANCELLED, **caps)
+
+    # Assert
+    assert await _kept(store, [failed, cancelled_by_runner, cancelled]) == [
+        False,
+        True,
+        True,
+    ]
+
+
+async def _lists(store: _Store, _job_id: str) -> object:
+    """List the owner's jobs."""
+    return await _list(store)
+
+
+async def _reaps(store: _Store, _job_id: str) -> object:
+    """Reap overdue jobs of any name."""
+    return await store.backend.reap(limit=10)
+
+
+async def _claims(store: _Store, _job_id: str) -> object:
+    """Claim queued jobs of `NAME`."""
+    return await _claim(store)
+
+
+async def _gets(store: _Store, job_id: str) -> object:
+    """Read the job."""
+    return await store.backend.get(name=NAME, job_id=job_id, owner=OWNER)
+
+
+async def _beats(store: _Store, job_id: str) -> object:
+    """Beat the job as a runner that does not hold it."""
+    return await _beat(store, job_id, runner="r2")
+
+
+@pytest.mark.parametrize(
+    "move",
+    [
+        pytest.param(_gets, id="get"),
+        pytest.param(_lists, id="list"),
+        pytest.param(_reaps, id="reap"),
+        pytest.param(_claims, id="claim"),
+        pytest.param(_beats, id="beat"),
+    ],
+)
+async def test_job_backend_max_kept_applies_when_the_store_ends_a_job(
+    store: _Store, move: Callable[[_Store, str], Awaitable[object]]
+) -> None:
+    """A job the store ends itself, past `max_wait`, applies its cap too."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_failed": 1}
+    older = await _ended(store, status=JobStatus.FAILED, **caps)
+    late = await store.submit(max_wait=store.ticks(10), **caps)
+    await store.elapse(10 + MARGIN)
+
+    # Act
+    await move(store, late.id)
+
+    # Assert
+    assert await _kept(store, [older, late.id]) == [False, True]
+    assert (await _read(store, late.id)).error == JOB_NOT_STARTED
+
+
+@pytest.mark.parametrize("read", ["get", "cancel"])
+async def test_job_backend_max_kept_zero_read_that_ends_a_job_finds_nothing(
+    store: _Store, read: str
+) -> None:
+    """A read that ends a job whose kind keeps nothing reads it as gone."""
+    # Arrange
+    late = await store.submit(max_wait=store.ticks(10), max_kept_failed=0)
+    await store.elapse(10 + MARGIN)
+
+    # Act
+    found = await getattr(store.backend, read)(
+        name=NAME, job_id=late.id, owner=OWNER
+    )
+
+    # Assert
+    assert found is None
+
+
+async def test_job_backend_max_kept_caps_are_independent(store: _Store) -> None:
+    """Each cap counts its own kind of end only."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_succeeded": 1, "max_kept_failed": 1}
+    succeeded = await _ended(store, **caps)
+    failed = await _ended(store, status=JobStatus.FAILED, **caps)
+
+    # Act
+    newer = await _ended(store, **caps)
+
+    # Assert
+    assert await _kept(store, [succeeded, failed, newer]) == [
+        False,
+        True,
+        True,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("caps", "status"),
+    [
+        pytest.param(
+            {"max_kept_succeeded": 0}, JobStatus.SUCCEEDED, id="succeeded"
+        ),
+        pytest.param({"max_kept_failed": 0}, JobStatus.FAILED, id="failed"),
+        pytest.param(
+            {"max_kept_failed": 0}, JobStatus.CANCELLED, id="cancelled"
+        ),
+    ],
+)
+async def test_job_backend_max_kept_zero_keeps_nothing_of_its_kind(
+    store: _Store, caps: dict[str, int], status: EndStatus
+) -> None:
+    """A cap of zero forgets a run of its kind as it ends, not the others."""
+    # Arrange
+    other = (
+        JobStatus.FAILED
+        if status is JobStatus.SUCCEEDED
+        else JobStatus.SUCCEEDED
+    )
+
+    # Act
+    gone = await _ended(store, status=status, **caps)
+    kept = await _ended(store, status=other, **caps)
+
+    # Assert
+    assert await _kept(store, [gone, kept]) == [False, True]
+    assert gone not in _ids(await _list(store))
+
+
+async def test_job_backend_max_kept_none_caps_nothing(store: _Store) -> None:
+    """With no cap, every ended run stays while it is kept."""
+    # Arrange
+    ended = [await _ended(store) for _ in range(3)]
+    ended += [await _ended(store, status=JobStatus.FAILED) for _ in range(3)]
+
+    # Act
+    kept = await _kept(store, ended)
+
+    # Assert
+    assert kept == [True] * 6
+
+
+async def test_job_backend_max_kept_and_keep_both_apply(store: _Store) -> None:
+    """A run goes at whichever limit it reaches first: its cap or `keep`."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_succeeded": 2, "keep": store.ticks(60)}
+    ended = [await _ended(store, **caps) for _ in range(3)]
+
+    # Act
+    capped = await _kept(store, ended)
+    await store.elapse(60 + MARGIN)
+    expired = await _kept(store, ended)
+
+    # Assert
+    assert capped == [False, True, True]
+    assert expired == [False, False, False]
+
+
+async def test_job_backend_max_kept_never_hides_a_run_behind_a_shorter_keep(
+    store: _Store,
+) -> None:
+    """An older run counts toward the cap until its own `keep` passes.
+
+    A newer run with a shorter `keep`, as after a deploy that shortened it,
+    still forgets the older run past the cap.
+    """
+    # Arrange
+    older = await _ended(store, max_kept_succeeded=1, keep=None)
+    await store.elapse(20)
+
+    # Act
+    newer = await _ended(store, max_kept_succeeded=1, keep=store.ticks(10))
+
+    # Assert
+    assert await _kept(store, [older, newer]) == [False, True]
+
+
+async def test_job_backend_max_kept_skips_a_run_past_its_own_keep(
+    store: _Store,
+) -> None:
+    """A run gone by its own `keep` no longer counts, even before a purge.
+
+    An older run with a longer `keep` stays.
+    """
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_succeeded": 2}
+    long_kept = await _ended(store, keep=timedelta(days=1), **caps)
+    short_kept = await _ended(store, keep=store.ticks(20), **caps)
+    await store.elapse(20 + 2 * MARGIN)
+
+    # Act
+    newer = await _ended(store, keep=timedelta(days=1), **caps)
+
+    # Assert
+    assert await _kept(store, [long_kept, short_kept, newer]) == [
+        True,
+        False,
+        True,
+    ]
+
+
+async def test_job_backend_max_kept_still_applies_once_every_run_expired(
+    store: _Store,
+) -> None:
+    """The cap counts again from the runs that end after the last expired."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_succeeded": 1}
+    await _ended(store, keep=store.ticks(10), **caps)
+    await store.elapse(10 + 2 * MARGIN)
+    older = await _ended(store, **caps)
+
+    # Act
+    newer = await _ended(store, **caps)
+
+    # Assert
+    assert await _kept(store, [older, newer]) == [False, True]
+
+
+async def test_job_backend_max_kept_applies_after_runs_it_forgot_expire(
+    store: _Store,
+) -> None:
+    """A run the cap forgot, then past its `keep`, changes nothing later."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_succeeded": 1, "keep": store.ticks(10)}
+    first = await _ended(store, **caps)
+    second = await _ended(store, **caps)
+    await store.elapse(10 + 2 * MARGIN)
+
+    # Act
+    newer = await _ended(store, **caps)
+
+    # Assert
+    assert await _kept(store, [first, second, newer]) == [False, False, True]
+
+
+async def test_job_backend_max_kept_never_counts_a_run_without_a_cap(
+    store: _Store,
+) -> None:
+    """A cap counts only the runs submitted with a cap of that kind.
+
+    A run that ended with no cap stays, as before a deploy that adds one.
+    """
+    # Arrange
+    uncapped = await _ended(store)
+    older = await _ended(store, max_kept_succeeded=1)
+
+    # Act
+    newer = await _ended(store, max_kept_succeeded=1)
+
+    # Assert
+    assert await _kept(store, [uncapped, older, newer]) == [True, False, True]
+
+
+async def test_job_backend_max_kept_zero_forgets_the_runs_kept_before(
+    store: _Store,
+) -> None:
+    """An end with a cap of zero forgets the capped runs of its kind too."""
+    # Arrange
+    older = await _ended(store, max_kept_succeeded=5)
+
+    # Act
+    newer = await _ended(store, max_kept_succeeded=0)
+
+    # Assert
+    assert await _kept(store, [older, newer]) == [False, False]
+
+
+async def test_job_backend_max_kept_takes_the_largest_cap(
+    store: _Store,
+) -> None:
+    """A cap of `2**63 - 1` is stored and applied like any other."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_succeeded": 2**63 - 1}
+
+    # Act
+    ended = [await _ended(store, **caps) for _ in range(2)]
+
+    # Assert
+    assert await _kept(store, ended) == [True, True]
+
+
+async def test_job_backend_max_kept_forgotten_run_is_not_listed(
+    store: _Store,
+) -> None:
+    """A run the cap forgot leaves the list, and a cursor past it still pages."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_failed": 1}
+    queued = await store.submit(**caps)
+    forgotten = await _ended(store, status=JobStatus.CANCELLED, **caps)
+    first = await _list(store, limit=1)
+    assert _ids(first) == [forgotten]
+
+    # Act
+    newer = await _ended(store, status=JobStatus.CANCELLED, **caps)
+    second = await _list(store, limit=1, after=first.next)
+    listed = await _list(store)
+
+    # Assert
+    assert _ids(second) == [queued.id]
+    assert _ids(listed) == [newer, queued.id]
+
+
+async def test_job_backend_max_kept_holds_under_concurrent_ends(
+    store: _Store,
+) -> None:
+    """Ends on two replicas at once never leave more runs than the cap."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_succeeded": 3}
+    one, other = store.replicas
+    running = [
+        await store.submit(start_as=f"r{index % 2}", **caps)
+        for index in range(10)
+    ]
+
+    # Act
+    await asyncio.gather(
+        *(
+            (one if index % 2 == 0 else other).settle(
+                name=NAME,
+                job_id=record.id,
+                runner=f"r{index % 2}",
+                status=JobStatus.SUCCEEDED,
+                error=None,
+                result=None,
+                progress=None,
+            )
+            for index, record in enumerate(running)
+        )
+    )
+
+    # Assert
+    kept = await _kept(store, [record.id for record in running])
+    assert sum(kept) == 3  # noqa: PLR2004
+    assert len((await _list(store)).records) == 3  # noqa: PLR2004

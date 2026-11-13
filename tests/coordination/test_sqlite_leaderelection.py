@@ -18,6 +18,7 @@ from grelmicro.coordination.sqlite import SQLiteLeaderElectionAdapter
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task import Tasks
+from tests._future import DEFAULT_TABLE_NAMES
 from tests.task._helpers import cancel_group, start_task
 
 pytestmark = [pytest.mark.timeout(15)]
@@ -180,6 +181,7 @@ def test_scope_is_host() -> None:
     assert SQLiteLeaderElectionAdapter.scope == "host"
 
 
+@DEFAULT_TABLE_NAMES
 def test_coordination_on_sqlite_provider_serves_leader_election() -> None:
     """`Coordination(sqlite)` builds a SQLite leader election backend."""
     coordination = Coordination(SQLiteProvider(":memory:"))
@@ -485,6 +487,7 @@ async def test_failover_after_the_leader_stops_renewing(
     assert record.transitions == 1
 
 
+@DEFAULT_TABLE_NAMES
 async def test_leader_gated_task_runs_on_sqlite(tmp_path: Path) -> None:
     """The leader-gated task from a bare `SQLiteProvider` app runs."""
     POLLED.clear()

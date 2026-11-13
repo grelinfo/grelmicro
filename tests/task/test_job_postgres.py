@@ -18,6 +18,7 @@ from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.task import JobStatus
 from grelmicro.task._protocol import Beat, JobBackend
 from grelmicro.task.postgres import PostgresJobAdapter, _rows_affected
+from tests._future import DEFAULT_TABLE_NAMES
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
 
@@ -38,6 +39,8 @@ def _submit_args(job_id: str, **overrides: Any) -> dict[str, Any]:  # noqa: ANN4
         "max_wait": None,
         "max_run": None,
         "keep": timedelta(hours=1),
+        "max_kept_succeeded": None,
+        "max_kept_failed": None,
         "start_as": None,
         "lease": LEASE,
         **overrides,
@@ -88,6 +91,7 @@ def test_job_postgres_provider_factory_returns_the_adapter() -> None:
     assert PostgresJobAdapter.scope == "cluster"
 
 
+@DEFAULT_TABLE_NAMES
 def test_job_postgres_coordination_resolves_the_job_store() -> None:
     """A `Coordination` on a `PostgresProvider` holds its jobs there."""
     # Arrange
@@ -248,7 +252,11 @@ async def test_job_postgres_app_with_no_job_creates_no_table(
     """A Postgres `Coordination` with no job adds no job table."""
     # Arrange
     before = await _tables(provider)
-    micro = Grelmicro(uses=[Coordination(PostgresProvider(postgres_url))])
+    micro = Grelmicro(
+        uses=[
+            Coordination(PostgresProvider(postgres_url, table_names="legacy"))
+        ]
+    )
 
     # Act
     async with micro:

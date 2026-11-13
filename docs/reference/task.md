@@ -16,6 +16,7 @@
         - JobView
         - Progress
         - JobInfo
+        - JobPage
         - JobStatus
         - JobError
         - JobRefusedError

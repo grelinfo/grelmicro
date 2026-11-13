@@ -322,7 +322,9 @@ class TestSharedBackend:
         provider = SQLiteProvider(str(tmp_path / "cb.db"))
         async with (
             provider,
-            SQLiteCircuitBreakerAdapter(provider=provider) as backend,
+            SQLiteCircuitBreakerAdapter(
+                provider=provider, table_name="grelmicro_circuit_breaker"
+            ) as backend,
         ):
             await trip(make_breaker(backend=backend))
             idle = make_breaker(backend=backend)

@@ -9,8 +9,10 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._unset import DefaultTableName, warn_default_table_name
 from grelmicro.errors import SettingsValidationError
-from grelmicro.providers.sqlite import SQLiteProvider
+from grelmicro.providers._table_names import resolve_table_name
+from grelmicro.providers.sqlite import SQLiteProvider, _warn_split_tables
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -103,9 +105,13 @@ class SQLiteRateLimiterAdapter(RateLimiterBackend):
                 """
                 Table that stores rate-limit state. Auto-created on
                 first connect (set `auto_migrate=False` to opt out).
+                Defaults to `grelmicro_rate_limiter`, and to
+                `grelmicro_ratelimiter` from 0.46.0. Left at its default,
+                opening it warns
+                with `Grelmicro046Warning`.
                 """
             ),
-        ] = "grelmicro_rate_limiter",
+        ] = DefaultTableName("grelmicro_rate_limiter"),
         auto_migrate: Annotated[
             bool,
             Doc(
@@ -128,6 +134,7 @@ class SQLiteRateLimiterAdapter(RateLimiterBackend):
         else:
             self._provider = provider
             self._owns_provider = False
+        table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._prefix = prefix
         self._table_name = table_name
@@ -146,6 +153,9 @@ class SQLiteRateLimiterAdapter(RateLimiterBackend):
 
     async def __aenter__(self) -> Self:
         """Open the adapter and install the schema when `auto_migrate=True`."""
+        warn_default_table_name(
+            self._table_name, adapter="SQLiteRateLimiterAdapter"
+        )
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
@@ -155,6 +165,11 @@ class SQLiteRateLimiterAdapter(RateLimiterBackend):
             async with self._provider.connection_lock:
                 await self._provider.client.execute(
                     self._SQL_CREATE_TABLE.format(table_name=self._table_name)
+                )
+                await _warn_split_tables(
+                    self._provider.client,
+                    self._table_name,
+                    adapter="SQLiteRateLimiterAdapter",
                 )
         return self
 

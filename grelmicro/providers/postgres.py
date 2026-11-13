@@ -20,17 +20,27 @@ from pydantic_settings import (
 )
 from typing_extensions import Doc
 
-from grelmicro._config import refuse_link_shaped_port, settings_sources
+from grelmicro._config import (
+    any_case,
+    refuse_link_shaped_port,
+    settings_sources,
+)
 from grelmicro._redact import redact_url
+from grelmicro._unset import DefaultTableName
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
 from grelmicro.providers._sqlalchemy import EnginePool, validate_engine
+from grelmicro.providers._table_names import (
+    TableNames,
+    resolve_table_names,
+)
 from grelmicro.providers._url import validate_url
 from grelmicro.types import SecretUrl
 
 if TYPE_CHECKING:
     from types import TracebackType
 
+    from asyncpg import Connection
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from grelmicro.cache.postgres import PostgresCacheAdapter
@@ -70,6 +80,14 @@ class PostgresConfig(BaseModel):
     user: str | None = None
     password: SecretStr | None = None
     command_timeout: float | None = None
+    table_names: Annotated[
+        TableNames | None,
+        any_case(TableNames),
+        Doc(
+            "The default table names of the stores the provider builds, "
+            "`legacy` or `prefixed`. None keeps the current names and warns."
+        ),
+    ] = None
 
 
 class _PostgresEnvSettings(BaseSettings):
@@ -189,6 +207,22 @@ class PostgresProvider(Provider):
                 """,
             ),
         ] = None,
+        table_names: Annotated[
+            TableNames | None,
+            Doc(
+                """
+                The default table names of the stores this provider builds.
+                `legacy` keeps the current names, such as `locks`.
+                `prefixed` gives each the `grelmicro_` prefix, such as
+                `grelmicro_locks`. Either one silences the
+                `Grelmicro046Warning` a default table name gives. A
+                `table_name=` passed to a store wins. When omitted, it is
+                read from `{env_prefix}TABLE_NAMES`. If that is unset too,
+                stores keep the current names and warn. The default
+                becomes `prefixed` in 0.46.0.
+                """,
+            ),
+        ] = None,
         env_prefix: Annotated[
             str,
             Doc(
@@ -225,6 +259,9 @@ class PostgresProvider(Provider):
         self._command_timeout = _resolve_command_timeout(
             command_timeout, env_prefix=env_prefix, env_load=env_load
         )
+        self._table_names = resolve_table_names(
+            table_names, env_prefix=env_prefix, env_load=env_load
+        )
         self._pool: Pool | None = None
         self._engine: AsyncEngine | None = None
         self._own = True
@@ -257,6 +294,7 @@ class PostgresProvider(Provider):
                 config.password.get_secret_value() if config.password else None
             ),
             command_timeout=config.command_timeout,
+            table_names=config.table_names,
             env_prefix=env_prefix,
             env_load=False,
         )
@@ -279,6 +317,16 @@ class PostgresProvider(Provider):
                 """,
             ),
         ] = False,
+        table_names: Annotated[
+            TableNames | None,
+            Doc(
+                """
+                The default table names of the stores this provider builds,
+                `legacy` or `prefixed`. None keeps the current names and
+                warns. Never read from the environment here.
+                """
+            ),
+        ] = None,
     ) -> Self:
         """Build a provider that wraps an existing asyncpg pool.
 
@@ -290,6 +338,9 @@ class PostgresProvider(Provider):
         self._env_prefix = "POSTGRES_"
         self._url = ""
         self._command_timeout = None
+        self._table_names = resolve_table_names(
+            table_names, env_prefix="POSTGRES_", env_load=False
+        )
         self._pool = client
         self._engine = None
         self._own = own
@@ -315,6 +366,16 @@ class PostgresProvider(Provider):
                 """,
             ),
         ] = False,
+        table_names: Annotated[
+            TableNames | None,
+            Doc(
+                """
+                The default table names of the stores this provider builds,
+                `legacy` or `prefixed`. None keeps the current names and
+                warns. Never read from the environment here.
+                """
+            ),
+        ] = None,
     ) -> Self:
         """Build a provider that borrows a SQLAlchemy engine's pool.
 
@@ -348,6 +409,9 @@ class PostgresProvider(Provider):
         # credential would add a place for it to leak from and nothing else.
         self._url = _normalize_scheme(validated.url.render_as_string())
         self._command_timeout = None
+        self._table_names = resolve_table_names(
+            table_names, env_prefix="POSTGRES_", env_load=False
+        )
         self._pool = cast("Pool", EnginePool(validated))
         self._engine = validated
         self._own = own
@@ -399,6 +463,15 @@ class PostgresProvider(Provider):
         not read.
         """
         return self._command_timeout
+
+    @property
+    def table_names(self) -> TableNames | None:
+        """The default table names of the stores this provider builds.
+
+        None while it is left unset, so each store keeps its current default
+        table name and warns when it opens.
+        """
+        return self._table_names
 
     @property
     def client(self) -> Pool:
@@ -713,3 +786,70 @@ def _compose_url(
         port=port,
         path=database,
     ).unicode_string()
+
+
+_IDENTIFIER_MAX = 63
+"""The longest identifier Postgres keeps, in bytes. It cuts a longer one."""
+
+
+def _longest_table_name(*suffixes: str) -> int:
+    """Return the longest table name that keeps every `table + suffix` whole.
+
+    A table name is a SQL identifier, so each of its characters is one byte.
+    """
+    return _IDENTIFIER_MAX - max(len(suffix.encode()) for suffix in suffixes)
+
+
+def _warn_long_table_name(
+    value: str, *, adapter: str, argument: str, longest: int
+) -> None:
+    """Warn when `value` is longer than `longest`, at the first line outside grelmicro.
+
+    `adapter` is the call that took `value` as `argument`. A name within
+    `longest` warns nothing.
+    """
+    if len(value) <= longest:
+        return
+    from grelmicro._deprecation import long_table_name  # noqa: PLC0415
+
+    long_table_name(
+        value, adapter=adapter, argument=argument, longest=longest
+    ).warn(outside=True)
+
+
+_SQL_QUALIFIED_TABLE = """
+    (SELECT format('%I.%I', n.nspname, c.relname)
+     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.oid = to_regclass(${index}))
+"""
+"""The schema-qualified name of the table `$index` resolves to, or NULL."""
+
+_SQL_SPLIT_TABLES = (
+    f"SELECT {_SQL_QUALIFIED_TABLE.format(index=1)}, "
+    f"{_SQL_QUALIFIED_TABLE.format(index=2)};"
+)
+"""The schema-qualified names of the old and the new default table."""
+
+
+async def _warn_split_tables(
+    conn: Connection, table_name: str, *, adapter: str
+) -> None:
+    """Warn when `table_name` is a default and its 0.46.0 table exists too.
+
+    Run it on the connection of the setup transaction, after the table is
+    created. `adapter` is the class that took `table_name`. The warning names
+    both tables with their schema and reports the first line outside
+    grelmicro. A name passed in checks and warns nothing.
+    """
+    if not isinstance(table_name, DefaultTableName):
+        return
+    row = await conn.fetchrow(
+        _SQL_SPLIT_TABLES, str(table_name), table_name.becomes
+    )
+    if row is None or row[1] is None:
+        return
+    from grelmicro._deprecation import split_tables  # noqa: PLC0415
+
+    split_tables(
+        adapter=adapter, old=row[0] or str(table_name), new=row[1]
+    ).warn(outside=True)

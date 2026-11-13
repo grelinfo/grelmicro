@@ -449,7 +449,8 @@ worker thread.
 ### Owner
 
 `import_rows.for_owner(caller)` is the job as one caller sees it, with
-`submit`, `get` and `cancel`. Use it to keep each caller to their own jobs.
+`submit`, `get`, `cancel` and `list`. Use it to keep each caller to their own
+jobs.
 `get` and `cancel` return `None` for a job that does not exist, has expired, or
 belongs to another owner, so a caller cannot tell them apart. Answer `404` in
 all three cases.
@@ -468,6 +469,45 @@ never finds them.
     The id reaches your traces, on the run's span and in the URL of each poll.
     Use `for_owner` for any job a caller reaches, and keep `without_owner` for
     jobs whose id never reaches one.
+
+#### Reattach after a reload
+
+A page that reloads loses the ids of the jobs it started. `list` finds them
+again, from any replica. It returns a `JobPage` of the caller's jobs, newest
+first:
+
+```python title="fragment"
+page = await import_rows.for_owner(caller).list(status=JobStatus.RUNNING)
+for job in page.jobs:
+    print(job.id, job.done, job.total)
+```
+
+`status` keeps the jobs in one status, and `None` keeps them all. A page holds
+at most `limit` jobs: `25` by default, from `1` to `100`. When more jobs
+follow, `page.next` holds a cursor. Pass it as `after` to read the next page.
+Each call reads a bounded part of the caller's jobs, so with `status` a page can
+hold fewer jobs than `limit`, even none, while more follow. Read pages until
+`page.next` is `None`:
+
+```python title="fragment"
+view = import_rows.for_owner(caller)
+after = None
+while True:
+    page = await view.list(after=after)
+    for job in page.jobs:
+        print(job.id, job.status)
+    if page.next is None:
+        break
+    after = page.next
+```
+
+A job submitted after a page was read never shows on the pages after it, so no
+job repeats and none is skipped. A job past `keep` is gone, so `list` never
+shows it. A job whose replica died lists `failed`, as `get` shows it. A
+`JobPage` is a Pydantic model, so an endpoint returns it as is.
+
+`without_owner().list()` raises `TypeError`. Only its id protects a job with no
+owner, so such a job is never listed.
 
 ### Cancel
 
@@ -512,9 +552,33 @@ with a bare `return`.
 | `max_wait` | `86400` | How long a queued job may wait for a slot, in seconds or a `timedelta`. Past it, the job ends `failed`. `None` means no limit. |
 | `max_run` | `None` | How long a job may run, in seconds or a `timedelta`, counted from `started_at`. Past it, the job ends `failed` with the error `"Job not finished in time"`. `None` means no limit. |
 | `keep` | `86400` | How long a finished job stays readable, in seconds or a `timedelta`. `0` keeps nothing. `None` means no limit. |
+| `max_kept_succeeded` | `None` | Jobs of this function that succeeded and stay readable, counted in the store. Past it, the job that finished first is forgotten, and `get` returns `None` for it. `0` keeps nothing. `None` means no limit. |
+| `max_kept_failed` | `None` | Jobs of this function that ended `failed` or `cancelled` and stay readable, counted the same way. `0` keeps nothing. `None` means no limit. |
 
 With no limit, a flood of submits grows the store. If callers can flood you, set
 `max_queued` or put a [rate limit](http/rate-limit.md) on the route.
+
+A finished job is forgotten at whichever limit it reaches first: `keep` or the
+cap of its kind. Set both to bound the store in time and in size:
+
+```python title="fragment"
+@tasks.job(keep=3600, max_kept_succeeded=1000, max_kept_failed=100)
+async def import_rows(progress: Progress, upload_id: str) -> None: ...
+```
+
+`max_queued` bounds the jobs that wait. The two caps bound the jobs that
+finished. Queued and running jobs never count toward a cap.
+
+Each job keeps the caps it was submitted with, as it keeps its `keep`. A cap
+counts only the finished jobs submitted with a cap of that kind, so adding a
+cap in a deploy never removes the jobs that finished before it.
+
+!!! note "A cap counts every owner"
+    Each cap counts the finished jobs of the function, whoever owns them. A
+    caller who submits many jobs can push out the results of other callers
+    before their `keep` runs out, and their poll then answers `404`. Put a
+    [rate limit](http/rate-limit.md) on the route to keep one caller from
+    doing so.
 
 When the queue is full, or the service is shutting down, `submit` raises
 `JobRefusedError`. With [error responses](http/errors.md) installed, it answers

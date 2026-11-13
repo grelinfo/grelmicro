@@ -15,7 +15,11 @@ from grelmicro._duration import microseconds
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
-from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.postgres import (
+    PostgresProvider,
+    _longest_table_name,
+    _warn_long_table_name,
+)
 
 logger = getLogger("grelmicro")
 
@@ -31,6 +35,12 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.types import BackendScope
+
+
+_TABLE_NAME_MAX = _longest_table_name(
+    "_expires_at_idx", "_tags", "_tags_tag_idx"
+)
+"""The longest table name that keeps every name built from it whole."""
 
 
 class PostgresCacheAdapter(CacheBackend):
@@ -193,6 +203,12 @@ class PostgresCacheAdapter(CacheBackend):
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise SettingsValidationError(msg)
+        _warn_long_table_name(
+            table_name,
+            adapter="PostgresCacheAdapter",
+            argument="table_name",
+            longest=_TABLE_NAME_MAX,
+        )
 
         if cleanup_interval is not None and cleanup_interval <= 0:
             msg = "cleanup_interval must be positive"

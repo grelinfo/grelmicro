@@ -299,7 +299,7 @@ class Coordination:
                 setattr(self, f"_{slot.keyword}_backend", resolved)
 
         if lock is not None:
-            resolved_lock = cast(
+            resolved_lock = cast(  # ty: ignore[redundant-cast]
                 "Provider | LockBackend",
                 instantiate_if_class(lock),
             )
@@ -310,7 +310,7 @@ class Coordination:
             )
 
         if readwritelock is not None:
-            resolved_readwritelock = cast(
+            resolved_readwritelock = cast(  # ty: ignore[redundant-cast]
                 "Provider | ReadWriteLockBackend",
                 instantiate_if_class(readwritelock),
             )
@@ -321,7 +321,7 @@ class Coordination:
             )
 
         if leaderelection is not None:
-            resolved_leaderelection = cast(
+            resolved_leaderelection = cast(  # ty: ignore[redundant-cast]
                 "Provider | LeaderElectionBackend",
                 instantiate_if_class(leaderelection),
             )
@@ -332,7 +332,7 @@ class Coordination:
             )
 
         if schedule is not None:
-            resolved_schedule = cast(
+            resolved_schedule = cast(  # ty: ignore[redundant-cast]
                 "Provider | ScheduleBackend",
                 instantiate_if_class(schedule),
             )
@@ -343,7 +343,7 @@ class Coordination:
             )
 
         if job is not None:
-            resolved_job = cast(
+            resolved_job = cast(  # ty: ignore[redundant-cast]
                 "Provider | JobBackend", instantiate_if_class(job)
             )
             self._job_backend = (

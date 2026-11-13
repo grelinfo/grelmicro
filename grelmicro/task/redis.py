@@ -7,6 +7,7 @@ Redis server, timed by the server's own clock.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
@@ -16,6 +17,7 @@ from typing_extensions import Doc
 from grelmicro._duration import MICROSECOND, MILLISECOND, round_up
 from grelmicro.providers.redis import RedisProvider, kind_prefix
 from grelmicro.task._protocol import (
+    FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
     JOB_TIMED_OUT,
@@ -25,12 +27,17 @@ from grelmicro.task._protocol import (
     EndStatus,
     JobRecord,
     JobStatus,
+    Listed,
     ProgressUpdate,
     Settled,
     Submitted,
+    page_of,
+    read_cursor,
+    scan_limit,
 )
 
 if TYPE_CHECKING:
+    import builtins
     from collections.abc import Mapping, Sequence
     from types import TracebackType
 
@@ -41,6 +48,8 @@ _LUA_JOB = (
     local now_pair = redis.call('TIME')
     local now = tonumber(now_pair[1]) * 1000000 + tonumber(now_pair[2])
     local deadlines = KEYS[1]
+    local base = string.sub(deadlines, 1, #deadlines - #'deadlines')
+    local expiries = base .. 'expires'
     local JOB_LOST = """
     + json.dumps(JOB_LOST)
     + """
@@ -81,12 +90,87 @@ _LUA_JOB = (
         redis.call('ZREM', deadlines, id)
     end
 
-    local function retain(key)
-        local keep = redis.call('HGET', key, 'k')
-        if keep == '0' then
-            redis.call('DEL', key)
-        elseif keep then
+    local function owned_entry(own, id)
+        return #id .. ':' .. id .. own
+    end
+
+    local function ends_of(kept)
+        return base .. 'kept-ends:' .. string.sub(kept, #base + 6)
+    end
+
+    local function unindex(index, id)
+        redis.call('ZREM', index, id)
+        redis.call('ZREM', expiries, owned_entry(index, id))
+        if string.sub(index, 1, #base + 5) == base .. 'kept:' then
+            redis.call('ZREM', ends_of(index), id)
+        end
+    end
+
+    local function forget(key, id)
+        local job = redis.call('HMGET', key, 'ok', 'kk')
+        for _, index in ipairs({job[1], job[2]}) do
+            if index then
+                unindex(index, id)
+            end
+        end
+        redis.call('DEL', key)
+    end
+
+    local function trim(kept, cap)
+        local due = redis.call(
+            'ZRANGEBYSCORE', ends_of(kept), '-inf', us(math.floor(now / 1000))
+        )
+        for _, id in ipairs(due) do
+            unindex(kept, id)
+        end
+        while redis.call('ZCARD', kept) > cap do
+            local id = redis.call('ZRANGE', kept, 0, 0)[1]
+            local key = base .. 'id:' .. id
+            if redis.call('HGET', key, 'kk') == kept then
+                forget(key, id)
+            else
+                unindex(kept, id)
+            end
+        end
+    end
+
+    local function retain(key, id)
+        local job = redis.call('HMGET', key, 'k', 'ok', 's', 'n', 'ms', 'mf')
+        local keep, own = job[1], job[2]
+        local kind, cap = 'failed', job[6]
+        if job[3] == 'succeeded' then
+            kind, cap = 'succeeded', job[5]
+        end
+        local kept = false
+        if cap then
+            kept = base .. 'kept:' .. kind .. ':' .. job[4]
+        end
+        if keep == '0' or cap == '0' then
+            forget(key, id)
+            if kept then
+                trim(kept, 0)
+            end
+            return
+        end
+        if kept then
+            redis.call('HSET', key, 'kk', kept)
+        end
+        if keep then
             redis.call('PEXPIRE', key, keep)
+            local ends = us(math.floor(now / 1000) + tonumber(keep) + 1)
+            for _, index in ipairs({own or false, kept}) do
+                if index then
+                    redis.call('ZADD', expiries, ends, owned_entry(index, id))
+                end
+            end
+            if kept then
+                redis.call('ZADD', ends_of(kept), ends, id)
+            end
+        end
+        if kept then
+            local order = redis.call('INCR', base .. 'kept-order')
+            redis.call('ZADD', kept, order, id)
+            trim(kept, tonumber(cap))
         end
     end
 
@@ -109,7 +193,7 @@ _LUA_JOB = (
             return false
         end
         finish(key, id, 'failed', err, queue, waiting)
-        retain(key)
+        retain(key, id)
         return err
     end
 
@@ -147,6 +231,18 @@ _LUA_JOB = (
 `KEYS[1]` is always the store's deadline index. It scores a running job by
 the earlier of its lease end and its `max_run` end, and a queued one by its
 `max_wait` end. `catch_up` returns the error it ended a job with, or `false`.
+
+An owned job's `ok` field names its owner index. A job with a cap of its
+kind of end names its kept index in its `kk` field: the ended jobs of its
+name and kind, scored by end order. Its `kept-ends` twin scores the same
+members by when each expires in ms, by its own `keep`. `trim` first drops
+the members past their own `keep`, then, past the cap, forgets the oldest
+member whose job still names the index, and drops a member whose job is gone.
+A job that ends with a positive `keep` puts one entry per index it is in in
+the store's `expires` index, scored by when the job expires in ms, so `purge`
+takes the job out of each index then. `forget` removes a job with every
+entry that names it. The store's key prefix is `KEYS[1]` without its
+`deadlines` suffix.
 """
 
 
@@ -162,6 +258,10 @@ class RedisJobAdapter:
     Each job is one hash, keyed by its id. Each name has its queue, in
     submission order, and the queued jobs that have a `max_wait`. One index
     holds every deadline, so `reap` finds the overdue jobs of every name.
+    A job with a cap on its kind of end joins a sorted set of the ended jobs
+    of its name and kind, in end order, written only when that cap is set.
+    The move that ends it forgets the oldest past the cap, in the same
+    script, with every index entry that names them.
 
     On a Redis Cluster, every key of the store lands in one slot: under the
     hash tag a prefix carries, or under `{<prefix>job}:` when none does.
@@ -180,6 +280,7 @@ class RedisJobAdapter:
         _LUA_JOB
         + """
         local key, queue, waiting, order = KEYS[2], KEYS[3], KEYS[4], KEYS[5]
+        local own = KEYS[6]
         local id, name, has_owner, owner = ARGV[1], ARGV[2], ARGV[3], ARGV[4]
         local has_runner, runner = ARGV[10], ARGV[11]
         local stored = redis.call('HMGET', key, 'n', 'o')
@@ -206,14 +307,22 @@ class RedisJobAdapter:
             'HSET', key, 'n', name, 's', 'queued', 'v', 1, 'd', '0',
             'c', '0', 'ca', us(now), 'p', ARGV[5], 'x', ARGV[6]
         )
+        local seq = redis.call('INCR', order)
         if has_owner == '1' then
-            redis.call('HSET', key, 'o', owner)
+            redis.call('HSET', key, 'o', owner, 'ok', own)
+            redis.call('ZADD', own, seq, id)
         end
         if ARGV[9] ~= '' then
             redis.call('HSET', key, 'k', ARGV[9])
         end
         if ARGV[13] ~= '' then
             redis.call('HSET', key, 'mr', ARGV[13])
+        end
+        if ARGV[14] ~= '' then
+            redis.call('HSET', key, 'ms', ARGV[14])
+        end
+        if ARGV[15] ~= '' then
+            redis.call('HSET', key, 'mf', ARGV[15])
         end
         if start then
             redis.call('HSET', key, 'sas', '1')
@@ -227,16 +336,18 @@ class RedisJobAdapter:
             redis.call('ZADD', waiting, start_by, id)
             redis.call('ZADD', deadlines, start_by, id)
         end
-        redis.call('ZADD', queue, redis.call('INCR', order), id)
+        redis.call('ZADD', queue, seq, id)
         return {0, record(key)}
     """
     )
     """Store a job, or refuse it.
 
-    KEYS: deadlines, job, queue, waiting, order. ARGV: id, name, has owner,
+    KEYS: deadlines, job, queue, waiting, order, then the owner index with
+    an owner. ARGV: id, name, has owner,
     owner, payload, context, max queued (-1: no limit), max wait in us (-1: no
     limit), keep in ms ('': no limit), has runner, runner, lease in us, max
-    run in us ('': no limit).
+    run in us ('': no limit), max kept succeeded and max kept failed ('': no
+    limit).
     """
 
     _LUA_CLAIM = (
@@ -364,7 +475,7 @@ class RedisJobAdapter:
             err = ARGV[6]
         end
         finish(key, id, status, err, queue, waiting)
-        retain(key)
+        retain(key, id)
         return {1, ''}
     """
     )
@@ -411,7 +522,7 @@ class RedisJobAdapter:
             redis.call('HSET', key, 'c', '1')
             finish(key, id, 'cancelled', false, queue, waiting)
             local ended = record(key)
-            retain(key)
+            retain(key, id)
             return ended
         end
         if job[1] == 'running' and job[2] ~= '1' then
@@ -422,6 +533,83 @@ class RedisJobAdapter:
     """
     )
     """Ask the job to stop when the owner owns it, and return it."""
+
+    _LUA_LIST = (
+        _LUA_JOB
+        + """
+        local own, queue, waiting = KEYS[2], KEYS[3], KEYS[4]
+        local jobs, name, owner, status = ARGV[1], ARGV[2], ARGV[3], ARGV[4]
+        local limit, below = tonumber(ARGV[5]), '(' .. ARGV[6]
+        local bound, scanned, last = tonumber(ARGV[7]), 0, ''
+        local found = {}
+        while #found <= limit and scanned < bound do
+            local batch = redis.call(
+                'ZREVRANGEBYSCORE', own, below, '-inf', 'WITHSCORES',
+                'LIMIT', 0, math.min(limit + 1 - #found, bound - scanned)
+            )
+            if #batch == 0 then
+                break
+            end
+            for index = 1, #batch, 2 do
+                local id, seq = batch[index], batch[index + 1]
+                scanned, last = scanned + 1, seq
+                local key = jobs .. id
+                local stored = redis.call('HMGET', key, 'n', 'o', 'ok')
+                if stored[3] ~= own then
+                    redis.call('ZREM', own, id)
+                elseif stored[1] == name and stored[2] == owner then
+                    catch_up(key, id, queue, waiting)
+                    local now_status = redis.call('HGET', key, 's')
+                    if now_status and (status == '' or now_status == status) then
+                        found[#found + 1] = {seq, id, record(key)}
+                    end
+                end
+                below = '(' .. seq
+            end
+        end
+        if #found > limit or scanned < bound then
+            last = ''
+        end
+        return {last, found}
+    """
+    )
+    """List the owner's jobs, newest first, one more than the page holds.
+
+    It reads at most `bound` members. A member whose job is gone, or no
+    longer names this index, leaves it. KEYS: deadlines, owner index, queue,
+    waiting. ARGV: job key prefix, name, owner, status ('': every one), limit,
+    the order to list below, bound. The reply is the order of the last member
+    read when the bound stopped the walk ('': it did not), and the jobs.
+    """
+
+    _LUA_PURGE = (
+        _LUA_JOB
+        + """
+        local due = redis.call(
+            'ZRANGEBYSCORE', expiries, '-inf', us(math.floor(now / 1000)),
+            'LIMIT', 0, tonumber(ARGV[1])
+        )
+        local purged = 0
+        for _, entry in ipairs(due) do
+            redis.call('ZREM', expiries, entry)
+            local colon = string.find(entry, ':', 1, true)
+            local size = tonumber(string.sub(entry, 1, colon - 1))
+            local id = string.sub(entry, colon + 1, colon + size)
+            local index = string.sub(entry, colon + size + 1)
+            local job = redis.call('HMGET', base .. 'id:' .. id, 'ok', 'kk')
+            if job[1] ~= index and job[2] ~= index then
+                purged = purged + redis.call('ZREM', index, id)
+                unindex(index, id)
+            end
+        end
+        return purged
+    """
+    )
+    """Take expired jobs out of their owner and kept indexes, up to a limit.
+
+    A job with the same id that the same index holds since stays. KEYS:
+    deadlines. ARGV: limit. The reply is how many entries it took out.
+    """
 
     _LUA_REAP = (
         _LUA_JOB
@@ -525,6 +713,8 @@ class RedisJobAdapter:
         self._lua_get = client.register_script(self._LUA_GET)
         self._lua_cancel = client.register_script(self._LUA_CANCEL)
         self._lua_reap = client.register_script(self._LUA_REAP)
+        self._lua_list = client.register_script(self._LUA_LIST)
+        self._lua_purge = client.register_script(self._LUA_PURGE)
 
     def _rebind_provider(self, provider: RedisProvider) -> None:
         """Swap the underlying provider (used by `Grelmicro` for sharing)."""
@@ -549,7 +739,7 @@ class RedisJobAdapter:
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
-    def _keys(self, name: str, job_id: str) -> list[str]:
+    def _keys(self, name: str, job_id: str) -> builtins.list[str]:
         """Return the deadline, job, queue and waiting keys of one job."""
         return [
             f"{self._base}deadlines",
@@ -557,6 +747,15 @@ class RedisJobAdapter:
             f"{self._base}queue:{name}",
             f"{self._base}wait:{name}",
         ]
+
+    def _owned_key(self, name: str, owner: str) -> str:
+        """Return the key of the owner index of `name`.
+
+        The key holds a hash of the owner, never the owner itself. The job's
+        hash still stores the owner as a value, in its `o` field.
+        """
+        digest = hashlib.sha256(owner.encode(errors="surrogatepass"))
+        return f"{self._base}own:{name}:{digest.hexdigest()[:32]}"
 
     async def submit(  # noqa: PLR0913
         self,
@@ -570,12 +769,18 @@ class RedisJobAdapter:
         max_wait: timedelta | None,
         max_run: timedelta | None,
         keep: timedelta | None,
+        max_kept_succeeded: int | None,
+        max_kept_failed: int | None,
         start_as: str | None,
         lease: timedelta,
     ) -> Submitted:
         """Store a job, or refuse it."""
         reply = await self._lua_submit(
-            keys=[*self._keys(name, job_id), f"{self._base}order:{name}"],
+            keys=[
+                *self._keys(name, job_id),
+                f"{self._base}order:{name}",
+                *([] if owner is None else [self._owned_key(name, owner)]),
+            ],
             args=[
                 job_id,
                 name,
@@ -588,6 +793,8 @@ class RedisJobAdapter:
                 *_optional_arg(start_as),
                 round_up(lease, MICROSECOND),
                 "" if max_run is None else round_up(max_run, MICROSECOND),
+                "" if max_kept_succeeded is None else max_kept_succeeded,
+                "" if max_kept_failed is None else max_kept_failed,
             ],
             client=self._provider.client,
         )
@@ -602,7 +809,7 @@ class RedisJobAdapter:
         slots: Mapping[str, int],
         runner: str,
         lease: timedelta,
-    ) -> list[Claimed]:
+    ) -> builtins.list[Claimed]:
         """Claim queued jobs up to each name's slots, oldest first per name."""
         names = [name for name, free in slots.items() if free > 0]
         if not names:
@@ -635,12 +842,12 @@ class RedisJobAdapter:
         runner: str,
         beats: Sequence[Beat],
         lease: timedelta,
-    ) -> list[BeatReply]:
+    ) -> builtins.list[BeatReply]:
         """Extend each held job's lease, write its progress, read its flag."""
         if not beats:
             return []
         keys = [f"{self._base}deadlines"]
-        args: list[str | int] = [runner, round_up(lease, MICROSECOND)]
+        args: builtins.list[str | int] = [runner, round_up(lease, MICROSECOND)]
         for beat in beats:
             keys += self._keys(beat.name, beat.job_id)[1:]
             args += [beat.name, beat.job_id, *_progress_args(beat.progress)]
@@ -707,6 +914,44 @@ class RedisJobAdapter:
         )
         return None if fields is None else _record(job_id, fields)
 
+    async def list(
+        self,
+        *,
+        name: str,
+        owner: str,
+        status: JobStatus | None,
+        limit: int,
+        after: str | None,
+    ) -> Listed:
+        """Return the jobs of `name` that `owner` owns, newest submitted first.
+
+        One script walks the owner index from the newest, makes the move a
+        read makes on each job, and drops the members whose job is gone.
+        """
+        below = FIRST if after is None else read_cursor(after)
+        deadlines, _, queue, waiting = self._keys(name, "")
+        stopped, found = await self._lua_list(
+            keys=[deadlines, self._owned_key(name, owner), queue, waiting],
+            args=[
+                f"{self._base}id:",
+                name,
+                owner,
+                "" if status is None else status.value,
+                limit,
+                below,
+                scan_limit(limit),
+            ],
+            client=self._provider.client,
+        )
+        return page_of(
+            [
+                (int(_text(seq)), _record(_text(job_id), fields))
+                for seq, job_id, fields in found
+            ],
+            limit,
+            int(_text(stopped)) if stopped else None,
+        )
+
     async def reap(self, *, limit: int) -> int:
         """End jobs past a lease, `max_wait` or `max_run`, of any name."""
         return int(
@@ -717,13 +962,20 @@ class RedisJobAdapter:
             )
         )
 
-    async def purge(self, *, limit: int) -> int:  # noqa: ARG002
+    async def purge(self, *, limit: int) -> int:
         """Forget ended jobs past their retention, whatever their name.
 
-        Redis expires an ended job on its own once `keep` has passed, so this
-        returns `0`.
+        Redis expires an ended job on its own once `keep` has passed. This
+        takes up to `limit` such jobs out of their owner and kept indexes,
+        and returns how many index entries it took out.
         """
-        return 0
+        return int(
+            await self._lua_purge(
+                keys=[f"{self._base}deadlines"],
+                args=[limit],
+                client=self._provider.client,
+            )
+        )
 
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
