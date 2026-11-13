@@ -97,6 +97,13 @@ DEFAULT_TABLE_NAMES_FILTER = (
 """The warning filter that quiets the 0.46.0 default table name warning."""
 
 DEFAULT_TABLE_NAMES = pytest.mark.filterwarnings(DEFAULT_TABLE_NAMES_FILTER)
+"""Quiet the 0.46.0 default table name warning in one test.
+
+For a test of a bare provider, or a provider factory called with no
+arguments, which builds each adapter with its default table name, so the
+test has no `table_name=` to pass. Every other warning still fails the test.
+Remove it with the switch in 0.46.0.
+"""
 
 DEFAULT_TABLE_NAME_ADAPTERS = (
     "PostgresLockAdapter",
@@ -128,12 +135,3 @@ def default_table_names_options() -> list[str]:
             ),
         )
     ]
-
-
-"""Quiet the 0.46.0 default table name warning in one test.
-
-For a test of a bare provider, or a provider factory called with no
-arguments, which builds each adapter with its default table name, so the
-test has no `table_name=` to pass. Every other warning still fails the test.
-Remove it with the switch in 0.46.0.
-"""

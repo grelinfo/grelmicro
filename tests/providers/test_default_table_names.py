@@ -283,7 +283,7 @@ async def test_sqlite_opening_the_default_warns_once_at_the_caller(
         assert caught[0].category is Grelmicro046Warning
         assert caught[0].filename == __file__
         async with provider.client.execute(
-            "SELECT name FROM main.sqlite_schema WHERE name IN (?, ?);",
+            "SELECT name FROM main.sqlite_master WHERE name IN (?, ?);",
             (old, new),
         ) as cursor:
             assert [row[0] for row in await cursor.fetchall()] == [old]
@@ -485,7 +485,7 @@ async def test_a_provider_with_table_names_opens_quietly(
         # Assert
         assert caught == []
         async with provider.client.execute(
-            "SELECT name FROM main.sqlite_schema WHERE name IN (?, ?);",
+            "SELECT name FROM main.sqlite_master WHERE name IN (?, ?);",
             (old, new),
         ) as cursor:
             assert [row[0] for row in await cursor.fetchall()] == [

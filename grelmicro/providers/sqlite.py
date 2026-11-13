@@ -534,7 +534,7 @@ class SQLiteProvider(Provider):
 
 
 _SQL_TABLE_EXISTS = (
-    "SELECT 1 FROM main.sqlite_schema WHERE type = 'table' AND name = ?;"
+    "SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = ?;"
 )
 """One row when the main database holds a table of that name."""
 
