@@ -504,6 +504,9 @@ core = "ctrace"
 [tool.coverage.report]
 sort = "-Cover"
 skip_covered = true
+partial_also = [
+    "if not (_typing\\.)?TYPE_CHECKING:",
+]
 exclude_also = [
     "if (_typing\\.)?TYPE_CHECKING:",
     "if __name__ == .__main__.:",

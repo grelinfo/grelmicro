@@ -22,6 +22,7 @@
 * 🗑️ A Postgres table name too long for the names an adapter builds from it, such as its indexes and functions, warns with `Grelmicro046Warning` on the cache, outbox, rate limiter, circuit breaker, read-write lock and leader election adapters. Postgres cuts those names at 63 bytes, so one can be left out or replace another with no error. The warning names the longest table name the adapter takes. From 0.46.0 it raises `SettingsValidationError`. ([#1298](https://github.com/grelinfo/grelmicro/issues/1298))
 
 ### Fixed
+* 🐛 mypy and ty report an import of a name a grelmicro module does not have, such as `from grelmicro.cache import Lock`, instead of typing it as `object`. ([#1316](https://github.com/grelinfo/grelmicro/pull/1316))
 * 🐛 An app on a bare `RedisProvider` or `ValkeyProvider` with a cluster URL starts instead of raising. On Cluster, the cache, lock, read-write lock and job stores put their keys under a hash tag of their own, such as `{lock}:`, when no prefix carries one. A prefix with a tag keeps its keys as they are. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 
 ### Docs

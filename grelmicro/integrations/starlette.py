@@ -96,25 +96,27 @@ _LAZY: dict[str, str] = {
 """The submodule each public name loads from."""
 
 
-def __getattr__(name: str) -> object:
-    """Load `name` from its submodule and cache it on the module.
+if not TYPE_CHECKING:
 
-    A name the module served in 0.43 without listing it loads from its home
-    on each access and warns that it moves out in 0.45.0.
-    """
-    module = _LAZY.get(name)
-    if module is None:
-        if not name.startswith("_"):
-            from grelmicro._deprecation import STARLETTE_MOVED  # noqa: PLC0415
+    def __getattr__(name: str) -> object:
+        """Load `name` from its submodule and cache it on the module.
 
-            return STARLETTE_MOVED.load(name)
-        msg = f"module {__name__!r} has no attribute {name!r}"
-        raise AttributeError(msg)
-    import importlib  # noqa: PLC0415
+        A name the module served in 0.43 without listing it loads from its home
+        on each access and warns that it moves out in 0.45.0.
+        """
+        module = _LAZY.get(name)
+        if module is None:
+            if not name.startswith("_"):
+                from grelmicro._deprecation import STARLETTE_MOVED  # noqa: PLC0415
 
-    value = getattr(importlib.import_module(module), name)
-    globals()[name] = value
-    return value
+                return STARLETTE_MOVED.load(name)
+            msg = f"module {__name__!r} has no attribute {name!r}"
+            raise AttributeError(msg)
+        import importlib  # noqa: PLC0415
+
+        value = getattr(importlib.import_module(module), name)
+        globals()[name] = value
+        return value
 
 
 def __dir__() -> list[str]:
