@@ -33,7 +33,7 @@
 - [Leader Election](https://grelmicro.grel.info/coordination/leader-election/): elect one worker for a long-lived role.
 - [Outbox](https://grelmicro.grel.info/outbox/): a transactional outbox that delivers after your transaction commits.
 - [Outbox producer](https://grelmicro.grel.info/outbox/producer/): `publish` inside your own transaction.
-- [Outbox consumer](https://grelmicro.grel.info/outbox/consumer/): handlers, retry control, and dead-lettering.
+- [Outbox consumer](https://grelmicro.grel.info/outbox/consumer/): handlers, routers that split them across modules, retry control, and dead-lettering.
 - [Outbox relay](https://grelmicro.grel.info/outbox/relay/): scaling, retention, observability, and every field.
 - [Outbox schema](https://grelmicro.grel.info/outbox/schema/): the table layout and Alembic.
 - [Task Scheduler](https://grelmicro.grel.info/task/): interval and cron tasks on every worker, or on one with `gate="claim"` or a leader election.

@@ -15,6 +15,7 @@
 * ✨ `@tasks.job(max_kept_succeeded=..., max_kept_failed=...)` caps how many finished jobs of a function stay readable. Past a cap, the job that finished first is forgotten. ([#1235](https://github.com/grelinfo/grelmicro/issues/1235))
 * ✨ A job keeps running through a store outage shorter than 30 seconds. ([#1284](https://github.com/grelinfo/grelmicro/pull/1284))
 * ✨ `RedisProvider(prefix=...)` and `ValkeyProvider(prefix=...)` put one namespace before the keys of every store they build. The lock, read-write lock, cache and job stores add their kind after it, such as `myapp:lock:`. The default is empty, so no key changes. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
+* ✨ An `OutboxRouter` declares outbox handlers in a feature module and needs no provider. Include it with `Outbox(..., routers=[...])` or `outbox.include_router(router)`. ([#1311](https://github.com/grelinfo/grelmicro/issues/1311))
 
 ### Deprecated
 * 🗑️ A misspelled `requires=` value, such as `requires="clustr"`, warns with `Grelmicro046Warning` on every component and on `@tasks.job`. The warning names the value. The backend scope check passes over it until 0.46.0, then it raises `SettingsValidationError`. Pass `"process"`, `"host"` or `"cluster"`. ([#1286](https://github.com/grelinfo/grelmicro/issues/1286))

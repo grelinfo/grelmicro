@@ -33,3 +33,11 @@ class HandlerNotFoundError(OutboxError, LookupError):
 
 class HandlerAlreadyRegisteredError(OutboxError, ValueError):
     """Raised when a topic is registered twice."""
+
+
+class OutboxRouterError(OutboxError, ValueError):
+    """Raised when a router cannot be included.
+
+    A router is never included in itself or in a router it includes. An
+    `Outbox` is the root of its routers and is never included.
+    """

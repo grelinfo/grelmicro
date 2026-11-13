@@ -7,7 +7,7 @@ The `outbox` module runs an async handler exactly after your database transactio
 This is the transactional outbox pattern. It removes the dual-write problem: the moment you write to the database and "also send an email" as two separate steps, a crash between them either loses the email or sends it for a change that never committed. Staging the message in the same transaction makes that impossible.
 
 - **[publish](producer.md)**: stage a message inside your own transaction, so the business row and the message commit together or not at all.
-- **[@handler](consumer.md)**: register an async function that the relay runs for each staged message.
+- **[@handler](consumer.md)**: register an async function that the relay runs for each staged message. Declare it on the outbox or on an `OutboxRouter` in a feature module.
 - **[relay](relay.md)**: a background worker, started with the app, that delivers staged messages with retries and dead-lettering.
 
 ## Quick start
