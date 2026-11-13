@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from grelmicro._wrapping import named
 from grelmicro.outbox._codec import decode_payload
 from grelmicro.outbox._message import Message
 from grelmicro.outbox.errors import (
@@ -52,26 +53,19 @@ class OutboxRegistry:
             HandlerAlreadyRegisteredError: If a topic is already taken, or
                 two entries share one.
         """
-        held = dict(self._handlers)
+        new: dict[str, HandlerEntry] = {}
         for entry in entries:
-            existing = held.get(entry.topic)
+            existing = self._handlers.get(entry.topic) or new.get(entry.topic)
             if existing is not None:
                 msg = (
                     f"Topic {entry.topic!r} already has the handler "
-                    f"{_name(existing.fn)}, so {_name(entry.fn)} is refused"
+                    f"{named(existing.fn)}, so {named(entry.fn)} is refused"
                 )
                 raise HandlerAlreadyRegisteredError(msg)
-            held[entry.topic] = entry
+            new[entry.topic] = entry
 
     def add(self, entries: Iterable[HandlerEntry]) -> None:
-        """Register every entry for its topic, or none of them.
-
-        Raises:
-            HandlerAlreadyRegisteredError: If a topic is already taken, or
-                two entries share one.
-        """
-        entries = list(entries)
-        self.check(entries)
+        """Register every entry for its topic, once `check` passed for them."""
         self._handlers.update((entry.topic, entry) for entry in entries)
 
     def topics(self) -> list[str]:
@@ -107,10 +101,3 @@ class OutboxRegistry:
             headers=record.headers,
             attempts=record.attempts,
         )
-
-
-def _name(fn: object) -> str:
-    """Return the dotted name of a handler function."""
-    module = getattr(fn, "__module__", None)
-    qualname = getattr(fn, "__qualname__", repr(fn))
-    return f"{module}.{qualname}" if module else qualname

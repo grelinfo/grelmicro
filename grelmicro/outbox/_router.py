@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import weakref
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -12,10 +13,15 @@ from grelmicro.outbox._registry import HandlerEntry, derive_topic
 from grelmicro.outbox.errors import OutboxRouterError
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterator
+    from collections.abc import Awaitable, Callable, Iterable, Iterator
 
     from grelmicro.outbox._message import Message
     from grelmicro.outbox._registry import OutboxRegistry
+
+
+_WIRING = threading.Lock()
+"""Held while a router's handlers or included routers change, so threads
+building apps from the same module-level router never see half a change."""
 
 
 class OutboxRouter:
@@ -46,7 +52,7 @@ class OutboxRouter:
         self,
         *,
         routers: Annotated[
-            list[OutboxRouter] | None,
+            Iterable[OutboxRouter] | None,
             Doc(
                 "Routers to include, the same as `include_router` for each. "
                 "A refused list includes none of them."
@@ -93,8 +99,12 @@ class OutboxRouter:
                 fn,
                 target if isinstance(target, type) else None,
             )
-            _add_to_all([registry for _, registry in self._roots()], [entry])
-            self._handlers.append(entry)
+            with _WIRING:
+                _add_to_all(
+                    [registry for _, registry in self._roots()], [entry]
+                )
+                if self._owned_registry() is None:
+                    self._handlers.append(entry)
             mark_registered(fn, Registered.OUTBOX_HANDLER, self)
             return fn
 
@@ -111,17 +121,28 @@ class OutboxRouter:
 
         Raises:
             OutboxRouterError: If `router` is an `Outbox`, is this router
-                or one that includes it, or is already in an `Outbox` this
-                router is included in.
+                or one that includes it, is already included in this router,
+                or is already in an `Outbox` this router is included in.
             HandlerAlreadyRegisteredError: If a topic of `router` is
                 already taken in an `Outbox` this router is included in.
                 Nothing of `router` is included then.
         """
         self._include([router])
 
-    def _include(self, routers: list[OutboxRouter]) -> None:
+    def _include(self, routers: Iterable[OutboxRouter]) -> None:
         """Include every router in `routers`, or none of them."""
+        listed = list(routers)
+        with _WIRING:
+            self._include_locked(listed)
+
+    def _include_locked(self, routers: list[OutboxRouter]) -> None:
+        """Include every router in `routers`, or none of them, under the lock."""
+        included = {id(router) for router in self._routers}
         for router in routers:
+            if id(router) in included:
+                msg = "This router is already included in this router"
+                raise OutboxRouterError(msg)
+            included.add(id(router))
             if router._owned_registry() is not None:  # noqa: SLF001
                 msg = (
                     "An Outbox is the root of its routers and is never included"

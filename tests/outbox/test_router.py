@@ -216,6 +216,54 @@ def test_discarded_outbox_is_freed_by_its_router() -> None:
     assert ref() is None
 
 
+def test_routers_from_a_generator_are_all_included() -> None:
+    """A routers= generator includes every router it yields."""
+    outbox = Outbox(
+        MemoryOutboxAdapter(),
+        routers=(_router_for(topic) for topic in ("a", "b")),
+    )
+
+    with pytest.raises(HandlerAlreadyRegisteredError):
+        outbox.include_router(_router_for("b"))
+
+
+def test_detached_router_including_a_router_twice_raises() -> None:
+    """A router refuses a router it already includes, before any outbox."""
+    child = OutboxRouter()
+    parent = OutboxRouter(routers=[child])
+
+    with pytest.raises(OutboxRouterError, match="already included"):
+        parent.include_router(child)
+
+
+def test_routers_list_with_a_router_twice_raises() -> None:
+    """A routers= list that names one router twice is refused."""
+    child = OutboxRouter()
+
+    with pytest.raises(OutboxRouterError, match="already included"):
+        OutboxRouter(routers=[child, child])
+
+
+def test_duplicate_topic_names_an_unnameable_handler() -> None:
+    """A handler whose name cannot be read still gets the duplicate error."""
+
+    class Unnameable:
+        async def __call__(self, message: Message[object]) -> None: ...
+
+        def __getattribute__(self, name: str) -> object:
+            if name in {"__qualname__", "__module__"}:
+                raise RuntimeError(name)
+            return super().__getattribute__(name)
+
+    outbox = Outbox(MemoryOutboxAdapter())
+
+    @outbox.handler("job")
+    async def first_handler(message: Message[object]) -> None: ...
+
+    with pytest.raises(HandlerAlreadyRegisteredError, match="first_handler"):
+        outbox.handler("job")(Unnameable())
+
+
 def test_duplicate_topic_names_both_handlers() -> None:
     """The duplicate-topic error names the held handler and the refused one."""
     outbox = Outbox(MemoryOutboxAdapter())

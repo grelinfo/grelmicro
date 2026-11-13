@@ -27,7 +27,7 @@ from grelmicro.providers._base import Provider
 from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
     from types import TracebackType
 
 
@@ -124,7 +124,7 @@ class Outbox(OutboxRouter):
             ),
         ] = None,
         routers: Annotated[
-            list[OutboxRouter] | None,
+            Iterable[OutboxRouter] | None,
             Doc("Routers to include, the same as `include_router` for each."),
         ] = None,
         name: Annotated[str, Doc("Registration name.")] = "default",
@@ -225,7 +225,7 @@ class Outbox(OutboxRouter):
         config: OutboxConfig,
         *,
         requires: BackendScope | None,
-        routers: list[OutboxRouter] | None,
+        routers: Iterable[OutboxRouter] | None,
         name: str,
         shutdown_timeout: float,
     ) -> None:
@@ -276,7 +276,7 @@ class Outbox(OutboxRouter):
             Doc("The smallest backend scope this component accepts."),
         ] = None,
         routers: Annotated[
-            list[OutboxRouter] | None,
+            Iterable[OutboxRouter] | None,
             Doc("Routers to include, the same as `include_router` for each."),
         ] = None,
         name: Annotated[str, Doc("Registration name.")] = "default",
