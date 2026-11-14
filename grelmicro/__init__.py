@@ -3,6 +3,11 @@
 import typing as _typing
 
 if _typing.TYPE_CHECKING:
+    from grelmicro import config as config
+    from grelmicro import errors as errors
+    from grelmicro import health as health
+    from grelmicro import providers as providers
+    from grelmicro import types as types
     from grelmicro._app import (
         AmbientBindingError,
         AmbiguousBackendError,
@@ -139,21 +144,23 @@ _SUBMODULES = frozenset({"config", "errors", "health", "providers", "types"})
 """The submodules `grelmicro.<name>` reaches without importing them first."""
 
 
-def __getattr__(name: str) -> object:
-    """Load `name` from its submodule."""
-    module = _LAZY.get(name)
-    if module is not None:
-        import importlib  # noqa: PLC0415
+if not _typing.TYPE_CHECKING:
 
-        value = getattr(importlib.import_module(module), name)
-        globals()[name] = value
-        return value
-    if name in _SUBMODULES:
-        import importlib  # noqa: PLC0415
+    def __getattr__(name: str) -> object:
+        """Load `name` from its submodule."""
+        module = _LAZY.get(name)
+        if module is not None:
+            import importlib  # noqa: PLC0415
 
-        return importlib.import_module(f"{__name__}.{name}")
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
+            value = getattr(importlib.import_module(module), name)
+            globals()[name] = value
+            return value
+        if name in _SUBMODULES:
+            import importlib  # noqa: PLC0415
+
+            return importlib.import_module(f"{__name__}.{name}")
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
 
 
 def __dir__() -> list[str]:

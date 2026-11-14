@@ -31,6 +31,7 @@
 * 🗑️ A Postgres or SQLite lock, read-write lock, schedule, rate limiter or circuit breaker adapter left at its default table name warns with `Grelmicro046Warning` when it opens. From 0.46.0 each default takes the `grelmicro_` prefix, such as `grelmicro_locks`. Set `table_names="legacy"` on `PostgresProvider` or `SQLiteProvider` to keep the current names, or `"prefixed"` to adopt the new ones now. ([#1152](https://github.com/grelinfo/grelmicro/issues/1152))
 
 ### Fixed
+* 🐛 mypy and ty report an import of a name a grelmicro module does not have, such as `from grelmicro.cache import Lock`, instead of typing it as `object`. ([#1316](https://github.com/grelinfo/grelmicro/pull/1316))
 * 🐛 An app on a bare `RedisProvider` or `ValkeyProvider` with a cluster URL starts instead of raising. On Cluster, the cache, lock, read-write lock and job stores put their keys under a hash tag of their own, such as `{lock}:`, when no prefix carries one. A prefix with a tag keeps its keys as they are. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 
 ### Docs

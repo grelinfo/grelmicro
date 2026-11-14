@@ -68,18 +68,20 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> object:
-    """PEP 562 lazy loader for the discriminated-union alias, cached once built."""
-    if name == "RateLimiterConfig":
-        from pydantic import Discriminator  # noqa: PLC0415
+if not TYPE_CHECKING:
 
-        value = Annotated[
-            TokenBucketConfig | SlidingWindowConfig, Discriminator("kind")
-        ]
-        globals()[name] = value
-        return value
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
+    def __getattr__(name: str) -> object:
+        """PEP 562 lazy loader for the discriminated-union alias, cached once built."""
+        if name == "RateLimiterConfig":
+            from pydantic import Discriminator  # noqa: PLC0415
+
+            value = Annotated[
+                TokenBucketConfig | SlidingWindowConfig, Discriminator("kind")
+            ]
+            globals()[name] = value
+            return value
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
 
 
 logger = logging.getLogger(__name__)
