@@ -2,6 +2,7 @@
 
 import asyncio
 import secrets
+import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from dataclasses import dataclass
 from datetime import timedelta
@@ -185,13 +186,22 @@ async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
         path = request.getfixturevalue("tmp_path") / "jobs.db"
         sqlite = SQLiteProvider(path)
         other = SQLiteProvider(path)
+        clock = VirtualClock()
+        started = round(time.time() * 1000)
+
+        async def _now(_conn: object) -> int:
+            return started + round(clock.monotonic() * 1000)
+
+        request.getfixturevalue("monkeypatch").setattr(
+            "grelmicro.task.sqlite._now", _now
+        )
         async with (
             sqlite,
             other,
             sqlite.job_backend() as adapter,
             other.job_backend() as twin,
         ):
-            yield _Store(adapter, asyncio.sleep, REAL_TICK, twin)
+            yield _Store(adapter, clock.advance, twin=twin)
         return
     backend = MemoryJobAdapter()
     clock = VirtualClock()
