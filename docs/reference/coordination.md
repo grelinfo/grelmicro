@@ -20,6 +20,7 @@
         - LeaderElectionBackend
         - LockBackend
         - ReadWriteLockBackend
+        - JobBackend
         - ReadWriteLockState
         - WriteGrant
         - LeaderRecord

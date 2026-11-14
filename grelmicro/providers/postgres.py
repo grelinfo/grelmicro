@@ -60,6 +60,12 @@ if TYPE_CHECKING:
     from grelmicro.task.postgres import PostgresJobAdapter
 
 
+__all__ = [
+    "PostgresConfig",
+    "PostgresProvider",
+]
+
+
 class PostgresConfig(BaseModel):
     """Postgres connection settings.
 

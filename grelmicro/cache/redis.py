@@ -18,6 +18,11 @@ if TYPE_CHECKING:
 
     from grelmicro.types import BackendScope
 
+__all__ = [
+    "RedisCacheAdapter",
+]
+
+
 _CLEAR_BATCH_SIZE = 1000
 _TAG_SCAN_BATCH_SIZE = 500
 

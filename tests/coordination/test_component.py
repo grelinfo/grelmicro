@@ -438,3 +438,12 @@ async def test_aexit_closes_both_when_lock_close_raises() -> None:
     with pytest.raises(RuntimeError, match="lock close failed"):
         await coordination.__aexit__(None, None, None)
     assert _TrackingElection.closed is True
+
+
+def test_coordination_exports_the_job_backend_protocol() -> None:
+    """`JobBackend` imports from `grelmicro.coordination` beside its siblings."""
+    from grelmicro import coordination  # noqa: PLC0415
+    from grelmicro.task._protocol import JobBackend  # noqa: PLC0415
+
+    assert "JobBackend" in coordination.__all__
+    assert coordination.JobBackend is JobBackend

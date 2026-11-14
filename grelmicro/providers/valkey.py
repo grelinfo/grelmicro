@@ -42,6 +42,12 @@ if TYPE_CHECKING:
     from grelmicro.task.redis import RedisJobAdapter
 
 
+__all__ = [
+    "ValkeyConfig",
+    "ValkeyProvider",
+]
+
+
 ValkeyAnyDsn = Annotated[
     MultiHostUrl,
     UrlConstraints(

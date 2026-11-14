@@ -39,6 +39,12 @@ if TYPE_CHECKING:
     from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
     from grelmicro.task.sqlite import SQLiteJobAdapter
 
+__all__ = [
+    "SQLiteConfig",
+    "SQLiteProvider",
+]
+
+
 logger = getLogger("grelmicro.providers")
 
 _BUSY_TIMEOUT_MS = 5000

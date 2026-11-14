@@ -108,6 +108,21 @@
       "()": "(cache=None, *, ttl=None, maxsize=0, key=None, key_template=None, skip=None, typed=False, lock='process', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
     }
   },
+  "grelmicro.cache.memory": {
+    "MemoryCacheAdapter": {
+      "()": "() -> None"
+    }
+  },
+  "grelmicro.cache.postgres": {
+    "PostgresCacheAdapter": {
+      "()": "(*, provider=None, env_prefix='POSTGRES_', prefix='', table_name='grelmicro_cache', auto_migrate=True, cleanup_interval=None) -> 'None'"
+    }
+  },
+  "grelmicro.cache.redis": {
+    "RedisCacheAdapter": {
+      "()": "(*, provider=None, env_prefix='REDIS_', prefix='') -> 'None'"
+    }
+  },
   "grelmicro.clock": {
     "ClockBackend": {
       "()": "(*args, **kwargs)"
@@ -142,6 +157,9 @@
     },
     "CoordinationBackendError": null,
     "CoordinationError": null,
+    "JobBackend": {
+      "()": "(*args, **kwargs)"
+    },
     "LeaderElection": {
       "()": "(name, *, backend=None, worker=None, lease_duration=None, renew_deadline=None, retry_interval=None, retry_jitter=None, backend_timeout=None, error_interval=None, env_prefix=None, env_load=None, metadata=None) -> None",
       ".from_config": "(name, config, *, backend=None, metadata=None) -> Self"
@@ -615,6 +633,14 @@
       "()": "(config=None, *, env_load=None) -> Handler"
     }
   },
+  "grelmicro.log.uvicorn": {
+    "UvicornAccessFormatter": {
+      "()": "(config=None, *, use_colors=None, env_load=None) -> 'None'"
+    },
+    "UvicornFormatter": {
+      "()": "(config=None, *, use_colors=None, env_load=None) -> 'None'"
+    }
+  },
   "grelmicro.metrics": {
     "Metrics": {
       "()": "(*, name='default', service_name=None, exporter=None, endpoint=None, headers=None, basic_auth=None, export_interval=None, export_timeout=None, resource_attributes=None, shutdown_timeout=None, env_load=None) -> 'None'",
@@ -669,6 +695,56 @@
   "grelmicro.providers": {
     "Provider": {
       "()": "()"
+    }
+  },
+  "grelmicro.providers.memory": {
+    "MemoryProvider": {
+      "()": "() -> 'None'"
+    }
+  },
+  "grelmicro.providers.postgres": {
+    "PostgresConfig": {
+      "()": "(*, url=None, host=None, port=5432, database=None, user=None, password=None, command_timeout=None, table_names=None) -> None"
+    },
+    "PostgresProvider": {
+      "()": "(url=None, *, host=None, port=None, database=None, user=None, password=None, command_timeout=None, table_names=None, env_prefix='POSTGRES_', env_load=True) -> 'None'",
+      ".from_client": "(client, *, own=False, table_names=None) -> 'Self'",
+      ".from_config": "(config, *, env_prefix='POSTGRES_') -> 'Self'",
+      ".from_engine": "(engine, *, own=False, table_names=None) -> 'Self'"
+    }
+  },
+  "grelmicro.providers.redis": {
+    "RedisConfig": {
+      "()": "(*, url=None, host=None, port=6379, db=0, password=None, sentinel_password=None, prefix='') -> None"
+    },
+    "RedisProvider": {
+      "()": "(url=None, *, host=None, port=None, db=None, password=None, sentinel_password=None, prefix='', env_prefix='REDIS_', env_load=True) -> 'None'",
+      ".cluster": "(*, nodes, password=None, prefix='', env_prefix='REDIS_') -> 'Self'",
+      ".from_client": "(client, *, own=False, prefix='') -> 'Self'",
+      ".from_config": "(config, *, env_prefix='REDIS_') -> 'Self'",
+      ".sentinel": "(*, sentinels, service_name, db=0, password=None, sentinel_kwargs=None, prefix='', env_prefix='REDIS_') -> 'Self'"
+    }
+  },
+  "grelmicro.providers.sqlite": {
+    "SQLiteConfig": {
+      "()": "(*, path=None, synchronous=None, table_names=None) -> None"
+    },
+    "SQLiteProvider": {
+      "()": "(path=None, *, synchronous=None, table_names=None, env_prefix='SQLITE_', env_load=True) -> 'None'",
+      ".from_client": "(client, *, own=False, table_names=None) -> 'Self'",
+      ".from_config": "(config, *, env_prefix='SQLITE_') -> 'Self'"
+    }
+  },
+  "grelmicro.providers.valkey": {
+    "ValkeyConfig": {
+      "()": "(*, url=None, host=None, port=6379, db=0, password=None, sentinel_password=None, prefix='') -> None"
+    },
+    "ValkeyProvider": {
+      "()": "(url=None, *, host=None, port=None, db=None, password=None, sentinel_password=None, prefix='', env_prefix='VALKEY_', env_load=True) -> 'None'",
+      ".cluster": "(**kwargs) -> 'Self'",
+      ".from_client": "(client, *, own=False, prefix='') -> 'Self'",
+      ".from_config": "(config, *, env_prefix='VALKEY_') -> 'Self'",
+      ".sentinel": "(**kwargs) -> 'Self'"
     }
   },
   "grelmicro.resilience": {

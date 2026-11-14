@@ -44,11 +44,13 @@ if _typing.TYPE_CHECKING:
         ReadWriteLockConfig,
     )
     from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
+    from grelmicro.task._protocol import JobBackend
 
 __all__ = [
     "Coordination",
     "CoordinationBackendError",
     "CoordinationError",
+    "JobBackend",
     "LeaderElection",
     "LeaderElectionBackend",
     "LeaderElectionConfig",
@@ -85,6 +87,7 @@ _LAZY: dict[str, str] = {
     "Coordination": "grelmicro.coordination._component",
     "CoordinationBackendError": "grelmicro.coordination.errors",
     "CoordinationError": "grelmicro.coordination.errors",
+    "JobBackend": "grelmicro.task._protocol",
     "LeaderElection": "grelmicro.coordination.leaderelection",
     "LeaderElectionBackend": "grelmicro.coordination._protocol",
     "LeaderElectionConfig": "grelmicro.coordination.leaderelection",
