@@ -24,6 +24,7 @@ from grelmicro.task._protocol import (
     BeatReply,
     Claimed,
     EndStatus,
+    JobBackend,
     JobRecord,
     JobStatus,
     Listed,
@@ -135,7 +136,7 @@ def _deadline(after: timedelta | None) -> float | None:
     return None if after is None else _after(after)
 
 
-class MemoryJobAdapter:
+class MemoryJobAdapter(JobBackend):
     """In-memory job storage backend."""
 
     scope: ClassVar[BackendScope] = "process"

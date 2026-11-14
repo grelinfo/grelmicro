@@ -9,8 +9,9 @@ from typing import Any, Self
 import pytest
 
 from grelmicro import Grelmicro
+from grelmicro.errors import OutOfContextError
 from grelmicro.task import Job, JobRefusedError, JobStatus, Progress, Tasks
-from grelmicro.task._protocol import Settled
+from grelmicro.task._protocol import JobRecord, Settled
 from grelmicro.task.memory import MemoryJobAdapter
 from tests.task._job_shared import share, shared
 
@@ -22,11 +23,16 @@ async def _wait_for(_progress: Progress, gate: str) -> None:
     await shared(gate).wait()
 
 
+async def _stored(job: Job[...], job_id: str) -> JobRecord:
+    """Return the stored record of `job_id`, also after the tasks stopped."""
+    record = await job._backend.get(name=job.name, job_id=job_id, owner=None)
+    assert record is not None
+    return record
+
+
 async def _settled(job: Job[...], job_id: str) -> JobStatus:
     """Return the status of `job_id`, which must still be known."""
-    info = await job.without_owner().get(job_id)
-    assert info is not None
-    return info.status
+    return (await _stored(job, job_id)).status
 
 
 @contextlib.asynccontextmanager
@@ -58,20 +64,17 @@ async def test_job_submit_refused_during_the_drain() -> None:
     assert refused.value.reason == "the tasks are shutting down"
 
 
-async def test_job_submit_refused_after_the_drain() -> None:
-    """Once the tasks have stopped, `submit` still raises `JobRefusedError`."""
+async def test_job_submit_raises_after_the_drain() -> None:
+    """Once the tasks have stopped, `submit` raises `OutOfContextError`."""
     # Arrange
     tasks = Tasks()
     job = tasks.job()(_wait_for)
     async with tasks:
         pass
 
-    # Act
-    with pytest.raises(JobRefusedError) as refused:
+    # Act & Assert
+    with pytest.raises(OutOfContextError, match=r"Job\.submit"):
         await job.without_owner().submit(share(asyncio.Event()))
-
-    # Assert
-    assert refused.value.reason == "the tasks are shutting down"
 
 
 async def _items_until_stopped(progress: Progress, gate: str) -> None:
@@ -105,15 +108,13 @@ async def test_job_drain_keeps_the_queue_and_stops_between_items() -> None:
         gate.set()
 
     # Assert
-    queued_info = await job.without_owner().get(queued.id)
-    running_info = await job.without_owner().get(running.id)
+    queued_info = await _stored(job, queued.id)
+    running_info = await _stored(job, running.id)
     assert queued_status is JobStatus.QUEUED
-    assert queued_info is not None
     assert queued_info.status is JobStatus.QUEUED
     assert queued_info.started_at is None
     assert while_draining is JobStatus.RUNNING
     assert drained_early is False
-    assert running_info is not None
     assert running_info.status is JobStatus.CANCELLED
     assert running_info.done == 1
 
@@ -149,8 +150,6 @@ async def test_job_drain_with_no_timeout_ends_what_runs_cleanly() -> None:
     # Assert
     assert await _settled(job, running.id) is JobStatus.CANCELLED
     assert await _settled(job, queued.id) is JobStatus.QUEUED
-    with pytest.raises(JobRefusedError):
-        await job.without_owner().submit(share(asyncio.Event()))
 
 
 def _write_when_released(
@@ -194,8 +193,7 @@ async def test_job_ended_at_shutdown_timeout_takes_no_late_writes() -> None:
     await asyncio.to_thread(finished.wait)
 
     # Assert
-    info = await job.without_owner().get(submitted.id)
-    assert info is not None
+    info = await _stored(job, submitted.id)
     assert info.status is JobStatus.CANCELLED
     assert (info.done, info.total) == (0, None)
     assert wrote == []
@@ -224,8 +222,7 @@ async def test_job_body_raising_a_base_exception_ends_failed() -> None:
             await asyncio.Event().wait()
 
     # Assert
-    info = await job.without_owner().get(submitted[0])
-    assert info is not None
+    info = await _stored(job, submitted[0])
     assert info.status is JobStatus.FAILED
     assert info.error == "Job failed"
 
@@ -276,8 +273,7 @@ async def test_job_drain_stops_a_sync_job_at_its_checkpoint() -> None:
         release.set()
 
     # Assert
-    info = await job.without_owner().get(submitted.id)
-    assert info is not None
+    info = await _stored(job, submitted.id)
     assert info.status is JobStatus.CANCELLED
     assert info.done == 0
 
@@ -321,9 +317,8 @@ async def test_job_app_drains_jobs_before_closing_its_resources() -> None:
         # Act: leaving the app drains the tasks.
 
     # Assert
-    info = await job.without_owner().get(submitted.id)
+    info = await _stored(job, submitted.id)
     assert seen == [True]
-    assert info is not None
     assert info.status is JobStatus.SUCCEEDED
 
 

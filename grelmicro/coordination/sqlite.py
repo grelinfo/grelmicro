@@ -15,6 +15,7 @@ from typing_extensions import Doc
 from grelmicro._duration import MILLISECOND, round_up
 from grelmicro._unset import DefaultTableName, warn_default_table_name
 from grelmicro.coordination._protocol import (
+    LeaderElectionBackend,
     LeaderRecord,
     LockBackend,
     ReadWriteLockBackend,
@@ -863,7 +864,7 @@ class SQLiteScheduleAdapter(ScheduleBackend):
         return float(result[0]) if result is not None else None
 
 
-class SQLiteLeaderElectionAdapter:
+class SQLiteLeaderElectionAdapter(LeaderElectionBackend):
     """SQLite Leader Election Adapter.
 
     Borrows the connection and a shared lock from a `SQLiteProvider` and
