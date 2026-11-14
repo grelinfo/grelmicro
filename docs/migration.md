@@ -131,7 +131,7 @@ raises](#0-42-raising).
 | A type checker refuses `"JSON"` as a `LogFormat` | 0.45 | [Spell the format in lowercase](#0-45-log-format-lowercase) |
 | `grelmicro check` fails on `gate-backend` in `staging` or `production`, or `micro.describe().ok` is `False` there | 0.45 | [Give each gated task a backend](#0-45-gate-backend) |
 | `SettingsValidationError: provider_checks= must be one of off, report, require` | 0.45 | [Pass `"off"` or omit the argument](#0-45-provider-checks-none) |
-| `ImportError: cannot import name 'EnvLoadDefaultWarning'`, or a warning filter on it stops working | 0.45 | [Filter on `EnvLoadOffWarning`](#0-45-env-load-default-warning) |
+| A warning filter on `EnvLoadDefaultWarning` matches nothing | 0.45 | [Filter on `EnvLoadOffWarning`](#0-45-env-load-default-warning) |
 | `AttributeError: module 'grelmicro.integrations.fastapi' has no attribute 'RateLimiter'`, or the same for another name from `grelmicro.integrations.starlette` or `grelmicro.integrations.litestar` | 0.45 | [Import it from its home](#0-45-moved-names) |
 | `ImportError: cannot import name 'AdmissionError' from 'grelmicro.security.bans'`, or `'GrelmicroError' from 'grelmicro.security.jwt'` | 0.45 | [Import it from `grelmicro.errors`](#0-45-moved-names) |
 
