@@ -44,7 +44,8 @@ env:
 jobs:
   linux:
     name: Linux ${{ matrix.platform.target }}
-    runs-on: ubuntu-latest
+    # The manylinux2014 i686 image resolves no host on ubuntu-26.04 runners.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
