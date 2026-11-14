@@ -538,7 +538,11 @@ class Job[**P](Task):
             try:
                 await self._end_unsettled()
             finally:
-                await loop.leave(self)
+                try:
+                    await loop.leave(self)
+                finally:
+                    self._loop = None
+                    self._stopping = False
 
     async def _end_unsettled(self) -> None:
         """Write the end of each job whose task ended before the store took it.
@@ -664,13 +668,13 @@ class Job[**P](Task):
         return JobView(self, None)
 
     def _check_started(self, call: str) -> None:
-        """Refuse `call` until the tasks started and the store is known.
+        """Refuse `call` while the tasks are not running.
 
         Raises:
-            OutOfContextError: If the tasks never started.
+            OutOfContextError: If its tasks are not running.
         """
         if self._loop is None:
-            raise OutOfContextError(self, call)
+            raise _not_running(call)
 
     async def _cancel(self, job_id: str, owner: str | None) -> JobInfo | None:
         """Ask the job `job_id` to stop when `owner` owns it."""
@@ -730,7 +734,7 @@ class Job[**P](Task):
             )
         group, loop = self._group, self._loop
         if group is None or loop is None:
-            raise OutOfContextError(self, "submit")
+            raise _not_running(call="submit")
         free = self._running < self._max_concurrent
         if free:
             self._running += 1
@@ -760,7 +764,7 @@ class Job[**P](Task):
                 self._no_submits.set()
             if free and not started:
                 self._running -= 1
-                self._wake_loop()
+                loop.wake()
         if submitted.record is None:
             raise JobRefusedError(name=self._name, reason="the queue is full")
         if started:
@@ -974,6 +978,17 @@ class Job[**P](Task):
                 self._fire.count(started_at, ran)
 
 
+def _not_running(call: str) -> OutOfContextError:
+    """Return the error for `call` reaching a job whose tasks are not running."""
+    msg = (
+        f"Could not call Job.{call}: the job's tasks are not running. They "
+        f"never started, or they already stopped. Register its Tasks in "
+        f"Grelmicro(uses=[tasks]) so the app starts them, or make the call "
+        f"inside async with tasks."
+    )
+    return OutOfContextError(msg)
+
+
 def _owner_key(owner: str | Principal) -> str:
     """Return what the store records for `owner`, refusing a bad one."""
     if isinstance(owner, str):
@@ -1019,7 +1034,7 @@ class JobView[**P]:
 
         Raises:
             TypeError: If the function cannot take these arguments.
-            OutOfContextError: If the tasks never started.
+            OutOfContextError: If its tasks are not running.
             JobRefusedError: If the queue is full, or the tasks are
                 shutting down.
         """
@@ -1034,7 +1049,7 @@ class JobView[**P]:
         another owner, so a caller cannot tell them apart.
 
         Raises:
-            OutOfContextError: If the tasks never started.
+            OutOfContextError: If its tasks are not running.
         """
         return await self._job._get(job_id, self._owner)  # noqa: SLF001
 
@@ -1051,7 +1066,7 @@ class JobView[**P]:
         another owner. Such a job is left as it is.
 
         Raises:
-            OutOfContextError: If the tasks never started.
+            OutOfContextError: If its tasks are not running.
         """
         return await self._job._cancel(job_id, self._owner)  # noqa: SLF001
 
@@ -1088,7 +1103,7 @@ class JobView[**P]:
 
         Raises:
             TypeError: If this is the view of `without_owner()`.
-            OutOfContextError: If the tasks never started.
+            OutOfContextError: If its tasks are not running.
             ValueError: If `limit` is not an int from 1 to 100, `status` is
                 not a status, or `after` is not a `next` a page returned.
         """

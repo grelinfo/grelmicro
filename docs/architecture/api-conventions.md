@@ -83,7 +83,9 @@ Every provider names its factories the same way: `lock_backend()`,
 the same names, such as `coordination.readwritelock_backend`.
 
 Every protocol a user can implement is exported from a public module. Every
-adapter subclasses the protocol it implements.
+backend adapter subclasses the protocol it implements. The adapters that
+`from_thread` returns are sync views of a primitive, not backends, and
+implement no protocol.
 
 ## Settings that name stored data stay in code
 

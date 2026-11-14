@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 import grelmicro
+from tests._contract_support import base_names
 
 LOOP_PROTOCOLS = frozenset(
     {
@@ -87,3 +88,57 @@ def test_adapter_captures_the_running_loop(module: str, name: str) -> None:
     assert "self._loop = asyncio.get_running_loop()" in source, (
         f"{name} does not capture the running loop in `__aenter__`"
     )
+
+
+SUFFIX_PROTOCOLS = {
+    "JobAdapter": "JobBackend",
+    "LeaderElectionAdapter": "LeaderElectionBackend",
+    "OutboxAdapter": "OutboxBackend",
+    "ConfigAdapter": "ConfigBackend",
+}
+"""The protocol each adapter family subclasses, by class name suffix."""
+
+
+def _adapters_by_suffix() -> list[tuple[str, str, str]]:
+    """Return `(module, class, protocol)` for every adapter of a family."""
+    found = []
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for suffix, protocol in SUFFIX_PROTOCOLS.items():
+                if node.name.endswith(suffix):
+                    module = path.relative_to(PACKAGE_ROOT.parent).as_posix()
+                    found.append((module, node.name, protocol))
+    return found
+
+
+def test_the_family_sweep_finds_every_job_adapter() -> None:
+    """The scan finds the four job adapters, so it cannot pass empty."""
+    # Act
+    names = {name for _, name, _ in _adapters_by_suffix()}
+
+    # Assert
+    assert {
+        "MemoryJobAdapter",
+        "PostgresJobAdapter",
+        "RedisJobAdapter",
+        "SQLiteJobAdapter",
+    } <= names
+
+
+@pytest.mark.parametrize(("module", "name", "protocol"), _adapters_by_suffix())
+def test_adapter_subclasses_its_protocol(
+    module: str, name: str, protocol: str
+) -> None:
+    """Every job, leader election, outbox and config adapter subclasses its protocol."""
+    # Arrange
+    path = PACKAGE_ROOT.parent / module
+    node = next(
+        node
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.ClassDef) and node.name == name
+    )
+
+    # Assert
+    assert protocol in base_names(node), f"{name} does not subclass {protocol}"

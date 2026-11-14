@@ -9,6 +9,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, ClassVar, Self
 
 from grelmicro.coordination._protocol import (
+    LeaderElectionBackend,
     LeaderRecord,
     LockBackend,
     ReadWriteLockBackend,
@@ -285,7 +286,7 @@ class MemoryScheduleAdapter(ScheduleBackend):
         return self._last_fired.get(name)
 
 
-class MemoryLeaderElectionAdapter:
+class MemoryLeaderElectionAdapter(LeaderElectionBackend):
     """In-memory leader election adapter for tests and single-process apps.
 
     Stores the `LeaderRecord` in a process-local dict and runs the same

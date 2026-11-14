@@ -12,6 +12,8 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 
+from grelmicro.outbox._protocol import OutboxBackend
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import TracebackType
@@ -34,7 +36,7 @@ class _Row:
     delivered_at: datetime | None = None
 
 
-class MemoryOutboxAdapter:
+class MemoryOutboxAdapter(OutboxBackend):
     """In-memory outbox storage backend."""
 
     scope: ClassVar[BackendScope] = "process"

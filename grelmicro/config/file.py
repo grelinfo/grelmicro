@@ -10,6 +10,7 @@ from typing_extensions import Doc
 
 from grelmicro._config import env_segment
 from grelmicro._json import json_dumps_str, json_loads
+from grelmicro.config._protocol import ConfigBackend
 from grelmicro.errors import SettingsValidationError
 
 if TYPE_CHECKING:
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     from grelmicro._json import JSONEncodable
 
 
-class FileConfigAdapter:
+class FileConfigAdapter(ConfigBackend):
     """Read configuration from the filesystem.
 
     Built for mounted configuration: a Kubernetes ConfigMap or Secret, a
