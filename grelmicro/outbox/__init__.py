@@ -15,11 +15,13 @@ if _typing.TYPE_CHECKING:
     from grelmicro.outbox._control import Cancel, Retry
     from grelmicro.outbox._message import Message, OutboxRecord
     from grelmicro.outbox._protocol import OutboxBackend
+    from grelmicro.outbox._router import OutboxRouter
     from grelmicro.outbox.errors import (
         HandlerAlreadyRegisteredError,
         HandlerNotFoundError,
         OutboxError,
         OutboxHandleError,
+        OutboxRouterError,
         OutboxTransactionError,
     )
 
@@ -34,6 +36,8 @@ __all__ = [
     "OutboxError",
     "OutboxHandleError",
     "OutboxRecord",
+    "OutboxRouter",
+    "OutboxRouterError",
     "OutboxTransactionError",
     "Retry",
 ]
@@ -49,6 +53,8 @@ _LAZY: dict[str, str] = {
     "OutboxError": "grelmicro.outbox.errors",
     "OutboxHandleError": "grelmicro.outbox.errors",
     "OutboxRecord": "grelmicro.outbox._message",
+    "OutboxRouter": "grelmicro.outbox._router",
+    "OutboxRouterError": "grelmicro.outbox.errors",
     "OutboxTransactionError": "grelmicro.outbox.errors",
     "Retry": "grelmicro.outbox._control",
 }

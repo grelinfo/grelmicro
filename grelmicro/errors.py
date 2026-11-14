@@ -189,6 +189,17 @@ class Grelmicro045Warning(GrelmicroFutureWarning):
     switch_in: ClassVar[str] = "0.45.0"
 
 
+class EnvLoadDefaultWarning(Grelmicro045Warning, EnvLoadOffWarning):
+    """A `GREL_*` variable was set while `GREL_ENV_LOAD` was unset.
+
+    Grelmicro no longer emits it. It stays importable, so a filter that names
+    it keeps loading. Filter on `EnvLoadOffWarning`, which reports a `GREL_*`
+    variable left unread.
+    """
+
+    code: ClassVar[str] = "env-load-off"
+
+
 class Grelmicro046Warning(GrelmicroFutureWarning):
     """Warned for a change that lands in 0.46.0.
 

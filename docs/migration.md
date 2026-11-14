@@ -141,13 +141,14 @@ raises](#0-42-raising).
 
 - `LogConfig.format` reads back in lowercase, such as `"json"`, and defaults to `"auto"`. A comparison with an uppercase name, such as `config.format == "JSON"`, is now false, with no warning. [Compare with the lowercase name](#0-45-log-format-lowercase).
 - A misspelled `requires=` value, such as `requires="clustr"`, still turns the backend scope check off for that component, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Name a scope](#0-45-unknown-requires).
+- Reading `EnvLoadDefaultWarning` no longer warns. Grelmicro never emits it, so a filter on it matches nothing. [Filter on `EnvLoadOffWarning`](#0-45-env-load-default-warning).
 - A Postgres table name too long for the names an adapter builds from it still works as before, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Pass a shorter name](#0-45-long-table-name).
+- A Postgres or SQLite lock, read-write lock, schedule, rate limiter or circuit breaker adapter left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
 
 ### Changes that raise {#0-45-raising}
 
 - `gate-backend` fails `grelmicro check` and `micro.describe()` in `staging` and `production`. [Give each gated task a backend](#0-45-gate-backend).
 - `HealthChecks(provider_checks=None)` and `HealthChecks.from_config(provider_checks=None)` raise `SettingsValidationError`. [Pass `"off"` or omit the argument](#0-45-provider-checks-none).
-- `EnvLoadDefaultWarning` is removed, so importing it raises `ImportError`. [Filter on `EnvLoadOffWarning`](#0-45-env-load-default-warning).
 - A name that `grelmicro.integrations.fastapi`, `grelmicro.integrations.starlette` or `grelmicro.integrations.litestar` only imported in 0.43, such as `RateLimiter`, raises `AttributeError`. So do `AdmissionError` from `grelmicro.security.bans` and `GrelmicroError` from `grelmicro.security.jwt`. [Import it from its home](#0-45-moved-names).
 - A value annotated `LogFormat` in uppercase, such as `"JSON"`, fails the type checker. [Spell the format in lowercase](#0-45-log-format-lowercase).
 
@@ -305,11 +306,12 @@ HealthChecks()  # "report"
 HealthChecks(provider_checks="off")  # no provider checks
 ```
 
-### `EnvLoadDefaultWarning` is removed {#0-45-env-load-default-warning}
+### `EnvLoadDefaultWarning` matches nothing {#0-45-env-load-default-warning}
 
-`EnvLoadDefaultWarning` is gone from `grelmicro` and `grelmicro.errors`. 0.44
-no longer emitted it and warned on each read. Filter on `EnvLoadOffWarning`,
-the category that reports a `GREL_*` variable left unread:
+Grelmicro no longer emits `EnvLoadDefaultWarning`, and reading it no longer
+warns. It stays importable, so a `filterwarnings` entry that names it keeps
+loading, but it matches nothing. Filter on `EnvLoadOffWarning`, the category
+that reports a `GREL_*` variable left unread:
 
 ```toml
 # Before
@@ -318,10 +320,6 @@ filterwarnings = ["ignore::grelmicro.EnvLoadDefaultWarning"]
 # After
 filterwarnings = ["ignore::grelmicro.EnvLoadOffWarning"]
 ```
-
-pytest stops with an error on a `filterwarnings` entry that names a missing
-category. Python ignores such a `-W` option or `PYTHONWARNINGS` entry and
-prints a warning of its own.
 
 ### Names an integration module only imported are gone {#0-45-moved-names}
 
@@ -359,6 +357,77 @@ imports from these modules.
 
 Every other name was private, such as `spend` or `gate_routes`, and has no
 public home.
+### Default table names take the `grelmicro_` prefix in 0.46.0 {#0-45-table-prefix}
+
+From 0.46.0, these adapters default to a table name with the `grelmicro_`
+prefix, so their tables sit beside the other grelmicro tables. While the
+default is left, the adapter warns with `Grelmicro046Warning` when it
+opens. It still uses the current table.
+
+| Adapter | Default until 0.46.0 | Default from 0.46.0 |
+| --- | --- | --- |
+| `PostgresLockAdapter`, `SQLiteLockAdapter` | `locks` | `grelmicro_locks` |
+| `SQLiteReadWriteLockAdapter` | `rwlocks` | `grelmicro_rwlocks` |
+| `PostgresScheduleAdapter`, `SQLiteScheduleAdapter` | `schedules` | `grelmicro_schedules` |
+| `PostgresRateLimiterAdapter`, `SQLiteRateLimiterAdapter` | `grelmicro_rate_limiter` | `grelmicro_ratelimiter` |
+| `PostgresCircuitBreakerAdapter`, `SQLiteCircuitBreakerAdapter` | `grelmicro_circuit_breaker` | `grelmicro_circuitbreaker` |
+
+`PostgresReadWriteLockAdapter` already defaults to `grelmicro_rwlocks`.
+`SQLiteReadWriteLockAdapter` keeps its holders in a side table named after
+its table, so `rwlocks_holders` becomes `grelmicro_rwlocks_holders`.
+
+Choose once on the provider with `table_names=`. Every adapter the
+provider builds follows it, and either value silences the warning.
+
+- `"legacy"` keeps the current names, now and after 0.46.0.
+- `"prefixed"` adopts the new names now, so the switch in 0.46.0 changes
+  nothing. Each adapter starts on an empty table.
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.providers.postgres import PostgresProvider
+
+# Before: each adapter warns, and moves to its new table in 0.46.0
+micro = Grelmicro(uses=[PostgresProvider(url)])
+
+# After: keeps the current tables, the same in 0.46.0
+micro = Grelmicro(uses=[PostgresProvider(url, table_names="legacy")])
+```
+
+`SQLiteProvider` takes the same argument. Both providers also read it
+from the environment, as `POSTGRES_TABLE_NAMES` and `SQLITE_TABLE_NAMES`,
+so an adapter that builds its own provider follows it too. A `table_name=`
+passed to an adapter wins over `table_names=`.
+
+To move to the new names with your data, rename the tables in your own
+migration before 0.46.0, then set `table_names="prefixed"`. On Postgres,
+the rate limiter and circuit breaker also name an index and their
+functions after the table, such as `grelmicro_rate_limiter_updated_at_idx`
+and `grelmicro_rate_limiter_tb_acquire`. The adapter creates them again
+under the new name, so drop the ones left under the old name. On SQLite,
+the circuit breaker names an index after the table, and the read-write
+lock names its side table after it.
+
+From 0.46.0, an adapter left at its default checks the database when it
+opens:
+
+- Only the old table exists: the adapter refuses to start with
+  `SettingsValidationError`. The message says to set
+  `table_names="legacy"` or rename the table.
+- Both tables exist: the adapter uses the new one and warns, naming the
+  old one.
+- Only the new table exists, or neither does: the adapter uses the new one.
+
+A rolling deploy to 0.46.0 with the old table still in use would split
+replicas across two tables. Two replicas could hold the same lock, a
+schedule could fire twice, and a rate limit could let twice as much
+through. Setting `table_names=` before you upgrade avoids all of it.
+
+On 0.45, an adapter left at its default also warns when it opens on the
+old table while the new one exists, such as after a rollback from 0.46.
+The warning names both tables, and says replicas may be split across them.
+The adapter checks this when it creates its table, so an adapter built
+with `auto_migrate=False` skips the check.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 
@@ -1763,6 +1832,18 @@ added a `HealthChecks` lost its cache and its locks with no warning. Now a
 Component claims its own kind and the Provider fills the rest. A Component of a
 kind no Provider serves, such as `HealthChecks`, `Log` or `Trace`, claims
 nothing. Two or more Providers still fill no defaults.
+
+A Provider listed on its own fills every kind it serves that no listed
+Component claims: `Coordination`, `Cache`, `RateLimiterComponent` and
+`CircuitBreakerComponent`. This holds next to other Components too. With
+`uses=[redis, tasks, health]` the app gets a Redis `Coordination`, so a lock,
+and the duplicate-request check of `Idempotency`, go through Redis.
+
+To keep a kind off, pass the Provider only to the Components you want:
+
+```python
+micro = Grelmicro(uses=[Cache(redis), tasks, health])
+```
 
 If you listed every component only to work around that, the short form works:
 

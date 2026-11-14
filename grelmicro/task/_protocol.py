@@ -69,6 +69,9 @@ if TYPE_CHECKING:
 
     from grelmicro.types import BackendScope
 
+JOB_FAILED = "Job failed"
+"""The error of a job that raised, or that could not start."""
+
 JOB_LOST = "Job lost"
 """The error of a job whose lease lapsed."""
 

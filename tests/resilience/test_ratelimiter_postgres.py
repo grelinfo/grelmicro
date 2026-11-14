@@ -37,7 +37,7 @@ def test_adapter_with_implicit_env_provider(
     """Without `provider=`, the adapter builds its own from env vars."""
     monkeypatch.setenv("POSTGRES_URL", URL)
 
-    backend = PostgresRateLimiterAdapter()
+    backend = PostgresRateLimiterAdapter(table_name="grelmicro_rate_limiter")
 
     assert backend.provider.url == URL
     assert backend._owns_provider is True
@@ -46,7 +46,9 @@ def test_adapter_with_implicit_env_provider(
 def test_adapter_borrows_external_provider() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = PostgresProvider(URL)
-    backend = PostgresRateLimiterAdapter(provider=provider)
+    backend = PostgresRateLimiterAdapter(
+        provider=provider, table_name="grelmicro_rate_limiter"
+    )
 
     assert backend.provider is provider
     assert backend._owns_provider is False
@@ -58,7 +60,9 @@ def test_adapter_env_prefix_passed_to_implicit_provider(
     """`env_prefix=` reaches the implicit provider."""
     monkeypatch.setenv("WRITE_POSTGRES_URL", URL)
 
-    backend = PostgresRateLimiterAdapter(env_prefix="WRITE_POSTGRES_")
+    backend = PostgresRateLimiterAdapter(
+        env_prefix="WRITE_POSTGRES_", table_name="grelmicro_rate_limiter"
+    )
 
     assert backend.provider.url == URL
     assert backend.provider.env_prefix == "WRITE_POSTGRES_"
@@ -72,7 +76,7 @@ def test_env_validation_error_propagates(
     monkeypatch.delenv("POSTGRES_HOST", raising=False)
 
     with pytest.raises(SettingsValidationError):
-        PostgresRateLimiterAdapter()
+        PostgresRateLimiterAdapter(table_name="grelmicro_rate_limiter")
 
 
 def test_custom_table_name() -> None:
@@ -87,7 +91,9 @@ def test_custom_table_name() -> None:
 def test_prefix_stored() -> None:
     """`prefix=` is stored on the adapter."""
     backend = PostgresRateLimiterAdapter(
-        provider=PostgresProvider(URL), prefix="myapp:"
+        provider=PostgresProvider(URL),
+        prefix="myapp:",
+        table_name="grelmicro_rate_limiter",
     )
 
     assert backend._prefix == "myapp:"
@@ -96,7 +102,9 @@ def test_prefix_stored() -> None:
 def test_auto_migrate_flag() -> None:
     """`auto_migrate=` is stored on the adapter."""
     backend = PostgresRateLimiterAdapter(
-        provider=PostgresProvider(URL), auto_migrate=False
+        provider=PostgresProvider(URL),
+        auto_migrate=False,
+        table_name="grelmicro_rate_limiter",
     )
 
     assert backend._auto_migrate is False
@@ -106,7 +114,7 @@ def test_provider_ratelimiter_factory() -> None:
     """`PostgresProvider.ratelimiter_backend()` builds a `PostgresRateLimiterAdapter`."""
     provider = PostgresProvider(URL)
 
-    backend = provider.ratelimiter_backend()
+    backend = provider.ratelimiter_backend(table_name="grelmicro_rate_limiter")
 
     assert isinstance(backend, PostgresRateLimiterAdapter)
     assert backend.provider is provider

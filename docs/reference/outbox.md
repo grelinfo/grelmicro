@@ -9,6 +9,7 @@
       show_submodules: true
       members:
         - Outbox
+        - OutboxRouter
         - OutboxBackend
         - OutboxConfig
         - Message
@@ -19,3 +20,4 @@
         - OutboxTransactionError
         - HandlerNotFoundError
         - HandlerAlreadyRegisteredError
+        - OutboxRouterError

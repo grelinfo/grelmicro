@@ -1,8 +1,12 @@
 """Test how jobs ride out a store that fails or answers late."""
 
 import asyncio
+import json
 import logging
+import secrets
 from collections import Counter
+from collections.abc import Coroutine
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -10,6 +14,7 @@ import pytest
 from grelmicro.clock import VirtualClock
 from grelmicro.task import Job, JobInfo, JobStatus, Progress, Tasks
 from grelmicro.task._job import _info
+from grelmicro.task._job_loop import LEASE
 from grelmicro.task._protocol import Settled
 from grelmicro.task.errors import JobRefusedError
 from grelmicro.task.memory import MemoryJobAdapter
@@ -19,6 +24,9 @@ pytestmark = [pytest.mark.timeout(10)]
 
 _PAST_THE_LEASE = 31
 """Seconds past the 30 second lease."""
+
+_LEASE_SECONDS = int(LEASE.total_seconds())
+"""Seconds of the lease."""
 
 _FEW_BEATS = 3
 """Seconds for a few beats."""
@@ -543,3 +551,134 @@ async def test_job_full_replica_queues_a_submit_after_an_empty_claim() -> None:
 
     # Assert
     assert queued.status is JobStatus.QUEUED
+
+
+async def _queue_as_another_replica(store: MemoryJobAdapter) -> str:
+    """Store a queued job that returns at once, as another replica does."""
+    gate = asyncio.Event()
+    gate.set()
+    submitted = await MemoryJobAdapter.submit(
+        store,
+        name="import",
+        job_id=secrets.token_urlsafe(8),
+        owner=None,
+        payload=json.dumps({"gate": share(gate), "seen": share([])}),
+        context={},
+        max_queued=None,
+        max_wait=None,
+        max_run=None,
+        keep=timedelta(hours=1),
+        max_kept_succeeded=None,
+        max_kept_failed=None,
+        start_as=None,
+        lease=LEASE,
+    )
+    assert submitted.record is not None
+    return submitted.record.id
+
+
+async def test_job_beat_the_store_never_answers_stops_the_body_at_the_lease(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A beat the store never answers counts as missed, as an outage does."""
+    # Arrange
+    caplog.set_level(logging.WARNING, logger="grelmicro.task")
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks()
+    job = tasks.job(name="import", backend=store)(_records_cancel)
+    seen: list[str] = []
+
+    async with clock:
+        async with tasks:
+            await job.without_owner().submit(
+                share(asyncio.Event()), share(seen)
+            )
+            store.gates["beat"] = asyncio.Event()
+
+            # Act
+            await _advance(clock, _LEASE_SECONDS - 1)
+            before = list(seen)
+            await _advance(clock, 1)
+            at_the_lease = list(seen)
+            del store.gates["beat"]
+            later = await _queue_as_another_replica(store)
+            await _advance(clock, _FEW_BEATS)
+
+        # Assert
+        assert (before, at_the_lease) == ([], ["cancelled"])
+        assert "Job store unreachable for a whole lease" in caplog.text
+        info = await _read(store, later)
+        assert info.status is JobStatus.SUCCEEDED
+
+
+def _fail_next_start(job: Job[...]) -> None:
+    """Make the next start of a body of `job` raise."""
+    group = job._group
+    assert group is not None
+
+    def _fails_once(body: Coroutine[Any, Any, None], **_: Any) -> None:  # noqa: ANN401
+        del group.create_task
+        body.close()
+        msg = "cannot start"
+        raise RuntimeError(msg)
+
+    group.create_task = _fails_once  # type: ignore[method-assign,assignment]  # ty: ignore[invalid-assignment]
+
+
+async def test_job_that_cannot_start_fails_and_the_loop_goes_on(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A claimed job that cannot start ends failed, and later jobs still run."""
+    # Arrange
+    caplog.set_level(logging.ERROR, logger="grelmicro.task")
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks()
+    job = tasks.job(name="import", backend=store, max_concurrent=1)(
+        _records_cancel
+    )
+
+    async with clock:
+        async with tasks:
+            _fail_next_start(job)
+            failed = await _queue_as_another_replica(store)
+
+            # Act
+            await _advance(clock, 1)
+            later = await _queue_as_another_replica(store)
+            await _advance(clock, _FEW_BEATS)
+
+        # Assert
+        assert "Job could not be started: import" in caplog.text
+        info = await _read(store, failed)
+        assert (info.status, info.error) == (JobStatus.FAILED, "Job failed")
+        info = await _read(store, later)
+        assert info.status is JobStatus.SUCCEEDED
+        assert (job._running, job._runs) == (0, {})
+
+
+async def test_job_that_cannot_start_is_left_to_its_lease_when_the_end_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A job that cannot start, and whose end the store refuses, is lost."""
+    # Arrange
+    caplog.set_level(logging.WARNING, logger="grelmicro.task")
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks()
+    job = tasks.job(name="import", backend=store)(_records_cancel)
+
+    async with clock:
+        async with tasks:
+            _fail_next_start(job)
+            store.fail_next["settle"] = 1
+            lost = await _queue_as_another_replica(store)
+
+            # Act
+            await _advance(clock, _PAST_THE_LEASE)
+
+        # Assert
+        assert "Job could not be ended in its store: import" in caplog.text
+        info = await _read(store, lost)
+        assert (info.status, info.error) == (JobStatus.FAILED, "Job lost")

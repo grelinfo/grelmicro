@@ -466,17 +466,19 @@ def test_unread_fallback_env_reports_the_diagnostic(
 
 
 @pytest.mark.parametrize("module", ["grelmicro", "grelmicro.errors"])
-def test_env_load_default_warning_is_removed(module: str) -> None:
-    """`EnvLoadDefaultWarning` raises `AttributeError` like any missing name."""
+def test_env_load_default_warning_imports_without_a_warning(
+    module: str,
+) -> None:
+    """`EnvLoadDefaultWarning` still imports, silently, as an `EnvLoadOffWarning`."""
     import importlib  # noqa: PLC0415
+
+    from grelmicro.errors import EnvLoadOffWarning  # noqa: PLC0415
 
     package = importlib.import_module(module)
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        with pytest.raises(
-            AttributeError,
-            match=f"^module '{module}' has no attribute 'EnvLoadDefaultWarning'$",
-        ):
-            package.EnvLoadDefaultWarning  # noqa: B018
-    assert "EnvLoadDefaultWarning" not in dir(package)
+        category = package.EnvLoadDefaultWarning
+
+    assert issubclass(category, EnvLoadOffWarning)
+    assert "EnvLoadDefaultWarning" in dir(package)

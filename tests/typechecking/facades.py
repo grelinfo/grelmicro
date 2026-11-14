@@ -6,8 +6,8 @@ that matches nothing. The integration modules load their public names
 lazily, so a type checker cannot tell a removed name from a lazy one there.
 """
 
-from grelmicro.security.bans import AdmissionError  # type: ignore[attr-defined]  # ty: ignore[unresolved-import]
-from grelmicro.security.jwt import GrelmicroError  # type: ignore[attr-defined]  # ty: ignore[unresolved-import]
+from grelmicro.security.bans import AdmissionError  # type: ignore[attr-defined]  # ty: ignore[import-not-found]
+from grelmicro.security.jwt import GrelmicroError  # type: ignore[attr-defined]  # ty: ignore[import-not-found]
 
 
 def moved_names() -> None:

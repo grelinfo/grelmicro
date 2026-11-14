@@ -489,7 +489,7 @@ def _document_components(app: FastAPI, components: Sequence[Any]) -> None:
         edited[:] = [schema]
         return schema
 
-    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.openapi = openapi  # type: ignore[method-assign]
     # Drop a schema built before this call, which would otherwise be served
     # from the cache without the descriptions.
     app.openapi_schema = None
@@ -548,7 +548,7 @@ def _document_error_responses(
         _drop_unreferenced_validation_schemas(schema)
         return schema
 
-    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.openapi = openapi  # type: ignore[method-assign]
     # Drop a schema built before this call, which would otherwise be served
     # from the cache describing the shape the app no longer answers with.
     app.openapi_schema = None

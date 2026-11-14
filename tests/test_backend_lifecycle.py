@@ -67,7 +67,7 @@ async def test_sync_postgres_async_with(
         "grelmicro.providers.postgres.create_pool",
         AsyncMock(return_value=mock_pool),
     )
-    async with PostgresLockAdapter():
+    async with PostgresLockAdapter(table_name="locks"):
         pass
 
 
@@ -77,7 +77,7 @@ async def test_sync_sqlite_async_with(
 ) -> None:
     """The SQLite sync adapter opens and closes cleanly."""
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "lock.db"))
-    async with SQLiteLockAdapter():
+    async with SQLiteLockAdapter(table_name="locks"):
         pass
 
 
@@ -125,7 +125,7 @@ async def test_rate_limiter_postgres_async_with(
         "grelmicro.providers.postgres.create_pool",
         AsyncMock(return_value=mock_pool),
     )
-    async with PostgresRateLimiterAdapter():
+    async with PostgresRateLimiterAdapter(table_name="grelmicro_rate_limiter"):
         pass
 
 

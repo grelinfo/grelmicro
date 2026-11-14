@@ -156,6 +156,7 @@
     "host",
     "password",
     "port",
+    "table_names",
     "url",
     "user"
   ],
@@ -170,7 +171,8 @@
   ],
   "grelmicro.providers.sqlite.SQLiteConfig": [
     "path",
-    "synchronous"
+    "synchronous",
+    "table_names"
   ],
   "grelmicro.providers.valkey.ValkeyConfig": [
     "db",

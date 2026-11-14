@@ -1172,7 +1172,7 @@ def test_a_record_queued_as_shutdown_completes_is_not_stranded() -> None:
         writer.shutdown()
         real_put(item)
 
-    writer._queue.put_nowait = racing_put  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    writer._queue.put_nowait = racing_put  # type: ignore[method-assign]
 
     writer.write("raced\n")
 

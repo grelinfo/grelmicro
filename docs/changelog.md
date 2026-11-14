@@ -6,7 +6,6 @@
 * 💥 `LogConfig.format` reads back in lowercase, such as `"json"`, and defaults to `"auto"`. Input still matches in any case. `LogFormat` no longer lists the uppercase spellings. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
 * 💥 `gate-backend` fails `grelmicro check` and `micro.describe()` in `staging` and `production`. The running app is not affected. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
 * 💥 `HealthChecks(provider_checks=None)` and `HealthChecks.from_config(provider_checks=None)` raise `SettingsValidationError`. Pass `provider_checks="off"` to register no provider checks, or omit the argument for `"report"`. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
-* 💥 `EnvLoadDefaultWarning` is removed. Filter on `EnvLoadOffWarning` instead. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
 * 💥 The names `grelmicro.integrations.fastapi`, `grelmicro.integrations.starlette` and `grelmicro.integrations.litestar` only imported in 0.43, such as `RateLimiter`, raise `AttributeError`. So do `AdmissionError` from `grelmicro.security.bans` and `GrelmicroError` from `grelmicro.security.jwt`. Import each one from its home, such as `grelmicro.resilience` or `grelmicro.errors`. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
 
 ### Added
@@ -22,10 +21,14 @@
 * ✨ `@tasks.job(max_kept_succeeded=..., max_kept_failed=...)` caps how many finished jobs of a function stay readable. Past a cap, the job that finished first is forgotten. ([#1235](https://github.com/grelinfo/grelmicro/issues/1235))
 * ✨ A job keeps running through a store outage shorter than 30 seconds. ([#1284](https://github.com/grelinfo/grelmicro/pull/1284))
 * ✨ `RedisProvider(prefix=...)` and `ValkeyProvider(prefix=...)` put one namespace before the keys of every store they build. The lock, read-write lock, cache and job stores add their kind after it, such as `myapp:lock:`. The default is empty, so no key changes. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
+* ✨ An `OutboxRouter` declares outbox handlers in a feature module and needs no provider. Include it with `Outbox(..., routers=[...])` or `outbox.include_router(router)`. ([#1311](https://github.com/grelinfo/grelmicro/issues/1311))
+* ✨ `PostgresProvider(table_names=...)` and `SQLiteProvider(table_names=...)` pick the default table names of every store they build: `"legacy"` keeps the current names and `"prefixed"` gives each the `grelmicro_` prefix. They also read `POSTGRES_TABLE_NAMES` and `SQLITE_TABLE_NAMES`. ([#1152](https://github.com/grelinfo/grelmicro/issues/1152))
 
 ### Deprecated
+* 🗑️ `EnvLoadDefaultWarning` and `Grelmicro045Warning` stay importable, so a warning filter that names them keeps loading. Grelmicro emits neither, and reading `EnvLoadDefaultWarning` no longer warns. Filter on `EnvLoadOffWarning`. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
 * 🗑️ A misspelled `requires=` value, such as `requires="clustr"`, warns with `Grelmicro046Warning` on every component and on `@tasks.job`. The warning names the value. The backend scope check passes over it until 0.46.0, then it raises `SettingsValidationError`. Pass `"process"`, `"host"` or `"cluster"`. ([#1286](https://github.com/grelinfo/grelmicro/issues/1286))
 * 🗑️ A Postgres table name too long for the names an adapter builds from it, such as its indexes and functions, warns with `Grelmicro046Warning` on the cache, outbox, rate limiter, circuit breaker, read-write lock and leader election adapters. Postgres cuts those names at 63 bytes, so one can be left out or replace another with no error. The warning names the longest table name the adapter takes. From 0.46.0 it raises `SettingsValidationError`. ([#1298](https://github.com/grelinfo/grelmicro/issues/1298))
+* 🗑️ A Postgres or SQLite lock, read-write lock, schedule, rate limiter or circuit breaker adapter left at its default table name warns with `Grelmicro046Warning` when it opens. From 0.46.0 each default takes the `grelmicro_` prefix, such as `grelmicro_locks`. Set `table_names="legacy"` on `PostgresProvider` or `SQLiteProvider` to keep the current names, or `"prefixed"` to adopt the new ones now. ([#1152](https://github.com/grelinfo/grelmicro/issues/1152))
 
 ### Fixed
 * 🐛 An app on a bare `RedisProvider` or `ValkeyProvider` with a cluster URL starts instead of raising. On Cluster, the cache, lock, read-write lock and job stores put their keys under a hash tag of their own, such as `{lock}:`, when no prefix carries one. A prefix with a tag keeps its keys as they are. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
@@ -33,6 +36,7 @@
 ### Docs
 * 📝 From `1.0`, an Experimental feature is the one exception to "nothing breaks before `2.0`". It can break in a minor, and it always warns first. ([#1254](https://github.com/grelinfo/grelmicro/pull/1254))
 * 📝 The capability matrix gives each feature a maturity level: Experimental, Preview or Stable, with the last break and serious bug fix behind it. ([#1252](https://github.com/grelinfo/grelmicro/pull/1252))
+* 📝 The 0.35 migration note says that a Provider listed on its own fills its kinds next to other Components, and how to keep a kind off. ([#1207](https://github.com/grelinfo/grelmicro/issues/1207))
 
 ### Internal
 * ✅ `TaskLock` runs on real Redis, Valkey, Postgres and Kubernetes in CI, and its row on the capability matrix moves to Preview there. ([#1255](https://github.com/grelinfo/grelmicro/pull/1255))

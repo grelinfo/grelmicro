@@ -30,7 +30,13 @@ from typing import (
 
 from fast_depends.dependencies.model import Dependant  # codespell:ignore
 from fast_depends.library import CustomField
-from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+)
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
@@ -65,6 +71,7 @@ from grelmicro.task._job_trace import (
     submitter_context,
 )
 from grelmicro.task._protocol import (
+    JOB_FAILED,
     JOB_LOST,
     JOB_TIMED_OUT,
     Beat,
@@ -91,7 +98,7 @@ logger = getLogger("grelmicro.task")
 _JSON: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 """Checks that a returned result is JSON."""
 
-_FAILED = "Job failed"
+_FAILED = JOB_FAILED
 """The error a caller sees for any exception but a `JobError`."""
 
 
@@ -118,12 +125,12 @@ class JobInfo(BaseModel, frozen=True):
         str | None, Doc("Why the job failed, or `None` unless it failed.")
     ]
     cancel_requested: Annotated[bool, Doc("Whether a cancel was requested.")]
-    created_at: Annotated[datetime, Doc("When the job was submitted.")]
+    created_at: Annotated[AwareDatetime, Doc("When the job was submitted.")]
     started_at: Annotated[
-        datetime | None, Doc("When the body started, or `None` before.")
+        AwareDatetime | None, Doc("When the body started, or `None` before.")
     ]
     finished_at: Annotated[
-        datetime | None,
+        AwareDatetime | None,
         Doc("When the job reached an end state, or `None` before."),
     ]
 
@@ -607,11 +614,11 @@ class Job[**P](Task):
     def _start(self, group: asyncio.TaskGroup, job: Claimed) -> None:
         """Start the body of a job this replica holds, in a slot it reserved."""
         run = _Run(job.record.id)
-        self._runs[run.id] = run
         assert self._context is not None  # noqa: S101
         run.task = group.create_task(
             self._run_in_span(run, job), context=self._context.copy()
         )
+        self._runs[run.id] = run
         run.task.add_done_callback(self._release)
 
     def _release(self, _task: asyncio.Task[None]) -> None:

@@ -10,6 +10,7 @@ import pytest
 
 from grelmicro.clock import VirtualClock
 from grelmicro.task import JobStatus, Progress, Tasks
+from grelmicro.task._job_loop import _until
 from grelmicro.task.memory import MemoryJobAdapter
 from tests.task._job_shared import share, shared
 
@@ -305,3 +306,23 @@ async def test_job_with_a_name_already_on_the_store_is_refused() -> None:
     async with one:
         with pytest.raises(ValueError, match="same"):
             await second()
+
+
+async def test_job_store_call_cut_by_a_stop_is_cancelled_not_timed_out() -> (
+    None
+):
+    """A stop during a bounded store call cancels it, before its deadline."""
+    # Arrange
+    clock = VirtualClock()
+    async with clock:
+        calling = asyncio.create_task(
+            _until(clock.monotonic() + 30, asyncio.Event().wait())
+        )
+        await _settled()
+
+        # Act
+        calling.cancel()
+
+        # Assert
+        with pytest.raises(asyncio.CancelledError):
+            await calling

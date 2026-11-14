@@ -2717,7 +2717,7 @@ def _document(app: FastAPI, **options: Any) -> None:  # noqa: ANN401
     def openapi() -> dict[str, Any]:
         return idempotent._document_openapi(original())
 
-    app.openapi = openapi  # ty: ignore[invalid-assignment]
+    app.openapi = openapi
 
 
 def _documented_app(**options: Any) -> FastAPI:  # noqa: ANN401
