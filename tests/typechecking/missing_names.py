@@ -6,10 +6,10 @@ comment that matches nothing, so a lazy loader that type checkers see fails
 the check.
 """
 
-from grelmicro import NoSuchName  # type: ignore[attr-defined]  # ty: ignore[unresolved-import]
+from grelmicro import NoSuchName  # type: ignore[attr-defined]  # ty: ignore[import-not-found]
 from grelmicro.integrations import fastapi
-from grelmicro.integrations.fastapi import RateLimiterGone  # type: ignore[attr-defined]  # ty: ignore[unresolved-import]
-from grelmicro.resilience import NoSuchPolicy  # type: ignore[attr-defined]  # ty: ignore[unresolved-import]
+from grelmicro.integrations.fastapi import RateLimiterGone  # type: ignore[attr-defined]  # ty: ignore[import-not-found]
+from grelmicro.resilience import NoSuchPolicy  # type: ignore[attr-defined]  # ty: ignore[import-not-found]
 
 
 def missing_names() -> None:

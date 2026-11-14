@@ -7,11 +7,14 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._unset import DefaultTableName, warn_default_table_name
 from grelmicro.errors import SettingsValidationError
+from grelmicro.providers._table_names import resolve_table_name
 from grelmicro.providers.postgres import (
     PostgresProvider,
     _longest_table_name,
     _warn_long_table_name,
+    _warn_split_tables,
 )
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -303,9 +306,13 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                 """
                 Table that stores rate-limit state. Auto-created on
                 first connect (set `auto_migrate=False` to opt out).
+                Defaults to `grelmicro_rate_limiter`, and to
+                `grelmicro_ratelimiter` from 0.46.0. Left at its default,
+                opening it warns
+                with `Grelmicro046Warning`.
                 """,
             ),
-        ] = "grelmicro_rate_limiter",
+        ] = DefaultTableName("grelmicro_rate_limiter"),
         auto_migrate: Annotated[
             bool,
             Doc(
@@ -334,6 +341,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
         else:
             self._provider = provider
             self._owns_provider = False
+        table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._prefix = prefix
         self._table_name = table_name
@@ -351,6 +359,9 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
 
     async def __aenter__(self) -> Self:
         """Open the adapter and install the schema when `auto_migrate=True`."""
+        warn_default_table_name(
+            self._table_name, adapter="PostgresRateLimiterAdapter"
+        )
         if self._owns_provider:
             await self._provider.__aenter__()
         if self._auto_migrate:  # pragma: no branch
@@ -384,6 +395,9 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                         lock_namespace=_RATE_LIMITER_ADVISORY_NAMESPACE,
                     )
                 )
+            await _warn_split_tables(
+                conn, self._table_name, adapter="PostgresRateLimiterAdapter"
+            )
 
     async def __aexit__(
         self,

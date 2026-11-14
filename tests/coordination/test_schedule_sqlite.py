@@ -22,7 +22,12 @@ OTHER = 200.0
 async def backend(tmp_path: Path) -> AsyncGenerator[SQLiteScheduleAdapter]:
     """Open a SQLite schedule adapter on a temp file."""
     provider = SQLiteProvider(tmp_path / "schedule.db")
-    async with provider, SQLiteScheduleAdapter(provider=provider) as adapter:
+    async with (
+        provider,
+        SQLiteScheduleAdapter(
+            provider=provider, table_name="schedules"
+        ) as adapter,
+    ):
         yield adapter
 
 
@@ -51,7 +56,9 @@ def test_table_name_invalid(table_name: str) -> None:
 
 async def test_out_of_context_errors() -> None:
     """Adapter methods raise when called outside the context manager."""
-    adapter = SQLiteScheduleAdapter(provider=SQLiteProvider(":memory:"))
+    adapter = SQLiteScheduleAdapter(
+        provider=SQLiteProvider(":memory:"), table_name="schedules"
+    )
 
     with pytest.raises(OutOfContextError):
         await adapter.claim("job", OLD)
@@ -67,7 +74,7 @@ def test_no_provider_builds_implicit_one(
     monkeypatch.setenv("SQLITE_PATH", "schedules.db")
 
     # Act
-    adapter = SQLiteScheduleAdapter()
+    adapter = SQLiteScheduleAdapter(table_name="schedules")
 
     # Assert
     assert adapter.provider.path == "schedules.db"
@@ -80,7 +87,7 @@ def test_explicit_provider_is_borrowed() -> None:
     provider = SQLiteProvider("schedules.db")
 
     # Act
-    adapter = SQLiteScheduleAdapter(provider=provider)
+    adapter = SQLiteScheduleAdapter(provider=provider, table_name="schedules")
 
     # Assert
     assert adapter.provider is provider
@@ -90,7 +97,9 @@ def test_explicit_provider_is_borrowed() -> None:
 def test_rebind_provider_borrows() -> None:
     """`_rebind_provider` swaps the provider and marks it borrowed."""
     # Arrange
-    adapter = SQLiteScheduleAdapter(provider=SQLiteProvider("a.db"))
+    adapter = SQLiteScheduleAdapter(
+        provider=SQLiteProvider("a.db"), table_name="schedules"
+    )
     shared = SQLiteProvider("shared.db")
 
     # Act
@@ -104,7 +113,7 @@ def test_rebind_provider_borrows() -> None:
 def test_sqlite_env_var_settings_validation_error() -> None:
     """A missing path raises a settings validation error."""
     with pytest.raises(SettingsValidationError, match="SQLITE_PATH"):
-        SQLiteScheduleAdapter()
+        SQLiteScheduleAdapter(table_name="schedules")
 
 
 def test_custom_table_name() -> None:
@@ -122,7 +131,7 @@ def test_provider_factory_returns_bound_adapter() -> None:
     provider = SQLiteProvider("schedules.db")
 
     # Act
-    adapter = provider.schedule_backend()
+    adapter = provider.schedule_backend(table_name="schedules")
 
     # Assert
     assert isinstance(adapter, SQLiteScheduleAdapter)
@@ -132,7 +141,9 @@ def test_provider_factory_returns_bound_adapter() -> None:
 def test_satisfies_protocol() -> None:
     """The adapter satisfies the `ScheduleBackend` protocol."""
     assert isinstance(
-        SQLiteScheduleAdapter(provider=SQLiteProvider(":memory:")),
+        SQLiteScheduleAdapter(
+            provider=SQLiteProvider(":memory:"), table_name="schedules"
+        ),
         ScheduleBackend,
     )
 
@@ -143,7 +154,9 @@ async def test_owned_provider_opens_and_closes(
     """An implicit (owned) provider is opened on enter and closed on exit."""
     # Arrange
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "owned.db"))
-    adapter = SQLiteScheduleAdapter()  # builds and owns the provider
+    adapter = SQLiteScheduleAdapter(
+        table_name="schedules"
+    )  # builds and owns the provider
 
     # Act
     async with adapter:
@@ -226,17 +239,32 @@ async def test_state_survives_reopen(tmp_path: Path) -> None:
     """Stored fires persist across a close and reopen of the same file."""
     path = tmp_path / "durable.db"
     provider = SQLiteProvider(path)
-    async with provider, SQLiteScheduleAdapter(provider=provider) as backend:
+    async with (
+        provider,
+        SQLiteScheduleAdapter(
+            provider=provider, table_name="schedules"
+        ) as backend,
+    ):
         await backend.claim("job", OLD)
     provider = SQLiteProvider(path)
-    async with provider, SQLiteScheduleAdapter(provider=provider) as backend:
+    async with (
+        provider,
+        SQLiteScheduleAdapter(
+            provider=provider, table_name="schedules"
+        ) as backend,
+    ):
         assert await backend.last_fired("job") == OLD
 
 
 async def test_claim_rolls_back_on_error(tmp_path: Path) -> None:
     """A failing claim rolls back the open transaction and re-raises."""
     provider = SQLiteProvider(tmp_path / "schedule.db")
-    async with provider, SQLiteScheduleAdapter(provider=provider) as backend:
+    async with (
+        provider,
+        SQLiteScheduleAdapter(
+            provider=provider, table_name="schedules"
+        ) as backend,
+    ):
         conn = provider.client
         await conn.execute("DROP TABLE schedules;")
 

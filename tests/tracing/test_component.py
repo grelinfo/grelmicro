@@ -231,7 +231,7 @@ async def test_trace_shutdown_timeout_logs_warning(
         provider = micro.trace.provider
         # Replace shutdown with a sleep that outlives the configured
         # timeout. The daemon-thread wrapper means this is safe.
-        provider.shutdown = lambda: time.sleep(0.3)  # ty: ignore[invalid-assignment]
+        provider.shutdown = lambda: time.sleep(0.3)
 
     assert any(
         "TracerProvider.shutdown timed out" in record.message
@@ -251,7 +251,7 @@ async def test_trace_shutdown_exception_logged_not_propagated(
 
     micro = Grelmicro(uses=[Trace(exporter="none")])
     async with micro:
-        micro.trace.provider.shutdown = _raise  # ty: ignore[invalid-assignment]
+        micro.trace.provider.shutdown = _raise
 
     assert any(
         "TracerProvider.shutdown raised an exception" in record.message

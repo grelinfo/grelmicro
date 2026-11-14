@@ -140,8 +140,8 @@ async def test_postgres_lock_held_in_other_time_zone_blocks_acquire(
 ) -> None:
     """A lock held from one time zone stays held for another."""
     # Arrange
-    holder = PostgresLockAdapter(provider=replicas[0])
-    other = PostgresLockAdapter(provider=replicas[1])
+    holder = PostgresLockAdapter(provider=replicas[0], table_name="locks")
+    other = PostgresLockAdapter(provider=replicas[1], table_name="locks")
     name = uuid4().hex
     async with holder, other:
         await holder.acquire(name=name, token=uuid4().hex, duration=DURATION)
@@ -162,8 +162,8 @@ async def test_postgres_lock_released_in_other_time_zone_frees_lock(
 ) -> None:
     """A lock released from one time zone is free for another."""
     # Arrange
-    holder = PostgresLockAdapter(provider=replicas[0])
-    other = PostgresLockAdapter(provider=replicas[1])
+    holder = PostgresLockAdapter(provider=replicas[0], table_name="locks")
+    other = PostgresLockAdapter(provider=replicas[1], table_name="locks")
     name = uuid4().hex
     token = uuid4().hex
     async with holder, other:
@@ -185,8 +185,8 @@ async def test_postgres_lock_expired_in_other_time_zone_frees_lock(
 ) -> None:
     """A lock lease taken from one time zone is free for another once it ends."""
     # Arrange
-    holder = PostgresLockAdapter(provider=replicas[0])
-    other = PostgresLockAdapter(provider=replicas[1])
+    holder = PostgresLockAdapter(provider=replicas[0], table_name="locks")
+    other = PostgresLockAdapter(provider=replicas[1], table_name="locks")
     name = uuid4().hex
     async with holder, other:
         await holder.acquire(

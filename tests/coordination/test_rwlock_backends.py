@@ -172,7 +172,9 @@ async def backend(
         provider = SQLiteProvider(":memory:")
         async with (
             provider,
-            SQLiteReadWriteLockAdapter(provider=provider) as backend,
+            SQLiteReadWriteLockAdapter(
+                provider=provider, table_name="rwlocks"
+            ) as backend,
         ):
             yield backend
     elif backend_name == "kubernetes":

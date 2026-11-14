@@ -47,6 +47,21 @@ postgres = PostgresProvider("postgresql://localhost/app", command_timeout=5)
 This matters most for the [outbox](../outbox/producer.md), where `publish` runs
 inside your business transaction.
 
+## Table names
+
+Pass `table_names` (or set `POSTGRES_TABLE_NAMES`) to pick the default
+table names of the lock, schedule, rate limiter and circuit breaker stores
+this provider builds. `"legacy"` keeps the current names, such as `locks`.
+`"prefixed"` gives each the `grelmicro_` prefix, such as `grelmicro_locks`.
+Left unset, each store keeps its current name and warns when it opens,
+because the default becomes `"prefixed"` in 0.46.0. A `table_name=` passed
+to a store wins. See [the 0.45 migration
+notes](../migration.md#0-45-table-prefix).
+
+```python
+postgres = PostgresProvider("postgresql://localhost/app", table_names="legacy")
+```
+
 ## Share a SQLAlchemy engine
 
 An app that already has a SQLAlchemy engine hands it over instead of

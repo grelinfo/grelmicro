@@ -42,7 +42,9 @@ def test_sync_backend_table_name_invalid(table_name: str) -> None:
 async def test_sync_backend_out_of_context_errors() -> None:
     """Test Synchronization Backend Out Of Context Errors."""
     # Arrange
-    backend = SQLiteLockAdapter(provider=SQLiteProvider(":memory:"))
+    backend = SQLiteLockAdapter(
+        provider=SQLiteProvider(":memory:"), table_name="locks"
+    )
     name = "lock"
     key = "token"
 
@@ -67,7 +69,7 @@ def test_no_provider_builds_implicit_one(
     monkeypatch.setenv("SQLITE_PATH", "locks.db")
 
     # Act
-    backend = SQLiteLockAdapter()
+    backend = SQLiteLockAdapter(table_name="locks")
 
     # Assert
     assert backend.provider.path == "locks.db"
@@ -80,7 +82,7 @@ def test_explicit_provider_is_borrowed() -> None:
     provider = SQLiteProvider("locks.db")
 
     # Act
-    backend = SQLiteLockAdapter(provider=provider)
+    backend = SQLiteLockAdapter(provider=provider, table_name="locks")
 
     # Assert
     assert backend.provider is provider
@@ -90,7 +92,9 @@ def test_explicit_provider_is_borrowed() -> None:
 def test_rebind_provider_borrows() -> None:
     """`_rebind_provider` swaps the provider and marks it borrowed."""
     # Arrange
-    backend = SQLiteLockAdapter(provider=SQLiteProvider("a.db"))
+    backend = SQLiteLockAdapter(
+        provider=SQLiteProvider("a.db"), table_name="locks"
+    )
     shared = SQLiteProvider("shared.db")
 
     # Act
@@ -105,7 +109,7 @@ def test_sqlite_env_var_settings_validation_error() -> None:
     """Test SQLite Settings Validation Error."""
     # Assert / Act
     with pytest.raises(SettingsValidationError, match="SQLITE_PATH"):
-        SQLiteLockAdapter()
+        SQLiteLockAdapter(table_name="locks")
 
 
 def test_sync_backend_custom_table_name() -> None:
@@ -125,7 +129,9 @@ async def test_owned_provider_opens_and_closes(
     """An implicit (owned) provider is opened on enter and closed on exit."""
     # Arrange
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "owned.db"))
-    backend = SQLiteLockAdapter()  # builds and owns the provider
+    backend = SQLiteLockAdapter(
+        table_name="locks"
+    )  # builds and owns the provider
 
     # Act
     async with backend:
@@ -146,7 +152,9 @@ async def test_borrowed_provider_stays_open(tmp_path: Path) -> None:
 
     # Act
     async with provider:
-        async with SQLiteLockAdapter(provider=provider) as backend:
+        async with SQLiteLockAdapter(
+            provider=provider, table_name="locks"
+        ) as backend:
             await backend.acquire(
                 name="lock", token="token", duration=timedelta(seconds=1)
             )
@@ -165,7 +173,7 @@ async def test_shares_one_connection_with_another_component(
     # Act
     async with (
         provider,
-        SQLiteLockAdapter(provider=provider) as lock,
+        SQLiteLockAdapter(provider=provider, table_name="locks") as lock,
         SQLiteCacheAdapter(provider=provider) as cache,
     ):
         await lock.acquire(
@@ -191,7 +199,10 @@ async def test_acquire_and_release_commit_for_other_processes(
     path = tmp_path / "locks.db"
     provider = SQLiteProvider(path)
 
-    async with provider, SQLiteLockAdapter(provider=provider) as backend:
+    async with (
+        provider,
+        SQLiteLockAdapter(provider=provider, table_name="locks") as backend,
+    ):
         # Act
         await backend.acquire(
             name="lock", token="token", duration=timedelta(seconds=60)
@@ -221,7 +232,10 @@ async def test_acquire_rolls_back_on_error(tmp_path: Path) -> None:
     """A failing acquire rolls back the open transaction and re-raises."""
     # Arrange
     provider = SQLiteProvider(tmp_path / "locks.db")
-    async with provider, SQLiteLockAdapter(provider=provider) as backend:
+    async with (
+        provider,
+        SQLiteLockAdapter(provider=provider, table_name="locks") as backend,
+    ):
         conn = provider.client
         await conn.execute("DROP TABLE locks;")
 
@@ -250,7 +264,10 @@ async def test_tasklock_holder_takes_back_its_own_hold(tmp_path: Path) -> None:
     """
     hold = timedelta(milliseconds=300)
     provider = SQLiteProvider(str(tmp_path / "hold.db"))
-    async with provider, SQLiteLockAdapter(provider=provider) as backend:
+    async with (
+        provider,
+        SQLiteLockAdapter(provider=provider, table_name="locks") as backend,
+    ):
         holder = TaskLock(
             "hold", backend=backend, min_hold_duration=hold, lease_duration=10
         )
@@ -266,7 +283,10 @@ async def test_lock_on_a_closed_provider_names_opening_it() -> None:
     """A lock on a Provider that is not open says so instead of retrying."""
     # Arrange
     provider = SQLiteProvider(":memory:")
-    lock = Lock("closed", backend=SQLiteLockAdapter(provider=provider))
+    lock = Lock(
+        "closed",
+        backend=SQLiteLockAdapter(provider=provider, table_name="locks"),
+    )
 
     # Act
     with pytest.raises(LockAcquireError) as error:

@@ -47,7 +47,9 @@ def test_table_name_invalid(table_name: str) -> None:
 @pytest.mark.timeout(5)
 async def test_out_of_context_errors() -> None:
     """Adapter methods raise when called outside the context manager."""
-    adapter = PostgresScheduleAdapter(provider=PostgresProvider(URL))
+    adapter = PostgresScheduleAdapter(
+        provider=PostgresProvider(URL), table_name="schedules"
+    )
 
     with pytest.raises(OutOfContextError):
         await adapter.claim("job", OLD)
@@ -62,7 +64,7 @@ def test_adapter_with_implicit_env_provider(
     """Without `provider=`, the adapter builds its own from env vars."""
     monkeypatch.setenv("POSTGRES_URL", URL)
 
-    adapter = PostgresScheduleAdapter()
+    adapter = PostgresScheduleAdapter(table_name="schedules")
 
     assert adapter.provider.url == URL
     assert adapter._owns_provider is True
@@ -72,7 +74,7 @@ def test_adapter_with_implicit_env_provider(
 def test_adapter_borrows_external_provider() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = PostgresProvider(URL)
-    adapter = PostgresScheduleAdapter(provider=provider)
+    adapter = PostgresScheduleAdapter(provider=provider, table_name="schedules")
 
     assert adapter.provider is provider
     assert adapter._owns_provider is False
@@ -85,7 +87,9 @@ def test_adapter_env_prefix_passed_to_implicit_provider(
     """`env_prefix=` reaches the implicit provider."""
     monkeypatch.setenv("WRITE_POSTGRES_URL", URL)
 
-    adapter = PostgresScheduleAdapter(env_prefix="WRITE_POSTGRES_")
+    adapter = PostgresScheduleAdapter(
+        env_prefix="WRITE_POSTGRES_", table_name="schedules"
+    )
 
     assert adapter.provider.url == URL
     assert adapter.provider.env_prefix == "WRITE_POSTGRES_"
@@ -100,7 +104,7 @@ def test_env_validation_error_propagates(
     monkeypatch.delenv("POSTGRES_HOST", raising=False)
 
     with pytest.raises(SettingsValidationError):
-        PostgresScheduleAdapter()
+        PostgresScheduleAdapter(table_name="schedules")
 
 
 @pytest.mark.timeout(5)
@@ -118,7 +122,7 @@ def test_provider_factory_returns_postgres_adapter() -> None:
     """`PostgresProvider.schedule_backend()` returns a bound adapter."""
     provider = PostgresProvider(URL)
 
-    adapter = provider.schedule_backend()
+    adapter = provider.schedule_backend(table_name="schedules")
 
     assert isinstance(adapter, PostgresScheduleAdapter)
     assert adapter.provider is provider
@@ -128,7 +132,9 @@ def test_provider_factory_returns_postgres_adapter() -> None:
 @pytest.mark.timeout(5)
 def test_satisfies_protocol() -> None:
     """The adapter satisfies the `ScheduleBackend` protocol."""
-    adapter = PostgresScheduleAdapter(provider=PostgresProvider(URL))
+    adapter = PostgresScheduleAdapter(
+        provider=PostgresProvider(URL), table_name="schedules"
+    )
 
     assert isinstance(adapter, ScheduleBackend)
 
@@ -136,7 +142,9 @@ def test_satisfies_protocol() -> None:
 @pytest.mark.timeout(5)
 def test_rebind_provider_borrows_new_provider() -> None:
     """`_rebind_provider` swaps the provider and marks it borrowed."""
-    adapter = PostgresScheduleAdapter(provider=PostgresProvider(URL))
+    adapter = PostgresScheduleAdapter(
+        provider=PostgresProvider(URL), table_name="schedules"
+    )
     adapter._owns_provider = True
     shared = PostgresProvider(URL)
 
@@ -148,6 +156,8 @@ def test_rebind_provider_borrows_new_provider() -> None:
 
 class _StubProvider:
     """Minimal `PostgresProvider`-shaped stub tracking enter/exit calls."""
+
+    table_names = None
 
     def __init__(self) -> None:
         self.client = mock_pool()
@@ -171,7 +181,7 @@ class _StubProvider:
 async def test_aenter_aexit_owned_provider_opens_and_closes_it() -> None:
     """When owned, the adapter opens, migrates, and closes its provider."""
     stub = _StubProvider()
-    adapter = PostgresScheduleAdapter(provider=stub)  # ty: ignore[invalid-argument-type]
+    adapter = PostgresScheduleAdapter(provider=stub, table_name="schedules")  # ty: ignore[invalid-argument-type]
     adapter._owns_provider = True
 
     async with adapter:
@@ -186,7 +196,7 @@ async def test_aenter_aexit_owned_provider_opens_and_closes_it() -> None:
 async def test_aenter_aexit_borrowed_provider_left_alone() -> None:
     """An external provider is migrated but not entered or exited."""
     stub = _StubProvider()
-    adapter = PostgresScheduleAdapter(provider=stub)  # ty: ignore[invalid-argument-type]
+    adapter = PostgresScheduleAdapter(provider=stub, table_name="schedules")  # ty: ignore[invalid-argument-type]
 
     async with adapter:
         pass
@@ -214,7 +224,9 @@ async def backend() -> AsyncGenerator[PostgresScheduleAdapter]:
         )
         async with (
             provider,
-            PostgresScheduleAdapter(provider=provider) as backend,
+            PostgresScheduleAdapter(
+                provider=provider, table_name="schedules"
+            ) as backend,
         ):
             yield backend
 
