@@ -127,6 +127,7 @@ raises](#0-42-raising).
 | `BackendScopeWarning: Fold(...) is bound to InProcessLock` or `rides Coordination('default')` on startup | 0.44 | [Register a `Coordination`](#0-44-cached-lock-scope) |
 | A `GREL_*` variable applies after upgrading, where it used to warn and be ignored | 0.44 | [Set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
 | `SettingsValidationError` when a component is built, from a `GREL_*` variable with an invalid value such as `GREL_OPS_PORT=abc` | 0.44 | [Fix the variable or set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
+| An `ExceptionGroup` escapes `async with Tasks(...)` where `CancelledError` did, when a task fails at start or at stop | 0.45 | [Catch the task's own error](#0-45-task-errors) |
 
 ## 0.45
 
@@ -138,7 +139,30 @@ raises](#0-42-raising).
 
 ### Changes that raise {#0-45-raising}
 
+- A task that fails at start or at stop makes `async with Tasks(...)` raise its own error in an `ExceptionGroup`, not `CancelledError`. [Catch the task's own error](#0-45-task-errors).
 - The changes the 0.44 section announces for 0.45.0 switch in this release. Each 0.44 entry that warns with `Grelmicro045Warning` says what to change. [Read the 0.44 changes](#0-44-silent).
+
+### A failed task raises its own error {#0-45-task-errors}
+
+A task that fails while `Tasks` starts or stops makes `async with Tasks(...)`
+raise that task's error in an `ExceptionGroup`. 0.44 raised `CancelledError`,
+which hid the error. A failed start also stops the tasks already running.
+
+```python title="fragment"
+# Before
+try:
+    async with tasks:
+        ...
+except asyncio.CancelledError:
+    ...
+
+# After
+try:
+    async with tasks:
+        ...
+except* ConnectionError:
+    ...
+```
 
 ### A `requires=` that names no scope warns {#0-45-unknown-requires}
 
