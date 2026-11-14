@@ -25,6 +25,7 @@ from grelmicro.task._protocol import (
     BeatReply,
     Claimed,
     EndStatus,
+    JobBackend,
     JobRecord,
     JobStatus,
     Listed,
@@ -246,7 +247,7 @@ entry that names it. The store's key prefix is `KEYS[1]` without its
 """
 
 
-class RedisJobAdapter:
+class RedisJobAdapter(JobBackend):
     """Redis job storage backend.
 
     Wraps a `RedisProvider` and implements the `JobBackend` protocol. Every

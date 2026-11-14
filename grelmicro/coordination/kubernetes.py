@@ -20,6 +20,7 @@ from typing_extensions import Doc
 
 from grelmicro._duration import round_up
 from grelmicro.coordination._protocol import (
+    LeaderElectionBackend,
     LeaderRecord,
     LockBackend,
     ReadWriteLockBackend,
@@ -963,7 +964,7 @@ def _is_live(record: LeaderRecord, now: datetime) -> bool:
     return now < expires_at
 
 
-class KubernetesLeaderElectionAdapter:
+class KubernetesLeaderElectionAdapter(LeaderElectionBackend):
     """Kubernetes Leader Election Adapter.
 
     Stores the `LeaderRecord` in a `coordination.k8s.io/v1` Lease object, one

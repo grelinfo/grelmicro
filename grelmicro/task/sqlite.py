@@ -28,6 +28,7 @@ from grelmicro.task._protocol import (
     BeatReply,
     Claimed,
     EndStatus,
+    JobBackend,
     JobRecord,
     JobStatus,
     Listed,
@@ -128,7 +129,7 @@ class _Stored(NamedTuple):
     started_at_submit: bool
 
 
-class SQLiteJobAdapter:
+class SQLiteJobAdapter(JobBackend):
     """SQLite job storage backend.
 
     Borrows the connection and a shared lock from a `SQLiteProvider` and

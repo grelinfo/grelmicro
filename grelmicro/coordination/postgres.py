@@ -14,6 +14,7 @@ from typing_extensions import Doc
 from grelmicro._duration import microseconds
 from grelmicro._unset import DefaultTableName, warn_default_table_name
 from grelmicro.coordination._protocol import (
+    LeaderElectionBackend,
     LeaderRecord,
     LockBackend,
     ReadWriteLockBackend,
@@ -964,7 +965,7 @@ _LEADER_TABLE_NAME_MAX = _longest_table_name("_le_acquire_or_renew_v2")
 """The longest table name that keeps every name built from it whole."""
 
 
-class PostgresLeaderElectionAdapter:
+class PostgresLeaderElectionAdapter(LeaderElectionBackend):
     """Postgres leader election adapter.
 
     Wraps a `PostgresProvider` and implements the `LeaderElectionBackend`
