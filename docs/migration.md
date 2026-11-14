@@ -134,7 +134,7 @@ raises](#0-42-raising).
 
 - A misspelled `requires=` value, such as `requires="clustr"`, still turns the backend scope check off for that component, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Name a scope](#0-45-unknown-requires).
 - A Postgres table name too long for the names an adapter builds from it still works as before, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Pass a shorter name](#0-45-long-table-name).
-- A Postgres or SQLite lock, read-write lock, schedule, rate limiter or circuit breaker adapter left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
+- A Postgres or SQLite lock or schedule adapter, or a SQLite read-write lock adapter, left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
 
 ### Changes that raise {#0-45-raising}
 
@@ -268,6 +268,9 @@ old table while the new one exists, such as after a rollback from 0.46.
 The warning names both tables, and says replicas may be split across them.
 The adapter checks this when it creates its table, so an adapter built
 with `auto_migrate=False` skips the check.
+
+During a rolling deploy from 0.44, set `table_names="prefixed"` only once
+no 0.44 replica runs. Until then the replicas would use different tables.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 
