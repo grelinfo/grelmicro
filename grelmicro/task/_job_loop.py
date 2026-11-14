@@ -142,8 +142,7 @@ class JobStoreLoop:
                     try:
                         await self._backend.__aenter__()
                     except BaseException:
-                        if _loops.get(self._backend) is self:
-                            del _loops[self._backend]
+                        _loops.pop(self._backend, None)
                         raise
                 self._task = asyncio.create_task(self._run())
             self._members[member.name] = member
