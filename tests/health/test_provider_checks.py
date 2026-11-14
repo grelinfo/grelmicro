@@ -4,7 +4,7 @@ import asyncio
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import Self, get_overloads
+from typing import Self
 
 import httpx
 import pytest
@@ -14,7 +14,6 @@ from grelmicro import Grelmicro, NoActiveAppError, _deprecation
 from grelmicro._deprecation import PENDING
 from grelmicro.cache import Cache
 from grelmicro.errors import (
-    Grelmicro045Warning,
     GrelmicroFutureWarning,
     SettingsValidationError,
 )
@@ -194,10 +193,10 @@ class TestProviders:
     )
     def test_matches_any_case(self, spelling: str, mode: str) -> None:
         """A mode in another case reads as that mode."""
-        health = HealthChecks(provider_checks=spelling)  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
-        configured = HealthChecks.from_config(  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
+        health = HealthChecks(provider_checks=spelling)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        configured = HealthChecks.from_config(
             HealthChecksConfig(),
-            provider_checks=spelling,
+            provider_checks=spelling,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         )
 
         assert health._provider_checks == mode
@@ -208,7 +207,7 @@ class TestProviders:
         with pytest.raises(
             SettingsValidationError, match="off, report, require"
         ):
-            HealthChecks(provider_checks="on")  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
+            HealthChecks(provider_checks="on")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
     async def test_report_keeps_readyz_up_while_a_backend_is_down(
         self,
@@ -307,88 +306,53 @@ class TestAutoHealthRemoved:
     def test_raises_type_error(self, *, value: bool) -> None:
         """`auto_health=` raises `TypeError` like any unknown keyword."""
         with pytest.raises(TypeError, match="auto_health"):
-            HealthChecks(auto_health=value)  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
+            HealthChecks(auto_health=value)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
         with pytest.raises(TypeError, match="auto_health"):
-            HealthChecks.from_config(  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
+            HealthChecks.from_config(
                 HealthChecksConfig(),
-                auto_health=value,
+                auto_health=value,  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
             )
 
     def test_no_pending_entry(self) -> None:
-        """No pending entry warns about `auto_health=` or the default."""
+        """No pending entry warns about `auto_health=` or `provider_checks=`."""
         assert not hasattr(_deprecation, "AUTO_HEALTH")
         assert not hasattr(_deprecation, "PROVIDERS_DEFAULT")
+        assert not hasattr(_deprecation, "PROVIDER_CHECKS_NONE")
         assert [
-            entry
-            for entry in PENDING
-            if not isinstance(entry, _deprecation.Moved)
-            and "provider_checks" in entry.message
-        ] == [_deprecation.PROVIDER_CHECKS_NONE]
+            entry for entry in PENDING if "provider_checks" in repr(entry)
+        ] == []
 
 
-class TestProviderChecksNone:
-    """`provider_checks=None` reads as `"report"` and warns until 0.45.0."""
+class TestProviderChecksNoneRefused:
+    """`provider_checks=None` is refused like any value that names no mode."""
 
     @pytest.mark.parametrize(
         "build",
         [
             pytest.param(
-                lambda: HealthChecks(cache_ttl=0, provider_checks=None),  # ty: ignore[deprecated]
+                lambda: HealthChecks(provider_checks=None),  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
                 id="init",
             ),
             pytest.param(
-                lambda: HealthChecks.from_config(  # ty: ignore[deprecated]
-                    HealthChecksConfig(cache_ttl=0), provider_checks=None
+                lambda: HealthChecks.from_config(
+                    HealthChecksConfig(),
+                    provider_checks=None,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
                 ),
                 id="from-config",
             ),
         ],
     )
-    async def test_none_registers_report_checks_and_warns_once(
+    def test_none_raises_and_warns_nothing(
         self, build: Callable[[], HealthChecks]
     ) -> None:
-        """`None` is the default mode, with one `Grelmicro045Warning` at the call."""
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            health = build()
-
-        assert [warning.category for warning in caught] == [Grelmicro045Warning]
-        assert str(caught[0].message) == (
-            _deprecation.PROVIDER_CHECKS_NONE.message
-        )
-        assert caught[0].filename == __file__
-        checks = await _checks(
-            Grelmicro(uses=[FakeProvider("redis"), health]), health
-        )
-        assert set(checks) == {"provider:redis"}
-        assert checks["provider:redis"]["critical"] is False  # type: ignore[index]  # ty: ignore[not-subscriptable]
-
-    def test_message_names_both_ways_out(self) -> None:
-        """The warning offers `"off"` to register none, or omitting the argument."""
-        entry = _deprecation.PROVIDER_CHECKS_NONE
-        assert entry.removed_in == "0.45.0"
-        assert entry.message == (
-            "`provider_checks=None` is removed in 0.45.0. "
-            'Use `provider_checks="off"` to register no provider checks, '
-            'or omit the argument for `"report"` instead.'
-        )
-
-    @pytest.mark.parametrize(
-        "method", [HealthChecks.__init__, HealthChecks.from_config]
-    )
-    def test_only_the_none_overload_is_deprecated_for_checkers(
-        self, method: object
-    ) -> None:
-        """Type checkers report `None`, and the runtime warning stays the one."""
-        current, removed = (
-            getattr(overload, "__func__", overload)
-            for overload in get_overloads(method)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-        )
-
-        assert not hasattr(current, "__deprecated__")
-        assert getattr(removed, "__deprecated__", None) == (
-            _deprecation.PROVIDER_CHECKS_NONE.message
-        )
+        """`None` raises `SettingsValidationError`, naming the three modes."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", GrelmicroFutureWarning)
+            with pytest.raises(
+                SettingsValidationError,
+                match="provider_checks= must be one of off, report, require",
+            ):
+                build()
 
 
 async def _open(micro: Grelmicro) -> None:

@@ -64,7 +64,7 @@ def test_configure_reports_ignored_env_in_the_log_stream(
     monkeypatch.setenv("GREL_LOG_LEVEL", "DEBUG")
 
     with pytest.warns(GrelmicroConfigWarning):
-        configure(format="JSON")
+        configure(format="json")
 
     record = parse_json_log(capsys.readouterr().out)
     assert record["level"] == "WARNING"

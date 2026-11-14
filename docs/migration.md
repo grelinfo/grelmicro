@@ -127,18 +127,73 @@ raises](#0-42-raising).
 | `BackendScopeWarning: Fold(...) is bound to InProcessLock` or `rides Coordination('default')` on startup | 0.44 | [Register a `Coordination`](#0-44-cached-lock-scope) |
 | A `GREL_*` variable applies after upgrading, where it used to warn and be ignored | 0.44 | [Set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
 | `SettingsValidationError` when a component is built, from a `GREL_*` variable with an invalid value such as `GREL_OPS_PORT=abc` | 0.44 | [Fix the variable or set `GREL_ENV_LOAD=0`](#0-44-env-load-default) |
+| `config.format == "JSON"` is false after upgrading, with no error | 0.45 | [Compare with the lowercase name](#0-45-log-format-lowercase) |
+| A type checker refuses `"JSON"` as a `LogFormat` | 0.45 | [Spell the format in lowercase](#0-45-log-format-lowercase) |
+| `grelmicro check` fails on `gate-backend` in `staging` or `production`, or `micro.describe().ok` is `False` there | 0.45 | [Give each gated task a backend](#0-45-gate-backend) |
+| `SettingsValidationError: provider_checks= must be one of off, report, require` | 0.45 | [Pass `"off"` or omit the argument](#0-45-provider-checks-none) |
+| A warning filter on `EnvLoadDefaultWarning` matches nothing | 0.45 | [Filter on `EnvLoadOffWarning`](#0-45-env-load-default-warning) |
+| `AttributeError: module 'grelmicro.integrations.fastapi' has no attribute 'RateLimiter'`, or the same for another name from `grelmicro.integrations.starlette` or `grelmicro.integrations.litestar` | 0.45 | [Import it from its home](#0-45-moved-names) |
+| `ImportError: cannot import name 'AdmissionError' from 'grelmicro.security.bans'`, or `'GrelmicroError' from 'grelmicro.security.jwt'` | 0.45 | [Import it from `grelmicro.errors`](#0-45-moved-names) |
 
 ## 0.45
 
 ### Changes that do not raise {#0-45-silent}
 
+- `LogConfig.format` reads back in lowercase, such as `"json"`, and defaults to `"auto"`. A comparison with an uppercase name, such as `config.format == "JSON"`, is now false, with no warning. [Compare with the lowercase name](#0-45-log-format-lowercase).
 - A misspelled `requires=` value, such as `requires="clustr"`, still turns the backend scope check off for that component, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Name a scope](#0-45-unknown-requires).
+- Reading `EnvLoadDefaultWarning` no longer warns. Grelmicro never emits it, so a filter on it matches nothing. [Filter on `EnvLoadOffWarning`](#0-45-env-load-default-warning).
 - A Postgres table name too long for the names an adapter builds from it still works as before, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Pass a shorter name](#0-45-long-table-name).
 - A Postgres or SQLite lock, read-write lock, schedule, rate limiter or circuit breaker adapter left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
 
 ### Changes that raise {#0-45-raising}
 
-- The changes the 0.44 section announces for 0.45.0 switch in this release. Each 0.44 entry that warns with `Grelmicro045Warning` says what to change. [Read the 0.44 changes](#0-44-silent).
+- `gate-backend` fails `grelmicro check` and `micro.describe()` in `staging` and `production`. [Give each gated task a backend](#0-45-gate-backend).
+- `HealthChecks(provider_checks=None)` and `HealthChecks.from_config(provider_checks=None)` raise `SettingsValidationError`. [Pass `"off"` or omit the argument](#0-45-provider-checks-none).
+- A name that `grelmicro.integrations.fastapi`, `grelmicro.integrations.starlette` or `grelmicro.integrations.litestar` only imported in 0.43, such as `RateLimiter`, raises `AttributeError`. So do `AdmissionError` from `grelmicro.security.bans` and `GrelmicroError` from `grelmicro.security.jwt`. [Import it from its home](#0-45-moved-names).
+- A value annotated `LogFormat` in uppercase, such as `"JSON"`, fails the type checker. [Spell the format in lowercase](#0-45-log-format-lowercase).
+
+### A log format reads back in lowercase {#0-45-log-format-lowercase}
+
+`LogConfig.format` reads back as `"json"`, `"logfmt"`, `"text"`, `"pretty"`
+or `"auto"`, and the default is `"auto"`. Input still matches in any case, so
+`format="JSON"` and `GREL_LOG_FORMAT=JSON` keep working. A custom loguru
+template reads back as written.
+
+A comparison with an uppercase name is now false, and nothing warns. 0.44
+warned at each such comparison.
+
+```python
+from grelmicro.log import configure
+
+config = configure(format="json")
+
+# Before: true in 0.44, false from 0.45.0
+if config.format == "JSON":
+    ...
+
+# After
+if config.format == "json":
+    ...
+```
+
+`model_dump()` and `dict_config()` write the lowercase name too. A dump
+saved by 0.44 with `"JSON"` still loads.
+
+`LogFormat` lists the lowercase names only. A value annotated `LogFormat`
+in uppercase fails the type checker. Spell it in lowercase, and drop the
+uppercase cases from a `match` on a `LogFormat`:
+
+```python
+from grelmicro.log import LogFormat
+
+# Before
+fmt: LogFormat = "JSON"
+
+# After
+fmt: LogFormat = "json"
+```
+
+`config.format` is a plain `str`, so `type(config.format) is str` holds.
 
 ### A `requires=` that names no scope warns {#0-45-unknown-requires}
 
@@ -200,6 +255,107 @@ functions. Rename the table in your own migration before 0.46.0. The
 adapter creates its functions again under the new name, so drop the ones
 left under the old name.
 
+### `gate-backend` fails in `staging` and `production` {#0-45-gate-backend}
+
+A task gated with `"claim"`, a `LeaderElection` or a `TaskLock` claims each
+fire through a backend. With none to resolve, every fire runs nothing. In
+`staging` and `production`, `grelmicro check` now reports it as `FAIL` and
+exits non-zero, and `micro.describe().ok` is `False`. In any other tier it
+stays a warning. The running app is not affected. 0.44 warned with
+`Grelmicro045Warning` instead.
+
+Register a `Coordination` that holds the backend, or pass `backend=` to the
+task:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination
+from grelmicro.task import Tasks
+
+tasks = Tasks()
+
+
+@tasks.every(interval=60, gate="claim")
+async def purge() -> None: ...
+
+
+# Before: fails grelmicro check in production
+micro = Grelmicro(uses=[tasks], environment="production")
+
+# After
+micro = Grelmicro(uses=[Coordination(redis), tasks], environment="production")
+```
+
+See [`gate-backend`](diagnostics.md#gate-backend).
+
+### `provider_checks=None` raises {#0-45-provider-checks-none}
+
+`HealthChecks(provider_checks=None)` and
+`HealthChecks.from_config(provider_checks=None)` raise
+`SettingsValidationError`, like any value that names no mode. 0.44 read
+`None` as `"report"` and warned with `Grelmicro045Warning`.
+
+```python
+from grelmicro.health import HealthChecks
+
+# Before: read as "report"
+HealthChecks(provider_checks=None)
+
+# After
+HealthChecks()  # "report"
+HealthChecks(provider_checks="off")  # no provider checks
+```
+
+### `EnvLoadDefaultWarning` matches nothing {#0-45-env-load-default-warning}
+
+Grelmicro no longer emits `EnvLoadDefaultWarning`, and reading it no longer
+warns. It stays importable, so a `filterwarnings` entry that names it keeps
+loading, but it matches nothing. Filter on `EnvLoadOffWarning`, the category
+that reports a `GREL_*` variable left unread:
+
+```toml
+# Before
+filterwarnings = ["ignore::grelmicro.EnvLoadDefaultWarning"]
+
+# After
+filterwarnings = ["ignore::grelmicro.EnvLoadOffWarning"]
+```
+
+### Names an integration module only imported are gone {#0-45-moved-names}
+
+`grelmicro.integrations.fastapi`, `grelmicro.integrations.starlette` and
+`grelmicro.integrations.litestar` serve only the names they list. A name they
+only imported in 0.43, such as `RateLimiter` or `ErrorResponses`, raises
+`AttributeError`, and `from ... import` raises `ImportError`. 0.44 served it
+with `Grelmicro045Warning`, and the warning named its home. The same holds for
+`AdmissionError` from `grelmicro.security.bans` and `GrelmicroError` from
+`grelmicro.security.jwt`.
+
+```python
+# Before
+from grelmicro.integrations.fastapi import RateLimiter
+from grelmicro.security.bans import AdmissionError
+
+# After
+from grelmicro.errors import AdmissionError
+from grelmicro.resilience import RateLimiter
+```
+
+mypy and ty report each import of a name that is gone. To find them before
+you upgrade, run the 0.44 code once with
+`-W error::grelmicro.Grelmicro045Warning`.
+
+| Name | Import it from |
+| --- | --- |
+| `ErrorResponses`, `PreconditionRequiredError`, `RateLimitMiddleware`, `AuthenticatedRequestsMiddleware`, `RouteDeclaration`, `check_freshness`, `merge_headers` | `grelmicro.http` |
+| `RateLimiter`, `RateLimitExceededError` | `grelmicro.resilience` |
+| `JWTClaims`, `Principal`, `TrustedProxies`, `VerifiedToken` | `grelmicro.security` |
+| `Metrics` | `grelmicro.metrics` |
+| `Trace` | `grelmicro.trace` |
+| `AdmissionError`, `GrelmicroError` | `grelmicro.errors` |
+
+Every other name was private, such as `spend` or `gate_routes`, and has no
+public home.
 ### Default table names take the `grelmicro_` prefix in 0.46.0 {#0-45-table-prefix}
 
 From 0.46.0, these adapters default to `grelmicro_` plus their current
@@ -492,7 +648,7 @@ configure(backend=LogBackendType.LOGURU, format=LogFormatType.JSON)
 
 # After
 Metrics(exporter="prometheus")
-configure(backend="loguru", format="JSON")
+configure(backend="loguru", format="json")
 ```
 
 Until 0.44.0 a field reads back as the old enum member, which equals the
@@ -1993,10 +2149,10 @@ filterwarnings = ["error::grelmicro.GrelmicroFutureWarning"]
 ```
 
 Each switching release also has its own category, such as
-`Grelmicro045Warning` for the changes that land in 0.45.0. Filter on it to
+`Grelmicro046Warning` for the changes that land in 0.46.0. Filter on it to
 catch one release's changes and leave the others alone:
 
 ```toml
 [tool.pytest.ini_options]
-filterwarnings = ["error::grelmicro.Grelmicro045Warning"]
+filterwarnings = ["error::grelmicro.Grelmicro046Warning"]
 ```

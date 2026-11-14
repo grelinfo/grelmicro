@@ -19,7 +19,7 @@ from grelmicro.log.uvicorn import (
 from grelmicro.log.uvicorn import apply as apply_uvicorn
 
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
-_LOGFMT = LogConfig(format="LOGFMT")
+_LOGFMT = LogConfig(format="logfmt")
 
 
 @pytest.fixture(autouse=True)
@@ -163,7 +163,7 @@ def test_resolved_config_is_used_not_the_environment(
     The formatters read settings themselves, so they have to be handed the
     resolved config rather than re-reading `GREL_LOG_FORMAT`.
     """
-    monkeypatch.setenv("GREL_LOG_FORMAT", "JSON")
+    monkeypatch.setenv("GREL_LOG_FORMAT", "json")
     apply_uvicorn(_LOGFMT)
     formatter = _formatters("uvicorn")[0]
     assert formatter is not None
@@ -216,7 +216,7 @@ def test_uvicorn_matches_the_app_format_on_every_backend(
     own stdlib handlers. Both ends render through the same writers, so one
     process emits one format.
     """
-    apply_backend(LogConfig(backend=backend, format="LOGFMT"))
+    apply_backend(LogConfig(backend=backend, format="logfmt"))
     formatter = _formatters("uvicorn.access")[0]
     assert formatter is not None
 
@@ -235,7 +235,7 @@ def test_the_access_record_survives_every_backend(
     backend: LogBackend,
 ) -> None:
     """Formatting leaves the record as it found it, on every backend."""
-    apply_backend(LogConfig(backend=backend, format="LOGFMT"))
+    apply_backend(LogConfig(backend=backend, format="logfmt"))
     formatter = _formatters("uvicorn.access")[0]
     assert formatter is not None
     record = _access_record()
