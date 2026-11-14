@@ -357,8 +357,9 @@ The [backend check](deployment.md#the-backend-check) explains the scopes behind
 this. Under [`micro.fake()`](testing.md#test-the-app-you-ship), jobs live in
 the process like the rest of the app. Enter it before the app opens: a job
 takes its store as its tasks start, so a fake entered on an open app does not
-reach the jobs already running. Until its tasks start, `submit`, `get`,
-`cancel` and `list` raise `OutOfContextError`.
+reach the jobs already running. While its tasks are not running, before they
+start or after they stop, `submit`, `get`, `cancel` and `list` raise
+`OutOfContextError`.
 
 To keep a job on a store of its own, pass it as `backend=`, such as
 `@tasks.job(backend=jobs_redis.job_backend())`. The job does not open that
@@ -641,7 +642,8 @@ within the same `shutdown_timeout`. Other replicas keep working:
 1. `submit` on this replica refuses new jobs with `JobRefusedError`. With
    error responses installed, it answers `503`, so the client retries on
    another replica. A submit already
-   waiting for the store still runs the job it starts.
+   waiting for the store still runs the job it starts. Once the drain ends,
+   `submit`, `get`, `cancel` and `list` raise `OutOfContextError`.
 2. Queued jobs stay queued in the store. Another replica runs them, or this
    one after a redeploy.
 3. Running jobs see `progress.stopping` turn `True`. Each stops at its next

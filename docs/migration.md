@@ -134,6 +134,7 @@ raises](#0-42-raising).
 | A warning filter on `EnvLoadDefaultWarning` matches nothing | 0.45 | [Filter on `EnvLoadOffWarning`](#0-45-env-load-default-warning) |
 | `AttributeError: module 'grelmicro.integrations.fastapi' has no attribute 'RateLimiter'`, or the same for another name from `grelmicro.integrations.starlette` or `grelmicro.integrations.litestar` | 0.45 | [Import it from its home](#0-45-moved-names) |
 | `ImportError: cannot import name 'AdmissionError' from 'grelmicro.security.bans'`, or `'GrelmicroError' from 'grelmicro.security.jwt'` | 0.45 | [Import it from `grelmicro.errors`](#0-45-moved-names) |
+| An `ExceptionGroup` escapes `async with Tasks(...)` where `CancelledError` did, when a task fails at start or at stop | 0.45 | [Catch the task's own error](#0-45-task-errors) |
 
 ## 0.45
 
@@ -143,10 +144,11 @@ raises](#0-42-raising).
 - A misspelled `requires=` value, such as `requires="clustr"`, still turns the backend scope check off for that component, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Name a scope](#0-45-unknown-requires).
 - Reading `EnvLoadDefaultWarning` no longer warns. Grelmicro never emits it, so a filter on it matches nothing. [Filter on `EnvLoadOffWarning`](#0-45-env-load-default-warning).
 - A Postgres table name too long for the names an adapter builds from it still works as before, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Pass a shorter name](#0-45-long-table-name).
-- A Postgres or SQLite lock, read-write lock, schedule, rate limiter or circuit breaker adapter left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
+- A Postgres or SQLite lock or schedule adapter, or a SQLite read-write lock adapter, left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
 
 ### Changes that raise {#0-45-raising}
 
+- A task that fails at start or at stop makes `async with Tasks(...)` raise its own error in an `ExceptionGroup`, not `CancelledError`. [Catch the task's own error](#0-45-task-errors).
 - `gate-backend` fails `grelmicro check` and `micro.describe()` in `staging` and `production`. [Give each gated task a backend](#0-45-gate-backend).
 - `HealthChecks(provider_checks=None)` and `HealthChecks.from_config(provider_checks=None)` raise `SettingsValidationError`. [Pass `"off"` or omit the argument](#0-45-provider-checks-none).
 - A name that `grelmicro.integrations.fastapi`, `grelmicro.integrations.starlette` or `grelmicro.integrations.litestar` only imported in 0.43, such as `RateLimiter`, raises `AttributeError`. So do `AdmissionError` from `grelmicro.security.bans` and `GrelmicroError` from `grelmicro.security.jwt`. [Import it from its home](#0-45-moved-names).
@@ -194,6 +196,28 @@ fmt: LogFormat = "json"
 ```
 
 `config.format` is a plain `str`, so `type(config.format) is str` holds.
+
+### A failed task raises its own error {#0-45-task-errors}
+
+A task that fails while `Tasks` starts or stops makes `async with Tasks(...)`
+raise that task's error in an `ExceptionGroup`. 0.44 raised `CancelledError`,
+which hid the error. A failed start also stops the tasks already running.
+
+```python title="fragment"
+# Before
+try:
+    async with tasks:
+        ...
+except asyncio.CancelledError:
+    ...
+
+# After
+try:
+    async with tasks:
+        ...
+except* ConnectionError:
+    ...
+```
 
 ### A `requires=` that names no scope warns {#0-45-unknown-requires}
 
@@ -424,6 +448,9 @@ old table while the new one exists, such as after a rollback from 0.46.
 The warning names both tables, and says replicas may be split across them.
 The adapter checks this when it creates its table, so an adapter built
 with `auto_migrate=False` skips the check.
+
+During a rolling deploy from 0.44, set `table_names="prefixed"` only once
+no 0.44 replica runs. Until then the replicas would use different tables.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 

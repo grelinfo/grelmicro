@@ -30,6 +30,7 @@ from grelmicro.task._protocol import (
     BeatReply,
     Claimed,
     EndStatus,
+    JobBackend,
     JobRecord,
     JobStatus,
     Listed,
@@ -138,7 +139,7 @@ _TABLE_NAME_MAX = _longest_table_name(
 """The longest table name that keeps every name built from it whole."""
 
 
-class PostgresJobAdapter:
+class PostgresJobAdapter(JobBackend):
     """Postgres job storage backend.
 
     Wraps a `PostgresProvider` and implements the `JobBackend` protocol

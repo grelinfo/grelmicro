@@ -83,7 +83,9 @@ Every provider names its factories the same way: `lock_backend()`,
 the same names, such as `coordination.readwritelock_backend`.
 
 Every protocol a user can implement is exported from a public module. Every
-adapter subclasses the protocol it implements.
+backend adapter subclasses the protocol it implements. The adapters that
+`from_thread` returns are sync views of a primitive, not backends, and
+implement no protocol.
 
 ## Settings that name stored data stay in code
 
@@ -92,9 +94,11 @@ config object. It is never read from the environment. Redis `prefix=`, SQL
 `table_names=` and `table_name=` are such settings. One replica started with
 another value would read and write other data than its peers.
 
-A default table name is `grelmicro_` plus the snake_case store name. A table
-of records is plural, such as `grelmicro_locks` or `grelmicro_jobs`. Any
-other table is singular, such as `grelmicro_cache`, `grelmicro_outbox` or
+A default table name is `grelmicro_` plus the store's short name in
+snake_case. The short name is the one its table had before the prefix, such
+as `rwlocks` for the read-write lock. A table of records is plural, such as
+`grelmicro_locks`, `grelmicro_rwlocks` or `grelmicro_jobs`. Any other table
+is singular, such as `grelmicro_cache`, `grelmicro_outbox` or
 `grelmicro_rate_limiter`.
 
 Under a provider prefix, every Redis store adds its kind segment, such as

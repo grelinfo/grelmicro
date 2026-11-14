@@ -11,6 +11,7 @@ from typing_extensions import Doc
 
 from grelmicro._duration import MICROSECOND, MILLISECOND, round_up
 from grelmicro.coordination._protocol import (
+    LeaderElectionBackend,
     LeaderRecord,
     LockBackend,
     ReadWriteLockBackend,
@@ -713,7 +714,7 @@ class RedisScheduleAdapter(ScheduleBackend):
         return float(stored)
 
 
-class RedisLeaderElectionAdapter:
+class RedisLeaderElectionAdapter(LeaderElectionBackend):
     """Redis leader election adapter.
 
     Wraps a `RedisProvider` and implements the `LeaderElectionBackend`

@@ -1680,6 +1680,46 @@ async def test_job_read_raises_outside_the_tasks(call: str) -> None:
         await calls[call]()
 
 
+@pytest.mark.parametrize("call", ["submit", "get", "cancel", "list"])
+async def test_job_call_raises_after_the_tasks_stopped(call: str) -> None:
+    """Every call raises `OutOfContextError` once the tasks have stopped."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+    view = job.for_owner("alice")
+    calls = {
+        "submit": view.submit,
+        "get": lambda: view.get("some-id"),
+        "cancel": lambda: view.cancel("some-id"),
+        "list": view.list,
+    }
+    async with tasks:
+        pass
+
+    # Act & Assert
+    with pytest.raises(OutOfContextError, match=f"Job.{call}"):
+        await calls[call]()
+
+
+async def test_job_out_of_context_message_names_the_tasks() -> None:
+    """The error points at starting the job's `Tasks`, not at `uses=`."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+
+    # Act
+    with pytest.raises(OutOfContextError) as raised:
+        await job.without_owner().get("some-id")
+
+    # Assert
+    assert str(raised.value) == (
+        "Could not call Job.get: the job's tasks are not running. They never "
+        "started, or they already stopped. Register its Tasks in "
+        "Grelmicro(uses=[tasks]) so the app starts them, or make the call "
+        "inside async with tasks."
+    )
+
+
 async def test_job_idle_beat_leaves_every_slot_free() -> None:
     """A beat that claims nothing does not use up a slot."""
     # Arrange
@@ -1726,9 +1766,11 @@ async def test_job_beat_claims_a_job_another_replica_queued() -> None:
         await _advance_in_steps(clock, 2)
 
     # Assert
-    info = await job.without_owner().get("from-another-replica")
+    info = await job._backend.get(
+        name=job.name, job_id="from-another-replica", owner=None
+    )
     assert info is not None
-    assert info.result == ["A"]
+    assert info.result == '["A"]'
 
 
 async def test_job_sweep_reaps_and_purges_on_its_beat(
@@ -1845,7 +1887,7 @@ async def test_job_stored_arguments_that_no_longer_match_stay_out_of_the_log(
         await _advance_in_steps(clock, 2)
 
     # Assert
-    info = await job.without_owner().get("stale")
+    info = await job._backend.get(name=job.name, job_id="stale", owner=None)
     assert info is not None
     assert info.status is JobStatus.FAILED
     assert "a-stored-secret" not in caplog.text
