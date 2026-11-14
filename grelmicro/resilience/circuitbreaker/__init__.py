@@ -139,33 +139,35 @@ __all__ = [
 logger = getLogger("grelmicro")
 
 
-def __getattr__(name: str) -> object:
-    """PEP 562 lazy loader.
+if not TYPE_CHECKING:
 
-    Algorithm configs are imported on first access so that
-    `from grelmicro.resilience.circuitbreaker import CircuitBreaker`
-    does not pull in `consecutive_count.py` (or any future algorithm).
-    The first access caches the value on the module.
-    """
-    if name == "ConsecutiveCountConfig":
-        from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
-            ConsecutiveCountConfig,
-        )
+    def __getattr__(name: str) -> object:
+        """PEP 562 lazy loader.
 
-        value: object = ConsecutiveCountConfig
-    elif name == "CircuitBreakerConfig":
-        from pydantic import Discriminator  # noqa: PLC0415
+        Algorithm configs are imported on first access so that
+        `from grelmicro.resilience.circuitbreaker import CircuitBreaker`
+        does not pull in `consecutive_count.py` (or any future algorithm).
+        The first access caches the value on the module.
+        """
+        if name == "ConsecutiveCountConfig":
+            from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
+                ConsecutiveCountConfig,
+            )
 
-        from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
-            ConsecutiveCountConfig,
-        )
+            value: object = ConsecutiveCountConfig
+        elif name == "CircuitBreakerConfig":
+            from pydantic import Discriminator  # noqa: PLC0415
 
-        value = Annotated[ConsecutiveCountConfig, Discriminator("kind")]
-    else:
-        msg = f"module {__name__!r} has no attribute {name!r}"
-        raise AttributeError(msg)
-    globals()[name] = value
-    return value
+            from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
+                ConsecutiveCountConfig,
+            )
+
+            value = Annotated[ConsecutiveCountConfig, Discriminator("kind")]
+        else:
+            msg = f"module {__name__!r} has no attribute {name!r}"
+            raise AttributeError(msg)
+        globals()[name] = value
+        return value
 
 
 _NO_BACKEND: Final = (

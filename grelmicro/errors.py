@@ -771,13 +771,15 @@ without protecting anything.
 """
 
 
-def __getattr__(name: str) -> object:
-    """Return `EnvLoadDefaultWarning`, removed in 0.45.0, with a warning."""
-    if name == "EnvLoadDefaultWarning":
-        from grelmicro._env_load_warning import (  # noqa: PLC0415
-            env_load_default_warning,
-        )
+if not TYPE_CHECKING:
 
-        return env_load_default_warning()
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
+    def __getattr__(name: str) -> object:
+        """Return `EnvLoadDefaultWarning`, removed in 0.45.0, with a warning."""
+        if name == "EnvLoadDefaultWarning":
+            from grelmicro._env_load_warning import (  # noqa: PLC0415
+                env_load_default_warning,
+            )
+
+            return env_load_default_warning()
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
