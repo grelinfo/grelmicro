@@ -50,17 +50,19 @@ _LAZY: dict[str, str] = {
 """The submodule each public name not bound at import loads from."""
 
 
-def __getattr__(name: str) -> object:
-    """Load `name` from its submodule and cache it on the package."""
-    module = _LAZY.get(name)
-    if module is None:
-        msg = f"module {__name__!r} has no attribute {name!r}"
-        raise AttributeError(msg)
-    import importlib  # noqa: PLC0415
+if not _typing.TYPE_CHECKING:
 
-    value = getattr(importlib.import_module(module), name)
-    globals()[name] = value
-    return value
+    def __getattr__(name: str) -> object:
+        """Load `name` from its submodule and cache it on the package."""
+        module = _LAZY.get(name)
+        if module is None:
+            msg = f"module {__name__!r} has no attribute {name!r}"
+            raise AttributeError(msg)
+        import importlib  # noqa: PLC0415
+
+        value = getattr(importlib.import_module(module), name)
+        globals()[name] = value
+        return value
 
 
 def __dir__() -> list[str]:

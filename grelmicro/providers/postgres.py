@@ -30,12 +30,9 @@ from grelmicro._unset import DefaultTableName
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
 from grelmicro.providers._sqlalchemy import EnginePool, validate_engine
-from grelmicro.providers._table_names import (
-    TableNames,
-    resolve_table_names,
-)
+from grelmicro.providers._table_names import resolve_table_names
 from grelmicro.providers._url import validate_url
-from grelmicro.types import SecretUrl
+from grelmicro.types import SecretUrl, TableNames
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -222,10 +219,9 @@ class PostgresProvider(Provider):
                 `prefixed` gives each the `grelmicro_` prefix, such as
                 `grelmicro_locks`. Either one silences the
                 `Grelmicro046Warning` a default table name gives. A
-                `table_name=` passed to a store wins. When omitted, it is
-                read from `{env_prefix}TABLE_NAMES`. If that is unset too,
-                stores keep the current names and warn. The default
-                becomes `prefixed` in 0.46.0.
+                `table_name=` passed to a store wins. When omitted, stores
+                keep the current names and warn. It is never read from the
+                environment. The default becomes `prefixed` in 0.46.0.
                 """,
             ),
         ] = None,
@@ -265,9 +261,7 @@ class PostgresProvider(Provider):
         self._command_timeout = _resolve_command_timeout(
             command_timeout, env_prefix=env_prefix, env_load=env_load
         )
-        self._table_names = resolve_table_names(
-            table_names, env_prefix=env_prefix, env_load=env_load
-        )
+        self._table_names = resolve_table_names(table_names)
         self._pool: Pool | None = None
         self._engine: AsyncEngine | None = None
         self._own = True
@@ -329,7 +323,7 @@ class PostgresProvider(Provider):
                 """
                 The default table names of the stores this provider builds,
                 `legacy` or `prefixed`. None keeps the current names and
-                warns. Never read from the environment here.
+                warns. Never read from the environment.
                 """
             ),
         ] = None,
@@ -344,9 +338,7 @@ class PostgresProvider(Provider):
         self._env_prefix = "POSTGRES_"
         self._url = ""
         self._command_timeout = None
-        self._table_names = resolve_table_names(
-            table_names, env_prefix="POSTGRES_", env_load=False
-        )
+        self._table_names = resolve_table_names(table_names)
         self._pool = client
         self._engine = None
         self._own = own
@@ -378,7 +370,7 @@ class PostgresProvider(Provider):
                 """
                 The default table names of the stores this provider builds,
                 `legacy` or `prefixed`. None keeps the current names and
-                warns. Never read from the environment here.
+                warns. Never read from the environment.
                 """
             ),
         ] = None,
@@ -415,9 +407,7 @@ class PostgresProvider(Provider):
         # credential would add a place for it to leak from and nothing else.
         self._url = _normalize_scheme(validated.url.render_as_string())
         self._command_timeout = None
-        self._table_names = resolve_table_names(
-            table_names, env_prefix="POSTGRES_", env_load=False
-        )
+        self._table_names = resolve_table_names(table_names)
         self._pool = cast("Pool", EnginePool(validated))
         self._engine = validated
         self._own = own

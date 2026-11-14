@@ -60,13 +60,13 @@ breaker and job stores.
 ```python
 redis = RedisProvider("redis://localhost:6379/0", prefix="myapp:")
 
-redis.schedule_backend()             # keys under "myapp:"
+redis.schedule_backend()             # keys under "myapp:schedule:"
 redis.lock_backend()                 # keys under "myapp:lock:"
 redis.cache_backend(prefix="users:") # keys under "myapp:users:cache:"
 ```
 
-The lock, read-write lock, cache and job stores add their kind after the
-prefixes, so no store reaches into the keys of another. A cache `clear()`
+The lock, read-write lock, schedule, cache and job stores add their kind
+after the prefixes, so no store reaches into the keys of another. A cache `clear()`
 deletes only the cache keys, never a lock beside them. The other stores
 already mark their keys, such as `myapp:cb:` for the circuit breaker.
 
@@ -77,7 +77,7 @@ already mark their keys, such as `myapp:cb:` for the circuit breaker.
 | Cache | `user:1`, `cache:tag:users` | `myapp:cache:user:1`, ... |
 | Job | `job:deadlines`, `job:id:...` | `myapp:job:deadlines`, `myapp:job:id:...` |
 | Leader election | `le_us:primary` | `myapp:le_us:primary` |
-| Schedule | `nightly` | `myapp:nightly` |
+| Schedule | `nightly` | `myapp:schedule:nightly` |
 | Rate limiter | `tb:...`, `gcra_us:...` | `myapp:tb:...`, `myapp:gcra_us:...` |
 | Circuit breaker | `cb:payments` | `myapp:cb:payments` |
 

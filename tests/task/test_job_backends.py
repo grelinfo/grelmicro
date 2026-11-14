@@ -2,6 +2,7 @@
 
 import asyncio
 import secrets
+import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from dataclasses import dataclass
 from datetime import timedelta
@@ -32,6 +33,8 @@ from grelmicro.task._protocol import (
     scan_limit,
 )
 from grelmicro.task.memory import MemoryJobAdapter
+from grelmicro.task.postgres import PostgresJobAdapter
+from grelmicro.task.redis import RedisJobAdapter
 from tests._redis_cluster import CLUSTERS, cluster_provider, hash_tag_prefix
 from tests._redis_sentinel import SentinelSet
 
@@ -49,15 +52,15 @@ LEASE_TICKS = 30
 """A job's lease in the tests, in ticks."""
 
 MARGIN = 5
-"""Ticks kept clear of every deadline, since no real clock hits one exactly."""
+"""Ticks kept clear of every deadline, so no step lands on one exactly."""
 
 
 @dataclass
 class _Store:
     """A backend under test, and how to move its time forward.
 
-    Time is counted in ticks, so a store on a real clock runs the same tests
-    with a short tick and real sleeps.
+    Time is counted in ticks. Each store reads a virtual clock that moves
+    only when a test elapses ticks.
     """
 
     backend: JobBackend
@@ -110,8 +113,90 @@ class _Store:
         return submitted.record
 
 
-REAL_TICK = timedelta(milliseconds=50)
-"""A tick on a store with a real clock, so a lease is a second and a half."""
+REDIS_TICK = timedelta(minutes=1)
+"""A tick on Redis, far longer than the real time a test takes.
+
+Redis drops a key past `keep` on its own clock, so a key expiry keeps
+running in real time between two steps.
+"""
+
+_REDIS_TIME = """
+    local now_pair = redis.call('TIME')
+    local now = tonumber(now_pair[1]) * 1000000 + tonumber(now_pair[2])
+"""
+"""How each job script reads the Redis server clock."""
+
+_REDIS_VIRTUAL_TIME = """
+    local now = tonumber(redis.call(
+        'GET', string.sub(KEYS[1], 1, #KEYS[1] - #'deadlines') .. 'clock'
+    ))
+"""
+"""How each job script reads the virtual clock of its store instead.
+
+The clock key sits under the store's prefix, so it shares the slot of the
+store's other keys on a Redis Cluster.
+"""
+
+
+def _redis_virtual_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every Redis job script read its store's virtual clock."""
+    for name, script in vars(RedisJobAdapter).items():
+        if name.startswith("_LUA_") and _REDIS_TIME in script:
+            monkeypatch.setattr(
+                RedisJobAdapter,
+                name,
+                script.replace(_REDIS_TIME, _REDIS_VIRTUAL_TIME),
+            )
+    assert _REDIS_TIME not in RedisJobAdapter._LUA_BEAT
+
+
+async def _redis_clock(adapter: RedisJobAdapter) -> Callable[[float], Any]:
+    """Start the virtual clock of a Redis job store at the real time.
+
+    Return how to move it forward. A move also brings each key expiry of
+    the store forward by the same time, and deletes a key it brings due.
+    """
+    client = adapter.provider.client
+    base = adapter._base
+    clock = f"{base}clock"
+    await client.set(clock, time.time_ns() // 1000)
+
+    async def advance(seconds: float) -> None:
+        step = round(seconds * 1000)
+        await client.incrby(clock, step * 1000)
+        async for key in client.scan_iter(match=f"{base}*"):
+            remaining = await client.pttl(key)
+            if remaining < 0:
+                continue
+            if remaining <= step:
+                await client.delete(key)
+            else:
+                await client.pexpire(key, remaining - step)
+
+    return advance
+
+
+async def _postgres_clock(
+    postgres: PostgresProvider, *adapters: PostgresJobAdapter
+) -> tuple[str, Callable[[float], Any]]:
+    """Make Postgres job stores read a virtual clock, set at the real time.
+
+    Return the clock's table and how to move the clock forward.
+    """
+    table = f"clock_{secrets.token_hex(6)}"
+    await postgres.client.execute(
+        f"CREATE TABLE {table} AS SELECT clock_timestamp() AS at"
+    )
+    for adapter in adapters:
+        adapter._sql["now"] = f"SELECT at FROM {table};"  # noqa: S608
+
+    async def advance(seconds: float) -> None:
+        await postgres.client.execute(
+            f"UPDATE {table} SET at = at + make_interval(secs => $1)",  # noqa: S608
+            seconds,
+        )
+
+    return table, advance
 
 
 @pytest.fixture(scope="module")
@@ -164,11 +249,13 @@ async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
             provider = ValkeyProvider(request.getfixturevalue("valkey_url"))
         else:
             provider = cluster_provider(request, request.param)
+        _redis_virtual_clock(request.getfixturevalue("monkeypatch"))
         prefix = hash_tag_prefix()
         adapter = provider.job_backend(prefix=prefix)
         twin = provider.job_backend(prefix=prefix)
         async with provider, adapter, twin:
-            yield _Store(adapter, asyncio.sleep, REAL_TICK, twin)
+            advance = await _redis_clock(adapter)
+            yield _Store(adapter, advance, REDIS_TICK, twin)
         return
     if request.param == "postgres":
         postgres = PostgresProvider(request.getfixturevalue("postgres_url"))
@@ -178,20 +265,31 @@ async def store(request: pytest.FixtureRequest) -> AsyncGenerator[_Store]:
             postgres.job_backend(table_name=table_name) as pg,
             postgres.job_backend(table_name=table_name) as pg_twin,
         ):
-            yield _Store(pg, asyncio.sleep, REAL_TICK, pg_twin)
+            clock_table, advance = await _postgres_clock(postgres, pg, pg_twin)
+            yield _Store(pg, advance, twin=pg_twin)
             await postgres.client.execute(f"DROP TABLE IF EXISTS {table_name}")
+            await postgres.client.execute(f"DROP TABLE IF EXISTS {clock_table}")
         return
     if request.param == "sqlite":
         path = request.getfixturevalue("tmp_path") / "jobs.db"
         sqlite = SQLiteProvider(path)
         other = SQLiteProvider(path)
+        clock = VirtualClock()
+        started = round(time.time() * 1000)
+
+        async def _now(_conn: object) -> int:
+            return started + round(clock.monotonic() * 1000)
+
+        request.getfixturevalue("monkeypatch").setattr(
+            "grelmicro.task.sqlite._now", _now
+        )
         async with (
             sqlite,
             other,
             sqlite.job_backend() as adapter,
             other.job_backend() as twin,
         ):
-            yield _Store(adapter, asyncio.sleep, REAL_TICK, twin)
+            yield _Store(adapter, clock.advance, twin=twin)
         return
     backend = MemoryJobAdapter()
     clock = VirtualClock()

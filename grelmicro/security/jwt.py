@@ -2118,14 +2118,16 @@ def _core() -> Any:  # noqa: ANN401
     return grelmicro_core
 
 
-def __getattr__(name: str) -> object:
-    """Serve a name the module served in 0.43, with a warning.
+if not TYPE_CHECKING:
 
-    It loads from its home on each access and moves out in 0.45.0.
-    """
-    if not name.startswith("_"):
-        from grelmicro._deprecation import FACADE_MOVES  # noqa: PLC0415
+    def __getattr__(name: str) -> object:
+        """Serve a name the module served in 0.43, with a warning.
 
-        return FACADE_MOVES[__name__].load(name)
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
+        It loads from its home on each access and moves out in 0.45.0.
+        """
+        if not name.startswith("_"):
+            from grelmicro._deprecation import FACADE_MOVES  # noqa: PLC0415
+
+            return FACADE_MOVES[__name__].load(name)
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)

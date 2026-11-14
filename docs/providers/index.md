@@ -349,11 +349,13 @@ PRAGMA on it.
 
 ### Table names
 
-`table_names="legacy"` (or `SQLITE_TABLE_NAMES=legacy`) keeps the current
-default table names of the stores the provider builds, such as `locks`.
+`table_names="legacy"` keeps the current default table names of the lock,
+read-write lock and schedule stores the provider builds, such as `locks`.
 `"prefixed"` adopts the `grelmicro_` prefix now, such as `grelmicro_locks`.
-Left unset, each store warns when it opens, because the default becomes
-`"prefixed"` in 0.46.0. See [the 0.45 migration
+The other stores already have the prefix and keep their names. Left
+unset, each of the three warns when it opens, because the default becomes
+`"prefixed"` in 0.46.0. It is never read from the environment, so set it
+in code or in `SQLiteConfig`. See [the 0.45 migration
 notes](../migration.md#0-45-table-prefix).
 
 ## Memory

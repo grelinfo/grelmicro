@@ -5,9 +5,11 @@ as for many: one `beat` and at most one `claim` each second, and one sweep now
 and then. The loop opens and closes only a store the job built itself. Whoever
 built any other store opens and closes it.
 
-A store call that fails is tried again at the next beat. When no beat reached
-the store for a whole lease, the store has given the jobs to others, so the loop
-asks every body to stop.
+A store call that fails is tried again at the next beat. A beat or a sweep
+still waiting for the store when the lease runs out is cut and counts as
+failed, and so is a claim the store has not answered within a lease. When no
+beat reached the store for a whole lease, the store has given the jobs to
+others, so the loop asks every body to stop.
 """
 
 # ruff: noqa: SLF001
@@ -23,8 +25,11 @@ from typing import TYPE_CHECKING, Protocol
 from weakref import WeakKeyDictionary
 
 from grelmicro.clock._seam import monotonic, sleep
+from grelmicro.task._protocol import JOB_FAILED, JobStatus
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from grelmicro.task._protocol import Beat, BeatReply, Claimed, JobBackend
 
 __all__ = ["BEAT", "LEASE", "JobStoreLoop", "store_loop"]
@@ -42,6 +47,33 @@ _SWEEP_EVERY_BEATS = 10
 
 _SWEEP_LIMIT = 100
 """How many jobs one sweep ends or forgets at most."""
+
+
+async def _until[T](deadline: float, call: Awaitable[T]) -> T:
+    """Return what `call` returns, or cancel it at `deadline`.
+
+    Raises:
+        TimeoutError: If `call` has not returned by `deadline`.
+    """
+    current = asyncio.current_task()
+    assert current is not None  # noqa: S101
+    expired = False
+
+    async def _expire() -> None:
+        nonlocal expired
+        await sleep(deadline - monotonic())
+        expired = True
+        current.cancel()
+
+    timer = asyncio.ensure_future(_expire())
+    try:
+        return await call
+    except asyncio.CancelledError:
+        if expired and current.uncancel() == 0:
+            raise TimeoutError from None
+        raise
+    finally:
+        timer.cancel()
 
 
 class _Member(Protocol):
@@ -148,14 +180,18 @@ class JobStoreLoop:
         while True:
             await sleep(BEAT.total_seconds())
             beat_at = monotonic()
-            error = await self._beat()
+            lease_ends = held_at + LEASE.total_seconds()
+            try:
+                error = await _until(lease_ends, self._beat())
+            except TimeoutError as timeout:
+                error = timeout
             held_at = (
                 beat_at if error is None else self._missed_beat(held_at, error)
             )
             self._wake.set()
             beats += 1
             if beats % _SWEEP_EVERY_BEATS == 0:
-                await self._sweep()
+                await self._sweep(held_at + LEASE.total_seconds())
 
     def _missed_beat(self, held_at: float, error: Exception) -> float:
         """Stop every body once no beat reached the store for a lease.
@@ -173,11 +209,14 @@ class JobStoreLoop:
             member._stop_runs()
         return monotonic()
 
-    async def _sweep(self) -> None:
-        """End jobs past their lease or wait, and forget expired ones."""
+    async def _sweep(self, deadline: float) -> None:
+        """End jobs past their lease or wait, and forget expired ones.
+
+        A sweep still running at `deadline` is cut.
+        """
         try:
-            await self._backend.reap(limit=_SWEEP_LIMIT)
-            await self._backend.purge(limit=_SWEEP_LIMIT)
+            await _until(deadline, self._backend.reap(limit=_SWEEP_LIMIT))
+            await _until(deadline, self._backend.purge(limit=_SWEEP_LIMIT))
         except Exception:
             logger.warning("Job store sweep failed", exc_info=True)
 
@@ -222,17 +261,56 @@ class JobStoreLoop:
             if not slots:
                 return
             try:
-                claimed = await self._backend.claim(
-                    slots=slots, runner=self.runner, lease=LEASE
+                claimed = await _until(
+                    monotonic() + LEASE.total_seconds(),
+                    self._backend.claim(
+                        slots=slots, runner=self.runner, lease=LEASE
+                    ),
                 )
             except Exception:
                 logger.debug("Job claim failed, retrying", exc_info=True)
                 claimed = []
+            unstarted = []
             for job in claimed:
-                slots[job.record.name] -= 1
-                self._members[job.record.name]._accept(job)
+                try:
+                    self._members[job.record.name]._accept(job)
+                except Exception:
+                    logger.exception(
+                        "Job could not be started: %s", job.record.name
+                    )
+                    unstarted.append(job)
+                else:
+                    slots[job.record.name] -= 1
             for name, unused in slots.items():
                 self._members[name]._give_back_slots(unused)
+            for job in unstarted:
+                await self._fail(job)
+
+    async def _fail(self, job: Claimed) -> None:
+        """End a claimed job that could not start as `failed`.
+
+        A store that does not take it leaves the job to end when its lease
+        runs out.
+        """
+        try:
+            await _until(
+                monotonic() + LEASE.total_seconds(),
+                self._backend.settle(
+                    name=job.record.name,
+                    job_id=job.record.id,
+                    runner=self.runner,
+                    status=JobStatus.FAILED,
+                    error=JOB_FAILED,
+                    result=None,
+                    progress=None,
+                ),
+            )
+        except Exception:
+            logger.warning(
+                "Job could not be ended in its store: %s",
+                job.record.name,
+                exc_info=True,
+            )
 
 
 _loops: WeakKeyDictionary[JobBackend, JobStoreLoop] = WeakKeyDictionary()
