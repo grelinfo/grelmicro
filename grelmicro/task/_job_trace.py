@@ -69,14 +69,13 @@ def submitter_context() -> dict[str, str]:
 
 
 @contextmanager
-def run_span(
-    name: str, job_id: str, submitter: Mapping[str, str]
-) -> Generator[None]:
+def run_span(name: str, submitter: Mapping[str, str]) -> Generator[None]:
     """Run one job inside a span of its own trace, linked to `submitter`.
 
-    A span open when the tasks started does not become its parent. Nothing
-    is linked when `submitter` holds no valid trace context, since the tracer
-    drops such a link. A no-op when OpenTelemetry is not installed.
+    The span holds the job's name, never its id. A span open when the tasks
+    started does not become its parent. Nothing is linked when `submitter`
+    holds no valid trace context, since the tracer drops such a link. A no-op
+    when OpenTelemetry is not installed.
     """
     otel = _otel()
     if otel is None:
@@ -90,10 +89,7 @@ def run_span(
         context=otel.context(),
         kind=otel.consumer,
         links=[otel.link(linked)],
-        attributes={
-            "grelmicro.task.name": name,
-            "grelmicro.task.job.id": job_id,
-        },
+        attributes={"grelmicro.task.name": name},
         record_exception=False,
         set_status_on_exception=False,
     ):

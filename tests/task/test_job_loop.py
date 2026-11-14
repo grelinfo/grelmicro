@@ -10,7 +10,7 @@ import pytest
 
 from grelmicro.clock import VirtualClock
 from grelmicro.task import JobStatus, Progress, Tasks
-from grelmicro.task._job_loop import _until
+from grelmicro.task._job_loop import _loops, _until, store_loop
 from grelmicro.task.memory import MemoryJobAdapter
 from tests.task._job_shared import share, shared
 
@@ -326,3 +326,31 @@ async def test_job_store_call_cut_by_a_stop_is_cancelled_not_timed_out() -> (
         # Assert
         with pytest.raises(asyncio.CancelledError):
             await calling
+
+
+class _UnopenableStore(MemoryJobAdapter):
+    """A store that fails to open."""
+
+    async def __aenter__(self) -> Self:
+        msg = "store down"
+        raise ConnectionError(msg)
+
+
+class _Named:
+    """A job as the loop sees it before it joins."""
+
+    name = "named"
+
+
+async def test_job_loop_first_join_that_fails_to_open_leaves_no_loop() -> None:
+    """A store that fails to open on the first join keeps no loop for it."""
+    # Arrange
+    store = _UnopenableStore()
+    loop = store_loop(store)
+
+    # Act
+    with pytest.raises(ConnectionError):
+        await loop.join(_Named())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    # Assert
+    assert store not in _loops

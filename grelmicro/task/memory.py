@@ -467,11 +467,15 @@ class MemoryJobAdapter:
                 if kept.get(expired.id) is expired:
                     self._forget(expired)
             kept, ends = self._kept[index], self._kept_ends[index]
-            kept[row.id] = row
-            if row.expires_at is not None:
-                heappush(ends, (row.expires_at, row.seq, row))
+            if row.keep is None or row.keep:
+                kept[row.id] = row
+                if row.expires_at is not None:
+                    heappush(ends, (row.expires_at, row.seq, row))
             while len(kept) > cap:
                 self._forget(next(iter(kept.values())))
+            if not kept:
+                self._kept.pop(index, None)
+                self._kept_ends.pop(index, None)
 
     def _forget(self, row: _Row) -> None:
         """Remove an ended job for good."""
