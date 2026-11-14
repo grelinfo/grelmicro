@@ -93,36 +93,36 @@ A level does not say whether replicas share state. See [the backend check](deplo
 
     | Feature | Last break | Last serious fix | Announced |
     | --- | --- | --- | --- |
-    | Whole library | 0.45.0 | None | A misspelled `requires=` or a too-long Postgres table name raises in 0.46.0 |
-    | `Lock` | 0.42.0 | 0.44.1 | SQL default table name changes in 0.46.0 |
-    | `ReadWriteLock` | 0.42.0 | 0.44.2 | SQLite default table name changes in 0.46.0 |
-    | `TaskLock` | 0.45.0 | 0.42.5 | |
-    | `LeaderElection` | 0.45.0 | 0.42.0 | |
-    | `@tasks.cron` | 0.45.0 | 0.42.5 | SQL default table name changes in 0.46.0 |
+    | Whole library | 0.44.0 | None | |
+    | `Lock` | 0.42.0 | 0.44.1 | |
+    | `ReadWriteLock` | 0.42.0 | 0.44.2 | |
+    | `TaskLock` | 0.42.0 | 0.42.5 | Gated tasks change in 0.45.0 |
+    | `LeaderElection` | 0.42.0 | 0.42.0 | Gated tasks change in 0.45.0 |
+    | `@tasks.cron` | 0.42.0 | 0.42.5 | Gated tasks change in 0.45.0 |
     | `Job` | None | None | |
     | `TTLCache` | 0.42.0 | 0.42.0 | |
     | `Idempotency` | 0.42.0 | 0.44.2 | |
     | `Outbox` | 0.42.0 | 0.42.5 | |
     | `RateLimiter` | 0.42.0 | 0.42.0 | |
     | `CircuitBreaker` | 0.42.0 | 0.42.0 | |
-    | `Grelmicro` setup and `install` | 0.44.0 | 0.42.5 | |
-    | `@tasks.every` | 0.45.0 | 0.42.5 | SQL default table name changes in 0.46.0 |
+    | `Grelmicro` setup and `install` | 0.44.0 | 0.42.5 | A warning is removed in 0.45.0 |
+    | `@tasks.every` | 0.42.0 | 0.42.5 | Gated tasks change in 0.45.0 |
     | `Retry` | 0.41.0 | 0.41.0 | |
     | `Bulkhead` | 0.42.0 | 0.41.0 | |
     | `Fallback` | 0.41.0 | 0.41.0 | |
     | `Timeout` | 0.41.0 | None | |
     | `Shield` | 0.42.0 | 0.40.0 | |
     | `Stack` | 0.41.0 | None | |
-    | `Log` | 0.45.0 | 0.42.0 | |
+    | `Log` | 0.44.0 | 0.42.0 | Log format spelling changes in 0.45.0 |
     | `AccessLog` | 0.42.0 | 0.42.0 | |
     | `Trace` | 0.44.0 | 0.42.0 | |
     | `Metrics` | 0.44.0 | 0.41.0 | |
-    | `HealthChecks` | 0.45.0 | 0.38.1 | |
+    | `HealthChecks` | 0.44.0 | 0.38.1 | A removal lands in 0.45.0 |
     | `OpsServer` | None | None | |
     | `ExternalConfig` | 0.40.0 | 0.40.0 | |
     | `ClientAddress` | 0.40.0 | 0.38.1 | |
-    | `JWTVerifier` | 0.45.0 | 0.42.0 | |
-    | `ClientBans` | 0.45.0 | 0.42.0 | |
+    | `JWTVerifier` | 0.42.0 | 0.42.0 | An error class moves in 0.45.0 |
+    | `ClientBans` | 0.42.0 | 0.42.0 | An error class moves in 0.45.0 |
     | `OAuthClient` | None | None | |
     | `AuthenticatedRequests` | None | None | |
     | `IdempotentRequests` | 0.42.0 | 0.44.2 | |
@@ -130,9 +130,9 @@ A level does not say whether replicas share state. See [the backend check](deplo
     | `ConditionalRequests` | 0.42.0 | 0.42.0 | |
     | `RateLimitedRequests` | 0.42.0 | None | |
     | `ErrorResponses` | 0.42.0 | 0.41.0 | |
-    | FastAPI | 0.45.0 | 0.42.0 | |
-    | Starlette | 0.45.0 | 0.42.0 | |
-    | Litestar | 0.45.0 | 0.44.2 | |
+    | FastAPI | 0.42.0 | 0.42.0 | Imported names leave in 0.45.0 |
+    | Starlette | 0.42.1 | 0.42.0 | Imported names leave in 0.45.0 |
+    | Litestar | 0.42.0 | 0.44.2 | Imported names leave in 0.45.0 |
     | FastStream | 0.28.0 | 0.31.0 | |
 
     `0.44.0` reads `GREL_*` variables by default, which affects every feature. `0.42.6` fixed `database is locked` between SQLite providers, which affects every SQLite cell. `0.44.2` fixed URL redaction that could let a credential through, and it does not count for every feature.
