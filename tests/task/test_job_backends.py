@@ -2401,6 +2401,21 @@ async def test_job_backend_max_kept_zero_forgets_the_runs_kept_before(
     assert await _kept(store, [older, newer]) == [False, False]
 
 
+async def test_job_backend_max_kept_never_counts_a_run_kept_for_zero(
+    store: _Store,
+) -> None:
+    """A run with `keep` at zero is gone at once and forgets no kept run."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_succeeded": 2}
+    older = [await _ended(store, **caps) for _ in range(2)]
+
+    # Act
+    gone = await _ended(store, keep=store.ticks(0), **caps)
+
+    # Assert
+    assert await _kept(store, [*older, gone]) == [True, True, False]
+
+
 async def test_job_backend_max_kept_takes_the_largest_cap(
     store: _Store,
 ) -> None:

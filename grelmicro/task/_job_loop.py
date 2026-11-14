@@ -139,7 +139,11 @@ class JobStoreLoop:
                 raise ValueError(msg)
             if self._task is None:
                 if self._opens:
-                    await self._backend.__aenter__()
+                    try:
+                        await self._backend.__aenter__()
+                    except BaseException:
+                        _loops.pop(self._backend, None)
+                        raise
                 self._task = asyncio.create_task(self._run())
             self._members[member.name] = member
 

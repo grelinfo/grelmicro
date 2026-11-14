@@ -96,7 +96,8 @@ async def test_job_run_span_links_to_submitter_in_its_own_trace(
     assert [link.context.span_id for link in run.links] == [submitter.span_id]
     assert run.attributes is not None
     assert run.attributes["grelmicro.task.name"] == job.name
-    assert run.attributes["grelmicro.task.job.id"] == info.id
+    assert "grelmicro.task.job.id" not in run.attributes
+    assert info.id not in run.attributes.values()
 
 
 async def _blocks(progress: Progress, key: str) -> None:
@@ -127,15 +128,13 @@ async def test_job_run_span_links_when_the_job_was_queued(
         await _ended(job, second.id)
 
     # Assert
-    runs = {
-        span.attributes["grelmicro.task.job.id"]: span
-        for span in spans.get_finished_spans()
-        if span.name == "job queued" and span.attributes is not None
-    }
-    assert [link.context.span_id for link in runs[second.id].links] == [
+    first_run, second_run = [
+        span for span in spans.get_finished_spans() if span.name == "job queued"
+    ]
+    assert [link.context.span_id for link in second_run.links] == [
         request.get_span_context().span_id
     ]
-    assert not runs[first.id].links
+    assert not first_run.links
 
 
 async def test_job_run_without_a_submitter_span_has_no_link(
@@ -730,7 +729,7 @@ def test_job_broken_stored_context_starts_no_link(
 ) -> None:
     """Text in the store that is no trace context means no link, no error."""
     # Act
-    with job_trace.run_span("name", "id", {"traceparent": "not-a-trace"}):
+    with job_trace.run_span("name", {"traceparent": "not-a-trace"}):
         pass
 
     # Assert
