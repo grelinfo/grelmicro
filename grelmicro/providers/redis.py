@@ -50,6 +50,12 @@ if TYPE_CHECKING:
     from grelmicro.task.redis import RedisJobAdapter
 
 
+__all__ = [
+    "RedisConfig",
+    "RedisProvider",
+]
+
+
 RedisAnyDsn = Annotated[
     MultiHostUrl,
     UrlConstraints(

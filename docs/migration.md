@@ -1422,7 +1422,7 @@ provider raises `SettingsValidationError`, like every other class:
 
 ```python
 # Before
-from grelmicro.providers.redis import RedisProviderConfigError
+from grelmicro.providers.redis import RedisProvider, RedisProviderConfigError
 
 try:
     RedisProvider("anything://localhost:6379")
@@ -1431,6 +1431,7 @@ except RedisProviderConfigError:
 
 # After
 from grelmicro import SettingsValidationError
+from grelmicro.providers.redis import RedisProvider
 
 try:
     RedisProvider("anything://localhost:6379")

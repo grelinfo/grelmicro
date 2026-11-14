@@ -24,6 +24,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from typing import TextIO
 
+__all__ = [
+    "UvicornAccessFormatter",
+    "UvicornFormatter",
+]
+
+
 _MIN_ACCESS_ARGS = 5
 
 _ACCESS_LOGGER = "uvicorn.access"
