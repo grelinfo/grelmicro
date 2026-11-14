@@ -50,6 +50,12 @@ if TYPE_CHECKING:
     from grelmicro.task.redis import RedisJobAdapter
 
 
+__all__ = [
+    "RedisConfig",
+    "RedisProvider",
+]
+
+
 RedisAnyDsn = Annotated[
     MultiHostUrl,
     UrlConstraints(
@@ -1022,29 +1028,38 @@ _HASH_TAG_RE = re.compile(r"\{[^}]+\}")
 
 
 def store_prefix(
-    provider: RedisProvider, prefix: str, *, kind: str | None = None
+    provider: RedisProvider,
+    prefix: str,
+    *,
+    kind: str | None = None,
+    tag: bool = True,
 ) -> str:
     """Return the key prefix a store built on `provider` writes under.
 
-    The provider's `prefix` comes first, then the store's own. A store that
-    touches several keys at once passes its `kind`, such as `"lock"`. When
-    the provider has a prefix, such a store adds `<kind>:` after both, so no
-    store reaches into the keys of another.
+    The provider's `prefix` comes first, then the store's own. A store with
+    no marker of its own on its keys passes its `kind`, such as `"lock"`.
+    When the provider has a prefix, such a store adds `<kind>:` after both,
+    so no store reaches into the keys of another.
 
     On a Redis Cluster, when the prefix has no brace, a store with a `kind`
     writes under `{<prefix><kind>}:` instead, so its keys share one slot and
     the stores spread across shards. A `{name}` in either prefix is kept.
-    Standalone and Sentinel keys never take a tag.
+    A store that touches one key per call passes `tag=False`, so its keys
+    never take a tag. Standalone and Sentinel keys never take a tag.
 
     Raises:
         SettingsValidationError: On a Redis Cluster, if a store with a `kind`
-            has braces in its prefix but no `{name}`.
+            and a tag has braces in its prefix but no `{name}`.
     """
-    return kind_prefix(provider, prefix, kind=kind)[0]
+    return kind_prefix(provider, prefix, kind=kind, tag=tag)[0]
 
 
 def kind_prefix(
-    provider: RedisProvider, prefix: str, *, kind: str | None = None
+    provider: RedisProvider,
+    prefix: str,
+    *,
+    kind: str | None = None,
+    tag: bool = True,
 ) -> tuple[str, bool]:
     """Return `store_prefix`, and whether it already names the `kind`.
 
@@ -1057,7 +1072,7 @@ def kind_prefix(
     segment = (
         (f"{composed}{kind}:", True) if provider.prefix else (composed, False)
     )
-    if not provider.is_cluster or _HASH_TAG_RE.search(composed):
+    if not tag or not provider.is_cluster or _HASH_TAG_RE.search(composed):
         return segment
     if "{" in composed or "}" in composed:
         msg = (

@@ -148,7 +148,7 @@ _LUA_JOB = (
         if keep == '0' or cap == '0' then
             forget(key, id)
             if kept then
-                trim(kept, 0)
+                trim(kept, tonumber(cap))
             end
             return
         end

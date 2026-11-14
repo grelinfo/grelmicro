@@ -382,6 +382,9 @@ async def test_job_for_owner_accepts_a_caller_with_no_issuer() -> None:
         ),
         (_Caller(issuer=None), _Caller(issuer="")),
         (_Caller(issuer=None), "alice"),
+        (_Caller(), '["https://idp.example", "alice"]'),
+        (_Caller(issuer=None), '[null, "alice"]'),
+        ('["https://idp.example", "alice"]', _Caller()),
     ],
 )
 async def test_job_for_owner_keeps_callers_apart(
@@ -1047,10 +1050,12 @@ async def _count_with(progress: Progress, total: str, n: str) -> None:
         pytest.param(2, True, id="bool-n"),
         pytest.param(-1, 1, id="negative-total"),
         pytest.param(2, -1, id="negative-n"),
+        pytest.param(2**63, 1, id="too-large-total"),
+        pytest.param(2, 2**63, id="too-large-n"),
     ],
 )
 async def test_job_bad_count_fails_the_job(total: object, n: object) -> None:
-    """A `total` or `advance(n)` that is not a non-negative `int` fails it."""
+    """A `total` or `advance(n)` outside the ints from 0 to 2**63 - 1 fails."""
     # Arrange
     tasks = Tasks()
     job = tasks.job()(_count_with)
@@ -1063,6 +1068,28 @@ async def test_job_bad_count_fails_the_job(total: object, n: object) -> None:
     # Assert
     assert info.status is JobStatus.FAILED
     assert info.done == 0
+
+
+async def _advance_past_the_largest_count(progress: Progress) -> None:
+    """Reach the largest count, then advance one more item."""
+    progress.advance(2**63 - 1)
+    progress.advance()
+
+
+async def test_job_advance_past_the_largest_count_fails_the_job() -> None:
+    """An `advance(n)` that takes `done` past `2**63 - 1` fails the job."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_advance_past_the_largest_count)
+
+    async with tasks:
+        # Act
+        submitted = await job.without_owner().submit()
+        info = await _settle(job.without_owner(), submitted.id)
+
+    # Assert
+    assert info.status is JobStatus.FAILED
+    assert info.done == 2**63 - 1
 
 
 async def _count_without_results(progress: Progress, size: int) -> None:
@@ -1633,6 +1660,24 @@ async def test_job_submit_raises_outside_the_tasks() -> None:
     # Act & Assert
     with pytest.raises(OutOfContextError):
         await job.without_owner().submit()
+
+
+@pytest.mark.parametrize("call", ["get", "cancel", "list"])
+async def test_job_read_raises_outside_the_tasks(call: str) -> None:
+    """`get`, `cancel` and `list` before the tasks start raise, like `submit`."""
+    # Arrange
+    tasks = Tasks()
+    job = tasks.job()(_noop)
+    view = job.for_owner("alice")
+    calls = {
+        "get": lambda: view.get("some-id"),
+        "cancel": lambda: view.cancel("some-id"),
+        "list": view.list,
+    }
+
+    # Act & Assert
+    with pytest.raises(OutOfContextError, match=f"Job.{call}"):
+        await calls[call]()
 
 
 async def test_job_idle_beat_leaves_every_slot_free() -> None:

@@ -357,7 +357,8 @@ The [backend check](deployment.md#the-backend-check) explains the scopes behind
 this. Under [`micro.fake()`](testing.md#test-the-app-you-ship), jobs live in
 the process like the rest of the app. Enter it before the app opens: a job
 takes its store as its tasks start, so a fake entered on an open app does not
-reach the jobs already running.
+reach the jobs already running. Until its tasks start, `submit`, `get`,
+`cancel` and `list` raise `OutOfContextError`.
 
 To keep a job on a store of its own, pass it as `backend=`, such as
 `@tasks.job(backend=jobs_redis.job_backend())`. The job does not open that
@@ -466,7 +467,7 @@ never finds them.
 
 !!! warning "A job without an owner"
     Only its id protects a job with no owner, so treat that id as a credential.
-    The id reaches your traces, on the run's span and in the URL of each poll.
+    The id reaches your traces in the URL of each poll.
     Use `for_owner` for any job a caller reaches, and keep `without_owner` for
     jobs whose id never reaches one.
 

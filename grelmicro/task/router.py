@@ -552,7 +552,8 @@ class TaskRouter:
 
                 If None, the job takes the job store of the app's
                 `Coordination` when its tasks start, and keeps it while
-                they run. A Redis provider in `uses=` wires one. Without
+                they run. A Redis, Valkey, Postgres or SQLite provider in
+                `uses=` wires one. Without
                 one, jobs live in the process. A store passed here is not
                 opened by the job: open it as you open its provider.
                 """,

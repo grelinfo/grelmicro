@@ -21,6 +21,11 @@ from grelmicro.providers.postgres import (
     _warn_long_table_name,
 )
 
+__all__ = [
+    "PostgresCacheAdapter",
+]
+
+
 logger = getLogger("grelmicro")
 
 _JANITOR_LIMIT = 1000

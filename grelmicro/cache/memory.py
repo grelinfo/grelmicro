@@ -11,6 +11,10 @@ from grelmicro._duration import nanoseconds
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.types import BackendScope
 
+__all__ = [
+    "MemoryCacheAdapter",
+]
+
 
 class MemoryCacheAdapter(CacheBackend):
     """In-memory cache backend.

@@ -26,6 +26,11 @@ if TYPE_CHECKING:
     from grelmicro.task.memory import MemoryJobAdapter
 
 
+__all__ = [
+    "MemoryProvider",
+]
+
+
 _SQL_OUTBOX_SETTINGS = frozenset({"table", "auto_migrate", "notify"})
 """Outbox settings that describe a database, which memory has none of."""
 

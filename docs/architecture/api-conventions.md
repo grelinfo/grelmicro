@@ -82,6 +82,26 @@ Every provider names its factories the same way: `lock_backend()`,
 `circuitbreaker_backend()`. `Coordination` exposes the backends it holds under
 the same names, such as `coordination.readwritelock_backend`.
 
+Every protocol a user can implement is exported from a public module. Every
+adapter subclasses the protocol it implements.
+
+## Settings that name stored data stay in code
+
+A setting that names where a store keeps its data is set in code or in a
+config object. It is never read from the environment. Redis `prefix=`, SQL
+`table_names=` and `table_name=` are such settings. One replica started with
+another value would read and write other data than its peers.
+
+A default table name is `grelmicro_` plus the snake_case store name. A table
+of records is plural, such as `grelmicro_locks` or `grelmicro_jobs`. Any
+other table is singular, such as `grelmicro_cache`, `grelmicro_outbox` or
+`grelmicro_rate_limiter`.
+
+Under a provider prefix, every Redis store adds its kind segment, such as
+`myapp:lock:` or `myapp:schedule:`. A store whose keys already carry a
+marker keeps it, such as `cb:` for the circuit breaker. A kind name never
+changes once shipped, because a new name moves every key.
+
 ## Algorithms use factory classmethods
 
 When a pattern has more than one algorithm, expose each as an explicit factory
@@ -155,8 +175,8 @@ configure(backend="loguru", format="json")
 grelmicro matches the string in any case and keeps the documented spelling,
 whether it comes from an argument or an environment variable. So
 `GREL_LOG_LEVEL=info` reads as `INFO`. The value reads back as a plain `str`.
-Each set of choices has a type of its own, such as `MetricsExporter` or
-`LogFormat`, for code that annotates a value.
+Each set of choices has a public type of its own, such as `MetricsExporter`,
+`LogFormat` or `TableNames`, for code that annotates a value.
 
 A name a standard spells, such as a JWT algorithm like `RS256`, keeps its
 case. `GREL_ENVIRONMENT=Production` and `environment="Production"` both read
@@ -213,6 +233,11 @@ A wait, a timeout passed to I/O and the sleep between two runs of a
 background loop stay a float of seconds, the type `asyncio` and HTTP clients
 take.
 
+`max_wait` means the same on `Bulkhead` and `Job`: how long a caller or a
+job waits for a free slot. The bulkhead waits in process, so it takes a
+float of seconds. A job's wait is stored, so it takes whole seconds or a
+`timedelta`.
+
 | Parameter | Type | Moved |
 | --- | --- | --- |
 | `SlidingWindowConfig.window` | `int \| timedelta` | yes |
@@ -232,6 +257,8 @@ take.
 | `OAuthClientConfig.refresh_before`, `.default_lifetime` | `int \| timedelta` | yes |
 | `TaskRouter.every(seconds)`, renamed `interval` | `int \| timedelta` | yes |
 | cron `misfire_grace_seconds`, renamed `misfire_grace` | `int \| timedelta` | yes |
+| `Job` and `@tasks.job` `max_wait`, `max_run` | `int \| timedelta \| None`, `None` means no limit | new |
+| `Job` and `@tasks.job` `keep` | `int \| timedelta \| None`, `0` keeps nothing, `None` means no limit | new |
 | `max_wait` on the rate limiter, the bulkhead and idempotency | `float` | stays |
 | `retry_interval`, `error_interval`, `poll_interval`, `export_interval` | `float` | stays |
 | `timeout`, `backend_timeout`, `request_timeout` | `float` | stays |

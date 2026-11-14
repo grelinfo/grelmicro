@@ -109,9 +109,16 @@ def _under(prefix: str, keys: list[str]) -> list[str]:
     return [f"{prefix}{key}" for key in keys]
 
 
+KIND_SEGMENT = {*MULTI_KEY, "schedule"}
+"""Each store that adds its kind after a provider prefix.
+
+The others already mark their keys, such as `cb:` for the circuit breaker.
+"""
+
+
 def _segment(store: str) -> str:
     """Return the kind segment a store adds after a provider prefix."""
-    return f"{store}:" if store in MULTI_KEY else ""
+    return f"{store}:" if store in KIND_SEGMENT else ""
 
 
 def _inner(store: str) -> list[str]:
@@ -251,7 +258,8 @@ def test_cluster_single_key_store_takes_no_tag(
     found = _keys(store, provider)
 
     # Assert
-    assert found == _under(provider_prefix, bare)
+    segment = _segment(store) if provider_prefix else ""
+    assert found == _under(f"{provider_prefix}{segment}", bare)
 
 
 @pytest.mark.parametrize("own", ["{open", "{}", "}", "a}b", "x{y"])
@@ -412,7 +420,37 @@ def test_every_construction_form_takes_a_prefix(
 
     # Assert
     assert provider.prefix == "myapp:"
-    assert provider.schedule_backend()._key("n") == "myapp:n"
+    assert provider.schedule_backend()._key("n") == "myapp:schedule:n"
+
+
+@pytest.mark.parametrize("url", [STANDALONE, SENTINEL, CLUSTER])
+def test_a_schedule_never_shares_a_lock_key(url: str) -> None:
+    """Under a provider prefix, a schedule named `lock:cart` keeps its own key."""
+    # Arrange
+    provider = RedisProvider(url, prefix="myapp:")
+
+    # Act
+    schedule = provider.schedule_backend()._key("lock:cart")
+    lock = provider.lock_backend()._key("cart")
+
+    # Assert
+    assert schedule == "myapp:schedule:lock:cart"
+    assert schedule != lock
+
+
+@pytest.mark.parametrize("url", [STANDALONE, SENTINEL, CLUSTER])
+@pytest.mark.parametrize("own", ["", "ns:"])
+def test_a_schedule_key_stays_put_without_a_provider_prefix(
+    url: str, own: str
+) -> None:
+    """With no provider prefix, a schedule key has no kind and no tag."""
+    # Act
+    found = RedisScheduleAdapter(provider=RedisProvider(url), prefix=own)._key(
+        "nightly"
+    )
+
+    # Assert
+    assert found == f"{own}nightly"
 
 
 def test_from_config_refuses_a_broken_tag() -> None:

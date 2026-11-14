@@ -165,8 +165,8 @@ class JobPage(BaseModel, frozen=True):
 _LIST_LIMIT = 100
 """The most jobs one page holds."""
 
-_MAX_KEPT = 2**63 - 1
-"""The largest cap on kept jobs, so every store can hold it."""
+_MAX_COUNT = 2**63 - 1
+"""The largest count or cap on kept jobs, so every store can hold it."""
 
 
 class _Outcome(NamedTuple):
@@ -321,13 +321,16 @@ class Progress:
 
         Raises:
             TypeError: If `n` is not an `int`.
-            ValueError: If `n` is negative.
+            ValueError: If `n` is negative, or takes `done` past
+                `2**63 - 1`.
             asyncio.CancelledError: If the job already ended.
         """
         _check_count(n, "n")
         with self._run.lock:
             self._check_live()
-            self._run.done += n
+            done = self._run.done + n
+            _check_count(done, "done")
+            self._run.done = done
 
 
 class Job[**P](Task):
@@ -385,7 +388,7 @@ class Job[**P](Task):
             ("max_kept_failed", max_kept_failed),
         ):
             if cap is not None and (
-                not is_int(cap) or not 0 <= cap <= _MAX_KEPT
+                not is_int(cap) or not 0 <= cap <= _MAX_COUNT
             ):
                 msg = f"{what} must be an int from 0 to 2**63 - 1, got {cap!r}"
                 raise ValueError(msg)
@@ -660,8 +663,18 @@ class Job[**P](Task):
         """
         return JobView(self, None)
 
+    def _check_started(self, call: str) -> None:
+        """Refuse `call` until the tasks started and the store is known.
+
+        Raises:
+            OutOfContextError: If the tasks never started.
+        """
+        if self._loop is None:
+            raise OutOfContextError(self, call)
+
     async def _cancel(self, job_id: str, owner: str | None) -> JobInfo | None:
         """Ask the job `job_id` to stop when `owner` owns it."""
+        self._check_started("cancel")
         record = await self._backend.cancel(
             name=self._name, job_id=job_id, owner=owner
         )
@@ -680,6 +693,7 @@ class Job[**P](Task):
         after: str | None,
     ) -> JobPage:
         """Return a page of the jobs `owner` owns, newest first."""
+        self._check_started("list")
         if not is_int(limit) or not 1 <= limit <= _LIST_LIMIT:
             msg = f"limit must be an int from 1 to {_LIST_LIMIT}, got {limit!r}"
             raise ValueError(msg)
@@ -760,6 +774,7 @@ class Job[**P](Task):
 
     async def _get(self, job_id: str, owner: str | None) -> JobInfo | None:
         """Return the job `job_id` when `owner` owns it, else `None`."""
+        self._check_started("get")
         record = await self._backend.get(
             name=self._name, job_id=job_id, owner=owner
         )
@@ -839,7 +854,7 @@ class Job[**P](Task):
 
     async def _run_in_span(self, run: _Run, job: Claimed) -> None:
         """Run one job inside its span, linked to the code that submitted it."""
-        with run_span(self._name, run.id, job.context):
+        with run_span(self._name, job.context):
             await self._run(run, job.record, job.payload)
 
     async def _run(self, run: _Run, record: JobRecord, payload: str) -> None:
@@ -965,7 +980,7 @@ def _owner_key(owner: str | Principal) -> str:
         if not owner:
             msg = "for_owner() needs a non-empty owner."
             raise ValueError(msg)
-        return owner
+        return f"owner:{owner}"
     if not all(
         hasattr(owner, name)
         for name in ("is_authenticated", "subject", "issuer")
@@ -979,7 +994,7 @@ def _owner_key(owner: str | Principal) -> str:
     if subject is None:
         msg = "for_owner() needs an authenticated caller with a subject."
         raise ValueError(msg)
-    return json.dumps([owner.issuer, subject])
+    return "caller:" + json.dumps([owner.issuer, subject])
 
 
 class JobView[**P]:
@@ -1017,6 +1032,9 @@ class JobView[**P]:
 
         Returns `None` when no job has that id, or when it belongs to
         another owner, so a caller cannot tell them apart.
+
+        Raises:
+            OutOfContextError: If the tasks never started.
         """
         return await self._job._get(job_id, self._owner)  # noqa: SLF001
 
@@ -1031,6 +1049,9 @@ class JobView[**P]:
 
         Returns `None` when no job has that id, or when it belongs to
         another owner. Such a job is left as it is.
+
+        Raises:
+            OutOfContextError: If the tasks never started.
         """
         return await self._job._cancel(job_id, self._owner)  # noqa: SLF001
 
@@ -1067,6 +1088,7 @@ class JobView[**P]:
 
         Raises:
             TypeError: If this is the view of `without_owner()`.
+            OutOfContextError: If the tasks never started.
             ValueError: If `limit` is not an int from 1 to 100, `status` is
                 not a status, or `after` is not a `next` a page returned.
         """
@@ -1187,17 +1209,20 @@ def _cancelling() -> bool:
 
 
 def _check_count(value: object, what: str) -> None:
-    """Refuse a count that is not a non-negative `int`.
+    """Refuse a count that is not an `int` from 0 to `2**63 - 1`.
 
     Raises:
         TypeError: If `value` is not an `int`, or is a `bool`.
-        ValueError: If `value` is negative.
+        ValueError: If `value` is negative or above `2**63 - 1`.
     """
     if not is_int(value):
         msg = f"{what} must be an int, got {type(value).__name__}"
         raise TypeError(msg)
     if value < 0:
         msg = f"{what} must not be negative, got {value}"
+        raise ValueError(msg)
+    if value > _MAX_COUNT:
+        msg = f"{what} must be at most 2**63 - 1, got {value}"
         raise ValueError(msg)
 
 
