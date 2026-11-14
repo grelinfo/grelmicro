@@ -30,7 +30,6 @@ from grelmicro.errors import (
     GrelmicroFutureWarning,
     SettingsValidationError,
 )
-from grelmicro.providers._table_names import TableNames
 from grelmicro.providers.postgres import PostgresConfig, PostgresProvider
 from grelmicro.providers.sqlite import SQLiteConfig, SQLiteProvider
 from grelmicro.resilience.circuitbreaker.postgres import (
@@ -43,6 +42,7 @@ from grelmicro.resilience.ratelimiter.postgres import (
     PostgresRateLimiterAdapter,
 )
 from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
+from grelmicro.types import TableNames
 from tests._future import DEFAULT_TABLE_NAME_ADAPTERS
 from tests._postgres import mock_pool
 
@@ -52,16 +52,6 @@ _URL = "postgresql://test:test@localhost:5432/test"
 _POSTGRES: list[tuple[type, str, str]] = [
     (PostgresLockAdapter, "locks", "grelmicro_locks"),
     (PostgresScheduleAdapter, "schedules", "grelmicro_schedules"),
-    (
-        PostgresRateLimiterAdapter,
-        "grelmicro_rate_limiter",
-        "grelmicro_ratelimiter",
-    ),
-    (
-        PostgresCircuitBreakerAdapter,
-        "grelmicro_circuit_breaker",
-        "grelmicro_circuitbreaker",
-    ),
 ]
 """Each Postgres adapter, with its default table name and the 0.46.0 one."""
 
@@ -69,16 +59,6 @@ _SQLITE: list[tuple[type, str, str]] = [
     (SQLiteLockAdapter, "locks", "grelmicro_locks"),
     (SQLiteReadWriteLockAdapter, "rwlocks", "grelmicro_rwlocks"),
     (SQLiteScheduleAdapter, "schedules", "grelmicro_schedules"),
-    (
-        SQLiteRateLimiterAdapter,
-        "grelmicro_rate_limiter",
-        "grelmicro_ratelimiter",
-    ),
-    (
-        SQLiteCircuitBreakerAdapter,
-        "grelmicro_circuit_breaker",
-        "grelmicro_circuitbreaker",
-    ),
 ]
 """Each SQLite adapter, with its default table name and the 0.46.0 one."""
 
@@ -96,13 +76,9 @@ def _params(
 _FACTORIES: dict[type, str] = {
     PostgresLockAdapter: "lock_backend",
     PostgresScheduleAdapter: "schedule_backend",
-    PostgresRateLimiterAdapter: "ratelimiter_backend",
-    PostgresCircuitBreakerAdapter: "circuitbreaker_backend",
     SQLiteLockAdapter: "lock_backend",
     SQLiteReadWriteLockAdapter: "readwritelock_backend",
     SQLiteScheduleAdapter: "schedule_backend",
-    SQLiteRateLimiterAdapter: "ratelimiter_backend",
-    SQLiteCircuitBreakerAdapter: "circuitbreaker_backend",
 }
 """The provider factory that builds each adapter."""
 
@@ -511,64 +487,112 @@ def test_a_store_table_name_wins_over_the_provider_table_names(
     assert old != new
 
 
+_PREFIXED: list[tuple[type, str, str]] = [
+    (
+        PostgresRateLimiterAdapter,
+        "grelmicro_rate_limiter",
+        "ratelimiter_backend",
+    ),
+    (
+        PostgresCircuitBreakerAdapter,
+        "grelmicro_circuit_breaker",
+        "circuitbreaker_backend",
+    ),
+    (SQLiteRateLimiterAdapter, "grelmicro_rate_limiter", "ratelimiter_backend"),
+    (
+        SQLiteCircuitBreakerAdapter,
+        "grelmicro_circuit_breaker",
+        "circuitbreaker_backend",
+    ),
+]
+"""Each adapter whose default table name already has the `grelmicro_` prefix."""
+
+
+@pytest.mark.parametrize(
+    ("adapter", "default", "factory"),
+    [pytest.param(*case, id=case[0].__name__) for case in _PREFIXED],
+)
+@pytest.mark.parametrize("table_names", [None, "legacy", "prefixed"])
+def test_a_prefixed_default_ignores_the_provider_table_names(
+    adapter: type, default: str, factory: str, table_names: str | None
+) -> None:
+    """A default that already has the prefix is a plain name that stays."""
+    # Act
+    provider = _provider_with(adapter, table_names=table_names)
+    built = adapter(provider=provider)
+    made = getattr(provider, factory)()
+    signature = inspect.signature(adapter).parameters["table_name"].default
+
+    # Assert
+    assert built._table_name == default
+    assert made._table_name == default
+    assert type(signature) is str
+    assert signature == default
+
+
+@pytest.mark.parametrize(
+    ("adapter", "default", "factory"),
+    [
+        pytest.param(*case, id=case[0].__name__)
+        for case in _PREFIXED
+        if case[0].__name__.startswith("SQLite")
+    ],
+)
+async def test_a_prefixed_default_opens_quietly(
+    tmp_path: Path, adapter: type, default: str, factory: str
+) -> None:
+    """Opening a store whose default keeps its name warns nothing."""
+    # Arrange
+    async with SQLiteProvider(tmp_path / "app.db") as provider:
+        backend = getattr(provider, factory)()
+        assert isinstance(backend, adapter)
+
+        # Act
+        with _future_warnings() as caught:
+            async with backend:
+                pass
+
+    # Assert
+    assert caught == []
+    assert backend._table_name == default
+
+
 @pytest.mark.parametrize(
     ("provider_type", "prefix"),
     [(PostgresProvider, "POSTGRES_"), (SQLiteProvider, "SQLITE_")],
 )
-def test_table_names_reads_the_environment(
+def test_table_names_ignores_the_environment(
     monkeypatch: pytest.MonkeyPatch, provider_type: type, prefix: str
 ) -> None:
-    """A provider left unset reads `{env_prefix}TABLE_NAMES`, in any case."""
+    """`{env_prefix}TABLE_NAMES` is never read, whatever its value."""
     # Arrange
-    monkeypatch.setenv(f"{prefix}TABLE_NAMES", "Legacy")
+    monkeypatch.setenv(f"{prefix}TABLE_NAMES", "legacy")
+    monkeypatch.setenv("SQLITE_PATH", ":memory:")
     target = _URL if provider_type is PostgresProvider else ":memory:"
 
     # Act
-    from_env = provider_type(target)
-    passed = provider_type(target, table_names="prefixed")
-    no_env = provider_type(target, env_load=False)
-
-    # Assert
-    assert from_env.table_names == "legacy"
-    assert passed.table_names == "prefixed"
-    assert no_env.table_names is None
-
-
-def test_a_store_that_builds_its_provider_reads_the_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The environment pins every store, even one that builds its provider."""
-    # Arrange
-    monkeypatch.setenv("SQLITE_PATH", ":memory:")
-    monkeypatch.setenv("SQLITE_TABLE_NAMES", "prefixed")
-
-    # Act
+    provider = provider_type(target)
     built = SQLiteLockAdapter()
 
     # Assert
-    assert built._table_name == "grelmicro_locks"
+    assert provider.table_names is None
+    assert built._table_name == "locks"
+    assert built._provider.table_names is None
 
 
-@pytest.mark.parametrize(
-    ("provider_type", "prefix"),
-    [(PostgresProvider, "POSTGRES_"), (SQLiteProvider, "SQLITE_")],
-)
+@pytest.mark.parametrize("provider_type", [PostgresProvider, SQLiteProvider])
 def test_an_unknown_table_names_is_refused_without_echo(
-    monkeypatch: pytest.MonkeyPatch, provider_type: type, prefix: str
+    provider_type: type,
 ) -> None:
     """A value other than `legacy` or `prefixed` is refused, never echoed."""
     # Arrange
     target = _URL if provider_type is PostgresProvider else ":memory:"
-    monkeypatch.setenv(f"{prefix}TABLE_NAMES", "secret-env-value")
 
     # Act / Assert
     with pytest.raises(SettingsValidationError) as passed:
-        provider_type(target, table_names="secret-kwarg-value", env_load=False)
-    with pytest.raises(SettingsValidationError) as from_env:
-        provider_type(target)
+        provider_type(target, table_names="secret-kwarg-value")
 
     assert "secret-kwarg-value" not in str(passed.value)
-    assert "secret-env-value" not in str(from_env.value)
 
 
 def test_table_names_carries_through_config_and_client() -> None:

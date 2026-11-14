@@ -17,10 +17,8 @@ from grelmicro._config import any_case
 from grelmicro._unset import DefaultTableName
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
-from grelmicro.providers._table_names import (
-    TableNames,
-    resolve_table_names,
-)
+from grelmicro.providers._table_names import resolve_table_names
+from grelmicro.types import TableNames
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -263,10 +261,9 @@ class SQLiteProvider(Provider):
                 `prefixed` gives each the `grelmicro_` prefix, such as
                 `grelmicro_locks`. Either one silences the
                 `Grelmicro046Warning` a default table name gives. A
-                `table_name=` passed to a store wins. When omitted, it is
-                read from `{env_prefix}TABLE_NAMES`. If that is unset too,
-                stores keep the current names and warn. The default
-                becomes `prefixed` in 0.46.0.
+                `table_name=` passed to a store wins. When omitted, stores
+                keep the current names and warn. It is never read from the
+                environment. The default becomes `prefixed` in 0.46.0.
                 """
             ),
         ] = None,
@@ -297,9 +294,7 @@ class SQLiteProvider(Provider):
         self._synchronous = _resolve_synchronous(
             synchronous, env_prefix, env_load=env_load
         )
-        self._table_names = resolve_table_names(
-            table_names, env_prefix=env_prefix, env_load=env_load
-        )
+        self._table_names = resolve_table_names(table_names)
         self._conn: aiosqlite.Connection | None = None
         self._lock = asyncio.Lock()
         self._own = True
@@ -347,7 +342,7 @@ class SQLiteProvider(Provider):
                 """
                 The default table names of the stores this provider builds,
                 `legacy` or `prefixed`. None keeps the current names and
-                warns. Never read from the environment here.
+                warns. Never read from the environment.
                 """
             ),
         ] = None,
@@ -361,9 +356,7 @@ class SQLiteProvider(Provider):
         self._env_prefix = "SQLITE_"
         self._path = ""
         self._synchronous = None
-        self._table_names = resolve_table_names(
-            table_names, env_prefix="SQLITE_", env_load=False
-        )
+        self._table_names = resolve_table_names(table_names)
         self._conn = client
         self._lock = asyncio.Lock()
         self._own = own

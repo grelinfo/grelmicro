@@ -662,7 +662,9 @@ class RedisScheduleAdapter(ScheduleBackend):
 
     def _bind_scripts(self) -> None:
         """(Re)register the Lua scripts against the current client."""
-        self._key_prefix = store_prefix(self._provider, self._prefix)
+        self._key_prefix = store_prefix(
+            self._provider, self._prefix, kind="schedule", tag=False
+        )
         client = self._provider.client
         self._lua_claim = client.register_script(self._LUA_CLAIM)
 
