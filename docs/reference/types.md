@@ -11,3 +11,4 @@
         - LogLevel
         - Environment
         - BackendScope
+        - TableNames

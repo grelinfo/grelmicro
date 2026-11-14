@@ -14,6 +14,7 @@ __all__ = [
     "Environment",
     "LogLevel",
     "SecretUrl",
+    "TableNames",
     "TimeZoneName",
 ]
 
@@ -42,6 +43,15 @@ Ordered: `process` is one process (Memory), `host` is the processes on one
 host (SQLite), `cluster` is every process that connects to the backend
 (Redis, Valkey, Postgres, Kubernetes). An Adapter declares its own as a
 `scope` class attribute, and a Component `requires` at least one of them.
+"""
+
+type TableNames = Literal["legacy", "prefixed"]
+"""The default table names a SQL provider gives its stores, in any case.
+
+`legacy` keeps the names stores use until 0.46.0, such as `locks`.
+`prefixed` gives each `grelmicro_` plus that name, such as
+`grelmicro_locks`, the default from 0.46.0. `PostgresProvider` and
+`SQLiteProvider` take it as `table_names=`.
 """
 
 

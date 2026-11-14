@@ -49,13 +49,15 @@ inside your business transaction.
 
 ## Table names
 
-Pass `table_names` (or set `POSTGRES_TABLE_NAMES`) to pick the default
-table names of the lock, schedule, rate limiter and circuit breaker stores
-this provider builds. `"legacy"` keeps the current names, such as `locks`.
-`"prefixed"` gives each the `grelmicro_` prefix, such as `grelmicro_locks`.
+Pass `table_names` to pick the default table names of the lock and
+schedule stores this provider builds. `"legacy"` keeps the current names,
+such as `locks`. `"prefixed"` gives each the `grelmicro_` prefix, such as
+`grelmicro_locks`. The other stores already have the prefix and keep their
+names.
 Left unset, each store keeps its current name and warns when it opens,
 because the default becomes `"prefixed"` in 0.46.0. A `table_name=` passed
-to a store wins. See [the 0.45 migration
+to a store wins. It is never read from the environment, so set it in code
+or in `PostgresConfig`. See [the 0.45 migration
 notes](../migration.md#0-45-table-prefix).
 
 ```python

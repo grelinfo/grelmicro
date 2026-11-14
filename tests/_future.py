@@ -108,13 +108,9 @@ Remove it with the switch in 0.46.0.
 DEFAULT_TABLE_NAME_ADAPTERS = (
     "PostgresLockAdapter",
     "PostgresScheduleAdapter",
-    "PostgresRateLimiterAdapter",
-    "PostgresCircuitBreakerAdapter",
     "SQLiteLockAdapter",
     "SQLiteReadWriteLockAdapter",
     "SQLiteScheduleAdapter",
-    "SQLiteRateLimiterAdapter",
-    "SQLiteCircuitBreakerAdapter",
 )
 """Every adapter whose default table name changes in 0.46.0."""
 

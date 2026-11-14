@@ -19,8 +19,6 @@ _NEW_DEFAULT_TABLE_NAMES: Final = {
     "locks": "grelmicro_locks",
     "rwlocks": "grelmicro_rwlocks",
     "schedules": "grelmicro_schedules",
-    "grelmicro_rate_limiter": "grelmicro_ratelimiter",
-    "grelmicro_circuit_breaker": "grelmicro_circuitbreaker",
 }
 """The default table name from 0.46.0, by the default it replaces."""
 

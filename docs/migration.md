@@ -202,9 +202,9 @@ left under the old name.
 
 ### Default table names take the `grelmicro_` prefix in 0.46.0 {#0-45-table-prefix}
 
-From 0.46.0, these adapters default to a table name with the `grelmicro_`
-prefix, so their tables sit beside the other grelmicro tables. While the
-default is left, the adapter warns with `Grelmicro046Warning` when it
+From 0.46.0, these adapters default to `grelmicro_` plus their current
+table name, so their tables sit beside the other grelmicro tables. While
+the default is left, the adapter warns with `Grelmicro046Warning` when it
 opens. It still uses the current table.
 
 | Adapter | Default until 0.46.0 | Default from 0.46.0 |
@@ -212,9 +212,9 @@ opens. It still uses the current table.
 | `PostgresLockAdapter`, `SQLiteLockAdapter` | `locks` | `grelmicro_locks` |
 | `SQLiteReadWriteLockAdapter` | `rwlocks` | `grelmicro_rwlocks` |
 | `PostgresScheduleAdapter`, `SQLiteScheduleAdapter` | `schedules` | `grelmicro_schedules` |
-| `PostgresRateLimiterAdapter`, `SQLiteRateLimiterAdapter` | `grelmicro_rate_limiter` | `grelmicro_ratelimiter` |
-| `PostgresCircuitBreakerAdapter`, `SQLiteCircuitBreakerAdapter` | `grelmicro_circuit_breaker` | `grelmicro_circuitbreaker` |
 
+Every other adapter already has the prefix and keeps its default, such as
+`grelmicro_rate_limiter` and `grelmicro_circuit_breaker`.
 `PostgresReadWriteLockAdapter` already defaults to `grelmicro_rwlocks`.
 `SQLiteReadWriteLockAdapter` keeps its holders in a side table named after
 its table, so `rwlocks_holders` becomes `grelmicro_rwlocks_holders`.
@@ -237,19 +237,16 @@ micro = Grelmicro(uses=[PostgresProvider(url)])
 micro = Grelmicro(uses=[PostgresProvider(url, table_names="legacy")])
 ```
 
-`SQLiteProvider` takes the same argument. Both providers also read it
-from the environment, as `POSTGRES_TABLE_NAMES` and `SQLITE_TABLE_NAMES`,
-so an adapter that builds its own provider follows it too. A `table_name=`
-passed to an adapter wins over `table_names=`.
+`SQLiteProvider` takes the same argument, and so do `PostgresConfig` and
+`SQLiteConfig`. It is never read from the environment. An adapter that
+builds its own provider keeps the current name and warns, so pass it
+`table_name=`. A `table_name=` passed to an adapter wins over
+`table_names=`.
 
 To move to the new names with your data, rename the tables in your own
-migration before 0.46.0, then set `table_names="prefixed"`. On Postgres,
-the rate limiter and circuit breaker also name an index and their
-functions after the table, such as `grelmicro_rate_limiter_updated_at_idx`
-and `grelmicro_rate_limiter_tb_acquire`. The adapter creates them again
-under the new name, so drop the ones left under the old name. On SQLite,
-the circuit breaker names an index after the table, and the read-write
-lock names its side table after it.
+migration before 0.46.0, then set `table_names="prefixed"`. On SQLite,
+the read-write lock names its side table after its table, so rename
+`rwlocks_holders` too.
 
 From 0.46.0, an adapter left at its default checks the database when it
 opens:

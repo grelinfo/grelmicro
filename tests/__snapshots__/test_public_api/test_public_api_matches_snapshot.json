@@ -1207,6 +1207,7 @@
     "SecretUrl": {
       "()": "(secret_value) -> 'None'"
     },
+    "TableNames": null,
     "TimeZoneName": null
   }
 }
