@@ -341,10 +341,9 @@ from grelmicro.errors import AdmissionError
 from grelmicro.resilience import RateLimiter
 ```
 
-A type checker does not catch a name gone from an integration module, since
-the module loads its public names lazily. Run the 0.44 code once with
-`-W error::grelmicro.Grelmicro045Warning` to find each one, or search for
-imports from these modules.
+mypy and ty report each import of a name that is gone. To find them before
+you upgrade, run the 0.44 code once with
+`-W error::grelmicro.Grelmicro045Warning`.
 
 | Name | Import it from |
 | --- | --- |
