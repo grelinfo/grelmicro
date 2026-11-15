@@ -22,6 +22,7 @@
 * 🐛 An app on a bare `RedisProvider` or `ValkeyProvider` with a cluster URL starts instead of raising. On Cluster, the cache, lock, read-write lock and job stores put their keys under a hash tag of their own, such as `{lock}:`, when no prefix carries one. A prefix with a tag keeps its keys as they are. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 
 ### Docs
+* 📝 [Versions and upgrades](versioning.md) says that tests passing with a release's warning filter mean none of your code is affected, and that a misspelled class name stops pytest. ([#1327](https://github.com/grelinfo/grelmicro/issues/1327))
 * 📝 From `1.0`, an Experimental feature is the one exception to "nothing breaks before `2.0`". It can break in a minor, and it always warns first. ([#1254](https://github.com/grelinfo/grelmicro/pull/1254))
 * 📝 The capability matrix gives each feature a maturity level: Experimental, Preview or Stable, with the last break and serious bug fix behind it. ([#1252](https://github.com/grelinfo/grelmicro/pull/1252))
 * 📝 The 0.35 migration note says that a Provider listed on its own fills its kinds next to other Components, and how to keep a kind off. ([#1207](https://github.com/grelinfo/grelmicro/issues/1207))
