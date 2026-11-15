@@ -1333,8 +1333,10 @@ class Grelmicro:
     def providers(self) -> tuple[Provider, ...]:
         """Active `Provider` instances, in registration order, deduped by identity.
 
-        Includes Providers listed in `uses=` and those adopted from
-        Components that borrow them (see `_discover_shared_providers`). One
+        Includes Providers listed in `uses=` and those borrowed by a
+        Component without being listed, such as the one in
+        `Outbox(PostgresProvider(...))`. A borrowed Provider is listed before
+        the app opens too, just before the first Component that holds it. One
         Provider feeding several Components appears once. Useful for
         introspection and for `HealthChecks(provider_checks=...)`, which
         registers a `provider:{short_name}` check per entry.
@@ -1342,7 +1344,7 @@ class Grelmicro:
         if self._pending_providers:
             self._register_provider_defaults("micro.providers was read")
         seen: dict[int, Provider] = {}
-        for item in self._items:
+        for item in _with_shared_providers(self._items):
             if isinstance(item, Provider) and id(item) not in seen:
                 seen[id(item)] = item
         return tuple(seen.values())

@@ -933,6 +933,42 @@ async def test_discovers_provider_not_in_uses(
     )
 
 
+async def test_providers_lists_a_borrowed_provider_before_open() -> None:
+    """`micro.providers` lists a provider absent from `uses=` before open.
+
+    The list matches the one read after open, in the order the providers open.
+    """
+    listed = _RecordingProvider()
+    borrowed = _RecordingProvider()
+    micro = Grelmicro(uses=[listed, Coordination(borrowed)])
+
+    before = micro.providers
+    async with micro:
+        during = micro.providers
+
+    assert before == (listed, borrowed)
+    assert during == before
+    assert borrowed.entered == 1
+
+
+async def test_providers_lists_a_provider_both_listed_and_borrowed_once() -> (
+    None
+):
+    """A provider in `uses=` and borrowed by a component is listed once."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(
+        uses=[
+            provider,
+            Coordination(provider),
+            Coordination(provider, name="b"),
+        ]
+    )
+
+    assert micro.providers == (provider,)
+    async with micro:
+        assert micro.providers == (provider,)
+
+
 async def test_discovers_shared_provider_only_once() -> None:
     """A provider held by several components is lifecycled exactly once."""
     provider = _RecordingProvider()

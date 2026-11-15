@@ -95,6 +95,25 @@ def test_describe_reports_declined_provider_kinds() -> None:
     assert "cache" in sqlite.serves
 
 
+def test_describe_lists_a_provider_passed_only_to_a_component() -> None:
+    """A provider borrowed by a component shows in the report before open."""
+    from grelmicro.outbox import Outbox  # noqa: PLC0415
+    from grelmicro.providers.postgres import PostgresProvider  # noqa: PLC0415
+
+    micro = Grelmicro(
+        uses=[
+            RedisProvider("redis://localhost:6379/0"),
+            Outbox(PostgresProvider("postgresql://localhost:5432/app")),
+        ],
+        environment="development",
+    )
+
+    report = micro.describe()
+
+    assert [p.short_name for p in report.providers] == ["redis", "postgres"]
+    assert "postgres" in report.render()
+
+
 def test_describe_masks_provider_credentials() -> None:
     """A password in a Provider URL never reaches the report."""
     micro = Grelmicro(
