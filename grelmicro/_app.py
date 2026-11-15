@@ -69,6 +69,7 @@ from grelmicro._environment import (
     raise_or_warn,
     recorded_bindings,
     report_diagnostic,
+    report_undeclared_environment,
     report_unmet_requirements,
     resolve_environment,
     unmet_requirements,
@@ -2035,6 +2036,9 @@ class Grelmicro:
     def _prepare_open(self) -> None:
         """Settle what this open enters, and check its backends.
 
+        With no tier declared, it logs that the production checks are off,
+        through `Log` when the app registers one.
+
         An armed `fake()` swaps its components in first, and the scope check
         is skipped on a faked app, whose memory stores are the point.
         """
@@ -2044,6 +2048,12 @@ class Grelmicro:
         self._order_providers_before_dependents()
         self._open_runners_last()
         self._resolve_provider_sharing()
+        if self._environment is None:
+            report_undeclared_environment(
+                deferred=any(
+                    getattr(item, "kind", None) == "log" for item in self._items
+                )
+            )
         if self._unfaked is None:
             report_unmet_requirements(
                 unmet_requirements(
