@@ -19,6 +19,9 @@ They are the well-known values of the OpenTelemetry
 attribute, and grelmicro writes the declared value into that attribute on the
 tracer resource, so the same variable names your environment in every trace.
 
+Without `GREL_ENVIRONMENT`, grelmicro runs with no environment and the
+production checks are off. The app logs a warning at startup.
+
 Declaring `production` or `staging` turns on the backend check below. This is
 the one place to set it per environment, so it belongs in the manifest
 rather than the image.

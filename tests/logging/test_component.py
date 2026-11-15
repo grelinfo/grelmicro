@@ -10,7 +10,7 @@ from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro._config import resolve_config
 from grelmicro.errors import GrelmicroConfigWarning
 from grelmicro.log import Log, LogConfig, configure
-from tests.logging.conftest import parse_json_log
+from tests.logging.conftest import parse_json_log, parse_json_logs
 
 
 def test_log_satisfies_component_protocol() -> None:
@@ -152,6 +152,31 @@ async def test_log_keeps_reporting_when_exit_restores_handlers(
 
     record = parse_json_log(capsys.readouterr().out)
     assert record["variable"] == "GREL_LOG_TIMEZONE"
+
+
+async def test_log_formats_the_undeclared_environment_line_once(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    reset_stdlib: None,  # noqa: ARG001
+) -> None:
+    """With `Log` registered, the line waits for it and is formatted once."""
+    # Arrange
+    monkeypatch.delenv("GREL_ENVIRONMENT")
+    micro = Grelmicro(uses=[Log(format="JSON")])
+
+    # Act
+    async with micro:
+        pass
+
+    # Assert
+    records = [
+        record
+        for record in parse_json_logs(capsys.readouterr().out)
+        if record.get("diagnostic") == "undeclared-environment"
+    ]
+    assert len(records) == 1
+    assert records[0]["level"] == "WARNING"
+    assert records[0]["msg"].startswith("No environment declared")
 
 
 async def test_log_use_via_micro_attribute(reset_stdlib: None) -> None:  # noqa: ARG001
