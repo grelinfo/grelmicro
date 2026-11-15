@@ -49,6 +49,10 @@ every line to change before you upgrade:
 filterwarnings = ["error::grelmicro.Grelmicro046Warning"]
 ```
 
+If your tests pass with this filter, none of your code uses a behavior that
+changes in that release. A misspelled class name stops pytest with an error,
+so a passing run means the filter is active.
+
 ## Python versions
 
 grelmicro supports up to three Python versions at once, counted back from the

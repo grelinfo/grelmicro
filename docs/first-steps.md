@@ -59,6 +59,10 @@ handlers need no `async with`.
 
 One caller holds `cart` at a time. The next caller waits for the release.
 
+Without `GREL_ENVIRONMENT`, grelmicro runs with no environment and the
+production checks are off. The app logs a warning at startup. See
+[Deployment](deployment.md#declare-the-environment).
+
 ## Construct a pattern
 
 Every pattern is built the same way. Pass the name first, then tune with keyword

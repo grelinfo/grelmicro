@@ -8,6 +8,7 @@ Exposes:
 - `unmet_requirements`: walk registered items and recorded bindings, and
   return every backend whose scope falls short of what is required of it.
 - `report_unmet_requirements`: raise or warn, by declared tier.
+- `report_undeclared_environment`: log that no tier is declared.
 - `record`, `record_coordination`, `forget`, `recorded_bindings`: keep the
   bindings of patterns no app registers, for the next app to check.
 
@@ -27,14 +28,19 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock
 from typing import TYPE_CHECKING, Final, NamedTuple, cast, get_args
 from weakref import WeakKeyDictionary, WeakSet
 
-from grelmicro._config import defer_report, match_case
+from grelmicro._config import (
+    defer_report,
+    ignored_env_reports_enabled,
+    match_case,
+)
 from grelmicro._current_app import _current_micro
 from grelmicro._diagnostics import (
     BACKEND_SCOPE,
+    UNDECLARED_ENVIRONMENT,
     UNKNOWN_ENVIRONMENT,
     diagnostic,
 )
@@ -104,6 +110,9 @@ _UNKNOWN_ENVIRONMENT_MESSAGE: Final = (
 
 _reported_unknown: set[str] = set()
 """Values already reported, so a second read stays quiet."""
+
+_undeclared_queued: Final = Event()
+"""Set while an undeclared-environment report waits for logging."""
 
 _PACKAGE_DIR: Final = f"{Path(__file__).parent}{os.sep}"
 """Frames under this directory are skipped, so a warning names user code."""
@@ -312,6 +321,46 @@ def _report_unknown_environment(value: str) -> None:
                 "diagnostic": UNKNOWN_ENVIRONMENT,
             },
         )
+    )
+
+
+def report_undeclared_environment(*, deferred: bool) -> None:
+    """Log that no tier is declared, so the production checks are off.
+
+    A log record only, never a `warnings` warning, so a suite run with
+    `-W error` keeps passing. With `deferred`, the record waits until
+    `Log` configures logging, and an open made meanwhile queues no second
+    one. Otherwise it is logged at once, and with no handler installed
+    Python's last-resort handler prints it to stderr.
+    """
+    message = diagnostic(
+        UNDECLARED_ENVIRONMENT,
+        "No environment declared, so the production checks are off. Set "
+        f"{ENVIRONMENT_VAR} to development, test, staging or production.",
+    )
+    if not deferred and not ignored_env_reports_enabled():
+        _log_undeclared_environment(message)
+        return
+    if _undeclared_queued.is_set():
+        return
+    _undeclared_queued.set()
+    defer_report(partial(_emit_undeclared_environment, message))
+
+
+def _emit_undeclared_environment(message: str) -> None:
+    """Log the queued report, and let the next open queue one."""
+    _undeclared_queued.clear()
+    _log_undeclared_environment(message)
+
+
+def _log_undeclared_environment(message: str) -> None:
+    """Log the undeclared-environment report on the `grelmicro` logger."""
+    logger.warning(
+        message,
+        extra={
+            "variable": ENVIRONMENT_VAR,
+            "diagnostic": UNDECLARED_ENVIRONMENT,
+        },
     )
 
 

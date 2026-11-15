@@ -51,6 +51,9 @@ ENV_LOAD_OFF: Final = "env-load-off"
 UNKNOWN_ENVIRONMENT: Final = "unknown-environment"
 """`GREL_ENVIRONMENT` names no known tier, so the backend check runs undeclared."""
 
+UNDECLARED_ENVIRONMENT: Final = "undeclared-environment"
+"""No tier is declared, so the production checks are off. Logged only."""
+
 BACKEND_SCOPE: Final = "backend-scope"
 """A bound backend reaches less far than its component requires."""
 

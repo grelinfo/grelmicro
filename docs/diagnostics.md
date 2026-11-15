@@ -65,6 +65,7 @@ configuration it names. Each entry below says which.
 |---|---|---|---|
 | `env-load-off` | `EnvLoadOffWarning` | none | A `GREL_*` variable is set but `GREL_ENV_LOAD` is off, so it was not applied. |
 | `unknown-environment` | `UnknownEnvironmentWarning` | none | `GREL_ENVIRONMENT` names no known tier, so the backend check runs as if undeclared. |
+| `undeclared-environment` | none, logged only | none | No tier is declared, so the production checks are off. |
 | `backend-scope` | `BackendScopeWarning` | `BackendScopeError` | A bound backend reaches less far than its component requires. |
 | `ambient-binding` | `AmbientBindingWarning` | `AmbientBindingError` | Ambient components are registered but the binding middleware is missing. |
 | `middleware-placement` | `MiddlewarePlacementWarning` | `MiddlewarePlacementError` | A grelmicro middleware wraps middleware the app declared itself, so it would answer before them, cannot see a path it serves, or cannot be added. |
@@ -85,6 +86,13 @@ the variable, or pass the value directly in code. See
 
 ### `unknown-environment`
 
+Set `GREL_ENVIRONMENT` to `development`, `test`, `staging`, or `production`.
+
+### `undeclared-environment`
+
+Neither `environment=` nor `GREL_ENVIRONMENT` declares a tier, so the
+production checks are off. The app logs one `WARNING` on the `grelmicro` logger
+each time it opens. It is not a Python warning, so `-W error` leaves it alone.
 Set `GREL_ENVIRONMENT` to `development`, `test`, `staging`, or `production`.
 
 ### `backend-scope`

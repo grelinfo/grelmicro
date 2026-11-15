@@ -16,6 +16,7 @@
 * ✨ `RedisProvider(prefix=...)` and `ValkeyProvider(prefix=...)` put one namespace before the keys of every store they build. The lock, read-write lock, schedule, cache and job stores add their kind after it, such as `myapp:lock:`. The default is empty, so no key changes. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 * ✨ An `OutboxRouter` declares outbox handlers in a feature module and needs no provider. Include it with `Outbox(..., routers=[...])` or `outbox.include_router(router)`. ([#1311](https://github.com/grelinfo/grelmicro/issues/1311))
 * ✨ `PostgresProvider(table_names=...)` and `SQLiteProvider(table_names=...)` pick the default table names of the lock, read-write lock and schedule stores they build: `"legacy"` keeps the current names and `"prefixed"` gives each `grelmicro_` plus its current name, such as `grelmicro_locks`. `PostgresConfig` and `SQLiteConfig` take it too. It is never read from the environment. ([#1152](https://github.com/grelinfo/grelmicro/issues/1152))
+* ✨ An app with no declared environment logs a warning at startup that the production checks are off. Set `GREL_ENVIRONMENT`. ([#1326](https://github.com/grelinfo/grelmicro/issues/1326))
 
 ### Deprecated
 * 🗑️ `EnvLoadDefaultWarning` and `Grelmicro045Warning` stay importable, so a warning filter that names them keeps loading. Grelmicro emits neither, and reading `EnvLoadDefaultWarning` no longer warns. Filter on `EnvLoadOffWarning`. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
@@ -26,9 +27,11 @@
 ### Fixed
 * 🐛 A task that fails at start or at stop makes `async with Tasks(...)` raise its own error in an `ExceptionGroup`, not `CancelledError`. A failed start also stops the tasks already running. ([#1283](https://github.com/grelinfo/grelmicro/pull/1283))
 * 🐛 mypy and ty report an import of a name a grelmicro module does not have, such as `from grelmicro.cache import Lock`, instead of typing it as `object`. ([#1316](https://github.com/grelinfo/grelmicro/pull/1316))
+* 🐛 `micro.providers`, `micro.describe()` and `grelmicro check` list a provider passed only to a component, such as `Outbox(PostgresProvider(...))`, before the app opens. ([#1328](https://github.com/grelinfo/grelmicro/issues/1328))
 * 🐛 An app on a bare `RedisProvider` or `ValkeyProvider` with a cluster URL starts instead of raising. On Cluster, the cache, lock, read-write lock and job stores put their keys under a hash tag of their own, such as `{lock}:`, when no prefix carries one. A prefix with a tag keeps its keys as they are. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 
 ### Docs
+* 📝 [Versions and upgrades](versioning.md) says that tests passing with a release's warning filter mean none of your code is affected, and that a misspelled class name stops pytest. ([#1327](https://github.com/grelinfo/grelmicro/issues/1327))
 * 📝 From `1.0`, an Experimental feature is the one exception to "nothing breaks before `2.0`". It can break in a minor, and it always warns first. ([#1254](https://github.com/grelinfo/grelmicro/pull/1254))
 * 📝 The capability matrix gives each feature a maturity level: Experimental, Preview or Stable, with the last break and serious bug fix behind it. ([#1252](https://github.com/grelinfo/grelmicro/pull/1252))
 * 📝 The 0.35 migration note says that a Provider listed on its own fills its kinds next to other Components, and how to keep a kind off. ([#1207](https://github.com/grelinfo/grelmicro/issues/1207))

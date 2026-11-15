@@ -164,7 +164,11 @@ async def test_undeclared_environment_warns_once_on_both_channels(
         flush_ignored_env_reports()
         await micro.__aexit__(None, None, None)
 
-    report = records_of(caplog, "grelmicro")[0]
+    report = next(
+        r
+        for r in records_of(caplog, "grelmicro")
+        if getattr(r, "diagnostic", None) == "backend-scope"
+    )
     record = report.__dict__
     assert record["component"] == "Coordination('default')"
     assert record["backend_scope"] == "process"
@@ -406,7 +410,11 @@ async def test_the_report_logs_straight_away_once_logging_is_configured(
             await micro.__aenter__()
         await micro.__aexit__(None, None, None)
 
-    report = records_of(caplog, "grelmicro")[0]
+    report = next(
+        r
+        for r in records_of(caplog, "grelmicro")
+        if getattr(r, "diagnostic", None) == "backend-scope"
+    )
     assert "MemoryLockAdapter" in report.getMessage()
 
 

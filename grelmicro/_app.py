@@ -69,6 +69,7 @@ from grelmicro._environment import (
     raise_or_warn,
     recorded_bindings,
     report_diagnostic,
+    report_undeclared_environment,
     report_unmet_requirements,
     resolve_environment,
     unmet_requirements,
@@ -1332,8 +1333,10 @@ class Grelmicro:
     def providers(self) -> tuple[Provider, ...]:
         """Active `Provider` instances, in registration order, deduped by identity.
 
-        Includes Providers listed in `uses=` and those adopted from
-        Components that borrow them (see `_discover_shared_providers`). One
+        Includes Providers listed in `uses=` and those borrowed by a
+        Component without being listed, such as the one in
+        `Outbox(PostgresProvider(...))`. A borrowed Provider is listed before
+        the app opens too, just before the first Component that holds it. One
         Provider feeding several Components appears once. Useful for
         introspection and for `HealthChecks(provider_checks=...)`, which
         registers a `provider:{short_name}` check per entry.
@@ -1341,7 +1344,7 @@ class Grelmicro:
         if self._pending_providers:
             self._register_provider_defaults("micro.providers was read")
         seen: dict[int, Provider] = {}
-        for item in self._items:
+        for item in _with_shared_providers(self._items):
             if isinstance(item, Provider) and id(item) not in seen:
                 seen[id(item)] = item
         return tuple(seen.values())
@@ -2035,6 +2038,9 @@ class Grelmicro:
     def _prepare_open(self) -> None:
         """Settle what this open enters, and check its backends.
 
+        With no tier declared, it logs that the production checks are off,
+        through `Log` when the app registers one.
+
         An armed `fake()` swaps its components in first, and the scope check
         is skipped on a faked app, whose memory stores are the point.
         """
@@ -2044,6 +2050,12 @@ class Grelmicro:
         self._order_providers_before_dependents()
         self._open_runners_last()
         self._resolve_provider_sharing()
+        if self._environment is None:
+            report_undeclared_environment(
+                deferred=any(
+                    getattr(item, "kind", None) == "log" for item in self._items
+                )
+            )
         if self._unfaked is None:
             report_unmet_requirements(
                 unmet_requirements(
