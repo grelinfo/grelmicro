@@ -36,6 +36,7 @@ from grelmicro._config import (
 from grelmicro._current_app import _current_micro
 from grelmicro._duration import Retention, check_positive_wait, nanoseconds
 from grelmicro._markers import Registered, mark_registered
+from grelmicro.clock._seam import sleep
 from grelmicro.errors import SettingsValidationError
 from grelmicro.health import _liveness
 from grelmicro.health._liveness import Liveness, Watchdog
@@ -995,7 +996,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             )
             self._watchdog.start()
         while True:
-            await asyncio.sleep(liveness.interval)
+            await sleep(liveness.interval)
             entries = [e for e in self._entries.values() if e.liveness]
             if not entries or not app_open():
                 continue

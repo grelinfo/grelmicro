@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
 from grelmicro import Grelmicro
+from grelmicro.clock import VirtualClock
 from grelmicro.health import (
     HealthChecks,
     HealthError,
@@ -30,6 +31,7 @@ from grelmicro.health import (
 from grelmicro.health._liveness import Watchdog
 from grelmicro.integrations.fastapi import health_router
 from grelmicro.providers._base import Provider
+from tests._clock import run_passes, until_asleep
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -38,6 +40,9 @@ pytestmark = [pytest.mark.timeout(10)]
 
 _STALLED_EXIT_CODE = 70
 """The exit code a worker uses when its event loop stalls."""
+
+INTERVAL = 10.0
+"""Liveness interval, in virtual seconds."""
 
 
 class _Exits:
@@ -87,52 +92,70 @@ async def _wait_for(condition: Callable[[], bool], within: float = 2.0) -> None:
         await asyncio.sleep(0.01)
 
 
-async def test_liveness_failures_stop_the_process(exits: _Exits) -> None:
+async def _last_round(clock: VirtualClock) -> None:
+    """Start the liveness round that ends the loop, then return at once."""
+    await until_asleep(clock)
+    await clock.advance(INTERVAL)
+
+
+async def test_liveness_failures_stop_the_process(
+    exits: _Exits, clock: VirtualClock
+) -> None:
     """A liveness check failing failure_threshold times in a row stops the worker."""
     # Arrange
     health = HealthChecks(
         liveness=Liveness(
-            interval=0.01, failure_threshold=3, shutdown_timeout=0.05
+            interval=INTERVAL, failure_threshold=3, shutdown_timeout=0.05
         )
     )
     health.add("progress", _progress_check({"healthy": False}), liveness=True)
 
     # Act
     async with health:
+        await run_passes(clock, INTERVAL, passes=2)
+        stopped_early = exits.stopped.is_set()
+        await _last_round(clock)
         await _wait_for(exits.stopped.is_set)
         await _wait_for(exits.exited.is_set)
 
     # Assert
+    assert not stopped_early
     assert exits.stopped.is_set()
 
 
-async def test_liveness_recovery_resets_the_count(exits: _Exits) -> None:
+async def test_liveness_recovery_resets_the_count(
+    exits: _Exits, clock: VirtualClock
+) -> None:
     """A passing round resets the failures, so the worker keeps running."""
     # Arrange
     state = {"healthy": False}
     health = HealthChecks(
-        liveness=Liveness(interval=0.01, failure_threshold=1000)
+        liveness=Liveness(interval=INTERVAL, failure_threshold=1000)
     )
     health.add("progress", _progress_check(state), liveness=True)
 
     # Act
     async with health:
-        await _wait_for(lambda: not health.is_alive)
+        await run_passes(clock, INTERVAL)
+        alive_while_failing = health.is_alive
         state["healthy"] = True
-        await _wait_for(lambda: health.is_alive)
+        await run_passes(clock, INTERVAL)
+        alive_once_passing = health.is_alive
 
     # Assert
+    assert not alive_while_failing
+    assert alive_once_passing
     assert not exits.stopped.is_set()
 
 
 async def test_livez_answers_503_while_a_liveness_check_fails(
-    exits: _Exits,
+    exits: _Exits, clock: VirtualClock
 ) -> None:
     """The ASGI /livez answers 503 while the last liveness round failed."""
     # Arrange
     state = {"healthy": False}
     health = HealthChecks(
-        liveness=Liveness(interval=0.01, failure_threshold=1000)
+        liveness=Liveness(interval=INTERVAL, failure_threshold=1000)
     )
     health.add("progress", _progress_check(state), liveness=True)
     transport = httpx.ASGITransport(app=health_asgi(health))
@@ -142,10 +165,10 @@ async def test_livez_answers_503_while_a_liveness_check_fails(
         health,
         httpx.AsyncClient(transport=transport, base_url="http://p") as client,
     ):
-        await _wait_for(lambda: not health.is_alive)
+        await run_passes(clock, INTERVAL)
         failing = await client.get("/livez")
         state["healthy"] = True
-        await _wait_for(lambda: health.is_alive)
+        await run_passes(clock, INTERVAL)
         passing = await client.get("/livez")
 
     # Assert
@@ -378,18 +401,22 @@ async def test_asgi_livez_answers_200_with_no_health_component() -> None:
     assert response.status_code == HTTP_200_OK
 
 
-async def test_a_liveness_check_added_after_opening_runs(exits: _Exits) -> None:
+async def test_a_liveness_check_added_after_opening_runs(
+    exits: _Exits, clock: VirtualClock
+) -> None:
     """A liveness check registered after the component opened still runs."""
     # Arrange
     health = HealthChecks(
         liveness=Liveness(
-            interval=0.01, failure_threshold=2, shutdown_timeout=0.05
+            interval=INTERVAL, failure_threshold=2, shutdown_timeout=0.05
         )
     )
 
     # Act
     async with health:
         health.add("late", _progress_check({"healthy": False}), liveness=True)
+        await run_passes(clock, INTERVAL)
+        await _last_round(clock)
         await _wait_for(exits.stopped.is_set)
         await _wait_for(exits.exited.is_set)
 
@@ -398,19 +425,20 @@ async def test_a_liveness_check_added_after_opening_runs(exits: _Exits) -> None:
 
 
 async def test_a_worker_that_does_not_stop_exits_after_shutdown_timeout(
-    exits: _Exits,
+    exits: _Exits, clock: VirtualClock
 ) -> None:
     """A worker still running shutdown_timeout after SIGTERM exits at once."""
     # Arrange
     health = HealthChecks(
         liveness=Liveness(
-            interval=0.01, failure_threshold=1, shutdown_timeout=0.1
+            interval=INTERVAL, failure_threshold=1, shutdown_timeout=0.1
         )
     )
     health.add("progress", _progress_check({"healthy": False}), liveness=True)
 
     # Act
     async with health:
+        await _last_round(clock)
         await _wait_for(exits.stopped.is_set)
         await _wait_for(exits.exited.is_set)
 
@@ -447,16 +475,18 @@ async def test_watchdog_waits_for_the_app_to_open(exits: _Exits) -> None:
 
 
 async def test_liveness_without_a_liveness_check_stays_alive(
-    exits: _Exits,
+    exits: _Exits, clock: VirtualClock
 ) -> None:
     """With Liveness set and no liveness check, every round passes."""
     # Arrange
-    health = HealthChecks(liveness=Liveness(interval=0.01, failure_threshold=1))
+    health = HealthChecks(
+        liveness=Liveness(interval=INTERVAL, failure_threshold=1)
+    )
     health.add("db", _progress_check({"healthy": False}))
 
     # Act
     async with health:
-        await asyncio.sleep(0.1)
+        await run_passes(clock, INTERVAL, passes=3)
 
     # Assert
     assert health.is_alive
@@ -484,7 +514,7 @@ def test_liveness_reopened_app_on_a_new_loop_runs_its_checks(
     # Arrange
     calls: list[int] = []
     health = HealthChecks(
-        liveness=Liveness(interval=0.01, failure_threshold=1000)
+        liveness=Liveness(interval=INTERVAL, failure_threshold=1000)
     )
 
     @health.check("progress", liveness=True)
@@ -495,8 +525,9 @@ def test_liveness_reopened_app_on_a_new_loop_runs_its_checks(
 
     async def open_and_wait_for_a_round() -> None:
         before = len(calls)
-        async with micro:
-            await _wait_for(lambda: len(calls) > before)
+        async with VirtualClock() as clock, micro:
+            await run_passes(clock, INTERVAL)
+        assert len(calls) == before + 1
 
     # Act
     asyncio.run(open_and_wait_for_a_round())
@@ -607,17 +638,21 @@ async def test_liveness_task_error_reports_not_alive(
 async def test_liveness_task_error_still_stops_the_watchdog(
     exits: _Exits,
     monkeypatch: pytest.MonkeyPatch,
+    clock: VirtualClock,
 ) -> None:
     """Closing after the liveness task failed still stops the watchdog."""
     # Arrange
     monkeypatch.setattr(
         "grelmicro.health._checks._run_check", _raise_runtime_error_async
     )
-    health = HealthChecks(liveness=Liveness(interval=0.01, stall_timeout=0.2))
+    health = HealthChecks(
+        liveness=Liveness(interval=INTERVAL, stall_timeout=0.2)
+    )
     health.add("progress", _progress_check({"healthy": True}), liveness=True)
 
     # Act
     async with health:
+        await _last_round(clock)
         await _wait_for(lambda: not health.is_alive)
         watchdog = health._watchdog
         assert watchdog is not None
@@ -669,6 +704,7 @@ async def test_liveness_task_error_still_removes_auto_registered_checks(
 async def test_liveness_closed_run_error_leaves_the_next_run_alive(
     exits: _Exits,
     monkeypatch: pytest.MonkeyPatch,
+    clock: VirtualClock,
 ) -> None:
     """A closed run's task failing late never marks the next run as dead."""
     # Arrange
@@ -689,11 +725,14 @@ async def test_liveness_closed_run_error_leaves_the_next_run_alive(
         return None
 
     monkeypatch.setattr("grelmicro.health._checks._run_check", hang_then_fail)
-    health = HealthChecks(liveness=Liveness(interval=0.01, failure_threshold=1))
+    health = HealthChecks(
+        liveness=Liveness(interval=INTERVAL, failure_threshold=1)
+    )
     health.add("progress", _progress_check({"healthy": True}), liveness=True)
     await health.__aenter__()
     old_task = health._liveness_task
     assert old_task is not None
+    await _last_round(clock)
     await _wait_for(lambda: not first_call[0])
     closing = asyncio.create_task(health.__aexit__(None, None, None))
     await asyncio.sleep(0.05)
@@ -704,7 +743,7 @@ async def test_liveness_closed_run_error_leaves_the_next_run_alive(
     await health.__aenter__()
     release.set()
     await asyncio.wait({old_task})
-    await asyncio.sleep(0.05)
+    await run_passes(clock, INTERVAL)
     alive = health.is_alive
     await health.__aexit__(None, None, None)
 
@@ -828,12 +867,14 @@ def test_liveness_check_decorator_without_liveness_is_refused() -> None:
 
 
 async def test_liveness_non_critical_check_failing_stays_alive(
-    exits: _Exits,
+    exits: _Exits, clock: VirtualClock
 ) -> None:
     """A failing liveness check with critical=False never flips is_alive."""
     # Arrange
     calls: list[int] = []
-    health = HealthChecks(liveness=Liveness(interval=0.01, failure_threshold=1))
+    health = HealthChecks(
+        liveness=Liveness(interval=INTERVAL, failure_threshold=1)
+    )
 
     @health.check("progress", critical=False, liveness=True)
     async def progress() -> None:
@@ -843,21 +884,22 @@ async def test_liveness_non_critical_check_failing_stays_alive(
 
     # Act
     async with health:
-        await _wait_for(lambda: len(calls) >= 5)  # noqa: PLR2004
+        await run_passes(clock, INTERVAL, passes=5)
         alive = health.is_alive
 
     # Assert
+    assert len(calls) == 5  # noqa: PLR2004
     assert alive
     assert not exits.stopped.is_set()
 
 
 async def test_liveness_critical_check_failing_flips_is_alive(
-    exits: _Exits,
+    exits: _Exits, clock: VirtualClock
 ) -> None:
     """A failing liveness check with critical=True flips is_alive."""
     # Arrange
     health = HealthChecks(
-        liveness=Liveness(interval=0.01, failure_threshold=1000)
+        liveness=Liveness(interval=INTERVAL, failure_threshold=1000)
     )
     health.add(
         "progress",
@@ -868,9 +910,11 @@ async def test_liveness_critical_check_failing_flips_is_alive(
 
     # Act
     async with health:
-        await _wait_for(lambda: not health.is_alive)
+        await run_passes(clock, INTERVAL)
+        alive = health.is_alive
 
     # Assert
+    assert not alive
     assert not exits.stopped.is_set()
 
 
@@ -914,13 +958,13 @@ async def test_watchdog_catches_a_stall_after_the_app_reopens(
 
 
 async def test_liveness_rounds_resume_after_the_app_reopens(
-    exits: _Exits,
+    exits: _Exits, clock: VirtualClock
 ) -> None:
     """Liveness checks run again after the app closed and reopened."""
     # Arrange
     calls: list[int] = []
     health = HealthChecks(
-        liveness=Liveness(interval=0.01, failure_threshold=1000)
+        liveness=Liveness(interval=INTERVAL, failure_threshold=1000)
     )
 
     @health.check("progress", liveness=True)
@@ -930,17 +974,22 @@ async def test_liveness_rounds_resume_after_the_app_reopens(
     micro = Grelmicro(uses=[health])
     async with micro:
         await health.__aenter__()
-        await _wait_for(lambda: bool(calls))
+        await run_passes(clock, INTERVAL)
+    closed_calls = len(calls)
+    await run_passes(clock, INTERVAL)
 
     # Act
     try:
         async with micro:
             before = len(calls)
-            await _wait_for(lambda: len(calls) > before)
+            await run_passes(clock, INTERVAL)
     finally:
         await health.__aexit__(None, None, None)
 
     # Assert
+    assert closed_calls == 1
+    assert before == closed_calls
+    assert len(calls) == before + 1
     assert health.is_alive
     assert not exits.stopped.is_set()
 

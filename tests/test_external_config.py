@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Self
@@ -14,6 +13,7 @@ from grelmicro._config import (
     reconfigure_all,
     resolve_config_from_mapping,
 )
+from grelmicro.clock import VirtualClock
 from grelmicro.config import ConfigBackend, ExternalConfig, FileConfigAdapter
 from grelmicro.config._external import (
     _coerce_source,
@@ -36,6 +36,7 @@ from grelmicro.resilience.ratelimiter import (
     TokenBucketConfig,
 )
 from grelmicro.resilience.shield import Shield
+from tests._clock import run_passes
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -43,6 +44,9 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 pytestmark = [pytest.mark.timeout(5)]
+
+POLL_INTERVAL = 10.0
+"""Poll interval, in virtual seconds."""
 
 _RELOADED_TIMEOUT = 9.5
 """Value patched into `GREL_HEALTH_TIMEOUT` by the reload test."""
@@ -577,8 +581,10 @@ async def test_unchanged_source_keeps_last_seen_mapping() -> None:
         assert rl.config.limit == 5  # noqa: PLR2004
 
 
-async def test_poll_loop_applies_on_each_interval() -> None:
-    """The background poll loop applies the next scripted value."""
+async def test_poll_loop_applies_on_each_interval(
+    clock: VirtualClock,
+) -> None:
+    """The background poll loop applies the next scripted value per interval."""
     rl = RateLimiter.sliding_window("polled", limit=10, window=1)
     config = _ScriptedBackend(
         [
@@ -587,14 +593,17 @@ async def test_poll_loop_applies_on_each_interval() -> None:
             {"GREL_RATELIMITER_POLLED_LIMIT": "3"},
         ]
     )
-    async with ExternalConfig(config=config, reload_interval=0.001):
-        for _ in range(200):
-            await asyncio.sleep(0.005)
-            assert isinstance(rl.config, SlidingWindowConfig)
-            if rl.config.limit > 1:
-                break
+    async with ExternalConfig(config=config, reload_interval=POLL_INTERVAL):
         assert isinstance(rl.config, SlidingWindowConfig)
-        assert rl.config.limit > 1
+        assert rl.config.limit == 1
+
+        await run_passes(clock, POLL_INTERVAL)
+        assert isinstance(rl.config, SlidingWindowConfig)
+        assert rl.config.limit == 2  # noqa: PLR2004
+
+        await run_passes(clock, POLL_INTERVAL)
+        assert isinstance(rl.config, SlidingWindowConfig)
+        assert rl.config.limit == 3  # noqa: PLR2004
 
 
 def test_resolve_config_from_mapping_ignores_unprefixed_keys() -> None:

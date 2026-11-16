@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Self
 from pydantic import ValidationError
 
 from grelmicro._duration import SECOND
+from grelmicro.clock._seam import sleep
 from grelmicro.metrics import _emit
 from grelmicro.outbox._control import Cancel, Retry
 from grelmicro.outbox._otel import consumer_span
@@ -182,7 +183,7 @@ class Relay:
                 logger.debug(
                     "Outbox purged %d delivered rows past retention", removed
                 )
-            await self._race_stop(asyncio.sleep(interval))
+            await self._race_stop(sleep(interval))
 
     def _dispatch(self, record: OutboxRecord) -> None:
         """Start a handler task for a claimed record."""
@@ -349,7 +350,7 @@ class Relay:
         to a plain sleep bounds both that and the warning it logs.
         """
         if await self._race_stop(self._backend.wait_notify(timeout=timeout)):
-            await self._race_stop(asyncio.sleep(timeout))
+            await self._race_stop(sleep(timeout))
 
     async def _wait_slot(self) -> None:
         """Wait for a free handler slot or a stop signal."""

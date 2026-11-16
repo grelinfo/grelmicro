@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from logging import getLogger
 from math import floor
-from time import monotonic, monotonic_ns, time, time_ns
+from time import monotonic_ns, time, time_ns
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -59,6 +59,7 @@ from grelmicro._duration import (
     nanoseconds_from_seconds,
 )
 from grelmicro._unset import UNSET, Unset
+from grelmicro.clock._seam import monotonic, sleep
 from grelmicro.errors import (
     DependencyNotFoundError,
     SettingsValidationError,
@@ -1819,7 +1820,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         """
         while True:
             source = self._source or source
-            await asyncio.sleep(self._until_next_pass(source))
+            await sleep(self._until_next_pass(source))
             try:
                 await self.refresh()
             except SigningKeysUnavailableError as error:
