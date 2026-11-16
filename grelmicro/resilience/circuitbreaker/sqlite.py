@@ -18,6 +18,7 @@ from grelmicro._duration import (
     microseconds_to_seconds,
     seconds_to_microseconds,
 )
+from grelmicro.clock._seam import sleep
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
@@ -300,7 +301,7 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
         interval = self._cleanup_interval or 0.0
         delay = min(_CLEANUP_FIRST_DELAY, interval)
         while True:
-            await asyncio.sleep(jittered_interval(delay, _CLEANUP_JITTER))
+            await sleep(jittered_interval(delay, _CLEANUP_JITTER))
             delay = interval
             try:
                 client = self._provider.client
