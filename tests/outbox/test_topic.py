@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from grelmicro.errors import Grelmicro046Warning
 from grelmicro.outbox import Message, Outbox, OutboxRouter
@@ -93,7 +93,7 @@ def test_subclass_inheriting_a_topic_warns_at_the_handler_line() -> None:
 async def test_published_subclass_warns_once_and_keeps_the_parent_topic() -> (
     None
 ):
-    """A published subclass warns once, at the caller, and keeps the topic."""
+    """A published subclass warns once per caller line, and keeps the topic."""
 
     # Arrange
     class OrderPlacedV2(OrderPlaced):
@@ -111,9 +111,11 @@ async def test_published_subclass_warns_once_and_keeps_the_parent_topic() -> (
     # Act
     async with outbox:
         with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            await outbox.publish(None, OrderPlacedV2(order_id=1, coupon="A"))
-            await outbox.publish(None, OrderPlacedV2(order_id=2, coupon="B"))
+            warnings.simplefilter("default")
+            for order_id in (1, 2):
+                await outbox.publish(
+                    None, OrderPlacedV2(order_id=order_id, coupon="A")
+                )
         first = await received.get()
         second = await received.get()
 
@@ -250,3 +252,176 @@ def test_subclass_of_a_parametrized_generic_warns() -> None:
         async def handle(message: Message[IntEvent]) -> None: ...
 
     assert _topics(router) == ["events.generic"]
+
+
+class _Topical(BaseModel):
+    """A parent model with a namespaced topic."""
+
+    __outbox_topic__ = "base.topic"
+
+
+class _Wrapped[T](_Topical):
+    """A generic payload model that inherits its topic."""
+
+    value: T
+
+
+def test_parametrized_generic_of_an_inheriting_origin_warns_for_the_origin() -> (
+    None
+):
+    """`Wrapped[int]` warns as `Wrapped`, the topic it takes from 0.46.0."""
+    router = OutboxRouter()
+
+    with pytest.warns(Grelmicro046Warning) as caught:
+
+        @router.handler(_Wrapped[int])
+        async def handle(message: Message[_Wrapped[int]]) -> None: ...
+
+    expected = (
+        "`_Wrapped` takes its class name as its outbox topic from 0.46.0. "
+        "Until then it inherits `base.topic` from `_Topical`. "
+        'Set `__outbox_topic__ = "base.topic"` on `_Wrapped` to keep the '
+        'current topic, or `__outbox_topic__ = "_Wrapped"` to take its class '
+        "name now."
+    )
+    assert [str(warning.message) for warning in caught] == [expected]
+    assert _topics(router) == ["base.topic"]
+
+
+class _BillingTopic:
+    """A plain mixin that names a topic."""
+
+    __outbox_topic__ = "billing"
+
+
+def test_topic_inherited_from_a_mixin_warns() -> None:
+    """A model that takes its topic from a non-model mixin warns too."""
+
+    class Invoice(_BillingTopic, BaseModel):
+        number: int
+
+    router = OutboxRouter()
+
+    with pytest.warns(
+        Grelmicro046Warning,
+        match="Until then it inherits `billing` from `_BillingTopic`",
+    ):
+
+        @router.handler(Invoice)
+        async def handle(message: Message[Invoice]) -> None: ...
+
+    assert _topics(router) == ["billing"]
+
+
+def test_suppressed_warning_returns_at_the_next_resolution() -> None:
+    """A warning ignored once still warns where it is reached again."""
+
+    class OrderPlacedV2(OrderPlaced):
+        coupon: str
+
+    async def handle(message: Message[OrderPlacedV2]) -> None: ...
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        OutboxRouter().handler(OrderPlacedV2)(handle)
+
+    with pytest.warns(Grelmicro046Warning):
+        OutboxRouter().handler(OrderPlacedV2)(handle)
+
+
+@pytest.mark.parametrize(
+    ("target", "topic"),
+    [
+        pytest.param(OrderPlaced | None, "Union", id="union"),
+        pytest.param(
+            Annotated[OrderPlaced, Field(strict=True)],
+            "Annotated",
+            id="annotated",
+        ),
+    ],
+)
+def test_non_class_target_keeps_its_topic_silently(
+    target: object, topic: str
+) -> None:
+    """A union or an `Annotated` target keeps its topic and warns nothing."""
+
+    def register(router: OutboxRouter) -> None:
+        @router.handler(target)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        async def handle(message: Message[Any]) -> None: ...
+
+    router = _assert_silent(register)
+    assert _topics(router) == [topic]
+
+
+def test_empty_topic_override_keeps_the_derived_topic() -> None:
+    """`handler(topic="")` registers under the model's topic, as before."""
+
+    def register(router: OutboxRouter) -> None:
+        @router.handler(OrderPlaced, topic="")
+        async def handle(message: Message[OrderPlaced]) -> None: ...
+
+    router = _assert_silent(register)
+    assert _topics(router) == ["billing.order_placed"]
+
+
+class _Plain[T](BaseModel):
+    """A generic payload model with no `__outbox_topic__` anywhere."""
+
+    value: T
+
+
+_PLAIN_INT = (
+    "`_Plain[int]` and every other parametrization of `_Plain` take the "
+    "outbox topic `_Plain` from 0.46.0. Until then the topic of "
+    "`_Plain[int]` is `_Plain[int]`. Set `__outbox_topic__` on `_Plain` to "
+    "pick one topic for all of them now, or "
+    '`__outbox_topic__ = "_Plain[int]"` on a subclass of `_Plain[int]` to '
+    "keep this topic."
+)
+
+
+def test_parametrized_generic_named_after_itself_warns() -> None:
+    """`Plain[int]` keeps the topic `Plain[int]` and warns that it changes."""
+    router = OutboxRouter()
+
+    with pytest.warns(Grelmicro046Warning) as caught:
+
+        @router.handler(_Plain[int])
+        async def handle(message: Message[_Plain[int]]) -> None: ...
+
+    assert [str(warning.message) for warning in caught] == [_PLAIN_INT]
+    assert caught[0].filename == __file__
+    assert _topics(router) == ["_Plain[int]"]
+
+
+async def test_published_parametrized_generic_warns_once_per_line() -> None:
+    """A published `Plain[int]` warns once per caller line, at each line."""
+    async with Outbox(MemoryOutboxAdapter()) as outbox:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("default")
+            for value in (1, 2):
+                await outbox.publish(None, _Plain[int](value=value))
+            await outbox.publish(None, _Plain[int](value=3))
+
+    assert [str(warning.message) for warning in caught] == [_PLAIN_INT] * 2
+    assert {warning.filename for warning in caught} == {__file__}
+
+
+def test_named_subclass_of_a_parametrized_generic_is_silent() -> None:
+    """A named subclass of `Plain[int]` takes its own class name, as before."""
+
+    class PlainInt(_Plain[int]):
+        pass
+
+    class Kept(_Plain[int]):
+        __outbox_topic__ = "_Plain[int]"
+
+    def register(router: OutboxRouter) -> None:
+        @router.handler(PlainInt)
+        async def plain(message: Message[PlainInt]) -> None: ...
+
+        @router.handler(Kept)
+        async def kept(message: Message[Kept]) -> None: ...
+
+    router = _assert_silent(register)
+    assert _topics(router) == ["PlainInt", "_Plain[int]"]
