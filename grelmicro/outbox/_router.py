@@ -79,7 +79,10 @@ class OutboxRouter:
         *,
         topic: Annotated[
             str | None,
-            Doc("Override the derived topic."),
+            Doc(
+                "Override the derived topic. None or an empty string keeps "
+                "the derived topic."
+            ),
         ] = None,
     ) -> Callable[
         [Callable[[Message[Any]], Awaitable[None]]],
