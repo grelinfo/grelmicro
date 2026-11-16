@@ -49,7 +49,8 @@ async def test_an_undeclared_environment_logs_one_warning_per_open(
     assert len(messages) == 1
     assert messages[0].startswith(
         "No environment declared, so the production checks are off. "
-        "Set GREL_ENVIRONMENT to development, test, staging or production."
+        "Set GREL_ENVIRONMENT or pass Grelmicro(environment=...): "
+        "development, test, staging or production."
     )
     record = next(
         r
