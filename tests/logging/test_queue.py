@@ -228,7 +228,7 @@ def test_drops_are_reported_once_the_queue_drains(
     try:
         configure(
             backend="stdlib",
-            format="JSON",
+            format="json",
             queue_enabled=True,
             queue_size=1,
             env_load=False,
@@ -383,7 +383,7 @@ def test_every_backend_writes_through_the_queue(
     try:
         configure(
             backend=backend,
-            format="JSON",
+            format="json",
             queue_enabled=True,
             env_load=False,
         )
@@ -414,7 +414,7 @@ def test_context_survives_the_queue(
     try:
         configure(
             backend=backend,
-            format="JSON",
+            format="json",
             queue_enabled=True,
             env_load=False,
         )
@@ -438,14 +438,14 @@ def test_reconfigure_writes_out_the_replaced_queue(
     try:
         configure(
             backend="stdlib",
-            format="JSON",
+            format="json",
             queue_enabled=True,
             env_load=False,
         )
         logging.getLogger("app").info("before")
         configure(
             backend="stdlib",
-            format="JSON",
+            format="json",
             queue_enabled=True,
             env_load=False,
         )
@@ -468,14 +468,14 @@ def test_turning_the_queue_off_keeps_the_records(
     try:
         configure(
             backend="stdlib",
-            format="JSON",
+            format="json",
             queue_enabled=True,
             env_load=False,
         )
         logging.getLogger("app").info("queued")
         configure(
             backend="stdlib",
-            format="JSON",
+            format="json",
             env_load=False,
         )
         assert get_writer() is None
@@ -497,7 +497,7 @@ async def test_component_stops_the_worker_on_exit(
     try:
         async with Log(
             backend="stdlib",
-            format="JSON",
+            format="json",
             queue_enabled=True,
             env_load=False,
         ) as component:
@@ -578,7 +578,7 @@ def test_a_forked_child_still_logs(
     read_fd, write_fd = os.pipe()
     configure(
         backend="stdlib",
-        format="JSON",
+        format="json",
         queue_enabled=True,
         env_load=False,
     )
@@ -677,7 +677,7 @@ def test_structlog_records_stay_parseable_under_backpressure(
     try:
         configure(
             backend="structlog",
-            format="JSON",
+            format="json",
             queue_enabled=True,
             queue_size=1,
             env_load=False,
@@ -708,7 +708,7 @@ def test_loguru_remove_does_not_kill_the_shared_writer(
     try:
         configure(
             backend="loguru",
-            format="JSON",
+            format="json",
             queue_enabled=True,
             env_load=False,
         )
@@ -752,7 +752,7 @@ async def test_a_backend_keeps_writing_after_the_component_exits(
     try:
         async with Log(
             backend="structlog",
-            format="JSON",
+            format="json",
             queue_enabled=True,
             env_load=False,
         ):
@@ -781,7 +781,7 @@ def test_a_refused_config_keeps_the_working_queue(
     try:
         configure(
             backend="stdlib",
-            format="JSON",
+            format="json",
             queue_enabled=True,
             env_load=False,
         )
@@ -795,7 +795,7 @@ def test_a_refused_config_keeps_the_working_queue(
         with pytest.raises(DependencyNotFoundError):
             configure(
                 backend="stdlib",
-                format="JSON",
+                format="json",
                 queue_enabled=True,
                 env_load=False,
             )
@@ -873,7 +873,7 @@ async def test_the_component_tears_down_under_cancellation(
                 task_group.start_soon(fail_soon)
                 async with Log(
                     backend="stdlib",
-                    format="JSON",
+                    format="json",
                     queue_enabled=True,
                     env_load=False,
                 ):
@@ -1220,7 +1220,7 @@ def test_a_multiprocessing_child_writes_its_records(
 
     configure(
         backend="stdlib",
-        format="JSON",
+        format="json",
         queue_enabled=True,
         env_load=False,
     )

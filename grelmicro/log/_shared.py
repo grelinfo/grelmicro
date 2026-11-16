@@ -6,7 +6,7 @@ import re
 import sys
 from collections.abc import Callable, Mapping
 from datetime import datetime, tzinfo
-from typing import Any, Literal, NamedTuple, TypeIs
+from typing import Any, Literal, NamedTuple, TypeIs, get_args
 
 from pydantic import ValidationError
 
@@ -17,7 +17,6 @@ from grelmicro.errors import (
     SettingsValidationError,
 )
 from grelmicro.log.config import (
-    _FORMAT_NAMES,
     LogConfig,
     LogFormat,
     LogSerializer,
@@ -169,7 +168,7 @@ LOGURU_LOGFMT_FORMAT = "{extra[logfmt_serialized]}"
 """Loguru template that renders the logfmt record, and nothing else."""
 
 
-_FORMATS: frozenset[str] = _FORMAT_NAMES
+_FORMATS: frozenset[str] = frozenset(get_args(LogFormat.__value__))
 """The built-in format names in lowercase, which no loguru template spells."""
 
 

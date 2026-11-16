@@ -15,15 +15,8 @@ from pathlib import Path
 import pytest
 
 import grelmicro
-from grelmicro._deprecation import FACADE_MOVES
 
 _PACKAGE_ROOT = Path(grelmicro.__file__).parent
-
-_SERVED_BY_GETATTR_ONLY: dict[str, frozenset[str]] = {
-    "grelmicro": frozenset({"EnvLoadDefaultWarning"}),
-    "grelmicro.errors": frozenset({"EnvLoadDefaultWarning"}),
-}
-"""The names a module serves from `__getattr__` and lists nowhere else."""
 
 
 def _module_name(path: Path) -> str:
@@ -139,10 +132,7 @@ def _served(name: str) -> set[str]:
     served: set[str] = set(getattr(module, "__all__", ()))
     served |= set(getattr(module, "_LAZY", {}))
     served |= set(getattr(module, "_SUBMODULES", ()))
-    moved = FACADE_MOVES.get(name)
-    if moved is not None:
-        served |= set(moved.homes)
-    return served | _SERVED_BY_GETATTR_ONLY.get(name, frozenset())
+    return served
 
 
 def _tree(name: str) -> ast.Module:

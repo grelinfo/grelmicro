@@ -74,7 +74,7 @@ def test_a_stdlib_record_renders_in_the_configured_format(
 ) -> None:
     """It is a full record, not the bare message `lastResort` writes."""
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
-    configure_with(LogConfig(backend=backend, format="JSON", level="INFO"))
+    configure_with(LogConfig(backend=backend, format="json", level="INFO"))
 
     logging.getLogger(COMPONENT_LOGGER).info(
         "a component record", extra={"check": "db"}
@@ -100,7 +100,7 @@ def test_the_root_level_follows_the_configured_level(
     handler drops every info and debug record without a word.
     """
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
-    configure_with(LogConfig(backend=backend, format="JSON", level="DEBUG"))
+    configure_with(LogConfig(backend=backend, format="json", level="DEBUG"))
 
     logging.getLogger(COMPONENT_LOGGER).debug("a quiet record")
 
@@ -116,7 +116,7 @@ def test_an_exception_is_rendered_as_the_error_field(
 ) -> None:
     """`exc_info` reads the same as it does on the stdlib backend."""
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
-    configure_with(LogConfig(backend=backend, format="JSON", level="INFO"))
+    configure_with(LogConfig(backend=backend, format="json", level="INFO"))
 
     try:
         msg = "the backend refused"
@@ -151,7 +151,7 @@ def test_a_uvicorn_record_is_written_once(
     """
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
     access = logging.getLogger("uvicorn.access")
-    configure_with(LogConfig(backend=backend, format="JSON", level="INFO"))
+    configure_with(LogConfig(backend=backend, format="json", level="INFO"))
 
     access.info(
         '%s - "%s %s HTTP/%s" %d', "127.0.0.1:1", "GET", "/x", "1.1", 200

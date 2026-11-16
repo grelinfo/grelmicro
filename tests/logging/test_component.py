@@ -109,13 +109,13 @@ async def test_log_reports_ignored_env_in_a_second_lifecycle(
     monkeypatch.setenv("GREL_LOG_LEVEL", "DEBUG")
 
     with pytest.warns(GrelmicroConfigWarning):
-        async with Log(format="JSON"):
+        async with Log(format="json"):
             pass
     capsys.readouterr()
 
     monkeypatch.setenv("GREL_LOG_TIMEZONE", "Europe/Zurich")
     with pytest.warns(GrelmicroConfigWarning):
-        async with Log(format="JSON"):
+        async with Log(format="json"):
             pass
 
     record = parse_json_log(capsys.readouterr().out)
@@ -134,9 +134,9 @@ async def test_log_keeps_reporting_when_exit_restores_handlers(
     go and must not wait for a lifecycle that may never come.
     """
     monkeypatch.setenv("GREL_ENV_LOAD", "0")
-    configure(format="JSON")
+    configure(format="json")
 
-    async with Log(format="JSON"):
+    async with Log(format="json"):
         pass
     capsys.readouterr()
 

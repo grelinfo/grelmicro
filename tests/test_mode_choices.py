@@ -48,7 +48,7 @@ CHOICES = [
 ]
 """Each mode field, a spelling in another case, and the stored spelling.
 
-`LogConfig.format` reads back in uppercase until 0.45.0, so
+`LogConfig.format` also takes a template, so
 `tests/logging/test_log_format_case.py` covers it.
 """
 

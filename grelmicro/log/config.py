@@ -1,12 +1,11 @@
 """Logging Configuration."""
 
-from typing import Annotated, Any, Literal, Self, get_args
+from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, Field, PlainSerializer
+from pydantic import BaseModel, Field
 from typing_extensions import Doc
 
 from grelmicro._config import any_case
-from grelmicro._deprecation import format_case
 from grelmicro._timezone import UTC_NAME
 from grelmicro.types import LogLevel, TimeZoneName
 
@@ -15,94 +14,14 @@ try:
 except ImportError:  # pragma: no cover
     opentelemetry: Any = None  # type: ignore[no-redef]
 
-type LogFormat = Literal[
-    "auto",
-    "json",
-    "logfmt",
-    "text",
-    "pretty",
-    "AUTO",
-    "JSON",
-    "LOGFMT",
-    "TEXT",
-    "PRETTY",
-]
-"""Built-in log format, matched in any case.
-
-Type checkers accept the uppercase spellings until 0.45.0.
-"""
-
-_BuiltinFormat = Literal["auto", "json", "logfmt", "text", "pretty"]
-"""The built-in formats, in the documented spelling."""
+type LogFormat = Literal["auto", "json", "logfmt", "text", "pretty"]
+"""Built-in log format, matched in any case."""
 
 type LogBackend = Literal["loguru", "structlog", "stdlib"]
 """Logging backend selection, matched in any case."""
 
 type LogSerializer = Literal["auto", "stdlib", "orjson"]
 """JSON serializer selection, matched in any case."""
-
-
-_FORMAT_NAMES: frozenset[str] = frozenset(get_args(_BuiltinFormat))
-"""The built-in format names, in lowercase."""
-
-
-class _UppercaseFormat(str):
-    """A built-in format read back in uppercase, such as `"JSON"`, until 0.45.0.
-
-    Comparing it with a built-in format name in any case warns with a
-    `Grelmicro045Warning`. Every other use behaves as the plain `str`.
-    """
-
-    __slots__ = ()
-
-    def __eq__(self, other: object) -> bool:
-        """Compare as a `str`, and warn when `other` names a built-in format."""
-        _warn_on_format_name(other)
-        return str.__eq__(self, other)
-
-    def __ne__(self, other: object) -> bool:
-        """Compare as a `str`, and warn when `other` names a built-in format."""
-        _warn_on_format_name(other)
-        return str.__ne__(self, other)
-
-    __hash__ = str.__hash__
-
-    def __reduce__(self) -> tuple[type[str], tuple[str]]:
-        """Pickle as the plain `str`."""
-        return (str, (str(self),))
-
-    def __copy__(self) -> Self:
-        """Return the same value, as `str` does."""
-        return self
-
-    def __deepcopy__(self, memo: dict[int, object]) -> Self:
-        """Return the same value, as `str` does."""
-        return self
-
-
-_DEFAULT_FORMAT: str = str(_UppercaseFormat("AUTO"))
-"""The `LogConfig.format` default, a plain `"AUTO"`.
-
-Comparing a read-back format with this object warns nothing, so a dump that
-excludes defaults stays silent.
-"""
-
-
-def _warn_on_format_name(other: object) -> None:
-    """Warn at the comparison when `other` names a built-in format."""
-    if other is _DEFAULT_FORMAT:
-        return
-    if isinstance(other, str) and not isinstance(other, _UppercaseFormat):
-        name = other.lower()
-        if name in _FORMAT_NAMES:
-            format_case(name).warn(stacklevel=3)
-
-
-def _read_back_format(value: str) -> str:
-    """Return a built-in format in uppercase, and a template as written."""
-    if value in _FORMAT_NAMES:
-        return _UppercaseFormat(value.upper())
-    return value
 
 
 class LogConfig(BaseModel, frozen=True, extra="forbid"):
@@ -124,10 +43,8 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
         LogFormat | str,
         Doc("Log format. Built-in option or a custom template string."),
         Field(union_mode="left_to_right", validate_default=True),
-        any_case(_BuiltinFormat),
-        AfterValidator(_read_back_format),
-        PlainSerializer(str, return_type=str, when_used="always"),
-    ] = _DEFAULT_FORMAT
+        any_case(LogFormat),
+    ] = "auto"
     timezone: Annotated[
         TimeZoneName,
         Doc("IANA timezone for timestamps."),
@@ -175,23 +92,3 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("How many rendered records the queue holds before dropping."),
         Field(gt=0),
     ] = 10_000
-
-    def __eq__(self, other: object) -> bool:
-        """Compare as a pydantic model, with `format` read as a plain `str`.
-
-        A config from `model_construct` or from a pickle holds a plain `str`
-        format, and comparing it with a validated one warns nothing.
-        """
-        if not isinstance(other, LogConfig):
-            return super().__eq__(other)
-        if str(self.format) != str(other.format):
-            return False
-        if self.format is not other.format:
-            other = other.model_copy(update={"format": self.format})
-        return super().__eq__(other)
-
-    def __hash__(self) -> int:
-        """Hash the field values, as a frozen pydantic model does."""
-        return hash(
-            tuple(self.__dict__[name] for name in type(self).model_fields)
-        )
