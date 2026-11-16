@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -23,11 +24,43 @@ def derive_topic(target: type[Any] | str) -> str:
     """Return the topic for a payload model or a topic string.
 
     A string passes through. A model uses its `__outbox_topic__` attribute
-    when set, otherwise its class name.
+    when set, otherwise its class name. A model that inherits
+    `__outbox_topic__` from a parent warns once with `Grelmicro046Warning`,
+    since it takes its class name from 0.46.0.
     """
     if isinstance(target, str):
         return target
-    return getattr(target, "__outbox_topic__", target.__name__)
+    topic: str = getattr(target, "__outbox_topic__", target.__name__)
+    _warn_inherited_topic(target, topic)
+    return topic
+
+
+_CHECKED_MODELS: weakref.WeakSet[type[Any]] = weakref.WeakSet()
+"""The payload models already checked for an inherited topic."""
+
+
+def _warn_inherited_topic(model: type[Any], topic: str) -> None:
+    """Warn once per model that inherits `__outbox_topic__` from a parent.
+
+    A parametrized generic model such as `Event[int]` is checked as its
+    generic origin `Event`. The warning reports the first line outside
+    grelmicro.
+    """
+    metadata = getattr(model, "__pydantic_generic_metadata__", None)
+    origin: type[Any] = (metadata and metadata["origin"]) or model
+    if "__outbox_topic__" in vars(origin) or origin in _CHECKED_MODELS:
+        return
+    parent = next(
+        (base for base in origin.__mro__ if "__outbox_topic__" in vars(base)),
+        None,
+    )
+    if parent is not None:
+        from grelmicro._deprecation import inherited_outbox_topic  # noqa: PLC0415
+
+        inherited_outbox_topic(
+            model=origin.__name__, parent=parent.__name__, topic=topic
+        ).warn(outside=True)
+    _CHECKED_MODELS.add(origin)
 
 
 @dataclass(frozen=True, slots=True)

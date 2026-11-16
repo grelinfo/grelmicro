@@ -136,6 +136,7 @@ raises](#0-42-raising).
 - A misspelled `requires=` value, such as `requires="clustr"`, still turns the backend scope check off for that component, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Name a scope](#0-45-unknown-requires).
 - A Postgres table name too long for the names an adapter builds from it still works as before, and now warns with `Grelmicro046Warning`. From 0.46.0 it raises `SettingsValidationError`. [Pass a shorter name](#0-45-long-table-name).
 - A Postgres or SQLite lock or schedule adapter, or a SQLite read-write lock adapter, left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
+- An outbox payload model that inherits `__outbox_topic__` from a parent still takes the parent's topic, and now warns with `Grelmicro046Warning`. From 0.46.0 it takes its class name. [Set the topic on the model](#0-45-outbox-subclass-topic).
 
 ### Changes that raise {#0-45-raising}
 
@@ -295,6 +296,48 @@ with `auto_migrate=False` skips the check.
 
 During a rolling deploy from 0.44, set `table_names="prefixed"` only once
 no 0.44 replica runs. Until then the replicas would use different tables.
+
+### An outbox payload model takes its class name in 0.46.0 {#0-45-outbox-subclass-topic}
+
+A payload model takes its outbox topic from `__outbox_topic__`, otherwise
+from its class name. Until 0.46.0, a subclass with no `__outbox_topic__` of
+its own takes the topic of its parent. Its messages then reach the parent's
+handler, decoded as the parent model, and it can have no handler of its own.
+
+Such a model warns with `Grelmicro046Warning` once, at the line that
+registers a handler for it or publishes it. The warning names the model, the
+topic and the parent. From 0.46.0 the model takes its class name.
+
+```python
+from pydantic import BaseModel
+
+
+class OrderPlaced(BaseModel):
+    __outbox_topic__ = "billing.order_placed"
+
+    order_id: int
+
+
+# Before: warns, and takes "OrderPlacedV2" in 0.46.0
+class OrderPlacedV2(OrderPlaced):
+    coupon: str
+
+
+# After: keeps the topic, the same in 0.46.0
+class OrderPlacedV2(OrderPlaced):
+    __outbox_topic__ = "billing.order_placed"
+
+    coupon: str
+```
+
+Set `__outbox_topic__ = "OrderPlacedV2"` instead to give the model a topic
+and a handler of its own now. A parametrized generic model such as
+`Event[int]` takes the topic of `Event` and does not warn.
+
+Messages already stored keep their topic, so they still reach the parent's
+handler, in 0.45 and after the switch. A message published under the new
+topic stays pending until a handler for that topic runs, so deploy the
+handler before the model that publishes under it.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 

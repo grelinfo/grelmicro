@@ -400,6 +400,38 @@ def default_table_name(*, adapter: str, new: str) -> FutureChange:
     )
 
 
+INHERITED_OUTBOX_TOPIC = FutureChange(
+    change="A payload model that inherits `__outbox_topic__` takes its "
+    "class name as its outbox topic",
+    switch_in="0.46.0",
+    keep="__outbox_topic__",
+    adopt="__outbox_topic__",
+    verb="Set",
+    remedy="Set `__outbox_topic__` on the model itself to pick its topic.",
+)
+"""A payload model takes its class name, not a parent's `__outbox_topic__`."""
+
+
+def inherited_outbox_topic(
+    *, model: str, parent: str, topic: str
+) -> FutureChange:
+    """Return `INHERITED_OUTBOX_TOPIC` worded for `model`.
+
+    `model` inherits `topic` from `parent`, each named as the message names
+    it.
+    """
+    return replace(
+        INHERITED_OUTBOX_TOPIC,
+        change=f"`{model}` takes its class name as its outbox topic",
+        keep=f'__outbox_topic__ = "{topic}"',
+        adopt=f'__outbox_topic__ = "{model}"',
+        remedy=f"Until then it inherits `{topic}` from `{parent}`. "
+        f'Set `__outbox_topic__ = "{topic}"` on `{model}` to keep the '
+        f'current topic, or `__outbox_topic__ = "{model}"` to take its '
+        "class name now.",
+    )
+
+
 SPLIT_TABLES = FutureChange(
     change="`PostgresLockAdapter` opens `public.locks` while "
     "`public.grelmicro_locks` exists, the table it defaults to",
@@ -546,6 +578,7 @@ PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     LONG_TABLE_NAME,
     DEFAULT_TABLE_NAME,
     SPLIT_TABLES,
+    INHERITED_OUTBOX_TOPIC,
     ENV_LOAD_DEFAULT_WARNING,
     FORMAT_CASE,
     PROVIDER_CHECKS_NONE,
