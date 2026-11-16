@@ -16,6 +16,7 @@ from typing_extensions import Doc
 
 from grelmicro._duration import microseconds
 from grelmicro._json import json_dumps_str, json_loads
+from grelmicro.clock._seam import sleep
 from grelmicro.errors import SettingsValidationError
 from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._protocol import OutboxBackend
@@ -545,7 +546,7 @@ class PostgresOutboxAdapter(OutboxBackend):
     async def wait_notify(self, *, timeout: float) -> None:  # noqa: ASYNC109
         """Return when a message is signalled or `timeout` elapses."""
         if not self._listener_up:
-            await asyncio.sleep(timeout)
+            await sleep(timeout)
             return
         try:
             await asyncio.wait_for(self._wake.wait(), timeout)

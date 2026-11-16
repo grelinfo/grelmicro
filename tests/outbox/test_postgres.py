@@ -12,6 +12,7 @@ import asyncpg
 import pytest
 from pydantic import BaseModel
 
+from grelmicro.clock import VirtualClock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.outbox import Message, Outbox
 from grelmicro.outbox._message import OutboxRecord
@@ -23,6 +24,7 @@ from grelmicro.outbox.postgres import (
     _rows_affected,
 )
 from grelmicro.providers.postgres import PostgresProvider
+from tests._clock import until_asleep
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -333,11 +335,20 @@ async def test_listener_open_close_and_wake() -> None:
     pool.release.assert_awaited()
 
 
-async def test_wait_notify_polls_when_listener_down() -> None:
+async def test_wait_notify_polls_when_listener_down(
+    clock: VirtualClock,
+) -> None:
     """With no listener, `wait_notify` falls back to a bounded sleep."""
     adapter, _ = _mock_pool_adapter(auto_migrate=False, notify=False)
     async with adapter:
-        await adapter.wait_notify(timeout=0.01)
+        waiting = asyncio.create_task(adapter.wait_notify(timeout=60))
+        await until_asleep(clock)
+        await clock.advance(59)
+        still_waiting = not waiting.done()
+        await clock.advance(1)
+        await waiting
+
+    assert still_waiting
 
 
 def test_notify_callbacks_wake_and_mark_down() -> None:

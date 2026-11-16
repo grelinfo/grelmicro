@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING, Literal
 import pytest
 from pydantic import BaseModel
 
+from grelmicro.clock import VirtualClock
 from grelmicro.outbox import Cancel, Message, Outbox, Retry
 from grelmicro.outbox._config import OutboxConfig
 from grelmicro.outbox._registry import OutboxRegistry
 from grelmicro.outbox._relay import Relay
 from grelmicro.outbox.memory import MemoryOutboxAdapter
+from tests._clock import until_asleep
 from tests.outbox.spies import PurgeSpy
 
 if TYPE_CHECKING:
@@ -22,6 +24,12 @@ if TYPE_CHECKING:
     from grelmicro.outbox._message import OutboxRecord
 
 pytestmark = [pytest.mark.timeout(5)]
+
+POLL_INTERVAL = 60.0
+"""Relay poll interval, in virtual seconds."""
+
+PURGE_INTERVAL = 60.0
+"""Janitor interval for a 30 second retention window, in virtual seconds."""
 
 
 class WelcomeEmail(BaseModel):
@@ -346,8 +354,8 @@ async def test_relay_aexit_without_start_is_safe() -> None:
     await relay.__aexit__(None, None, None)
 
 
-async def test_relay_survives_wait_notify_error() -> None:
-    """A failing wake wait is logged and the relay keeps running."""
+async def test_relay_survives_wait_notify_error(clock: VirtualClock) -> None:
+    """A failing wake wait backs off one interval and the relay keeps running."""
 
     class _WaitBoom(MemoryOutboxAdapter):
         raised = False
@@ -360,7 +368,7 @@ async def test_relay_survives_wait_notify_error() -> None:
             await super().wait_notify(timeout=timeout)
 
     backend = _WaitBoom()
-    outbox = Outbox(backend, poll_interval=0.05, retry_jitter=0)
+    outbox = Outbox(backend, poll_interval=POLL_INTERVAL, retry_jitter=0)
     seen: list[object] = []
 
     @outbox.handler("job")
@@ -368,7 +376,9 @@ async def test_relay_survives_wait_notify_error() -> None:
         seen.append(message)
 
     async with outbox:
-        await _wait(lambda: backend.raised)
+        await until_asleep(clock)
+        assert backend.raised
+        await clock.advance(POLL_INTERVAL)
         await outbox.publish(None, "job", {})
         await _wait(lambda: seen)
 
@@ -439,6 +449,30 @@ async def test_retention_janitor_purges_delivered_only() -> None:
         await asyncio.wait_for(backend.purged.wait(), 2)
 
     assert backend.calls[0] == (timedelta(seconds=30), ("delivered",))
+
+
+async def test_retention_janitor_purges_again_each_interval(
+    clock: VirtualClock,
+) -> None:
+    """The janitor purges at start, then once per interval."""
+    backend = PurgeSpy()
+    outbox = Outbox(
+        backend,
+        poll_interval=0.05,
+        keep_delivered=timedelta(seconds=30),
+    )
+
+    async with outbox:
+        await until_asleep(clock)
+        purged_at_start = len(backend.calls)
+        await clock.advance(PURGE_INTERVAL - 1)
+        purged_before_interval = len(backend.calls)
+        await clock.advance(1)
+        await _wait(lambda: len(backend.calls) > 1)
+
+    assert purged_at_start == 1
+    assert purged_before_interval == 1
+    assert len(backend.calls) == 2  # noqa: PLR2004
 
 
 async def test_retention_janitor_skipped_without_relay() -> None:
