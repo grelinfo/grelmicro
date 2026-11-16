@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import timedelta
 from time import time
@@ -11,8 +10,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
+from grelmicro.clock import VirtualClock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
+from tests._clock import run_passes
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -25,6 +26,12 @@ JANITOR_SWEEP = 3
 
 JANITOR_OVERFLOW = 8
 """Expired rows queued up, more than one sweep can take."""
+
+INTERVAL = 60.0
+"""Janitor interval, in virtual seconds."""
+
+PASSES = 2
+"""Janitor passes a test lets run."""
 
 
 # --- Construction and wiring ---
@@ -111,23 +118,25 @@ async def test_auto_migrate_false_skips_schema(tmp_path: Path) -> None:
 # --- Janitor ---
 
 
-async def test_janitor_reclaims_expired_rows(tmp_path: Path) -> None:
+async def test_janitor_reclaims_expired_rows(
+    tmp_path: Path, clock: VirtualClock
+) -> None:
     """The janitor deletes rows expired for more than one hour."""
     path = tmp_path / "janitor.db"
     async with (
         SQLiteProvider(str(path)) as provider,
-        SQLiteCacheAdapter(provider=provider, cleanup_interval=0.01) as cache,
+        SQLiteCacheAdapter(
+            provider=provider, cleanup_interval=INTERVAL
+        ) as cache,
     ):
         await cache.set(key="stale", value=b"v", ttl=timedelta(seconds=-7200))
-        conn = provider.client
-        for _ in range(50):
-            await asyncio.sleep(0.02)
-            async with conn.execute(
-                "SELECT COUNT(*) FROM grelmicro_cache;"
-            ) as cursor:
-                row = await cursor.fetchone()
-            if row is not None and row[0] == 0:
-                break
+
+        await run_passes(clock, INTERVAL)
+
+        async with provider.client.execute(
+            "SELECT COUNT(*) FROM grelmicro_cache;"
+        ) as cursor:
+            row = await cursor.fetchone()
         assert row is not None
         assert row[0] == 0
 
@@ -239,18 +248,20 @@ async def test_janitor_sweep_is_bounded(tmp_path: Path) -> None:
 
 
 async def test_janitor_survives_a_failing_sweep(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, clock: VirtualClock
 ) -> None:
     """A sweep error is logged and the loop keeps running."""
     path = tmp_path / "broken.db"
     async with (
         SQLiteProvider(str(path)) as provider,
-        SQLiteCacheAdapter(provider=provider, cleanup_interval=0.01) as cache,
+        SQLiteCacheAdapter(
+            provider=provider, cleanup_interval=INTERVAL
+        ) as cache,
     ):
         cache._janitor_sql = "DELETE FROM nope WHERE expires_at < ? LIMIT ?;"
         with caplog.at_level(logging.WARNING, logger="grelmicro"):
-            await asyncio.sleep(0.3)
+            await run_passes(clock, INTERVAL, PASSES)
 
         assert cache._janitor_task is not None
         assert not cache._janitor_task.done()
-        assert "Cache cleanup sweep failed" in caplog.text
+        assert caplog.text.count("Cache cleanup sweep failed") == PASSES

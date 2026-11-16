@@ -12,6 +12,7 @@ from typing_extensions import Doc
 
 from grelmicro._config import reconfigure_all
 from grelmicro._discovery import load_adapter
+from grelmicro.clock._seam import sleep
 from grelmicro.config.file import FileConfigAdapter
 from grelmicro.errors import SettingsValidationError
 
@@ -237,7 +238,7 @@ class ExternalConfig:
     async def _poll(self) -> None:
         """Re-apply the sources on every interval until cancelled."""
         while True:
-            await asyncio.sleep(self._interval)
+            await sleep(self._interval)
             await self.reload()
 
     async def _load_merged(self) -> Mapping[str, str] | None:

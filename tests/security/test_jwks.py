@@ -22,6 +22,7 @@ import pytest
 from pydantic import ValidationError
 
 from grelmicro._config import reconfigure_all
+from grelmicro.clock import VirtualClock
 from grelmicro.errors import (
     DependencyNotFoundError,
     SettingsValidationError,
@@ -36,6 +37,7 @@ from grelmicro.security import (
     TokenVerifier,
 )
 from grelmicro.security.jwks import fetch_with_httpx
+from tests._clock import run_passes, until_asleep
 from tests.security.jwt_signing import Signer
 
 if TYPE_CHECKING:
@@ -48,6 +50,8 @@ HOUR = 3600
 BIG = 64
 SMALL_LIMIT = 2
 EXPECTED_FETCHES = 2
+RETRY = 60.0
+"""Background refresh interval, in virtual seconds."""
 SPRAYED_KIDS = 20
 MAX_BYTES = 1_048_576
 MAX_KEYS = 64
@@ -565,54 +569,62 @@ class TestLifecycle:
             assert verifier._task is None
 
     async def test_an_unreachable_provider_does_not_stop_the_app(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, clock: VirtualClock
     ) -> None:
         """The verifier opens without keys and loads them once it can."""
         endpoint = Endpoint(SigningKeysUnavailableError("endpoint is down"))
 
         with caplog.at_level(logging.WARNING, logger="grelmicro.security.jwt"):
             async with JWTVerifier.from_config(
-                config(retry_interval=0.01), fetch=endpoint
+                config(retry_interval=RETRY), fetch=endpoint
             ) as verifier:
                 assert verifier.ready is False
                 with pytest.raises(SigningKeysUnavailableError):
                     verifier.verify(token())
 
                 endpoint.body = document()
-                await until(lambda: verifier.ready)
+                await run_passes(clock, RETRY)
+                assert verifier.ready is True
 
                 assert verifier.verify(token()).subject == "user-1"
 
         assert "could not be loaded" in caplog.text
 
-    async def test_a_transport_error_does_not_stop_the_app(self) -> None:
+    async def test_a_transport_error_does_not_stop_the_app(
+        self, clock: VirtualClock
+    ) -> None:
         """A fetcher failing in its own way opens the verifier without keys."""
         endpoint = Endpoint(OSError("connection refused"))
 
         async with JWTVerifier.from_config(
-            config(retry_interval=0.01), fetch=endpoint
+            config(retry_interval=RETRY), fetch=endpoint
         ) as verifier:
             assert verifier.ready is False
 
             endpoint.body = document()
-            await until(lambda: verifier.ready)
+            await run_passes(clock, RETRY)
+            assert verifier.ready is True
 
     async def test_a_transport_error_never_ends_the_background_refresh(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, clock: VirtualClock
     ) -> None:
         """The loop logs it, keeps the keys, and closes cleanly."""
         endpoint = Endpoint(document())
 
         with caplog.at_level(logging.WARNING, logger="grelmicro.security.jwt"):
             async with JWTVerifier.from_config(
-                config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
+                config(ttl=TEN_MS, retry_interval=RETRY), fetch=endpoint
             ) as verifier:
                 endpoint.body = OSError("connection reset")
-                await until(lambda: "OSError" in caplog.text)
+                await until(lambda: verifier.stale)
+                await run_passes(clock, RETRY)
+                assert "OSError" in caplog.text
 
                 endpoint.body = document(ROTATED, kid="k2")
                 rotated = token(ROTATED, kid="k2")
-                await until(lambda: verifies(verifier, rotated))
+                assert not verifies(verifier, rotated)
+                await run_passes(clock, RETRY)
+                assert verifies(verifier, rotated)
 
     async def test_refresh_raises_only_its_own_error(self) -> None:
         """Whatever the fetcher raised, the caller catches one error."""
@@ -624,19 +636,20 @@ class TestLifecycle:
             await verifier.refresh()
 
     async def test_a_document_of_malformed_keys_does_not_stop_the_app(
-        self,
+        self, clock: VirtualClock
     ) -> None:
         """Keys nothing can read leave the verifier open and retrying."""
         body = json.dumps({"keys": ["not-a-key", {"kty": ["RSA"]}]}).encode()
         endpoint = Endpoint(body)
 
         async with JWTVerifier.from_config(
-            config(retry_interval=0.01), fetch=endpoint
+            config(retry_interval=RETRY), fetch=endpoint
         ) as verifier:
             assert verifier.ready is False
 
             endpoint.body = document()
-            await until(lambda: verifier.ready)
+            await run_passes(clock, RETRY)
+            assert verifier.ready is True
 
     async def test_a_missing_dependency_stops_the_app(self) -> None:
         """A broken install is not an outage, so it is not retried."""
@@ -649,21 +662,25 @@ class TestLifecycle:
         assert verifier._task is None
 
     async def test_an_unforeseen_error_never_ends_the_background_refresh(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, clock: VirtualClock
     ) -> None:
         """It is logged, and the next pass still follows a rotation."""
         endpoint = Endpoint(document())
 
         with caplog.at_level(logging.ERROR, logger="grelmicro.security.jwt"):
             async with JWTVerifier.from_config(
-                config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
+                config(ttl=TEN_MS, retry_interval=RETRY), fetch=endpoint
             ) as verifier:
                 endpoint.body = DependencyNotFoundError(module="httpx")
-                await until(lambda: "could not be refreshed" in caplog.text)
+                await until(lambda: verifier.stale)
+                await run_passes(clock, RETRY)
+                assert "could not be refreshed" in caplog.text
 
                 endpoint.body = document(ROTATED, kid="k2")
                 rotated = token(ROTATED, kid="k2")
-                await until(lambda: verifies(verifier, rotated))
+                assert not verifies(verifier, rotated)
+                await run_passes(clock, RETRY)
+                assert verifies(verifier, rotated)
 
     def test_the_background_pass_waits_out_the_last_attempt(self) -> None:
         """A refresh a request made brings the next pass forward, never back."""
@@ -697,47 +714,57 @@ class TestLifecycle:
             await closing
         await asyncio.wait({inflight, fetching})
 
-    async def test_a_background_refresh_follows_a_rotation(self) -> None:
+    async def test_a_background_refresh_follows_a_rotation(
+        self, clock: VirtualClock
+    ) -> None:
         """A token naming a new key verifies once the next pass runs."""
         endpoint = Endpoint(document())
 
         async with JWTVerifier.from_config(
-            config(retry_interval=0.01), fetch=endpoint
+            config(retry_interval=RETRY), fetch=endpoint
         ) as verifier:
             endpoint.body = document(ROTATED, kid="k2")
             rotated = token(ROTATED, kid="k2")
+            assert not verifies(verifier, rotated)
 
-            await until(lambda: verifies(verifier, rotated))
+            await run_passes(clock, RETRY)
+
+            assert verifies(verifier, rotated)
 
     async def test_a_failed_background_refresh_keeps_the_keys(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, clock: VirtualClock
     ) -> None:
         """A provider going down later is logged, and verification goes on."""
         endpoint = Endpoint(document())
 
         with caplog.at_level(logging.WARNING, logger="grelmicro.security.jwt"):
             async with JWTVerifier.from_config(
-                config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
+                config(ttl=TEN_MS, retry_interval=RETRY), fetch=endpoint
             ) as verifier:
                 endpoint.body = SigningKeysUnavailableError("endpoint is down")
+                await until(lambda: verifier.stale)
 
-                await until(lambda: "could not be refreshed" in caplog.text)
+                await run_passes(clock, RETRY)
+
+                assert "could not be refreshed" in caplog.text
 
                 assert verifier.verify(token()).subject == "user-1"
 
-    async def test_closing_stops_the_refresh(self) -> None:
+    async def test_closing_stops_the_refresh(self, clock: VirtualClock) -> None:
         """Nothing keeps fetching after the verifier closes."""
         endpoint = Endpoint(document())
         verifier = JWTVerifier.from_config(
-            config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
+            config(ttl=TEN_MS, retry_interval=RETRY), fetch=endpoint
         )
 
         async with verifier:
-            await until(lambda: endpoint.calls >= EXPECTED_FETCHES)
-        calls = endpoint.calls
-        await anyio.sleep(0.05)
+            await until(lambda: verifier.stale)
+            await run_passes(clock, RETRY)
+            assert endpoint.calls == EXPECTED_FETCHES
+        await clock.advance(RETRY * 2)
+        await asyncio.sleep(0)
 
-        assert endpoint.calls == calls
+        assert endpoint.calls == EXPECTED_FETCHES
         assert verifier._task is None
 
     async def test_entering_twice_starts_one_refresh(self) -> None:
@@ -761,14 +788,19 @@ class TestLifecycle:
         assert results == [True] * SPRAYED_KIDS
         assert endpoint.calls == 1
 
-    async def test_closing_during_a_fetch_abandons_it(self) -> None:
+    async def test_closing_during_a_fetch_abandons_it(
+        self, clock: VirtualClock
+    ) -> None:
         """A fetch still running when the verifier closes is cancelled."""
         endpoint = Slow(document())
         verifier = JWTVerifier.from_config(
-            config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
+            config(ttl=TEN_MS, retry_interval=RETRY), fetch=endpoint
         )
 
         async with verifier:
+            await until(lambda: verifier.stale)
+            await until_asleep(clock)
+            await clock.advance(RETRY)
             await until(lambda: verifier._inflight is not None)
 
         assert verifier._inflight is None
@@ -792,7 +824,9 @@ class TestLifecycle:
 
         assert reported == []
 
-    async def test_a_reload_paces_the_next_background_pass(self) -> None:
+    async def test_a_reload_paces_the_next_background_pass(
+        self, clock: VirtualClock
+    ) -> None:
         """The pass about to start waits the interval a reload set."""
         endpoint = Endpoint(document())
 
@@ -800,10 +834,13 @@ class TestLifecycle:
             config(ttl=TEN_MS, retry_interval=HOUR), fetch=endpoint
         ) as verifier:
             await verifier.reconfigure(
-                verifier.config.model_copy(update={"retry_interval": 0.01})
+                verifier.config.model_copy(update={"retry_interval": RETRY})
             )
+            await until(lambda: verifier.stale)
 
-            await until(lambda: endpoint.calls >= EXPECTED_FETCHES)
+            await run_passes(clock, RETRY)
+
+            assert endpoint.calls == EXPECTED_FETCHES
 
 
 class TestDocumentLimits:

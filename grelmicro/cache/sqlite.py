@@ -15,6 +15,7 @@ from typing_extensions import Doc
 
 from grelmicro._duration import SECOND, nanoseconds
 from grelmicro.cache._protocol import CacheBackend
+from grelmicro.clock._seam import sleep
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
@@ -450,7 +451,7 @@ class SQLiteCacheAdapter(CacheBackend):
         interval = self._cleanup_interval or 0
         conn = self._provider.client
         while True:
-            await asyncio.sleep(jittered_interval(interval, _JANITOR_JITTER))
+            await sleep(jittered_interval(interval, _JANITOR_JITTER))
             try:
                 async with self._provider.connection_lock:
                     await conn.execute(

@@ -13,6 +13,7 @@ from typing_extensions import Doc
 
 from grelmicro._duration import microseconds
 from grelmicro.cache._protocol import CacheBackend
+from grelmicro.clock._seam import sleep
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import (
@@ -429,7 +430,7 @@ class PostgresCacheAdapter(CacheBackend):
         """
         interval = self._cleanup_interval or 0
         while True:
-            await asyncio.sleep(jittered_interval(interval, _JANITOR_JITTER))
+            await sleep(jittered_interval(interval, _JANITOR_JITTER))
             try:
                 await self._provider.client.execute(
                     self._janitor_sql, _JANITOR_LIMIT

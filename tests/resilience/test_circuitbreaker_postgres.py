@@ -9,6 +9,7 @@ import pytest
 from testcontainers.community.postgres import PostgresContainer
 
 from grelmicro._duration import microseconds, seconds_to_microseconds
+from grelmicro.clock import VirtualClock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.resilience import (
@@ -21,6 +22,7 @@ from grelmicro.resilience.circuitbreaker.postgres import (
     PostgresCircuitBreakerAdapter,
 )
 from grelmicro.resilience.errors import CircuitBreakerError
+from tests._clock import run_passes
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -28,6 +30,12 @@ URL = "postgresql://test:test@test_host:5432/test"
 
 RESET_TIMEOUT = timedelta(seconds=5)
 """Cool-down the end-to-end breakers are built with."""
+
+INTERVAL = 60.0
+"""Janitor interval, in virtual seconds."""
+
+PASSES = 2
+"""Janitor passes a test lets run."""
 
 MINUTE_US = 60 * 1_000_000
 """A short sweep lifetime, in microseconds."""
@@ -479,7 +487,7 @@ def test_cleanup_interval_must_be_positive(
 @pytest.mark.integration
 @_INTEGRATION_TIMEOUT
 async def test_janitor_sweeps_on_its_interval(
-    container: PostgresContainer,
+    container: PostgresContainer, clock: VirtualClock
 ) -> None:
     """The background sweep reclaims stale rows without being called."""
     port = container.get_exposed_port(5432)
@@ -488,7 +496,7 @@ async def test_janitor_sweeps_on_its_interval(
         provider,
         PostgresCircuitBreakerAdapter(
             provider=provider,
-            cleanup_interval=0.05,
+            cleanup_interval=INTERVAL,
             table_name="grelmicro_circuit_breaker",
         ) as adapter,
     ):
@@ -498,10 +506,7 @@ async def test_janitor_sweeps_on_its_interval(
             "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
         )
 
-        for _ in range(40):
-            await asyncio.sleep(0.05)
-            if await _row_count(adapter) == 0:
-                break
+        await run_passes(clock, INTERVAL)
 
         assert await _row_count(adapter) == 0
 
@@ -509,7 +514,9 @@ async def test_janitor_sweeps_on_its_interval(
 @pytest.mark.integration
 @_INTEGRATION_TIMEOUT
 async def test_janitor_survives_a_failing_sweep(
-    container: PostgresContainer, caplog: pytest.LogCaptureFixture
+    container: PostgresContainer,
+    caplog: pytest.LogCaptureFixture,
+    clock: VirtualClock,
 ) -> None:
     """A sweep error is logged and the loop keeps running."""
     port = container.get_exposed_port(5432)
@@ -518,17 +525,17 @@ async def test_janitor_survives_a_failing_sweep(
         provider,
         PostgresCircuitBreakerAdapter(
             provider=provider,
-            cleanup_interval=0.05,
+            cleanup_interval=INTERVAL,
             table_name="grelmicro_circuit_breaker",
         ) as adapter,
     ):
         adapter._cleanup_sql = "SELECT does_not_exist($1, $2);"
         with caplog.at_level(logging.WARNING, logger="grelmicro"):
-            await asyncio.sleep(0.3)
+            await run_passes(clock, INTERVAL, PASSES)
 
         assert adapter._janitor_task is not None
         assert not adapter._janitor_task.done()
-        assert "cleanup sweep failed" in caplog.text
+        assert caplog.text.count("cleanup sweep failed") == PASSES
 
 
 @pytest.mark.integration
