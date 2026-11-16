@@ -1,6 +1,5 @@
 """Tests for the Postgres Cache Adapter."""
 
-import asyncio
 import logging
 from datetime import timedelta
 from types import TracebackType
@@ -11,12 +10,20 @@ import pytest
 
 from grelmicro.cache import postgres as cache_postgres
 from grelmicro.cache.postgres import PostgresCacheAdapter, _escape_like
+from grelmicro.clock import VirtualClock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
+from tests._clock import run_passes
 
 pytestmark = [pytest.mark.timeout(5)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
+
+INTERVAL = 60.0
+"""Janitor interval, in virtual seconds."""
+
+PASSES = 2
+"""Janitor passes a test lets run."""
 
 
 def _mock_conn() -> MagicMock:
@@ -355,19 +362,19 @@ class TestAsyncMethods:
 
         pool.execute.assert_not_awaited()
 
-    async def test_janitor_starts_and_stops(self) -> None:
+    async def test_janitor_starts_and_stops(self, clock: VirtualClock) -> None:
         """Setting `cleanup_interval` spawns and cancels a janitor task."""
         backend, pool = _build_with_mock_pool(
-            cleanup_interval=0.01, auto_migrate=False
+            cleanup_interval=INTERVAL, auto_migrate=False
         )
         pool.execute = AsyncMock()
 
         async with backend:
             assert backend._janitor_task is not None
-            await asyncio.sleep(0.05)
+            await run_passes(clock, INTERVAL)
 
         assert backend._janitor_task is None
-        assert pool.execute.await_count >= 1
+        assert pool.execute.await_count == 1
         call = pool.execute.await_args
         assert call is not None
         assert "DELETE FROM grelmicro_cache" in call.args[0]
@@ -375,30 +382,30 @@ class TestAsyncMethods:
         assert call.args[1] == cache_postgres._JANITOR_LIMIT
 
     async def test_janitor_survives_a_failing_sweep(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, clock: VirtualClock
     ) -> None:
         """A sweep error is logged and the loop keeps running."""
         backend, pool = _build_with_mock_pool(
-            cleanup_interval=0.01, auto_migrate=False
+            cleanup_interval=INTERVAL, auto_migrate=False
         )
         pool.execute = AsyncMock(side_effect=RuntimeError("boom"))
 
         async with backend:
             with caplog.at_level(logging.WARNING, logger="grelmicro"):
-                await asyncio.sleep(0.05)
+                await run_passes(clock, INTERVAL, PASSES)
             assert backend._janitor_task is not None
             assert not backend._janitor_task.done()
 
-        assert "Cache cleanup sweep failed" in caplog.text
+        assert caplog.text.count("Cache cleanup sweep failed") == PASSES
 
-    async def test_janitor_suppresses_errors(self) -> None:
+    async def test_janitor_suppresses_errors(self, clock: VirtualClock) -> None:
         """Janitor swallows errors so transient failures don't crash the task."""
         backend, pool = _build_with_mock_pool(
-            cleanup_interval=0.01, auto_migrate=False
+            cleanup_interval=INTERVAL, auto_migrate=False
         )
         pool.execute = AsyncMock(side_effect=RuntimeError("boom"))
 
         async with backend:
-            await asyncio.sleep(0.05)
+            await run_passes(clock, INTERVAL, PASSES)
 
-        assert pool.execute.await_count >= 1
+        assert pool.execute.await_count == PASSES

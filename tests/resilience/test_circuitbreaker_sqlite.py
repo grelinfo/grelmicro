@@ -11,6 +11,7 @@ import pytest
 
 from grelmicro import _duration as duration_module
 from grelmicro._duration import microseconds, seconds_to_microseconds
+from grelmicro.clock import VirtualClock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.resilience import (
@@ -23,6 +24,7 @@ from grelmicro.resilience.circuitbreaker.sqlite import (
     SQLiteCircuitBreakerAdapter,
 )
 from grelmicro.resilience.errors import CircuitBreakerError
+from tests._clock import run_passes
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -30,6 +32,12 @@ PATH = "/tmp/test.db"  # noqa: S108
 
 RESET_TIMEOUT = timedelta(seconds=5)
 """Cool-down the end-to-end breakers are built with."""
+
+INTERVAL = 60.0
+"""Janitor interval, in virtual seconds."""
+
+PASSES = 2
+"""Janitor passes a test lets run."""
 
 
 # --- Construction and wiring unit tests ---
@@ -636,14 +644,16 @@ def test_cleanup_interval_must_be_positive() -> None:
         )
 
 
-async def test_janitor_sweeps_on_its_interval(tmp_path: Path) -> None:
+async def test_janitor_sweeps_on_its_interval(
+    tmp_path: Path, clock: VirtualClock
+) -> None:
     """The background sweep reclaims stale rows without being called."""
     provider = SQLiteProvider(str(tmp_path / "janitor.db"))
     async with (
         provider,
         SQLiteCircuitBreakerAdapter(
             provider=provider,
-            cleanup_interval=0.05,
+            cleanup_interval=INTERVAL,
             table_name="grelmicro_circuit_breaker",
         ) as adapter,
     ):
@@ -653,16 +663,13 @@ async def test_janitor_sweeps_on_its_interval(tmp_path: Path) -> None:
         )
         await provider.client.commit()
 
-        for _ in range(40):
-            await asyncio.sleep(0.05)
-            if not await _row_names(adapter):
-                break
+        await run_passes(clock, INTERVAL)
 
         assert await _row_names(adapter) == []
 
 
 async def test_janitor_survives_a_failing_sweep(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, clock: VirtualClock
 ) -> None:
     """A sweep error is logged and the loop keeps running."""
     provider = SQLiteProvider(str(tmp_path / "broken.db"))
@@ -670,17 +677,17 @@ async def test_janitor_survives_a_failing_sweep(
         provider,
         SQLiteCircuitBreakerAdapter(
             provider=provider,
-            cleanup_interval=0.05,
+            cleanup_interval=INTERVAL,
             table_name="grelmicro_circuit_breaker",
         ) as adapter,
     ):
         adapter._cleanup_sql = "DELETE FROM nope WHERE 1;"
         with caplog.at_level(logging.WARNING, logger="grelmicro"):
-            await asyncio.sleep(0.3)
+            await run_passes(clock, INTERVAL, PASSES)
 
         assert adapter._janitor_task is not None
         assert not adapter._janitor_task.done()
-        assert "cleanup sweep failed" in caplog.text
+        assert caplog.text.count("cleanup sweep failed") == PASSES
 
 
 async def test_migrates_a_table_created_before_updated_at(
