@@ -336,7 +336,8 @@ def report_undeclared_environment(*, deferred: bool) -> None:
     message = diagnostic(
         UNDECLARED_ENVIRONMENT,
         "No environment declared, so the production checks are off. Set "
-        f"{ENVIRONMENT_VAR} to development, test, staging or production.",
+        f"{ENVIRONMENT_VAR} or pass Grelmicro(environment=...): "
+        "development, test, staging or production.",
     )
     if not deferred and not ignored_env_reports_enabled():
         _log_undeclared_environment(message)

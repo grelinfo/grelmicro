@@ -93,7 +93,13 @@ Set `GREL_ENVIRONMENT` to `development`, `test`, `staging`, or `production`.
 Neither `environment=` nor `GREL_ENVIRONMENT` declares a tier, so the
 production checks are off. The app logs one `WARNING` on the `grelmicro` logger
 each time it opens. It is not a Python warning, so `-W error` leaves it alone.
-Set `GREL_ENVIRONMENT` to `development`, `test`, `staging`, or `production`.
+Set `GREL_ENVIRONMENT` or pass `Grelmicro(environment=...)`, with
+`development`, `test`, `staging`, or `production`. An app that already reads
+its tier from its own settings passes it in code:
+
+```python
+micro = Grelmicro(uses=[...], environment=settings.environment)
+```
 
 ### `backend-scope`
 
