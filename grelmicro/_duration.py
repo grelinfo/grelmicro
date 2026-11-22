@@ -181,7 +181,10 @@ def _from_value(value: object, name: str) -> timedelta:
         return _from_seconds(value)
     if isinstance(value, timedelta):
         return value
-    msg = f"{name} must be whole seconds or a timedelta"
+    msg = (
+        f"{name} must be an int of whole seconds or a timedelta, "
+        f"got {type(value).__name__}"
+    )
     raise ValueError(msg)
 
 

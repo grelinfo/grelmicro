@@ -84,7 +84,7 @@ raises](#0-42-raising).
 | `ModuleNotFoundError: No module named 'grelmicro.metrics.fastapi'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ImportError: cannot import name 'CacheError' from 'grelmicro.cache'` | 0.42 | [Delete the `except CacheError:` block](#0-42-cache-error) |
 | `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to interval` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
-| `SettingsValidationError` or `ValueError`: `... must be whole seconds or a timedelta` | 0.42 | [Pass whole seconds or a `timedelta`](#0-42-durations) |
+| `SettingsValidationError` or `ValueError`: `... must be an int of whole seconds or a timedelta, got float` | 0.42 | [Pass whole seconds or a `timedelta`](#0-42-durations) |
 | `TypeError: TaskRouter.every() got an unexpected keyword argument 'seconds'` | 0.42 | [Pass `interval=`](#0-42-durations) |
 | `TypeError: ... got an unexpected keyword argument 'misfire_grace_seconds'` | 0.42 | [Pass `misfire_grace=`](#0-42-durations) |
 | `TypeError: ... got an unexpected keyword argument 'ignore_exceptions'` from a `CircuitBreaker` | 0.42 | [Pass `when=`](#0-42-when) |

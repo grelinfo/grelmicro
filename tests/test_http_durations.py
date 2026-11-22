@@ -85,7 +85,8 @@ def test_idempotency_config_float_ttl_refused(value: float) -> None:
     """A float or a bool TTL is refused when the config is built."""
     # Act / Assert
     with pytest.raises(
-        ValidationError, match="ttl must be whole seconds or a timedelta"
+        ValidationError,
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         IdempotencyConfig(ttl=value)
 
@@ -96,7 +97,7 @@ def test_idempotency_float_ttl_refused(value: float) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         Idempotency("charge", ttl=value, env_load=False)  # ty: ignore[invalid-argument-type]
 
@@ -134,7 +135,7 @@ def test_idempotent_requests_float_ttl_refused(value: float) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         IdempotentRequests(ttl=value, env_load=False)  # ty: ignore[invalid-argument-type]
 
@@ -225,7 +226,8 @@ def test_cached_responses_config_float_ttl_refused(value: float) -> None:
     """A float or a bool TTL is refused when the config is built."""
     # Act / Assert
     with pytest.raises(
-        ValidationError, match="ttl must be whole seconds or a timedelta"
+        ValidationError,
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         CachedResponsesConfig(ttl=value)
 
@@ -238,7 +240,7 @@ def test_cached_responses_config_float_per_path_ttl_refused(
     # Act / Assert
     with pytest.raises(
         ValidationError,
-        match="pattern 2 in include must be whole seconds or a timedelta",
+        match="pattern 2 in include must be an int of whole seconds or a timedelta",
     ):
         CachedResponsesConfig(include={"/a": 1, "/secret/*": value})
 
@@ -276,7 +278,7 @@ def test_cached_responses_float_ttl_refused(value: float) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         CachedResponses(ttl=value, env_load=False)  # ty: ignore[invalid-argument-type]
 

@@ -255,7 +255,8 @@ def test_security_config_float_duration_refused(
     """A float or a bool duration is refused when the config is built."""
     # Act / Assert
     with pytest.raises(
-        ValidationError, match=f"{field} must be whole seconds or a timedelta"
+        ValidationError,
+        match=f"{field} must be an int of whole seconds or a timedelta",
     ):
         config(**{field: value})
 
@@ -384,7 +385,7 @@ def test_security_component_float_duration_refused(
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match=f"{field} must be whole seconds or a timedelta",
+        match=f"{field} must be an int of whole seconds or a timedelta",
     ):
         component(**{field: value})
 
