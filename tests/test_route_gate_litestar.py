@@ -699,7 +699,7 @@ class TestAnAnonymousHandler:
             async def __call__(
                 self, scope: Scope, receive: Receive, send: Send
             ) -> None:
-                seen.append(scope.get("route_handler").name)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+                seen.append(scope.get("route_handler").name)  # type: ignore[union-attr]  # ty: ignore[missing-union-attribute]
                 await self.app(scope, receive, send)
 
         @get("/public", opt=Anonymous(), name="public")

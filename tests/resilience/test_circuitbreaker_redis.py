@@ -59,7 +59,7 @@ def test_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     strategy = backend.bind(name="pay", config=ConsecutiveCountConfig())
 
     assert backend._prefix == "myapp:"
-    assert strategy._key == "myapp:cb:pay"  # ty: ignore[unresolved-attribute]
+    assert strategy._key == "myapp:cb:pay"  # ty: ignore[missing-attribute]
 
 
 def test_is_shared() -> None:

@@ -176,7 +176,7 @@ def _handler_declarations(
     found: list[tuple[Any, str, RouteDeclaration]] = []
     for route in app.routes:
         handlers = getattr(route, "route_handlers", None) or [
-            route.route_handler  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            route.route_handler  # type: ignore[union-attr]  # ty: ignore[missing-union-attribute]
         ]
         found.extend(
             (

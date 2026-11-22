@@ -587,7 +587,7 @@ async def test_job_keep_frees_an_expired_job_with_no_call_after_it() -> None:
         await job.without_owner().submit()
         for _ in range(5):
             await asyncio.sleep(0)
-        rows = job._backend._rows  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        rows = job._backend._rows  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
         kept = len(rows)
         # Act
         await _advance_in_steps(clock, 70)
@@ -1162,8 +1162,8 @@ async def test_job_takes_a_submit_from_a_task_registered_above_it() -> None:
         [kick] = [task for task in tasks.tasks if task is not job]
 
     # Assert
-    assert kick.last_fire is not None  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
-    assert kick.last_fire.outcome == "success"  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    assert kick.last_fire is not None  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
+    assert kick.last_fire.outcome == "success"  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
 
 
 class _Upload(BaseModel):

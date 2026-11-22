@@ -72,7 +72,7 @@ def _framework(name: str, version: str | None) -> ModuleType:
     """Return a module named `name` whose `__version__` is `version`."""
     framework = ModuleType(name)
     if version is not None:
-        framework.__version__ = version  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        framework.__version__ = version  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
     return framework
 
 

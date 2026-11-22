@@ -289,7 +289,7 @@ def _origin(item: object) -> str:
     """Return where a value's type was defined, and never raise doing it."""
     kind = item if is_class(item) else type(item)
     try:
-        return f"{kind.__module__}.{kind.__qualname__}"  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        return f"{kind.__module__}.{kind.__qualname__}"  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
     except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001

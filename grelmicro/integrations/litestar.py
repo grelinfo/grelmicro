@@ -811,7 +811,7 @@ def health_endpoints(
     """Yield the health endpoints the app serves, an ASGI mount included."""
     for route in app.routes:
         handlers = getattr(route, "route_handlers", None) or [
-            route.route_handler  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            route.route_handler  # type: ignore[union-attr]  # ty: ignore[missing-union-attribute]
         ]
         for handler in handlers:
             found = health_endpoint_in(getattr(handler, "fn", None))

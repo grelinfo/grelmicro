@@ -440,13 +440,13 @@ def plugin(declared: dict[str, tuple[RouteDeclaration, ...]]) -> Any:  # noqa: A
 
     def install_route_gate(app: Starlette, gate: Any) -> None:  # noqa: ANN401
         for route in app.routes:
-            route.app = gate(route.app, *declared[route.path])  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+            route.app = gate(route.app, *declared[route.path])  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
 
     def list_routes(app: Starlette) -> list[RouteDeclaration]:
         return [
             declaration
             for route in app.routes
-            for declaration in declared[route.path]  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+            for declaration in declared[route.path]  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
         ]
 
     return SimpleNamespace(

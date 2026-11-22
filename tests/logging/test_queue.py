@@ -1098,7 +1098,7 @@ def test_a_worker_that_finishes_at_once_leaves_no_stale_reference(
     writer.shutdown()
 
     def run_inline(self: threading.Thread) -> None:
-        self._target()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        self._target()  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
 
     # The worker runs to completion inside `Thread.start`, which makes
     # the race deterministic: with the old ordering the assignment lands
@@ -1215,7 +1215,7 @@ def test_a_multiprocessing_child_writes_its_records(
         assert writer is not None
         writer._stream = out
         logging.getLogger("child").warning("from the child")
-        multiprocessing.util._exit_function()  # ty: ignore[unresolved-attribute]
+        multiprocessing.util._exit_function()  # ty: ignore[missing-attribute]
         os.write(write_fd, out.getvalue().encode())
 
     configure(

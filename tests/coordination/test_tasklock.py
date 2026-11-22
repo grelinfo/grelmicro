@@ -866,7 +866,7 @@ def test_tasklock_refresh_attribute_access_raises_attribute_error() -> None:
     """`TaskLock` extends a lease with `extend()` and has no `refresh()`."""
     # Act & Assert
     with pytest.raises(AttributeError):
-        _ = TaskLock.refresh  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        _ = TaskLock.refresh  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
 
 
 async def test_tasklock_extend_when_holding_keeps_the_lock(

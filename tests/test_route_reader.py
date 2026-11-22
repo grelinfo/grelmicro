@@ -1002,7 +1002,7 @@ def _litestar_mounting(inner: object, at: str = "/shop") -> Litestar:
 
     @asgi(at, is_mount=True, copy_scope=False)
     async def shop(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
-        await inner(scope, receive, send)  # type: ignore[operator]  # ty: ignore[call-non-callable]
+        await inner(scope, receive, send)  # type: ignore[operator]  # ty: ignore[not-callable]
 
     return Litestar(route_handlers=[shop], logging_config=None)
 
