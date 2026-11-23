@@ -11,6 +11,7 @@ from collections import OrderedDict, abc
 # Imported at runtime, not under `TYPE_CHECKING`: it appears in a config
 # field's annotation, which pydantic resolves from module globals.
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
 from logging import getLogger
@@ -760,6 +761,7 @@ class CachedResponsesMiddleware:
         self._warned: set[str] = set()
         self._reported: dict[str, float] = {}
         self._unstorable: OrderedDict[str, None] = OrderedDict()
+        self._holding: set[asyncio.Task[_Entry]] = set()
         scope = check_fold(lock)
         self._fold = None if scope is None else Fold("CachedResponses", scope)
 
@@ -847,24 +849,68 @@ class CachedResponsesMiddleware:
         if entry is not None:
             await _serve(entry, scope, send)
             return
-        capture = _ResponseCapture(
-            send, max_body_size=state.config.max_body_size
-        )
         if scope["method"] != "GET":
             # A `HEAD` reads what a `GET` stored and fills nothing, so
             # folding it would hold the key a `GET` is waiting for while
             # producing a response nobody keeps.
+            capture = _ResponseCapture(
+                send, max_body_size=state.config.max_body_size
+            )
             await self.app(scope, receive, capture)
             await capture.flush()
-            await capture.release(complete=capture.complete)
             return
+        await self._fill(
+            scope,
+            receive,
+            send,
+            state=state,
+            storage_key=storage_key,
+            ttl=ttl,
+            path=path,
+            authentication=authentication,
+        )
+
+    async def _fill(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        *,
+        state: _State,
+        storage_key: str,
+        ttl: timedelta,
+        path: str,
+        authentication: _AuthenticationSnapshot,
+    ) -> None:
+        """Run the app once for this key, and store what it answered.
+
+        The response is stored and sent when its last body message
+        arrives, not when the app returns. A background task the
+        framework runs after it holds up neither this caller nor the
+        callers folded on the key, and one that raises leaves the entry
+        stored.
+
+        The key is held in a task of its own, which lets go of it the
+        moment the response is decided, whichever task the app sends
+        from. A caller that finds the entry stored while it waited is
+        answered from it, and the app does not run.
+        """
         attempt = _Attempt()
+        running = asyncio.Event()
+        decided: asyncio.Future[_Entry | None] = (
+            asyncio.get_running_loop().create_future()
+        )
 
         async def compute() -> _Entry:
             attempt.ran = True
-            await self.app(scope, receive, capture)
-            await capture.flush()
-            attempt.entry = self._entry_of(
+            running.set()
+            entry = await decided
+            if entry is None:
+                raise _NotStored
+            return entry
+
+        async def decide() -> None:
+            entry = self._entry_of(
                 capture,
                 state=state,
                 scope=scope,
@@ -872,23 +918,54 @@ class CachedResponsesMiddleware:
                 authentication=authentication,
             )
             attempt.returned = True
-            if attempt.entry is None:
-                raise _NotStored
+            attempt.entry = entry
+            if entry is None:
+                self._remember_unstorable(storage_key)
+                decided.set_result(None)
+                await capture.release(complete=True)
+                return
             await self._write(
-                storage_key,
-                attempt.entry,
-                ttl=_kept_for(ttl, attempt.entry["kept"]),
+                storage_key, entry, ttl=_kept_for(ttl, entry["kept"])
             )
-            return attempt.entry
+            self._unstorable.pop(storage_key, None)
+            decided.set_result(entry)
+            capture.released = True
+            await _serve(entry, scope, send)
 
+        def settled(task: asyncio.Task[_Entry]) -> None:
+            self._holding.discard(task)
+            running.set()
+            # Retrieved so a hold that ended in an error the caller
+            # already answered for is not reported as never retrieved.
+            with suppress(asyncio.CancelledError):
+                task.exception()
+
+        capture = _ResponseCapture(
+            send, max_body_size=state.config.max_body_size, decide=decide
+        )
+        holder = asyncio.create_task(
+            self._folded(storage_key, compute, attempt)
+        )
+        self._holding.add(holder)
+        holder.add_done_callback(settled)
         try:
-            entry = await self._folded(storage_key, compute, attempt)
-        except _NotStored:
-            self._remember_unstorable(storage_key)
-            await capture.release(complete=capture.complete)
-            return
-        self._unstorable.pop(storage_key, None)
-        await _serve(entry, scope, send)
+            await running.wait()
+            if not attempt.ran:
+                stored = holder.result()
+                self._unstorable.pop(storage_key, None)
+                await _serve(stored, scope, send)
+                return
+            await self.app(scope, receive, capture)
+            await capture.flush()
+            if not decided.done():
+                attempt.returned = True
+                self._remember_unstorable(storage_key)
+        finally:
+            if not decided.done():
+                decided.set_result(None)
+            if not attempt.ran:
+                holder.cancel()
+            await asyncio.wait((holder,))
 
     async def _folded(
         self,
@@ -1038,7 +1115,7 @@ class CachedResponsesMiddleware:
         one it counts itself.
         """
         start = capture.start
-        if start is None or capture.released or not capture.complete:
+        if start is None:  # pragma: no cover
             return None
         if _authentication_changed(authentication, scope):
             # An opaque wrapped application may run authentication below this
@@ -1179,7 +1256,7 @@ class _Attempt:
         self.ran = False
         """Whether the app was called at all."""
         self.returned = False
-        """Whether it returned, so what it said has been decided."""
+        """Whether what it answered has been decided."""
         self.entry: _Entry | None = None
         """What it said, when that is something to keep."""
 
@@ -1206,10 +1283,17 @@ class _ResponseCapture:
         send: Send,
         *,
         max_body_size: int,
+        decide: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
-        """Initialize the capture around the downstream `send`."""
+        """Initialize the capture around the downstream `send`.
+
+        `decide` answers a response held in one piece, the moment its
+        last body message arrives. Without it, that response is sent as
+        it was held.
+        """
         self._send = send
         self._max_body_size = max_body_size
+        self._decide = decide
         self.start: Message | None = None
         self.released = False
         self.complete = False
@@ -1247,12 +1331,18 @@ class _ResponseCapture:
             return
         self._chunks.append(chunk)
         self.complete = True
+        # Decided here rather than after the app returns: a framework runs
+        # background tasks inside that call, and a response held until they
+        # finish is a response the client waits for.
+        if self._decide is None:
+            await self.release(complete=True)
+            return
+        await self._decide()
 
     async def flush(self) -> None:
         """Release a response the app stopped without finishing.
 
-        A complete one is held for the entry to be built from, and goes
-        out from there.
+        A complete one was decided the moment it completed.
         """
         if not self.complete:
             await self.release(complete=True)

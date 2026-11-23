@@ -31,6 +31,7 @@
 * 🐛 An app on a bare `RedisProvider` or `ValkeyProvider` with a cluster URL starts instead of raising. On Cluster, the cache, lock, read-write lock and job stores put their keys under a hash tag of their own, such as `{lock}:`, when no prefix carries one. A prefix with a tag keeps its keys as they are. ([#1293](https://github.com/grelinfo/grelmicro/pull/1293))
 * 🐛 A duration of the wrong type, such as `ttl=1.5`, names that type in its error: `ttl must be an int of whole seconds or a timedelta, got float`. ([#1345](https://github.com/grelinfo/grelmicro/pull/1345))
 * 🐛 A git install, such as `uv add "grelmicro @ git+https://github.com/grelinfo/grelmicro@main"`, reports its version, such as `0.44.3.dev58+g238f669e`, instead of `0.0.0.dev0`. ([#1348](https://github.com/grelinfo/grelmicro/pull/1348))
+* 🐛 `CachedResponses` answers a read it stores as soon as the handler's body is complete, so a background task no longer delays the caller or the requests waiting for the same response. A background task that fails no longer turns the handler's `200` into a `500`, and the response stays stored. ([#1355](https://github.com/grelinfo/grelmicro/pull/1355))
 
 ### Docs
 * 📝 [Versions and upgrades](versioning.md) says that tests passing with a release's warning filter mean none of your code is affected, and that a misspelled class name stops pytest. ([#1327](https://github.com/grelinfo/grelmicro/issues/1327))
