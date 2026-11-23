@@ -351,3 +351,42 @@ async def test_job_base_exception_refuses_submits_while_it_settles(
 
     # Assert
     assert refused == [True]
+
+
+def _checkpoint_when_released(
+    progress: Progress, started: str, release: str, seen: str
+) -> None:
+    """Block in a thread until `release`, then note what a checkpoint did."""
+    shared(started).set()
+    shared(release).wait()
+    shared(seen).append(progress.stopping)
+    try:
+        progress.checkpoint()
+        shared(seen).append("passed")
+    except asyncio.CancelledError:
+        shared(seen).append("stopped")
+
+
+async def test_job_sync_body_cut_by_a_forced_stop_stops_at_its_checkpoint() -> (
+    None
+):
+    """A sync body still in its thread after a forced stop ends at its checkpoint."""
+    # Arrange
+    tasks = Tasks(shutdown_timeout=0)
+    job = tasks.job()(_checkpoint_when_released)
+    started, release = threading.Event(), threading.Event()
+    seen: list[object] = []
+    await tasks.__aenter__()
+    await job.without_owner().submit(
+        share(started), share(release), share(seen)
+    )
+    await asyncio.to_thread(started.wait)
+    await tasks.__aexit__(None, None, None)
+
+    # Act
+    release.set()
+    while "stopped" not in seen and "passed" not in seen:  # noqa: ASYNC110
+        await asyncio.sleep(0.001)
+
+    # Assert
+    assert seen == [True, "stopped"]

@@ -3201,6 +3201,77 @@ def test_a_handler_that_raises_under_a_lock_that_fails_raises_its_own_error() ->
         anyio.run(scenario)
 
 
+def test_a_lock_that_fails_after_the_handler_raised_is_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The lock failing under a handler that raised is logged, not dropped."""
+
+    # Arrange
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        msg = "the handler broke"
+        raise RuntimeError(msg)
+
+    async def scenario() -> None:
+        middleware = CachedResponsesMiddleware(
+            app, cache=_cache(), include={"/reads": TTL}
+        )
+        middleware._cache._stampede = _LosingGuard()  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        await middleware(_read_scope(), _receive, _nowhere)
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.http.cache"),
+        pytest.raises(RuntimeError, match="the handler broke"),
+    ):
+        anyio.run(scenario)
+
+    # Assert
+    [record] = records_of(caplog, "grelmicro.http.cache")
+    assert isinstance(record.exc_info, tuple)
+    assert isinstance(record.exc_info[1], ConnectionError)
+
+
+def test_a_hold_that_fails_after_the_response_went_out_is_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An error the hold ends in after the response went out is logged."""
+    # Arrange
+    sent: list[Any] = []
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message.get("status", message.get("body")))
+
+    async def scenario() -> None:
+        middleware = CachedResponsesMiddleware(
+            app, cache=_cache(), include={"/reads": TTL}
+        )
+        folded = middleware._folded
+
+        async def failing(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            await folded(*args, **kwargs)
+            msg = "the hold broke"
+            raise LookupError(msg)
+
+        middleware._folded = failing  # type: ignore[method-assign]
+        await middleware(_read_scope(), _receive, send)
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="grelmicro.http.cache"):
+        anyio.run(scenario)
+
+    # Assert
+    assert sent == [HTTP_200_OK, b"ok"]
+    [record] = records_of(caplog, "grelmicro.http.cache")
+    assert isinstance(record.exc_info, tuple)
+    assert isinstance(record.exc_info[1], LookupError)
+
+
 def test_a_miss_cancelled_in_the_handler_lets_go_of_the_key() -> None:
     """The next caller runs the handler instead of waiting on the key."""
     # Arrange

@@ -2822,7 +2822,9 @@ def _tracer() -> Any:  # noqa: ANN401
         from opentelemetry import trace  # noqa: PLC0415
     except ImportError:  # pragma: no cover
         return None
-    return trace, trace.get_tracer("grelmicro.security")
+    from grelmicro.trace._otel import GlobalTracer  # noqa: PLC0415
+
+    return trace, GlobalTracer(trace, "grelmicro.security")
 
 
 @contextmanager
@@ -2833,7 +2835,7 @@ def _span(attributes: Mapping[str, str]) -> Generator[None]:
         yield
         return
     trace, tracer = handles
-    with tracer.start_as_current_span(
+    with tracer.get().start_as_current_span(
         "oauth_client.fetch",
         kind=trace.SpanKind.CLIENT,
         attributes=dict(attributes),

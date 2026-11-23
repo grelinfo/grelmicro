@@ -61,7 +61,13 @@ from grelmicro.task._fire import (
     first_leaf,
 )
 from grelmicro.task._job_arguments import JobArguments, resolve_annotation
-from grelmicro.task._job_loop import BEAT, LEASE, JobStoreLoop, store_loop
+from grelmicro.task._job_loop import (
+    BEAT,
+    LEASE,
+    JobStoreLoop,
+    store_loop,
+    until,
+)
 from grelmicro.task._job_trace import (
     mark_failed,
     mark_lost,
@@ -168,6 +174,9 @@ _LIST_LIMIT = 100
 _MAX_COUNT = 2**63 - 1
 """The largest count or cap on kept jobs, so every store can hold it."""
 
+_LAST_END = timedelta(seconds=1)
+"""How long the end of a job cut by the shutdown timeout may take to write."""
+
 
 class _Outcome(NamedTuple):
     """How a job ended, as this replica writes it to the store."""
@@ -191,6 +200,7 @@ class _Run:
         "sending",
         "started",
         "task",
+        "timer",
         "total",
         "written",
     )
@@ -208,6 +218,8 @@ class _Run:
         self.started = False
         self.outcome: _Outcome | None = None
         self.task: asyncio.Task[None] | None = None
+        self.timer: asyncio.Task[None] | None = None
+        """What stops the job at its `max_run`, when it has one."""
 
     @property
     def ended(self) -> bool:
@@ -286,10 +298,17 @@ class Progress:
     def stopping(self) -> bool:
         """Whether the job should stop.
 
-        `True` once a cancel was requested, or once its tasks started
-        shutting down.
+        `True` once a cancel was requested, once its tasks started
+        shutting down, or once the job ended, such as a sync job still in its
+        thread after the shutdown timeout.
         """
-        return self._run.cancel_requested or self._job._stopping  # noqa: SLF001
+        run = self._run
+        return (
+            run.cancel_requested
+            or run.ended
+            or run.ended_by is not None
+            or self._job._stopping  # noqa: SLF001
+        )
 
     def _check_live(self) -> None:
         """Stop a body that reports after its job ended.
@@ -347,8 +366,8 @@ class Job[**P](Task):
 
     def __init__(  # noqa: PLR0913
         self,
-        function: Callable[..., object],
         *,
+        function: Callable[..., object],
         name: str | None = None,
         max_concurrent: int = 1,
         max_queued: int | None = None,
@@ -512,7 +531,9 @@ class Job[**P](Task):
         `Progress.stopping`. A submit the store has not answered yet still
         runs the job it starts. The call returns once every running job has
         ended. When `Tasks` cancels it at its `shutdown_timeout`, the jobs
-        still running are cancelled, and a submit answered later is refused.
+        still running are cancelled, a submit answered later is refused, and
+        a job a claim takes later ends `failed`. Each end not written yet
+        gets one more write, cut after a second.
         """
         stopped = stop or asyncio.Event()
         self._stopping = False
@@ -530,8 +551,8 @@ class Job[**P](Task):
                     await stopped.wait()
                 finally:
                     self._stopping = True
-                    await loop.finish_round()
                     if not _cancelling():
+                        await loop.finish_round()
                         await self._no_submits.wait()
         finally:
             self._group = None
@@ -547,12 +568,15 @@ class Job[**P](Task):
     async def _end_unsettled(self) -> None:
         """Write the end of each job whose task ended before the store took it.
 
-        A task cancelled before its first step ends `cancelled`.
+        A task cancelled before its first step ends `cancelled`. Together
+        the writes take at most `_LAST_END`, and a job not written by then is
+        left to its lease.
         """
+        give_up_at = monotonic() + _LAST_END.total_seconds()
         for run in list(self._runs.values()):
             if run.outcome is None:
                 run.end(JobStatus.CANCELLED, None, None)
-            await self._end_in_store(run, retry=False)
+            await self._end_in_store(run, give_up_at=give_up_at, retry=False)
 
     def _beats(self) -> list[Beat]:
         """Return one entry per running job, with counts the store lacks."""
@@ -627,6 +651,23 @@ class Job[**P](Task):
         )
         self._runs[run.id] = run
         run.task.add_done_callback(self._release)
+        if self._max_run is not None:
+            timer = asyncio.create_task(
+                self._time_out(run, self._max_run),
+                context=self._context.copy(),
+            )
+            run.timer = timer
+            run.task.add_done_callback(lambda _: timer.cancel())
+
+    async def _time_out(self, run: _Run, max_run: timedelta) -> None:
+        """Stop `run` at `max_run` after it started here, as the store does.
+
+        The store started the job earlier, so its own `max_run` has passed
+        by then. This stops the body also while the store is out of reach.
+        """
+        await sleep(max_run.total_seconds())
+        run.ended_by = run.ended_by or JOB_TIMED_OUT
+        self._ask_to_stop(run)
 
     def _release(self, _task: asyncio.Task[None]) -> None:
         """Free the slot of a job task that ended, started or not."""
@@ -799,31 +840,42 @@ class Job[**P](Task):
         run.end(status, error, result)
         if status is JobStatus.FAILED:
             mark_failed(error or _FAILED)
-        settled = await self._end_in_store(run, retry=True)
+        if self._stopping and _cancelling():
+            give_up_at, retry = monotonic() + _LAST_END.total_seconds(), False
+        else:
+            give_up_at, retry = monotonic() + LEASE.total_seconds(), True
+        settled = await self._end_in_store(
+            run, give_up_at=give_up_at, retry=retry
+        )
         if not settled:
             mark_lost(*run.lost())
         return settled
 
-    async def _end_in_store(self, run: _Run, *, retry: bool) -> bool:
+    async def _end_in_store(
+        self, run: _Run, *, give_up_at: float, retry: bool
+    ) -> bool:
         """Write how `run` ended, stop tracking it, and return whether it took.
 
-        With `retry`, a store error is tried again each beat for one lease,
-        while the beats keep the job held. A run cancelled meanwhile stays
-        tracked, so the job's stop writes its end once more.
+        A write the store has not answered by `give_up_at` is cut. With
+        `retry`, a store error is tried again each beat until then, while the
+        beats keep the job held. A run cancelled meanwhile stays tracked, so
+        the job's stop writes its end once more.
         """
         assert self._loop is not None  # noqa: S101
         assert run.outcome is not None  # noqa: S101
-        give_up_at = monotonic() + LEASE.total_seconds()
         while True:
             try:
-                reply = await self._backend.settle(
-                    name=self._name,
-                    job_id=run.id,
-                    runner=self._loop.runner,
-                    status=run.outcome.status,
-                    error=run.outcome.error,
-                    result=run.outcome.result,
-                    progress=run.outcome.progress,
+                reply = await until(
+                    give_up_at,
+                    self._backend.settle(
+                        name=self._name,
+                        job_id=run.id,
+                        runner=self._loop.runner,
+                        status=run.outcome.status,
+                        error=run.outcome.error,
+                        result=run.outcome.result,
+                        progress=run.outcome.progress,
+                    ),
                 )
             except Exception:
                 if retry and monotonic() < give_up_at:

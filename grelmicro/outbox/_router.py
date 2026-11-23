@@ -9,14 +9,17 @@ from typing import TYPE_CHECKING, Annotated, Any
 from typing_extensions import Doc
 
 from grelmicro._markers import Registered, mark_registered
-from grelmicro.outbox._registry import HandlerEntry, derive_topic
+from grelmicro.outbox._registry import (
+    HandlerEntry,
+    OutboxRegistry,
+    derive_topic,
+)
 from grelmicro.outbox.errors import OutboxRouterError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Iterator
 
     from grelmicro.outbox._message import Message
-    from grelmicro.outbox._registry import OutboxRegistry
 
 
 _WIRING = threading.Lock()
@@ -63,7 +66,9 @@ class OutboxRouter:
 
         Raises:
             OutboxRouterError: If a router in `routers` cannot be included.
-            HandlerAlreadyRegisteredError: If a topic in `routers` is taken.
+            HandlerAlreadyRegisteredError: If two routers in `routers` share
+                a topic, or one holds a topic already taken where this router
+                is included.
         """
         self._handlers: list[HandlerEntry] = []
         self._routers: list[OutboxRouter] = []
@@ -92,6 +97,10 @@ class OutboxRouter:
 
         The handler joins every `Outbox` this router is included in, at
         once, or none of them.
+
+        Raises:
+            HandlerAlreadyRegisteredError: If the topic is already taken in
+                this router, or where this router is included.
         """
 
         def decorator(
@@ -103,9 +112,7 @@ class OutboxRouter:
                 target if isinstance(target, type) else None,
             )
             with _WIRING:
-                _add_to_all(
-                    [registry for _, registry in self._roots()], [entry]
-                )
+                _add_to_all(self._tops(), [entry])
                 if self._owned_registry() is None:
                     self._handlers.append(entry)
             mark_registered(fn, Registered.OUTBOX_HANDLER, self)
@@ -127,8 +134,8 @@ class OutboxRouter:
                 or one that includes it, is already included in this router,
                 or is already in an `Outbox` this router is included in.
             HandlerAlreadyRegisteredError: If a topic of `router` is
-                already taken in an `Outbox` this router is included in.
-                Nothing of `router` is included then.
+                already taken in this router, or where this router is
+                included. Nothing of `router` is included then.
         """
         self._include([router])
 
@@ -154,8 +161,9 @@ class OutboxRouter:
             if any(node is self for node in router._subtree()):  # noqa: SLF001
                 msg = "A router cannot include itself or a router including it"
                 raise OutboxRouterError(msg)
-        roots = self._roots()
-        for root, _ in roots:
+        tops = self._tops()
+        roots = [top for top in tops if top._owned_registry() is not None]  # noqa: SLF001
+        for root in roots:
             held = {id(node) for node in root._subtree()}  # noqa: SLF001
             for router in routers:
                 for node in router._subtree():  # noqa: SLF001
@@ -168,7 +176,7 @@ class OutboxRouter:
             for router in routers
             for entry in router._entries()  # noqa: SLF001
         ]
-        _add_to_all([registry for _, registry in roots], entries)
+        _add_to_all(tops, entries)
         for router in routers:
             self._routers.append(router)
             router._parents.add(self)  # noqa: SLF001
@@ -183,9 +191,13 @@ class OutboxRouter:
         for router in self._routers:
             yield from router._subtree()  # noqa: SLF001
 
-    def _roots(self) -> list[tuple[OutboxRouter, OutboxRegistry]]:
-        """Return every `Outbox` this router is included in, with its registry."""
-        roots: list[tuple[OutboxRouter, OutboxRegistry]] = []
+    def _tops(self) -> list[OutboxRouter]:
+        """Return every router above this one that no router includes.
+
+        That is every `Outbox` this router is included in, and every router
+        no router includes, this router itself when none includes it.
+        """
+        tops: list[OutboxRouter] = []
         pending: list[OutboxRouter] = [self]
         seen: set[int] = set()
         while pending:
@@ -193,22 +205,35 @@ class OutboxRouter:
             if id(node) in seen:
                 continue
             seen.add(id(node))
-            registry = node._owned_registry()  # noqa: SLF001
-            if registry is not None:
-                roots.append((node, registry))
-            pending.extend(node._parents)  # noqa: SLF001
-        return roots
+            parents = list(node._parents)  # noqa: SLF001
+            if not parents or node._owned_registry() is not None:  # noqa: SLF001
+                tops.append(node)
+            pending.extend(parents)
+        return tops
 
     def _owned_registry(self) -> OutboxRegistry | None:
         """Return the registry the relay reads, held by an `Outbox` only."""
         return None
 
 
-def _add_to_all(
-    registries: list[OutboxRegistry], entries: list[HandlerEntry]
-) -> None:
-    """Add `entries` to every registry, or to none if one refuses them."""
-    for registry in registries:
-        registry.check(entries)
+def _add_to_all(tops: list[OutboxRouter], entries: list[HandlerEntry]) -> None:
+    """Add `entries` under every top router, or under none if one refuses them.
+
+    An `Outbox` checks them against its registry, and a router nothing
+    includes against the handlers of its tree, so a taken topic raises the
+    same error either way. Only an `Outbox` registry receives them.
+
+    Raises:
+        HandlerAlreadyRegisteredError: If a topic is already taken under a
+            top router, or two entries share one.
+    """
+    registries: list[OutboxRegistry] = []
+    for top in tops:
+        registry = top._owned_registry()  # noqa: SLF001
+        if registry is None:
+            OutboxRegistry().check([*top._entries(), *entries])  # noqa: SLF001
+        else:
+            registry.check(entries)
+            registries.append(registry)
     for registry in registries:
         registry.add(entries)

@@ -195,9 +195,33 @@ def test_the_warning_names_the_value_the_adapter_and_the_limit() -> None:
         "characters it takes, and raises `SettingsValidationError` from "
         "0.46.0. Until then Postgres cuts the names the adapter builds from "
         "it, such as its indexes and functions, at 63 bytes, so one can be "
-        "left out or replace another with no error. Pass a `table_name` of 48 "
-        "characters or fewer."
+        "left out or replace another with no error. A table name takes only "
+        "ASCII letters, digits and underscores, one byte each. Pass a "
+        "`table_name` of 48 characters or fewer."
     )
+
+
+@pytest.mark.parametrize(("source", "adapter", "argument", "build"), _ADAPTERS)
+def test_a_non_ascii_table_name_is_refused_before_its_length_is_counted(
+    source: type,
+    adapter: str,
+    argument: str,
+    build: Callable[[str], str],
+) -> None:
+    """A name within the limit in characters but over it in bytes never passes."""
+    # Arrange
+    longest = _longest_table_name(source)
+    name = "\u00e9" * longest
+    assert len(name.encode()) > longest
+
+    # Act
+    with pytest.raises(SettingsValidationError) as caught:
+        build(name)
+
+    # Assert
+    assert f"Table name '{name}' is not a valid SQL identifier" in str(
+        caught.value
+    ), (adapter, argument)
 
 
 @pytest.mark.parametrize(
@@ -223,6 +247,12 @@ def test_the_job_store_refuses_a_table_name_over_its_limit() -> None:
     task_postgres.PostgresJobAdapter(
         provider=_provider(), table_name="j" * longest
     )
+    with pytest.raises(
+        SettingsValidationError, match="not a valid SQL identifier"
+    ):
+        task_postgres.PostgresJobAdapter(
+            provider=_provider(), table_name="\u00e9" * longest
+        )
     with pytest.raises(
         SettingsValidationError, match=f"longer than {longest} characters"
     ):

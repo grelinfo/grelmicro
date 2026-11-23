@@ -126,12 +126,55 @@ def test_duplicate_handler_on_included_router_raises() -> None:
         async def two(message: Message[object]) -> None: ...
 
 
-def test_duplicate_topic_inside_detached_routers_raises_on_include() -> None:
-    """Two routers on one topic raise once their tree joins an outbox."""
-    tree = OutboxRouter(routers=[_router_for("job"), _router_for("job")])
+def test_duplicate_topic_inside_detached_routers_raises() -> None:
+    """Two routers on one topic raise as one router includes both."""
+    first = _router_for("job")
+    second = _router_for("job")
 
-    with pytest.raises(HandlerAlreadyRegisteredError):
-        Outbox(MemoryOutboxAdapter(), routers=[tree])
+    with pytest.raises(HandlerAlreadyRegisteredError, match="'job'"):
+        OutboxRouter(routers=[first, second])
+
+    assert OutboxRouter(routers=[first])._entries() == first._entries()
+    assert OutboxRouter(routers=[second])._entries() == second._entries()
+
+
+def test_detached_include_of_a_taken_topic_keeps_none_of_it() -> None:
+    """A detached router refuses a router on a topic it holds, and keeps it free."""
+    tree = OutboxRouter(routers=[_router_for("job")])
+    router = OutboxRouter(routers=[_router_for("free"), _router_for("job")])
+
+    with pytest.raises(HandlerAlreadyRegisteredError, match="'job'"):
+        tree.include_router(router)
+
+    assert [entry.topic for entry in tree._entries()] == ["job"]
+    Outbox(MemoryOutboxAdapter(), routers=[router])
+
+
+def test_duplicate_handler_deep_in_a_detached_tree_raises() -> None:
+    """A handler on a nested detached router raises when its tree holds the topic."""
+    inner = OutboxRouter()
+    middle = OutboxRouter(routers=[inner])
+    tree = OutboxRouter(routers=[middle, _router_for("job")])
+
+    with pytest.raises(HandlerAlreadyRegisteredError, match="'job'"):
+
+        @inner.handler("job")
+        async def handle(message: Message[object]) -> None: ...
+
+    assert [entry.topic for entry in tree._entries()] == ["job"]
+
+
+def test_duplicate_handler_on_one_detached_router_raises() -> None:
+    """A second handler on one topic raises on a router no outbox includes."""
+    router = _router_for("job")
+
+    with pytest.raises(HandlerAlreadyRegisteredError) as caught:
+
+        @router.handler("job")
+        async def second_handler(message: Message[object]) -> None: ...
+
+    assert "second_handler" in str(caught.value)
+    assert [entry.topic for entry in router._entries()] == ["job"]
 
 
 async def test_one_router_serves_two_outboxes() -> None:

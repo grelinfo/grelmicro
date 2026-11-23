@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 import secrets
+import threading
+import time
 from collections import Counter
 from collections.abc import Coroutine
 from datetime import timedelta
@@ -682,3 +684,185 @@ async def test_job_that_cannot_start_is_left_to_its_lease_when_the_end_fails(
         assert "Job could not be ended in its store: import" in caplog.text
         info = await _read(store, lost)
         assert (info.status, info.error) == (JobStatus.FAILED, "Job lost")
+
+
+async def test_job_claim_the_store_never_answers_keeps_running_jobs_held() -> (
+    None
+):
+    """A claim stuck in the store does not hold back the beats."""
+    # Arrange
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks(shutdown_timeout=0)
+    job = tasks.job(name="import", backend=store, max_concurrent=2)(
+        _records_cancel
+    )
+    seen: list[str] = []
+    claim = asyncio.Event()
+
+    async with clock, tasks:
+        submitted = await job.without_owner().submit(
+            share(asyncio.Event()), share(seen)
+        )
+        store.gates["claim"] = claim
+
+        # Act
+        await _advance(clock, _PAST_THE_LEASE + _FEW_BEATS)
+        info = await _read(store, submitted.id)
+        stopped = list(seen)
+        claim.set()
+
+    # Assert
+    assert stopped == []
+    assert info.status is JobStatus.RUNNING
+
+
+async def test_job_sweep_the_store_never_answers_keeps_running_jobs_held() -> (
+    None
+):
+    """A sweep stuck in the store does not hold back the beats."""
+    # Arrange
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks(shutdown_timeout=0)
+    job = tasks.job(name="import", backend=store)(_records_cancel)
+    seen: list[str] = []
+    reap = store.gates["reap"] = asyncio.Event()
+
+    async with clock, tasks:
+        submitted = await job.without_owner().submit(
+            share(asyncio.Event()), share(seen)
+        )
+
+        # Act
+        await _advance(clock, _PAST_THE_LEASE + 15)
+        info = await _read(store, submitted.id)
+        stopped = list(seen)
+        reap.set()
+
+    # Assert
+    assert stopped == []
+    assert info.status is JobStatus.RUNNING
+
+
+async def test_job_end_the_store_never_answers_frees_the_slot_at_the_lease(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An end write stuck in the store is cut at the lease, and the slot freed."""
+    # Arrange
+    caplog.set_level(logging.WARNING, logger="grelmicro.task")
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks()
+    job = _job(tasks, store)
+    gate = asyncio.Event()
+    gate.set()
+    settle = store.gates["settle"] = asyncio.Event()
+
+    async with clock, tasks:
+        await job.without_owner().submit(share(gate))
+
+        # Act
+        await _advance(clock, _PAST_THE_LEASE)
+        left = (job._runs.copy(), job._running)
+        settle.set()
+
+    # Assert
+    assert left == ({}, 0)
+    assert "Job could not be ended in its store: import" in caplog.text
+
+
+async def test_job_forced_stop_does_not_wait_for_an_end_the_store_never_takes() -> (
+    None
+):
+    """Past `shutdown_timeout`, an end the store does not answer is cut short."""
+    # Arrange
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks(shutdown_timeout=0)
+    job = tasks.job(name="import", backend=store)(_records_cancel)
+    seen: list[str] = []
+    settle = store.gates["settle"] = asyncio.Event()
+
+    async with clock:
+        await tasks.__aenter__()
+        await job.without_owner().submit(share(asyncio.Event()), share(seen))
+        await _settled()
+
+        # Act
+        leaving = asyncio.create_task(tasks.__aexit__(None, None, None))
+        await _advance(clock, _FEW_BEATS)
+        left = leaving.done()
+        settle.set()
+        await leaving
+
+    # Assert
+    assert seen == ["cancelled"]
+    assert left
+
+
+async def test_job_store_out_stops_an_async_body_at_max_run() -> None:
+    """The replica stops a body at `max_run`, also when the store is out."""
+    # Arrange
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks()
+    job = tasks.job(name="import", backend=store, max_run=2)(_records_cancel)
+    seen: list[str] = []
+
+    async with clock:
+        async with tasks:
+            submitted = await job.without_owner().submit(
+                share(asyncio.Event()), share(seen)
+            )
+            store.failing.add("beat")
+
+            # Act
+            await _advance(clock, _FEW_BEATS)
+            stopped = list(seen)
+            store.failing.clear()
+            await _advance(clock, 1)
+
+        # Assert
+        assert stopped == ["cancelled"]
+        info = await _read(store, submitted.id)
+        assert (info.status, info.error) == (
+            JobStatus.FAILED,
+            "Job not finished in time",
+        )
+
+
+def _checkpoints(progress: Progress, started: str, seen: str) -> None:
+    """Pass checkpoints until one stops the body, and note it in `seen`."""
+    shared(started).set()
+    try:
+        while True:
+            progress.checkpoint()
+            time.sleep(0.001)
+    finally:
+        shared(seen).append("stopped")
+
+
+async def test_job_store_out_stops_a_sync_body_at_max_run() -> None:
+    """A sync body stops at its checkpoint past `max_run`, store out or not."""
+    # Arrange
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks()
+    job = tasks.job(name="import", backend=store, max_run=2)(_checkpoints)
+    started = threading.Event()
+    seen: list[str] = []
+
+    async with clock, tasks:
+        await job.without_owner().submit(share(started), share(seen))
+        await asyncio.to_thread(started.wait)
+        store.failing.add("beat")
+
+        # Act
+        await _advance(clock, _FEW_BEATS)
+        while not seen:  # noqa: ASYNC110
+            await asyncio.sleep(0.001)
+        store.failing.clear()
+
+    # Assert
+    assert seen == ["stopped"]

@@ -22,6 +22,7 @@ from grelmicro._context import pop_context as _pop_context
 from grelmicro._context import push_context as _push_context
 from grelmicro._wrapping import refuse_registered
 from grelmicro.metrics._naming import callable_name, unwrap_callable
+from grelmicro.trace._otel import GlobalTracer
 from grelmicro.trace._otel import get as _get_otel
 
 if TYPE_CHECKING:
@@ -199,7 +200,7 @@ def instrument[**P, R](
         )
         otel = _get_otel()
         tracer = (
-            otel.trace.get_tracer(unwrap_callable(fn).__module__)
+            GlobalTracer(otel.trace, unwrap_callable(fn).__module__)
             if otel is not None
             else None
         )
@@ -212,7 +213,7 @@ def instrument[**P, R](
                 token = _push_context(fields)
                 try:
                     if tracer is not None:
-                        with tracer.start_as_current_span(
+                        with tracer.get().start_as_current_span(
                             span_name,
                             attributes={k: str(v) for k, v in fields.items()},
                         ) as otel_span:
@@ -233,7 +234,7 @@ def instrument[**P, R](
             token = _push_context(fields)
             try:
                 if tracer is not None:
-                    with tracer.start_as_current_span(
+                    with tracer.get().start_as_current_span(
                         span_name,
                         attributes={k: str(v) for k, v in fields.items()},
                     ) as otel_span:

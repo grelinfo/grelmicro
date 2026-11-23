@@ -2,8 +2,10 @@
 
 Jobs on one store share one loop, so the store sees the same calls for one job
 as for many: one `beat` and at most one `claim` each second, and one sweep now
-and then. The loop opens and closes only a store the job built itself. Whoever
-built any other store opens and closes it.
+and then. Beats, claims and sweeps run apart, so a claim or a sweep the store
+is slow to answer never holds back the beat that keeps the leases. The loop
+opens and closes only a store the job built itself. Whoever built any other
+store opens and closes it.
 
 A store call that fails is tried again at the next beat. A beat or a sweep
 still waiting for the store when the lease runs out is cut and counts as
@@ -32,7 +34,7 @@ if TYPE_CHECKING:
 
     from grelmicro.task._protocol import Beat, BeatReply, Claimed, JobBackend
 
-__all__ = ["BEAT", "LEASE", "JobStoreLoop", "store_loop"]
+__all__ = ["BEAT", "LEASE", "SWEEP", "JobStoreLoop", "store_loop", "until"]
 
 logger = getLogger("grelmicro.task")
 
@@ -42,21 +44,25 @@ LEASE = timedelta(seconds=30)
 BEAT = timedelta(seconds=1)
 """How often a replica extends leases, writes counts and reads cancels."""
 
-_SWEEP_EVERY_BEATS = 10
-"""How many beats pass between two sweeps of the store."""
+SWEEP = timedelta(seconds=10)
+"""How often a replica sweeps the store."""
 
 _SWEEP_LIMIT = 100
-"""How many jobs one sweep ends or forgets at most."""
+"""How many jobs one store call of a sweep ends or forgets at most."""
 
 
-async def _until[T](deadline: float, call: Awaitable[T]) -> T:
+async def until[T](deadline: float, call: Awaitable[T]) -> T:
     """Return what `call` returns, or cancel it at `deadline`.
+
+    Works in a task already being cancelled too, such as one cleaning up after
+    a forced stop. Any other cancel goes through as a cancel.
 
     Raises:
         TimeoutError: If `call` has not returned by `deadline`.
     """
     current = asyncio.current_task()
     assert current is not None  # noqa: S101
+    cancelling = current.cancelling()
     expired = False
 
     async def _expire() -> None:
@@ -69,7 +75,7 @@ async def _until[T](deadline: float, call: Awaitable[T]) -> T:
     try:
         return await call
     except asyncio.CancelledError:
-        if expired and current.uncancel() == 0:
+        if expired and current.uncancel() == cancelling:
             raise TimeoutError from None
         raise
     finally:
@@ -148,15 +154,14 @@ class JobStoreLoop:
             self._members[member.name] = member
 
     async def finish_round(self) -> None:
-        """Wait for the store call in progress, and what it handed out."""
+        """Wait for the claim in progress, and what it handed out."""
         async with self._round:
             pass
 
     async def leave(self, member: _Member) -> None:
         """Remove `member`, closing the store after the last one."""
         async with self._joining:
-            async with self._round:
-                del self._members[member.name]
+            del self._members[member.name]
             if self._members:
                 return
             _loops.pop(self._backend, None)
@@ -172,30 +177,27 @@ class JobStoreLoop:
                     await self._backend.__aexit__(None, None, None)
 
     async def _run(self) -> None:
-        """Beat and claim until cancelled."""
+        """Beat, claim and sweep until cancelled."""
         async with asyncio.TaskGroup() as group:
             group.create_task(self._beat_loop())
             group.create_task(self._claim_loop())
+            group.create_task(self._sweep_loop())
 
     async def _beat_loop(self) -> None:
-        """Beat every second and sweep the store now and then."""
-        beats = 0
-        held_at = monotonic()
+        """Beat every second, or at once when the last beat took longer."""
+        held_at = beat_at = monotonic()
         while True:
-            await sleep(BEAT.total_seconds())
+            await sleep(max(0.0, beat_at + BEAT.total_seconds() - monotonic()))
             beat_at = monotonic()
             lease_ends = held_at + LEASE.total_seconds()
             try:
-                error = await _until(lease_ends, self._beat())
+                error = await until(lease_ends, self._beat())
             except TimeoutError as timeout:
                 error = timeout
             held_at = (
                 beat_at if error is None else self._missed_beat(held_at, error)
             )
             self._wake.set()
-            beats += 1
-            if beats % _SWEEP_EVERY_BEATS == 0:
-                await self._sweep(held_at + LEASE.total_seconds())
 
     def _missed_beat(self, held_at: float, error: Exception) -> float:
         """Stop every body once no beat reached the store for a lease.
@@ -213,39 +215,51 @@ class JobStoreLoop:
             member._stop_runs()
         return monotonic()
 
+    async def _sweep_loop(self) -> None:
+        """Sweep the store every `SWEEP`."""
+        while True:
+            await sleep(SWEEP.total_seconds())
+            await self._sweep(monotonic() + LEASE.total_seconds())
+
     async def _sweep(self, deadline: float) -> None:
         """End jobs past their lease or wait, and forget expired ones.
 
-        A sweep still running at `deadline` is cut.
+        Each step goes on in batches of `_SWEEP_LIMIT` while a batch comes
+        back full. A sweep still running at `deadline` is cut.
         """
         try:
-            await _until(deadline, self._backend.reap(limit=_SWEEP_LIMIT))
-            await _until(deadline, self._backend.purge(limit=_SWEEP_LIMIT))
+            for step in (self._backend.reap, self._backend.purge):
+                full = True
+                while full:
+                    done = await until(deadline, step(limit=_SWEEP_LIMIT))
+                    full = done == _SWEEP_LIMIT
         except Exception:
             logger.warning("Job store sweep failed", exc_info=True)
 
     async def _beat(self) -> Exception | None:
         """Extend each lease, write new counts, and read each cancel flag.
 
-        Returns the store's error, or `None` when it answered.
+        Returns the store's error, or `None` when it answered. A reply for a
+        job whose member left meanwhile is dropped.
         """
-        async with self._round:
-            beats = [
-                beat
-                for member in self._members.values()
-                for beat in member._beats()
-            ]
-            if not beats:
-                return None
-            try:
-                replies = await self._backend.beat(
-                    runner=self.runner, beats=beats, lease=LEASE
-                )
-            except Exception as error:  # noqa: BLE001
-                return error
-            for reply in replies:
-                self._members[reply.name]._read_reply(reply)
+        beats = [
+            beat
+            for member in self._members.values()
+            for beat in member._beats()
+        ]
+        if not beats:
             return None
+        try:
+            replies = await self._backend.beat(
+                runner=self.runner, beats=beats, lease=LEASE
+            )
+        except Exception as error:  # noqa: BLE001
+            return error
+        for reply in replies:
+            member = self._members.get(reply.name)
+            if member is not None:
+                member._read_reply(reply)
+        return None
 
     async def _claim_loop(self) -> None:
         """Run queued jobs, oldest first, when woken."""
@@ -255,7 +269,10 @@ class JobStoreLoop:
             await self._claim()
 
     async def _claim(self) -> None:
-        """Claim queued jobs for every free slot, in one store call."""
+        """Claim queued jobs for every free slot, in one store call.
+
+        A job claimed for a member that left meanwhile cannot start.
+        """
         async with self._round:
             slots = {
                 name: free
@@ -265,7 +282,7 @@ class JobStoreLoop:
             if not slots:
                 return
             try:
-                claimed = await _until(
+                claimed = await until(
                     monotonic() + LEASE.total_seconds(),
                     self._backend.claim(
                         slots=slots, runner=self.runner, lease=LEASE
@@ -276,8 +293,16 @@ class JobStoreLoop:
                 claimed = []
             unstarted = []
             for job in claimed:
+                member = self._members.get(job.record.name)
+                if member is None:
+                    logger.warning(
+                        "Job could not be started, it left the store: %s",
+                        job.record.name,
+                    )
+                    unstarted.append(job)
+                    continue
                 try:
-                    self._members[job.record.name]._accept(job)
+                    member._accept(job)
                 except Exception:
                     logger.exception(
                         "Job could not be started: %s", job.record.name
@@ -286,7 +311,9 @@ class JobStoreLoop:
                 else:
                     slots[job.record.name] -= 1
             for name, unused in slots.items():
-                self._members[name]._give_back_slots(unused)
+                member = self._members.get(name)
+                if member is not None:
+                    member._give_back_slots(unused)
             for job in unstarted:
                 await self._fail(job)
 
@@ -297,7 +324,7 @@ class JobStoreLoop:
         runs out.
         """
         try:
-            await _until(
+            await until(
                 monotonic() + LEASE.total_seconds(),
                 self._backend.settle(
                     name=job.record.name,

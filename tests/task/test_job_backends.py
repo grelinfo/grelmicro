@@ -2483,3 +2483,25 @@ async def test_job_backend_max_kept_holds_under_concurrent_ends(
     kept = await _kept(store, [record.id for record in running])
     assert sum(kept) == 3  # noqa: PLR2004
     assert len((await _list(store)).records) == 3  # noqa: PLR2004
+
+
+async def test_job_backend_list_never_returns_a_job_its_own_moves_forgot(
+    store: _Store,
+) -> None:
+    """A list that ends jobs past a cap returns only the jobs still kept."""
+    # Arrange
+    caps: dict[str, Any] = {"max_kept_failed": 1}
+    older = await store.submit(start_as="r", **caps)
+    newer = await store.submit(start_as="r", **caps)
+    await store.elapse(LEASE_TICKS + MARGIN)
+
+    # Act
+    listed = await _list(store)
+
+    # Assert
+    kept = await _kept(store, [newer.id, older.id])
+    assert _ids(listed) == [
+        job_id
+        for job_id, is_kept in zip([newer.id, older.id], kept, strict=True)
+        if is_kept
+    ]

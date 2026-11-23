@@ -147,8 +147,7 @@ raises](#0-42-raising).
 - A Postgres or SQLite lock or schedule adapter, or a SQLite read-write lock adapter, left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
 - An outbox payload model that inherits `__outbox_topic__` from a parent still takes the parent's topic, and now warns with `Grelmicro046Warning`. From 0.46.0 it takes its class name. [Set the topic on the model](#0-45-outbox-subclass-topic).
 - A parametrized generic outbox payload model such as `Event[int]`, with no `__outbox_topic__`, still takes the topic `Event[int]`, and now warns with `Grelmicro046Warning`. From 0.46.0 it takes `Event`. [Set the topic on the model](#0-45-outbox-subclass-topic).
-- `IdempotentRequests` and `IdempotencyMiddleware` with `fingerprint_body` left out still replay the first response to a key reused with a different body, and now warn with `Grelmicro046Warning`. From 0.46.0 they answer `422`. [Choose the body check](#0-45-fingerprint-body).
-- Under `fingerprint_body=True`, a request body over `max_body_size` runs the handler instead of being answered `413`. [Choose the body check](#0-45-fingerprint-body).
+- `IdempotentRequests` and `IdempotencyMiddleware` with `fingerprint_body` left out still replay the first response to a key reused with a different body, and now warn with `Grelmicro046Warning`. From 0.46.0 they answer `422`, and `413` to a body over `max_body_size`. [Choose the body check](#0-45-fingerprint-body).
 
 ### Changes that raise {#0-45-raising}
 
@@ -557,9 +556,18 @@ micro = Grelmicro(uses=[IdempotentRequests(fingerprint_body=True)])
 `IdempotentRequestsConfig(fingerprint_body=...)` and
 `GREL_IDEMPOTENT_REQUESTS_FINGERPRINT_BODY` silence it too.
 
-The body is hashed as it streams, so the check holds no body in memory. A
-body over `max_body_size` is no longer answered `413`. That limit caps the
-stored response only. The OpenAPI schema no longer lists the `413`.
+The check buffers the request body before the handler runs, up to
+`max_body_size`. From 0.46.0, a covered route sent a larger body answers
+`413` instead of running the handler. To keep large bodies running, raise
+`max_body_size`, keep the check off with `fingerprint_body=False`, or leave
+the route out with `exclude=`.
+
+```python
+from grelmicro.http import IdempotentRequests
+
+# Checks the body everywhere except the upload routes
+IdempotentRequests(fingerprint_body=True, exclude=("/uploads/*",))
+```
 
 A response stored before the check was on carries no hash, so a reused key
 replays it until it expires.
@@ -2279,8 +2287,8 @@ The changelog lists the warning under **Deprecated** in the release that adds
 it, and the switch under **Breaking** in the release that makes it. Each
 breaking release has a note on this page.
 
-To catch every announced change in your test suite, promote the warning to an
-error:
+To fail your tests on each announced change they run, promote the warning to
+an error:
 
 ```toml
 [tool.pytest.ini_options]

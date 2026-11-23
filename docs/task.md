@@ -599,9 +599,9 @@ async def import_rows(progress: Progress, upload_id: str) -> None: ...
 ```
 
 Past `max_run`, the job reads `failed` with the error
-`"Job not finished in time"`, from any replica. The body hears about it within
-about a second, while the store is reachable. An async body then gets
-`asyncio.CancelledError` at its next `await`. A sync body stops at its next
+`"Job not finished in time"`, from any replica. The replica running the body
+stops it at `max_run` after it started there, even while the store is out of
+reach. An async body then gets `asyncio.CancelledError` at its next `await`. A sync body stops at its next
 `checkpoint()`, `advance()` or `total` update, and keeps its slot until its
 thread returns. A sync body that calls none of them cannot be stopped.
 
@@ -651,7 +651,9 @@ within the same `shutdown_timeout`. Other replicas keep working:
    locks through `async with` as it unwinds.
 4. A job still running after `shutdown_timeout` is cancelled at its next
    `await`. A sync job ends `cancelled` at once, and its thread stops at its
-   next `checkpoint()`, `advance()` or `total` update.
+   next `checkpoint()`, `advance()` or `total` update. An end the store has
+   not taken yet gets one more second to be written. A job whose end is still
+   not written then reads `failed` once its lease runs out.
 
 A `Grelmicro` app closes `Tasks` before the rest of what it uses, so a draining
 job still reaches its database. A sync body that never calls `checkpoint()`

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from grelmicro._wrapping import named
 from grelmicro.outbox._codec import decode_payload
@@ -15,7 +15,7 @@ from grelmicro.outbox.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Hashable, Iterable
+    from collections.abc import Awaitable, Callable, Iterable
 
     from grelmicro._deprecation import FutureChange
     from grelmicro.outbox._message import OutboxRecord
@@ -25,51 +25,88 @@ def derive_topic(target: type[Any] | str) -> str:
     """Return the topic for a payload model or a topic string.
 
     A string passes through. A model uses its `__outbox_topic__` attribute
-    when set, otherwise its class name. A model that inherits
-    `__outbox_topic__` from a parent warns with `Grelmicro046Warning` at the
-    first line outside grelmicro, since it takes its class name from 0.46.0.
+    when set, otherwise its class name, read at each call. A model that
+    inherits `__outbox_topic__` from a parent warns with `Grelmicro046Warning`
+    at the first line outside grelmicro, since it takes its class name from
+    0.46.0.
     """
     if isinstance(target, str):
         return target
     if not isinstance(target, type):
         return getattr(target, "__outbox_topic__", target.__name__)
-    # mypy reads `type[Any]` as unhashable, and every class is hashable.
-    topic, change = _model_topic(cast("Hashable", target))
+    try:
+        topic: str = _class_attribute(target, "__outbox_topic__")
+    except AttributeError:
+        topic = target.__name__
+        change = _named_change(target)
+    else:
+        if "__outbox_topic__" in target.__dict__:
+            return topic
+        change = _inherited_change(target, topic)
     if change is not None:
         change.warn(outside=True)
     return topic
 
 
-@lru_cache(maxsize=512)
-def _model_topic(model: type[Any]) -> tuple[str, FutureChange | None]:
-    """Return the topic of `model`, and the change to warn for it, if any.
+_class_attribute = type.__getattribute__
+"""Read a class attribute, skipping the metaclass `__getattr__` of Pydantic."""
+
+
+def _origin(model: type[Any]) -> type[Any]:
+    """Return the generic origin of `model`, such as `Event` of `Event[int]`.
+
+    A model that is no parametrized generic is its own origin.
+    """
+    metadata = getattr(model, "__pydantic_generic_metadata__", None)
+    return (metadata and metadata["origin"]) or model
+
+
+def _named_change(model: type[Any]) -> FutureChange | None:
+    """Return the change of `model`, which takes its class name, if any.
+
+    A parametrized generic model such as `Event[int]` takes the topic `Event`
+    for every parametrization from 0.46.0.
+    """
+    origin = _origin(model)
+    if origin is model:
+        return None
+    return _generic_outbox_topic(model.__name__, origin.__name__)
+
+
+def _inherited_change(model: type[Any], topic: str) -> FutureChange | None:
+    """Return the change of `model`, which inherits `topic`, if any.
 
     A parametrized generic model such as `Event[int]` is checked as its
-    generic origin `Event`, and the change names the origin. With no
-    `__outbox_topic__` on `Event` or a parent, the change is the one of its
-    topic, which becomes `Event` for every parametrization.
+    generic origin `Event`, and the change names the origin.
     """
-    topic: str = getattr(model, "__outbox_topic__", model.__name__)
-    metadata = getattr(model, "__pydantic_generic_metadata__", None)
-    origin: type[Any] = (metadata and metadata["origin"]) or model
+    origin = _origin(model)
     if "__outbox_topic__" in vars(origin):
-        return topic, None
+        return None
     parent = next(
         (base for base in origin.__mro__ if "__outbox_topic__" in vars(base)),
         None,
     )
-    if parent is None and origin is model:
-        return topic, None
-    from grelmicro._deprecation import (  # noqa: PLC0415
-        generic_outbox_topic,
-        inherited_outbox_topic,
-    )
-
     if parent is None:
-        return topic, generic_outbox_topic(model=topic, origin=origin.__name__)
-    return topic, inherited_outbox_topic(
-        model=origin.__name__, parent=parent.__name__, topic=topic
-    )
+        return None
+    return _inherited_outbox_topic(origin.__name__, parent.__name__, topic)
+
+
+@lru_cache(maxsize=512)
+def _generic_outbox_topic(model: str, origin: str) -> FutureChange:
+    """Return the change of the parametrization `model` of `origin`."""
+    from grelmicro._deprecation import generic_outbox_topic  # noqa: PLC0415
+
+    return generic_outbox_topic(model=model, origin=origin)
+
+
+@lru_cache(maxsize=512)
+def _inherited_outbox_topic(
+    model: str, parent: str, topic: str
+) -> FutureChange:
+    """Return the change of `model`, which inherits `topic` from `parent`."""
+    from grelmicro._deprecation import inherited_outbox_topic  # noqa: PLC0415
+
+    return inherited_outbox_topic(model=model, parent=parent, topic=topic)
 
 
 @dataclass(frozen=True, slots=True)
