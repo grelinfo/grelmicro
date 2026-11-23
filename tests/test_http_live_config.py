@@ -126,6 +126,11 @@ def _limiter(name: str = "burst") -> RateLimiter:
     return RateLimiter.sliding_window(name, limit=1000, window=60)
 
 
+def _idempotent_requests() -> IdempotentRequests:
+    """Return the component with `fingerprint_body` passed, so it warns nothing."""
+    return IdempotentRequests(fingerprint_body=False)
+
+
 def _cached_responses(micro: Grelmicro) -> CachedResponses:
     """Return the app's registered response cache, typed as itself."""
     return cast(
@@ -163,7 +168,7 @@ async def test_one_yaml_document_retunes_every_http_component(
     # Arrange
     cache = CachedResponses()
     conditional = ConditionalRequests()
-    idempotent = IdempotentRequests()
+    idempotent = IdempotentRequests(fingerprint_body=False)
     rate = RateLimitedRequests(
         _limiter(), trusted=TrustedProxies(["10.0.0.0/8"])
     )
@@ -223,7 +228,7 @@ async def test_the_window_is_tuned_where_the_store_lives(
     the code pinned.
     """
     # Arrange
-    component = IdempotentRequests()
+    component = IdempotentRequests(fingerprint_body=False)
 
     # Act
     async with ExternalConfig(_mounted(tmp_path), reload_interval=60):
@@ -371,7 +376,7 @@ async def test_the_endpoint_report_says_what_happens_to_one_route() -> None:
             ErrorResponses(),
             AccessLog(exclude=("/livez",)),
             CachedResponses(include={"/products/*": 60}),
-            IdempotentRequests(include=("/orders/*",)),
+            IdempotentRequests(fingerprint_body=False, include=("/orders/*",)),
             RateLimitedRequests(
                 _limiter(),
                 trusted=TrustedProxies(["10.0.0.0/8"]),
@@ -550,7 +555,7 @@ def test_the_config_of_every_http_component_is_frozen() -> None:
     configs: list[Any] = [
         CachedResponses().config,
         ConditionalRequests().config,
-        IdempotentRequests().config,
+        IdempotentRequests(fingerprint_body=False).config,
         AccessLog().config,
         RateLimitedRequests(
             _limiter(), trusted=TrustedProxies(["10.0.0.0/8"])
@@ -576,7 +581,7 @@ def test_from_config_is_the_one_declarative_door() -> None:
         ConditionalRequestsConfig(include=("/carts/*",))
     )
     idempotent = IdempotentRequests.from_config(
-        IdempotentRequestsConfig(methods=("PUT",))
+        IdempotentRequestsConfig(methods=("PUT",), fingerprint_body=False)
     )
     access = AccessLog.from_config(AccessLogConfig(exclude=("/livez",)))
     rate = RateLimitedRequests.from_config(
@@ -757,7 +762,9 @@ def test_a_head_route_is_not_a_row_of_its_own() -> None:
     "build",
     [
         pytest.param(
-            lambda: IdempotentRequests(methods=cast("Any", "POST")),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, methods=cast("Any", "POST")
+            ),
             id="idempotent-methods",
         ),
         pytest.param(
@@ -789,6 +796,7 @@ def test_a_bare_method_is_refused_in_its_own_words(
                 _nothing,
                 idempotency=Idempotency("test"),
                 methods=cast("Any", "POST"),
+                fingerprint_body=False,
             ),
             id="idempotency-middleware",
         ),
@@ -934,8 +942,8 @@ async def test_a_mounted_sequence_applies_beside_its_neighbours(
         pytest.param(
             ConditionalRequests, "require_precondition", id="precondition"
         ),
-        pytest.param(IdempotentRequests, "require_key", id="require-key"),
-        pytest.param(IdempotentRequests, "key_header", id="key-header"),
+        pytest.param(_idempotent_requests, "require_key", id="require-key"),
+        pytest.param(_idempotent_requests, "key_header", id="key-header"),
     ],
 )
 async def test_what_the_schema_states_is_not_live(
@@ -976,9 +984,9 @@ async def test_what_the_schema_states_is_not_live(
             ConditionalRequests, "exclude", '["/legacy"]', id="conditional"
         ),
         pytest.param(
-            IdempotentRequests, "exclude", '["/pay"]', id="idempotent"
+            _idempotent_requests, "exclude", '["/pay"]', id="idempotent"
         ),
-        pytest.param(IdempotentRequests, "methods", '["PUT"]', id="methods"),
+        pytest.param(_idempotent_requests, "methods", '["PUT"]', id="methods"),
     ],
 )
 async def test_what_protects_a_client_is_wired_in_code(
@@ -1257,7 +1265,7 @@ async def test_code_may_still_swap_a_configuration_a_file_may_not() -> None:
     from a file that is none of those.
     """
     # Arrange
-    component = IdempotentRequests()
+    component = IdempotentRequests(fingerprint_body=False)
     before = component._live.state
 
     # Act
@@ -1325,7 +1333,7 @@ def test_a_gated_read_under_a_marked_router_is_not_reported_as_cached() -> None:
 def test_a_duplicate_may_be_answered_without_waiting() -> None:
     """Zero is how "do not wait" is written, not a value to refuse."""
     # Act
-    component = IdempotentRequests(max_wait=0)
+    component = IdempotentRequests(fingerprint_body=False, max_wait=0)
 
     # Assert
     assert component.config.max_wait == 0.0
@@ -1344,6 +1352,7 @@ def test_a_hand_wired_middleware_refuses_without_echoing_the_value() -> None:
             _nothing,
             idempotency=Idempotency("test"),
             key_header=cast("Any", b"SECRET-VALUE"),
+            fingerprint_body=False,
         )
     assert "SECRET-VALUE" not in str(caught.value)
     assert "input_value" not in str(caught.value)
@@ -1584,7 +1593,9 @@ def test_a_rule_reaching_part_of_a_route_says_so() -> None:
             Cache(MemoryCacheAdapter()),
             ErrorResponses(),
             AccessLog(exclude=("/users/me",)),
-            IdempotentRequests(include=("/users/me/pay",)),
+            IdempotentRequests(
+                fingerprint_body=False, include=("/users/me/pay",)
+            ),
         ]
     )
 
@@ -1634,7 +1645,9 @@ async def test_a_steady_config_map_does_not_warn_every_poll(
     # Arrange
     # Its own name, so no other instance of the kind shares the prefix
     # and legitimately differs from what this file says.
-    component = IdempotentRequests(name="steady", exclude=("/livez",))
+    component = IdempotentRequests(
+        fingerprint_body=False, name="steady", exclude=("/livez",)
+    )
     path = tmp_path / "config.env"
     path.write_text('GREL_IDEMPOTENT_REQUESTS_STEADY_EXCLUDE=["/livez"]\n')
     logger = logging.getLogger("grelmicro")

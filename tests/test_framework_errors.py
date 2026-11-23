@@ -772,7 +772,12 @@ def test_idempotent_requests_registered_first_publishes_the_registered_format() 
         return {"ok": True}
 
     Grelmicro(
-        uses=[memory, Cache(memory), IdempotentRequests(), ErrorResponses.tmf()]
+        uses=[
+            memory,
+            Cache(memory),
+            IdempotentRequests(fingerprint_body=False),
+            ErrorResponses.tmf(),
+        ]
     ).install(app)
 
     # Act
@@ -1468,7 +1473,12 @@ def test_a_webhook_is_not_documented_as_idempotent() -> None:
         return {"ok": True}
 
     Grelmicro(
-        uses=[memory, Cache(memory), ErrorResponses(), IdempotentRequests()]
+        uses=[
+            memory,
+            Cache(memory),
+            ErrorResponses(),
+            IdempotentRequests(fingerprint_body=False),
+        ]
     ).install(app)
 
     # Act

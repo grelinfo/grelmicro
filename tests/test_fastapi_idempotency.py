@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import hashlib
 import json
 import logging
 from collections.abc import AsyncGenerator
@@ -24,6 +25,8 @@ from fastapi import (
 )
 from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.authentication import (
@@ -48,7 +51,6 @@ from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
     HTTP_409_CONFLICT,
-    HTTP_413_CONTENT_TOO_LARGE,
     HTTP_422_UNPROCESSABLE_CONTENT,
     HTTP_502_BAD_GATEWAY,
 )
@@ -65,7 +67,10 @@ from grelmicro.errors import (
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
 from grelmicro.http._idempotency import _default_storage_key
 from grelmicro.idempotency import Idempotency
-from grelmicro.idempotency.errors import IdempotencyKeyFunctionError
+from grelmicro.idempotency.errors import (
+    IdempotencyConflictError,
+    IdempotencyKeyFunctionError,
+)
 from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
@@ -225,6 +230,7 @@ def _register_storage_routes(app: FastAPI, calls: dict[str, int]) -> None:
 
 def _register_idempotency(app: Any, **options: Any) -> None:  # noqa: ANN401
     """Register `IdempotentRequests(**options)` on `app` through `micro.install(app)`."""
+    options.setdefault("fingerprint_body", False)
     Grelmicro(
         uses=[Cache(MemoryCacheAdapter()), IdempotentRequests(**options)]
     ).install(app)
@@ -239,6 +245,7 @@ def _registered_app() -> FastAPI:
 
 def build_app(**options: Any) -> FastAPI:  # noqa: ANN401
     """Build an app whose handlers exercise the middleware's storage rules."""
+    options.setdefault("fingerprint_body", False)
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     app = FastAPI()
     app.add_middleware(
@@ -375,7 +382,7 @@ def test_a_reconfigured_component_still_runs_behind_the_route_checks() -> None:
     """A live reload keeps the middleware at the route, after its dependencies."""
     # Arrange
     app = FastAPI()
-    component = IdempotentRequests()
+    component = IdempotentRequests(fingerprint_body=False)
     Grelmicro(uses=[Cache(MemoryCacheAdapter()), component]).install(app)
 
     async def authenticate(
@@ -518,6 +525,7 @@ def test_authenticated_asgi_scope_never_replays_across_callers(
                     backend=MemoryCacheAdapter(), serializer=JsonSerializer()
                 ),
             ),
+            fingerprint_body=False,
         )
 
     if placement == "behind authentication":
@@ -571,6 +579,7 @@ def test_a_loosely_marked_caller_never_replays_across_callers() -> None:
                 backend=MemoryCacheAdapter(), serializer=JsonSerializer()
             ),
         ),
+        fingerprint_body=False,
     )
 
     # Act
@@ -732,6 +741,7 @@ def test_get_authentication_does_not_disable_public_post_idempotency() -> None:
                 backend=MemoryCacheAdapter(), serializer=JsonSerializer()
             ),
         ),
+        fingerprint_body=False,
     )
 
     with TestClient(wrapped) as client:
@@ -846,6 +856,7 @@ def test_public_leaf_router_remains_replayable() -> None:
                 backend=MemoryCacheAdapter(), serializer=JsonSerializer()
             ),
         ),
+        fingerprint_body=False,
     )
 
     # Act
@@ -881,6 +892,7 @@ def test_self_mount_does_not_break_default_idempotency_discovery() -> None:
                 backend=MemoryCacheAdapter(), serializer=JsonSerializer()
             ),
         ),
+        fingerprint_body=False,
     )
 
     # Act
@@ -1071,6 +1083,7 @@ def test_parent_security_does_not_disable_public_mounted_idempotency() -> None:
                 backend=MemoryCacheAdapter(), serializer=JsonSerializer()
             ),
         ),
+        fingerprint_body=False,
     )
     sub = FastAPI()
     calls = 0
@@ -1250,7 +1263,9 @@ def test_default_storage_key_does_not_read_legacy_entries() -> None:
     """An upgraded process never replays an entry from the unsafe key format."""
     # Arrange
     middleware = IdempotencyMiddleware(
-        FastAPI(), idempotency=Idempotency("http", ttl=60)
+        FastAPI(),
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=False,
     )
     scope: Scope = {
         "type": "http",
@@ -1307,6 +1322,7 @@ def test_default_key_isolates_host_routed_tenants() -> None:
                 backend=MemoryCacheAdapter(), serializer=JsonSerializer()
             ),
         ),
+        fingerprint_body=False,
     )
 
     with TestClient(wrapped) as client:
@@ -1347,6 +1363,7 @@ def test_default_key_isolates_schemes_on_one_authority() -> None:
                 backend=MemoryCacheAdapter(), serializer=JsonSerializer()
             ),
         ),
+        fingerprint_body=False,
     )
 
     with TestClient(wrapped) as client:
@@ -1378,6 +1395,7 @@ def test_default_key_isolates_mount_root_paths() -> None:
                 backend=MemoryCacheAdapter(), serializer=JsonSerializer()
             ),
         ),
+        fingerprint_body=False,
     )
     root = Router(
         routes=[Mount("/one", app=mounted), Mount("/two", app=mounted)]
@@ -1544,6 +1562,7 @@ async def test_delimiter_injection_cannot_replay_another_request() -> None:
                 backend=MemoryCacheAdapter(), serializer=JsonSerializer()
             ),
         ),
+        fingerprint_body=False,
     )
 
     async def request(path: str, query: bytes) -> list[Message]:
@@ -1634,6 +1653,7 @@ def test_idempotency_middleware_key_function_output_is_stored_unchanged() -> (
         FastAPI(),
         idempotency=Idempotency("custom"),
         key=lambda _scope, _key: custom,
+        fingerprint_body=False,
     )
     scope: Scope = {
         "type": "http",
@@ -1927,7 +1947,7 @@ def test_middleware_reused_key_with_new_body_conflicts(
 def test_middleware_reused_key_with_same_body_replays(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:
-    """The buffered body reaches the handler and the same payload replays."""
+    """The hashed body reaches the handler and the same payload replays."""
     # Arrange
     client, calls = client_factory(fingerprint_body=True)
     # Act
@@ -1938,19 +1958,52 @@ def test_middleware_reused_key_with_same_body_replays(
     assert calls == {"count": 1}
 
 
-def test_middleware_oversized_body_rejected_when_fingerprinting(
+def test_middleware_empty_body_is_fingerprinted(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:
-    """A body too large to hash is a 413 rather than an unbounded buffer."""
+    """An empty body replays to an empty body and conflicts with any other."""
+    # Arrange
+    client, calls = client_factory(fingerprint_body=True)
+    # Act
+    first = client.post("/charge", headers=KEY, content=b"")
+    same = client.post("/charge", headers=KEY, content=b"")
+    changed = client.post("/charge", headers=KEY, content=b'{"a":1}')
+    # Assert
+    assert first.status_code == HTTP_200_OK
+    assert same.headers["idempotent-replayed"] == "true"
+    assert changed.status_code == HTTP_422_UNPROCESSABLE_CONTENT
+    assert calls == {"count": 1}
+
+
+def test_middleware_body_over_the_size_limit_is_fingerprinted(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+) -> None:
+    """A body over max_body_size runs, and a changed one is refused."""
     # Arrange
     client, calls = client_factory(fingerprint_body=True, max_body_size=16)
     # Act
-    response = client.post("/charge", headers=KEY, content=b"x" * 64)
+    first = client.post("/charge", headers=KEY, content=b"x" * 64)
+    changed = client.post("/charge", headers=KEY, content=b"y" * 64)
     # Assert
-    assert response.status_code == HTTP_413_CONTENT_TOO_LARGE
-    assert response.headers["content-type"] == "application/problem+json"
-    assert response.json()["type"].endswith("#request-body-too-large")
-    assert calls == {"count": 0}
+    assert first.status_code == HTTP_200_OK
+    assert changed.status_code == HTTP_422_UNPROCESSABLE_CONTENT
+    assert changed.json()["type"].endswith("#idempotency-key-reused")
+    assert calls == {"count": 1}
+
+
+def test_middleware_body_over_the_size_limit_replays(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+) -> None:
+    """The same body over max_body_size replays the stored response."""
+    # Arrange
+    client, calls = client_factory(fingerprint_body=True, max_body_size=16)
+    # Act
+    client.post("/charge", headers=KEY, content=b"x" * 64)
+    second = client.post("/charge", headers=KEY, content=b"x" * 64)
+    # Assert
+    assert second.headers["idempotent-replayed"] == "true"
+    assert second.json() == {"call": 1}
+    assert calls == {"count": 1}
 
 
 def test_middleware_body_at_the_size_limit_is_fingerprinted(
@@ -2017,7 +2070,9 @@ def test_middleware_added_after_install_still_resolves_the_cache() -> None:
     app = FastAPI()
     micro.install(app)
     app.add_middleware(
-        IdempotencyMiddleware, idempotency=Idempotency("http", ttl=60)
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=False,
     )
     calls = {"count": 0}
 
@@ -2045,7 +2100,9 @@ def test_middleware_resolves_the_cache_under_a_forking_middleware() -> None:
     app = FastAPI()
     micro.install(app)
     app.add_middleware(
-        IdempotencyMiddleware, idempotency=Idempotency("http", ttl=60)
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=False,
     )
     app.add_middleware(_Forking)
     calls = {"count": 0}
@@ -2076,6 +2133,7 @@ def _app_with_key_function(key_function: Any) -> FastAPI:  # noqa: ANN401
         IdempotencyMiddleware,
         idempotency=Idempotency("http", ttl=60),
         key=key_function,
+        fingerprint_body=False,
     )
 
     @app.post("/charge")
@@ -2165,7 +2223,9 @@ def test_middleware_without_grelmicro_scope_names_the_fix() -> None:
     # Arrange
     app = FastAPI()
     app.add_middleware(
-        IdempotencyMiddleware, idempotency=Idempotency("http", ttl=60)
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=False,
     )
 
     @app.post("/charge")
@@ -2234,7 +2294,7 @@ def _chunk(body: bytes, *, more_body: bool) -> Message:
 
 
 async def test_middleware_hashes_a_chunked_request_body() -> None:
-    """A multi-chunk body is buffered whole and replayed to the handler."""
+    """A multi-chunk body reaches the handler whole while it is hashed."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     seen: list[bytes] = []
@@ -2282,7 +2342,7 @@ async def test_middleware_hashes_a_chunked_request_body() -> None:
 
 
 async def test_middleware_disconnect_before_body_is_not_fingerprinted() -> None:
-    """A truncated body is never hashed as if it were whole."""
+    """A truncated body is never hashed as if it were whole, nor stored."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
 
@@ -2311,9 +2371,9 @@ async def test_middleware_disconnect_before_body_is_not_fingerprinted() -> None:
         retry = await _drive(middleware, [_chunk(b"{}", more_body=False)])
     # Assert
     assert sent[0]["status"] == HTTP_200_OK
-    # No fingerprint was stored, so a body on the retry is no payload change.
+    # Nothing was stored, so the retry runs the handler.
     assert retry[0]["status"] == HTTP_200_OK
-    assert (b"idempotent-replayed", b"true") in retry[0]["headers"]
+    assert b"idempotent-replayed" not in dict(retry[0]["headers"])
 
 
 async def test_middleware_request_message_without_a_body_is_fingerprinted() -> (
@@ -2336,10 +2396,10 @@ async def test_middleware_request_message_without_a_body_is_fingerprinted() -> (
     assert calls == [1]
 
 
-async def test_middleware_chunked_request_over_the_size_limit_is_refused() -> (
+async def test_middleware_chunked_request_over_the_size_limit_is_stored() -> (
     None
 ):
-    """The limit counts every chunk, not only the largest one."""
+    """The size limit caps the stored response, never the request body."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
@@ -2349,18 +2409,219 @@ async def test_middleware_chunked_request_over_the_size_limit_is_refused() -> (
         fingerprint_body=True,
         max_body_size=16,
     )
+    body = [
+        _chunk(b"x" * 10, more_body=True),
+        _chunk(b"x" * 10, more_body=False),
+    ]
     # Act
     async with micro:
-        sent = await _drive(
+        sent = await _drive(middleware, body)
+        retry = await _drive(middleware, body)
+    # Assert
+    assert sent[0]["status"] == HTTP_200_OK
+    assert (b"idempotent-replayed", b"true") in retry[0]["headers"]
+    assert calls == [1]
+
+
+async def test_middleware_unread_body_is_hashed_whole() -> None:
+    """A handler that never reads the body still has all of it fingerprinted."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
+    middleware = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=True,
+    )
+    # Act
+    async with micro:
+        await _drive(
             middleware,
-            [
-                _chunk(b"x" * 10, more_body=True),
-                _chunk(b"x" * 10, more_body=False),
-            ],
+            [_chunk(b"one ", more_body=True), _chunk(b"two", more_body=False)],
+        )
+        same = await _drive(middleware, [_chunk(b"one two", more_body=False)])
+        changed = await _drive(
+            middleware,
+            [_chunk(b"one ", more_body=True), _chunk(b"six", more_body=False)],
         )
     # Assert
-    assert sent[0]["status"] == HTTP_413_CONTENT_TOO_LARGE
+    assert (b"idempotent-replayed", b"true") in same[0]["headers"]
+    assert changed[0]["status"] == HTTP_422_UNPROCESSABLE_CONTENT
+    assert calls == [1]
+
+
+async def test_middleware_partly_read_body_is_hashed_whole() -> None:
+    """The chunks a handler leaves unread are hashed after the ones it read."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    calls: list[int] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG001
+        calls.append(1)
+        await receive()
+        await send(dict(_START))
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    middleware = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=True,
+    )
+    chunks = [b"one ", b"two ", b"three"]
+    # Act
+    async with micro:
+        await _drive(
+            middleware,
+            [_chunk(c, more_body=c != chunks[-1]) for c in chunks],
+        )
+        changed = await _drive(
+            middleware,
+            [_chunk(b"one two four", more_body=False)],
+        )
+        same = await _drive(
+            middleware, [_chunk(b"one two three", more_body=False)]
+        )
+    # Assert
+    assert changed[0]["status"] == HTTP_422_UNPROCESSABLE_CONTENT
+    assert (b"idempotent-replayed", b"true") in same[0]["headers"]
+    assert calls == [1]
+
+
+async def test_middleware_client_left_mid_unread_body_is_not_stored(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A body cut short is never stored, even when the handler never read it."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
+    middleware = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=True,
+    )
+    # Act
+    async with micro:
+        with caplog.at_level(logging.WARNING, logger="grelmicro.http"):
+            await _drive(
+                middleware,
+                [_chunk(b"one ", more_body=True), {"type": "http.disconnect"}],
+            )
+        retry = await _drive(middleware, [_chunk(b"one two", more_body=False)])
+    # Assert
+    assert retry[0]["status"] == HTTP_200_OK
+    assert b"idempotent-replayed" not in dict(retry[0]["headers"])
+    assert calls == [1, 1]
+    assert "client left" in caplog.text
+
+
+async def test_middleware_client_left_while_a_replay_reads_its_body() -> None:
+    """A duplicate whose body is cut short is sent nothing."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
+    middleware = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=True,
+    )
+    # Act
+    async with micro:
+        await _drive(middleware, [_chunk(b"one two", more_body=False)])
+        torn = await _drive(
+            middleware,
+            [_chunk(b"one ", more_body=True), {"type": "http.disconnect"}],
+        )
+    # Assert
+    assert torn == []
+    assert calls == [1]
+
+
+async def test_middleware_fingerprint_matches_a_whole_body_hash() -> None:
+    """A fingerprint stored as the SHA-256 of the whole body compares equal.
+
+    That is the digest every version stores, so a rolling deploy keeps
+    replaying what an older replica stored.
+    """
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    idempotency: Idempotency[Any] = Idempotency("http", ttl=60)
+    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
+    middleware = IdempotencyMiddleware(
+        app, idempotency=idempotency, fingerprint_body=True
+    )
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/charge",
+        "headers": [(b"idempotency-key", b"key-1")],
+    }
+    stored = {"status": 200, "headers": [], "body": "{}"}
+    # Act
+    async with micro:
+        await idempotency._persist(
+            _default_storage_key(scope, "key-1"),
+            stored,
+            hashlib.sha256(b"one two").hexdigest(),
+        )
+        same = await _drive(
+            middleware,
+            [_chunk(b"one ", more_body=True), _chunk(b"two", more_body=False)],
+        )
+    # Assert
+    assert (b"idempotent-replayed", b"true") in same[0]["headers"]
     assert calls == []
+
+
+async def _streamed_fingerprint(chunks: list[bytes], reads: int) -> None:
+    """Store a response for `chunks`, read `reads` at a time by the handler.
+
+    Raises:
+        IdempotencyConflictError: If the stored fingerprint is not the
+            SHA-256 of the whole body.
+    """
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    idempotency: Idempotency[Any] = Idempotency("http", ttl=60)
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG001
+        for _ in range(reads):
+            await receive()
+        await send(dict(_START))
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    middleware = IdempotencyMiddleware(
+        app, idempotency=idempotency, fingerprint_body=True
+    )
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/charge",
+        "headers": [(b"idempotency-key", b"key-1")],
+    }
+    body = b"".join(chunks)
+    last = len(chunks) - 1
+    async with micro:
+        await _drive(
+            middleware,
+            [_chunk(c, more_body=i < last) for i, c in enumerate(chunks)],
+        )
+        stored_key = _default_storage_key(scope, "key-1")
+        await idempotency._replay(stored_key, hashlib.sha256(body).hexdigest())
+        with pytest.raises(IdempotencyConflictError):
+            await idempotency._replay(
+                stored_key, hashlib.sha256(body + b"!").hexdigest()
+            )
+
+
+@given(
+    chunks=st.lists(st.binary(max_size=64), min_size=1, max_size=8),
+    reads=st.integers(min_value=0, max_value=8),
+)
+@settings(max_examples=200, deadline=None)
+def test_middleware_streamed_fingerprint_is_the_whole_body_hash(
+    chunks: list[bytes], reads: int
+) -> None:
+    """Any split of any body, read in part or not at all, hashes as the whole."""
+    asyncio.run(_streamed_fingerprint(chunks, reads))
 
 
 async def test_middleware_change_in_a_later_request_chunk_conflicts() -> None:
@@ -2398,7 +2659,7 @@ async def test_middleware_response_declaring_trailers_is_not_stored() -> None:
         {"type": "http.response.trailers", "headers": []},
     )
     middleware = IdempotencyMiddleware(
-        app, idempotency=Idempotency("http", ttl=60)
+        app, idempotency=Idempotency("http", ttl=60), fingerprint_body=False
     )
     # Act
     async with micro:
@@ -2414,7 +2675,7 @@ async def test_middleware_response_message_without_a_body_is_replayed() -> None:
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     app, calls = _sending(_START, {"type": "http.response.body"})
     middleware = IdempotencyMiddleware(
-        app, idempotency=Idempotency("http", ttl=60)
+        app, idempotency=Idempotency("http", ttl=60), fingerprint_body=False
     )
     # Act
     async with micro:
@@ -2434,7 +2695,7 @@ async def test_middleware_response_torn_off_midway_is_not_stored() -> None:
         _START, {"type": "http.response.body", "body": b"{", "more_body": True}
     )
     middleware = IdempotencyMiddleware(
-        app, idempotency=Idempotency("http", ttl=60)
+        app, idempotency=Idempotency("http", ttl=60), fingerprint_body=False
     )
     # Act
     async with micro:
@@ -2450,7 +2711,10 @@ async def test_middleware_head_replay_sends_no_body() -> None:
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
     middleware = IdempotencyMiddleware(
-        app, idempotency=Idempotency("http", ttl=60), methods=("HEAD",)
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        methods=("HEAD",),
+        fingerprint_body=False,
     )
     # Act
     async with micro:
@@ -2536,7 +2800,7 @@ async def test_middleware_disconnect_once_answered_is_stored() -> None:
             pass
 
     middleware = IdempotencyMiddleware(
-        app, idempotency=Idempotency("http", ttl=60)
+        app, idempotency=Idempotency("http", ttl=60), fingerprint_body=False
     )
     unread: list[Message] = [
         {"type": "http.request", "body": b"{", "more_body": True}
@@ -2604,7 +2868,7 @@ async def test_middleware_forwards_unknown_response_messages() -> None:
         )
 
     middleware = IdempotencyMiddleware(
-        app, idempotency=Idempotency("http", ttl=60)
+        app, idempotency=Idempotency("http", ttl=60), fingerprint_body=False
     )
     # Act
     async with micro:
@@ -2629,7 +2893,9 @@ async def test_middleware_duplicate_in_flight_waits_and_replays() -> None:
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     app = FastAPI()
     app.add_middleware(
-        IdempotencyMiddleware, idempotency=Idempotency("http", ttl=60)
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=False,
     )
     micro.install(app)
     started = asyncio.Event()
@@ -2668,6 +2934,72 @@ async def test_middleware_duplicate_in_flight_waits_and_replays() -> None:
     assert calls == 1
 
 
+@pytest.mark.parametrize(
+    ("duplicate_body", "status", "replayed"),
+    [
+        pytest.param(b'{"a":1}', HTTP_200_OK, True, id="same body"),
+        pytest.param(
+            b'{"a":2}', HTTP_422_UNPROCESSABLE_CONTENT, False, id="other body"
+        ),
+    ],
+)
+async def test_middleware_duplicate_in_flight_checks_its_body(
+    duplicate_body: bytes,
+    status: int,
+    replayed: bool,  # noqa: FBT001
+) -> None:
+    """A duplicate that waited replays only when its body matches the first."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=True,
+    )
+    micro.install(app)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    @app.post("/slow")
+    async def slow(request: Request) -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        await request.body()
+        started.set()
+        await release.wait()
+        return {"call": calls}
+
+    async with micro:
+        from httpx import ASGITransport, AsyncClient  # noqa: PLC0415
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            # Act
+            first = asyncio.create_task(
+                client.post("/slow", headers=KEY, content=b'{"a":1}')
+            )
+            await started.wait()
+            second = asyncio.create_task(
+                client.post("/slow", headers=KEY, content=duplicate_body)
+            )
+            # Long enough for the duplicate to queue behind the first.
+            await asyncio.sleep(0.05)
+            release.set()
+            first_response, second_response = await asyncio.gather(
+                first, second
+            )
+
+    # Assert
+    assert first_response.json() == {"call": 1}
+    assert second_response.status_code == status
+    assert ("idempotent-replayed" in second_response.headers) is replayed
+    assert calls == 1
+
+
 async def test_middleware_duplicate_in_flight_times_out_with_conflict() -> None:
     """A duplicate past `max_wait` gets 409 instead of holding the socket."""
     # Arrange
@@ -2677,6 +3009,7 @@ async def test_middleware_duplicate_in_flight_times_out_with_conflict() -> None:
         IdempotencyMiddleware,
         idempotency=Idempotency("http", ttl=60),
         max_wait=0.05,
+        fingerprint_body=False,
     )
     micro.install(app)
     started = asyncio.Event()
@@ -2711,6 +3044,7 @@ async def test_middleware_duplicate_in_flight_times_out_with_conflict() -> None:
 
 def _document(app: FastAPI, **options: Any) -> None:  # noqa: ANN401
     """Describe a middleware added by hand, through a component built alike."""
+    options.setdefault("fingerprint_body", False)
     idempotent = IdempotentRequests(**options)
     original = app.openapi
 
@@ -2744,7 +3078,8 @@ def test_idempotent_requests_openapi_adds_the_header_and_responses() -> None:
     assert ("Idempotency-Key", "header") in [
         (p["name"], p["in"]) for p in operation["parameters"]
     ]
-    assert {"400", "409", "413", "422"} <= set(operation["responses"])
+    assert {"400", "409", "422"} <= set(operation["responses"])
+    assert "413" not in operation["responses"]
 
 
 def test_idempotent_requests_openapi_keeps_a_declaration_of_its_own() -> None:
@@ -2779,7 +3114,7 @@ def test_idempotent_requests_openapi_keeps_a_declaration_of_its_own() -> None:
 def test_idempotent_requests_openapi_second_edit_changes_nothing() -> None:
     """A second edit over one schema must not read the first one's work."""
     # Arrange
-    idempotent = IdempotentRequests()
+    idempotent = IdempotentRequests(fingerprint_body=False)
     schema = build_app().openapi()
     idempotent._document_openapi(schema)
 
@@ -2801,8 +3136,9 @@ def test_idempotent_requests_openapi_describes_each_registered_component() -> (
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(include=("/a/*",)),
+            IdempotentRequests(fingerprint_body=False, include=("/a/*",)),
             IdempotentRequests(
+                fingerprint_body=False,
                 name="b",
                 include=("/b/*",),
                 key_header="X-Idempotency-Key",
@@ -2840,9 +3176,16 @@ def test_idempotent_requests_openapi_overlapping_rules_mark_once_each() -> None:
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(key_header="X-A-Key", replay_header="X-A"),
             IdempotentRequests(
-                name="b", key_header="X-B-Key", replay_header="X-B"
+                fingerprint_body=False,
+                key_header="X-A-Key",
+                replay_header="X-A",
+            ),
+            IdempotentRequests(
+                fingerprint_body=False,
+                name="b",
+                key_header="X-B-Key",
+                replay_header="X-B",
             ),
         ]
     )
@@ -2869,7 +3212,9 @@ def test_idempotent_requests_openapi_leaves_another_method_alone() -> None:
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(include=("/payments/*",)),
+            IdempotentRequests(
+                fingerprint_body=False, include=("/payments/*",)
+            ),
         ]
     )
     app = FastAPI()
@@ -2900,7 +3245,7 @@ def test_idempotent_requests_openapi_follows_an_exclude_that_empties_it() -> (
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(exclude=("/webhook",)),
+            IdempotentRequests(fingerprint_body=False, exclude=("/webhook",)),
         ]
     )
     app = FastAPI()
@@ -2929,7 +3274,12 @@ def test_idempotent_requests_openapi_ignores_a_subclass_holding_its_own_store() 
         def __init__(self, app: Any, **options: Any) -> None:  # noqa: ANN401
             super().__init__(app, idempotency=Idempotency("http"), **options)
 
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(fingerprint_body=False),
+        ]
+    )
     app = FastAPI()
     app.add_middleware(TenantIdempotencyMiddleware)
 
@@ -2955,6 +3305,7 @@ def test_a_root_path_shortens_only_a_whole_segment() -> None:
         IdempotencyMiddleware,
         idempotency=Idempotency("http"),
         include=("/charge",),
+        fingerprint_body=False,
     )
 
     @app.post("/charge")
@@ -2977,12 +3328,17 @@ def test_a_replay_from_a_nested_middleware_reaches_the_client() -> None:
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     app = FastAPI()
-    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("inner"))
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("inner"),
+        fingerprint_body=False,
+    )
     app.add_middleware(
         IdempotencyMiddleware,
         idempotency=Idempotency("outer"),
         # The one above stores nothing, so only the one below replays.
         skip=lambda response: True,  # noqa: ARG005
+        fingerprint_body=False,
     )
 
     @app.post("/charge")
@@ -3010,6 +3366,7 @@ def test_a_mounted_app_selects_paths_by_its_own_routes() -> None:
         IdempotencyMiddleware,
         idempotency=Idempotency("http"),
         include=("/charge",),
+        fingerprint_body=False,
     )
 
     @sub.post("/charge")
@@ -3038,10 +3395,17 @@ def test_idempotent_requests_openapi_describes_a_middleware_added_by_hand() -> (
 ):
     """A hand-added middleware serves the component, so it is described."""
     # Arrange
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(fingerprint_body=False),
+        ]
+    )
     app = FastAPI()
     app.add_middleware(
-        IdempotencyMiddleware, idempotency=Idempotency("by-hand")
+        IdempotencyMiddleware,
+        idempotency=Idempotency("by-hand"),
+        fingerprint_body=False,
     )
 
     @app.post("/charge")
@@ -3344,7 +3708,7 @@ async def test_middleware_in_an_app_without_a_cache_names_registering_it() -> (
     """An open app with no Cache is told to register one, not to open it."""
     # Arrange
     middleware = IdempotencyMiddleware(
-        _ok_app, idempotency=Idempotency("http", ttl=60)
+        _ok_app, idempotency=Idempotency("http", ttl=60), fingerprint_body=False
     )
 
     # Act
@@ -3364,7 +3728,9 @@ async def test_middleware_on_a_closed_cache_backend_keeps_its_error() -> None:
     provider = SQLiteProvider(":memory:")
     cache = TTLCache(backend=SQLiteCacheAdapter(provider=provider))
     middleware = IdempotencyMiddleware(
-        _ok_app, idempotency=Idempotency("http", ttl=60, cache=cache)
+        _ok_app,
+        idempotency=Idempotency("http", ttl=60, cache=cache),
+        fingerprint_body=False,
     )
 
     # Act
@@ -3385,7 +3751,9 @@ async def test_middleware_passes_through_a_miss_on_another_component() -> None:
         bound=True,
     )
     idempotency = Idempotency("http", ttl=60)
-    middleware = IdempotencyMiddleware(_ok_app, idempotency=idempotency)
+    middleware = IdempotencyMiddleware(
+        _ok_app, idempotency=idempotency, fingerprint_body=False
+    )
 
     # Act
     with (

@@ -1482,9 +1482,9 @@ class TestNoRoute:
         """The key is never claimed, so the caller's retry with a token runs."""
         backend = CountingCache()
         idempotent = (
-            IdempotentRequests(key=tenant_key)
+            IdempotentRequests(fingerprint_body=False, key=tenant_key)
             if key_function
-            else IdempotentRequests()
+            else IdempotentRequests(fingerprint_body=False)
         )
         app = installed(
             Starlette(routes=[Route("/orders", created, methods=["POST"])]),
@@ -1713,7 +1713,7 @@ class TestAnsweringMiddleware:
         app = installed(
             Starlette(routes=[Route("/orders", crash, methods=["POST"])]),
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(),
+            IdempotentRequests(fingerprint_body=False),
         )
         headers = {"Idempotency-Key": "k-1", **bearer(token())}
 
@@ -1785,7 +1785,7 @@ class TestAnsweringMiddleware:
                 exception_handlers={TenantUnknownError: teapot},
             ),
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(key=unknown_tenant),
+            IdempotentRequests(fingerprint_body=False, key=unknown_tenant),
         )
 
         with TestClient(app, raise_server_exceptions=False) as client:
@@ -1855,7 +1855,7 @@ class TestAnsweringMiddleware:
                 exception_handlers={TenantUnknownError: teapot},
             ),
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(key=unknown_tenant),
+            IdempotentRequests(fingerprint_body=False, key=unknown_tenant),
         )
 
         with TestClient(outer, raise_server_exceptions=False) as client:
@@ -2311,7 +2311,7 @@ class TestAnExcludedPath:
                 routes=[Route("/orders", probe.endpoint, methods=["POST"])]
             ),
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(),
+            IdempotentRequests(fingerprint_body=False),
             exclude=("/orders",),
         )
 

@@ -136,7 +136,7 @@ def test_idempotent_requests_float_ttl_refused(value: float) -> None:
         SettingsValidationError,
         match="ttl must be whole seconds or a timedelta",
     ):
-        IdempotentRequests(ttl=value, env_load=False)  # ty: ignore[invalid-argument-type]
+        IdempotentRequests(fingerprint_body=False, ttl=value, env_load=False)  # ty: ignore[invalid-argument-type]
 
 
 def test_idempotent_requests_env_load_reads_the_ttl_from_environment(
@@ -148,7 +148,7 @@ def test_idempotent_requests_env_load_reads_the_ttl_from_environment(
     monkeypatch.setenv("GREL_IDEMPOTENCY_HTTP_TTL", "PT0.5S")
 
     # Act
-    component = IdempotentRequests(env_load=True)
+    component = IdempotentRequests(fingerprint_body=False, env_load=True)
 
     # Assert
     assert component.idempotency.config.ttl == timedelta(milliseconds=500)
@@ -163,7 +163,7 @@ def test_idempotent_requests_env_load_false_ignores_the_ttl_in_environment(
     monkeypatch.setenv("GREL_IDEMPOTENCY_HTTP_TTL", "PT0.5S")
 
     # Act
-    component = IdempotentRequests(env_load=False)
+    component = IdempotentRequests(fingerprint_body=False, env_load=False)
 
     # Assert
     assert component.idempotency.config.ttl == timedelta(days=1)
@@ -178,7 +178,9 @@ def test_idempotent_requests_from_config_ignores_the_ttl_in_environment(
     monkeypatch.setenv("GREL_IDEMPOTENCY_HTTP_TTL", "PT0.5S")
 
     # Act
-    component = IdempotentRequests.from_config(IdempotentRequestsConfig())
+    component = IdempotentRequests.from_config(
+        IdempotentRequestsConfig(fingerprint_body=False)
+    )
 
     # Assert
     assert component.idempotency.config.ttl == timedelta(days=1)

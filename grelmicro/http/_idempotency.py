@@ -34,6 +34,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._deprecation import default_fingerprint_body
 from grelmicro._environment import Binding, label, unrecorded
 from grelmicro._guards import is_instance, type_name
 from grelmicro._key_checks import check_key_function
@@ -69,7 +70,6 @@ from grelmicro.http._kinds import (
     IDEMPOTENCY_IN_FLIGHT,
     IDEMPOTENCY_KEY_INVALID,
     IDEMPOTENCY_KEY_REUSED,
-    REQUEST_BODY_TOO_LARGE,
     Kind,
     Occurrence,
 )
@@ -103,6 +103,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache import TTLCache
+    from grelmicro.idempotency._idempotency import _Block
     from grelmicro.types import BackendScope
 
     Message = MutableMapping[str, Any]
@@ -449,12 +450,17 @@ class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
         bool,
         Doc(
             "Hash the request body and store the hash with the response, "
-            "so a key reused with a different body is refused."
+            "so a key reused with a different body is refused. Defaults to "
+            "`False`, and to `True` from 0.46.0. Left out, the component "
+            "warns with `Grelmicro046Warning`."
         ),
     ] = False
     max_body_size: Annotated[
         PositiveInt,
-        Doc("Largest body held in memory, in bytes."),
+        Doc(
+            "Largest response body stored, in bytes. A larger response is "
+            "sent to the client and not stored."
+        ),
     ] = 1024 * 1024
     max_wait: Annotated[
         NonNegativeFloat,
@@ -475,6 +481,19 @@ class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
         int,
         Doc("Status answering a key reused with a different payload."),
     ] = IDEMPOTENCY_KEY_REUSED.status
+
+
+def warn_default_fingerprint_body(
+    config: IdempotentRequestsConfig, *, owner: str
+) -> None:
+    """Warn while `config` leaves `fingerprint_body` at its default.
+
+    `owner` is the class that took the config. A value passed in, read from
+    the environment or validated from a file is set on `config`, and warns
+    nothing. The warning reports the first line outside grelmicro.
+    """
+    if "fingerprint_body" not in config.model_fields_set:
+        default_fingerprint_body(owner).warn(outside=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -660,25 +679,27 @@ class IdempotencyMiddleware:
             ),
         ] = False,
         fingerprint_body: Annotated[
-            bool,
+            bool | None,
             Doc(
                 """
                 Hash the request body and store the hash with the response.
 
                 A key reused with a different body then gets `422` instead
-                of a wrong replay. Buffers the request body before the
-                handler runs, and answers `413` when it is over
-                `max_body_size`.
+                of a wrong replay. The body is hashed as it streams, and the
+                part the handler leaves unread is read before the response
+                ends. A request whose client leaves before its body ends is
+                not stored.
+
+                Left out, it is `False` and warns with
+                `Grelmicro046Warning`. It defaults to `True` from 0.46.0.
                 """
             ),
-        ] = False,
+        ] = None,
         max_body_size: Annotated[
             int,
             Doc(
-                "Largest body held in memory, in bytes. A larger response "
-                "is sent to the client and not stored. With "
-                "`fingerprint_body`, a larger request body is answered "
-                "with `413`."
+                "Largest response body stored, in bytes. A larger response "
+                "is sent to the client and not stored."
             ),
         ] = 1024 * 1024,
         max_wait: Annotated[
@@ -745,29 +766,31 @@ class IdempotencyMiddleware:
         self._skip = skip
         self._replay_collision_logged = False
         self._caller_behind_logged = False
+        if live is not None:
+            self._live = live
+            return
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
-        self._live = (
-            live
-            if live is not None
-            else Live(
-                _state_of(
-                    build_config(
-                        IdempotentRequestsConfig,
-                        key_header=key_header,
-                        replay_header=replay_header,
-                        methods=tuple(methods),
-                        require_key=require_key,
-                        fingerprint_body=fingerprint_body,
-                        max_body_size=max_body_size,
-                        max_wait=max_wait,
-                        include=as_patterns(include, name="include"),
-                        exclude=as_patterns(exclude, name="exclude"),
-                        reused_status=reused_status,
-                    )
-                )
-            )
+        fingerprint = (
+            {}
+            if fingerprint_body is None
+            else {"fingerprint_body": fingerprint_body}
         )
+        config = build_config(
+            IdempotentRequestsConfig,
+            key_header=key_header,
+            replay_header=replay_header,
+            methods=tuple(methods),
+            require_key=require_key,
+            max_body_size=max_body_size,
+            max_wait=max_wait,
+            include=as_patterns(include, name="include"),
+            exclude=as_patterns(exclude, name="exclude"),
+            reused_status=reused_status,
+            **fingerprint,
+        )
+        warn_default_fingerprint_body(config, owner="IdempotencyMiddleware")
+        self._live = Live(_state_of(config))
 
     async def __call__(  # noqa: PLR0911
         self, scope: Scope, receive: Receive, send: Send
@@ -857,27 +880,13 @@ class IdempotencyMiddleware:
         key: str,
     ) -> None:
         """Fingerprint the request when configured, then execute its key."""
-        fingerprint = None
-        whole = False
-        if state.config.fingerprint_body:
-            body, too_large, receive = await _buffer_request(
-                receive, state.config.max_body_size
-            )
-            if too_large:
-                await _refuse(send, scope, REQUEST_BODY_TOO_LARGE)
-                return
-            if body is not None:
-                fingerprint = hashlib.sha256(body).hexdigest()
-                whole = True
-
         await self._execute(
             scope,
             receive,
             send,
             state,
             self._storage_key(scope, key),
-            fingerprint,
-            whole=whole,
+            _HashedRequest(receive) if state.config.fingerprint_body else None,
         )
 
     async def _execute(
@@ -887,55 +896,22 @@ class IdempotencyMiddleware:
         send: Send,
         state: _State,
         storage_key: str,
-        fingerprint: str | None,
-        *,
-        whole: bool = False,
+        hashed: _HashedRequest | None,
     ) -> None:
         """Run the request under the idempotency block, or replay it.
 
-        `whole` says the request body was read whole already, so there is
-        no need to watch for the client leaving before it ends.
+        `hashed` is the receive that fingerprints the request body, or
+        None when the body is not fingerprinted. A replay reads the body
+        through it only when the stored response carries a fingerprint.
 
         Takes the snapshot `__call__` read rather than reading its own, so
         one request answers from one configuration throughout.
         """
         config = state.config
-        header_name = config.key_header
-        block = self._idempotency(
-            storage_key,
-            fingerprint=fingerprint,
-            max_wait=config.max_wait,
-        )
-        try:
-            operation = await block.__aenter__()
-        except IdempotencyConflictError:
-            await _refuse(
-                send,
-                scope,
-                state.reused,
-                f"The {header_name} header was already used with a "
-                f"different request payload. Use a fresh key, or resend the "
-                f"original payload.",
-            )
+        block = self._block(storage_key, config.max_wait, hashed)
+        operation = await _enter(block, send, scope, state)
+        if operation is None:
             return
-        except IdempotencyWaitTimeoutError:
-            await _refuse(
-                send,
-                scope,
-                IDEMPOTENCY_IN_FLIGHT,
-                f"A request with this {header_name} is still running. "
-                f"Retry after the delay in the Retry-After header to read "
-                f"its response.",
-                retry_after=_IN_FLIGHT_RETRY_AFTER,
-            )
-            return
-        # Only a miss resolving the cache is reworded. A backend that is not
-        # open raises its own error, which names its own fix.
-        except _AmbientMissError as exc:
-            if exc.key != _CACHE_KEY:
-                raise
-            hint = _NOT_REGISTERED_HINT if exc.bound else _OUT_OF_CONTEXT_HINT
-            raise OutOfContextError(hint) from exc
 
         try:
             if operation.replayed:
@@ -949,19 +925,14 @@ class IdempotencyMiddleware:
                     replay_header=state.replay_header,
                 )
             else:
-                capture = _ResponseCapture(
-                    send,
-                    config.max_body_size,
-                    self._skip,
-                    state.replay_header,
-                    scope,
+                capture, request = self._exchange(
+                    receive, send, state, scope, hashed
                 )
                 unhandled: Unhandled | None = scope.get(UNHANDLED_KEY)
                 if unhandled is None:
                     unhandled = scope[UNHANDLED_KEY] = Unhandled()
                 authentication = _authentication_snapshot(scope)
-                request = None if whole else _WatchedRequest(receive, capture)
-                await self.app(scope, request or receive, capture)
+                await self.app(scope, request, capture)
                 self._report_collision(
                     config.replay_header, replaced=capture.replaced
                 )
@@ -976,6 +947,47 @@ class IdempotencyMiddleware:
             raise
         else:
             await block.__aexit__(None, None, None)
+
+    def _block(
+        self, storage_key: str, max_wait: float, hashed: _HashedRequest | None
+    ) -> _Block[Any]:
+        """Open the idempotency block, fingerprinted by `hashed` when given."""
+        if hashed is None:
+            return self._idempotency(storage_key, max_wait=max_wait)
+        return self._idempotency._streamed(  # noqa: SLF001
+            storage_key, hashed.fingerprint, max_wait
+        )
+
+    def _exchange(
+        self,
+        receive: Receive,
+        send: Send,
+        state: _State,
+        scope: Scope,
+        hashed: _HashedRequest | None,
+    ) -> tuple[_ResponseCapture, _WatchedRequest | _HashedRequest]:
+        """Return the send copying the response and the receive the app reads.
+
+        With `hashed`, the request body is read whole before the response
+        ends.
+        """
+        if hashed is None:
+            capture = _ResponseCapture(
+                send,
+                state.config.max_body_size,
+                self._skip,
+                state.replay_header,
+                scope,
+            )
+            return capture, _WatchedRequest(receive, capture)
+        return _HashingCapture(
+            send,
+            state.config.max_body_size,
+            self._skip,
+            state.replay_header,
+            scope,
+            hashed,
+        ), hashed
 
     def _caller_set_behind(
         self, before: _AuthenticationSnapshot, scope: Scope
@@ -1024,6 +1036,48 @@ class IdempotencyMiddleware:
         if self._key_function is not None:
             return _checked_key(self._key_function(scope, key), key)
         return _default_storage_key(scope, key)
+
+
+async def _enter(
+    block: _Block[Any], send: Send, scope: Scope, state: _State
+) -> Operation[_Entry] | None:
+    """Enter the idempotency block, or answer the refusal it raises.
+
+    Returns None when the request was answered or the client left.
+    """
+    header_name = state.config.key_header
+    try:
+        return await block.__aenter__()
+    except _ClientLeftError:
+        return None
+    except IdempotencyConflictError:
+        await _refuse(
+            send,
+            scope,
+            state.reused,
+            f"The {header_name} header was already used with a "
+            f"different request payload. Use a fresh key, or resend the "
+            f"original payload.",
+        )
+        return None
+    except IdempotencyWaitTimeoutError:
+        await _refuse(
+            send,
+            scope,
+            IDEMPOTENCY_IN_FLIGHT,
+            f"A request with this {header_name} is still running. "
+            f"Retry after the delay in the Retry-After header to read "
+            f"its response.",
+            retry_after=_IN_FLIGHT_RETRY_AFTER,
+        )
+        return None
+    # Only a miss resolving the cache is reworded. A backend that is not
+    # open raises its own error, which names its own fix.
+    except _AmbientMissError as exc:
+        if exc.key != _CACHE_KEY:
+            raise
+        hint = _NOT_REGISTERED_HINT if exc.bound else _OUT_OF_CONTEXT_HINT
+        raise OutOfContextError(hint) from exc
 
 
 def _encoded_key_field(name: str, value: str | bytes | None) -> str:
@@ -1271,56 +1325,13 @@ def _has_private_request_header(
     )
 
 
-async def _buffer_request(
-    receive: Receive, max_body_size: int
-) -> tuple[bytes | None, bool, Receive]:
-    """Read the request body, and return it with a receive that replays it.
-
-    Returns `(body, too_large, receive)`. `body` is None when the client
-    disconnected before the last chunk, so the caller fingerprints
-    nothing rather than hashing a truncated payload as if it were whole.
-    `too_large` reports a body over `max_body_size`, which the caller
-    answers with `413` instead of buffering without bound.
-
-    The returned receive replays the consumed messages one for one,
-    trailing disconnect included, so the app downstream reads exactly
-    what the client sent.
-    """
-    consumed: list[Message] = []
-    chunks: list[bytes] = []
-    size = 0
-    complete = False
-    while True:
-        message = await receive()
-        consumed.append(message)
-        if message["type"] != "http.request":
-            break
-        chunk = message.get("body", b"")
-        size += len(chunk)
-        if size > max_body_size:
-            return None, True, receive
-        chunks.append(chunk)
-        if not message.get("more_body", False):
-            complete = True
-            break
-    pending = iter(consumed)
-
-    async def replay_receive() -> Message:
-        message = next(pending, None)
-        if message is None:
-            return await receive()
-        return message
-
-    return (b"".join(chunks) if complete else None), False, replay_receive
-
-
 def _store(
     operation: Operation[_Entry],
     stored: _Entry,
-    request: _WatchedRequest | None,
+    request: _WatchedRequest | _HashedRequest,
 ) -> None:
     """Store the captured response, unless the client left before its body ended."""
-    if request is not None and request.torn:
+    if request.torn:
         _logger.warning(
             "Idempotent response not stored: the client left before its "
             "request body arrived. A retry with the same key will run the "
@@ -1361,6 +1372,88 @@ class _WatchedRequest:
             ):
                 self.torn = True
         return message
+
+
+class _ClientLeftError(Exception):
+    """The client left before the request body it is fingerprinted by ended."""
+
+
+class _HashedRequest:
+    """The receive the app reads, hashing the request body as it passes.
+
+    Each body chunk feeds one SHA-256, so the fingerprint is the hash of
+    the whole body without holding it. A disconnect read before the last
+    chunk marks the request torn, and it then has no fingerprint.
+    """
+
+    __slots__ = ("_hash", "_receive", "_whole", "torn")
+
+    def __init__(self, receive: Receive) -> None:
+        """Hash what `receive` returns."""
+        self._receive = receive
+        self._hash = hashlib.sha256()
+        self._whole = False
+        self.torn = False
+
+    async def __call__(self) -> Message:
+        """Return the next message, hashing the body chunk it carries."""
+        message = await self._receive()
+        if not self._whole and not self.torn:
+            if message["type"] == "http.request":
+                self._hash.update(message.get("body", b""))
+                self._whole = not message.get("more_body", False)
+            elif message["type"] == "http.disconnect":
+                self.torn = True
+        return message
+
+    async def drain(self) -> None:
+        """Read and hash what is left of the body, until it ends or the client leaves."""
+        while not self._whole and not self.torn:
+            await self()
+
+    async def fingerprint(self) -> str:
+        """Return the SHA-256 of the whole body, reading what is left of it.
+
+        Raises:
+            _ClientLeftError: If the client left before the body ended.
+        """
+        await self.drain()
+        if self.torn:
+            raise _ClientLeftError
+        return self._hash.hexdigest()
+
+
+class _HashingCapture(_ResponseCapture):
+    """A response capture that reads the rest of the request body first.
+
+    The last body message of a storable response waits until the request
+    body is read whole, so its fingerprint is complete before the server
+    takes the exchange as over.
+    """
+
+    def __init__(
+        self,
+        send: Send,
+        max_body_size: int,
+        skip: Callable[[StoredResponse], bool] | None,
+        replay_header: bytes,
+        scope: Scope,
+        request: _HashedRequest,
+    ) -> None:
+        """Initialize the capture, reading `request` before the response ends."""
+        super().__init__(send, max_body_size, skip, replay_header, scope)
+        self._request = request
+
+    async def __call__(self, message: Message) -> None:
+        """Capture the message, read the rest of the body, then forward it."""
+        if message["type"] != "http.response.body":
+            await super().__call__(message)
+            return
+        self._body(message)
+        self.answered = not message.get("more_body", False)
+        if self.answered and self.stored is not None:
+            await self._request.drain()
+        await self._send(message)
 
 
 async def _send_stored(
@@ -1577,12 +1670,17 @@ class IdempotentRequests(
             Doc(
                 "Hash the request body and store the hash with the "
                 "response, so a key reused with a different body gets "
-                "`422` instead of a wrong replay."
+                "`422` instead of a wrong replay. Defaults to `False`, and "
+                "to `True` from 0.46.0. Left out and unset in the "
+                "environment, it warns with `Grelmicro046Warning`."
             ),
         ] = None,
         max_body_size: Annotated[
             int | None,
-            Doc("Largest body held in memory, in bytes."),
+            Doc(
+                "Largest response body stored, in bytes. A larger response "
+                "is sent to the client and not stored."
+            ),
         ] = None,
         max_wait: Annotated[
             float | None,
@@ -1765,6 +1863,7 @@ class IdempotentRequests(
         skip: Callable[[StoredResponse], bool] | None,
     ) -> None:
         """Hold the configuration and the cell the middleware reads."""
+        warn_default_fingerprint_body(config, owner="IdempotentRequests")
         self._name = name
         self._openapi = openapi
         self._idempotency = idempotency
@@ -1929,7 +2028,6 @@ def describe_idempotency(
         ),
     }
     if config.fingerprint_body:
-        responses["413"] = "Request body too large to fingerprint."
         reused = str(config.reused_status)
         description = (
             f"This `{header}` was already used with a different request "

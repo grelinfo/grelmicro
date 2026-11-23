@@ -65,14 +65,14 @@ RETIRED = [
     pytest.param(
         "GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT",
         "5",
-        IdempotentRequests,
+        lambda: IdempotentRequests(fingerprint_body=False),
         "GREL_IDEMPOTENT_REQUESTS_MAX_WAIT",
         id="idempotent-requests",
     ),
     pytest.param(
         "GREL_IDEMPOTENT_REQUESTS_CHECKOUT_WAIT_TIMEOUT",
         "5",
-        lambda: IdempotentRequests(name="checkout"),
+        lambda: IdempotentRequests(fingerprint_body=False, name="checkout"),
         "GREL_IDEMPOTENT_REQUESTS_CHECKOUT_MAX_WAIT",
         id="idempotent-requests-named",
     ),
@@ -144,7 +144,9 @@ RELOADED = [
         id="shield",
     ),
     pytest.param(
-        lambda: IdempotentRequests(name="reload", max_wait=3),
+        lambda: IdempotentRequests(
+            fingerprint_body=False, name="reload", max_wait=3
+        ),
         "GREL_IDEMPOTENT_REQUESTS_RELOAD_",
         "WAIT_TIMEOUT",
         ("MAX_WAIT", "9"),
