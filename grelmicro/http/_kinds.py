@@ -268,6 +268,13 @@ PRECONDITION_REQUIRED = Kind(
     ),
 )
 
+REQUEST_BODY_TOO_LARGE = Kind(
+    slug="request-body-too-large",
+    status=413,
+    title="Request body too large",
+    detail="The request body is larger than the service reads.",
+)
+
 
 def _wait(seconds: float) -> dict[str, float]:
     """Return the `retry_after` member, or nothing when the wait is unknown.

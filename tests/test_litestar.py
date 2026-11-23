@@ -494,10 +494,8 @@ async def _concurrent_client(app: Litestar) -> AsyncGenerator[AsyncClient]:
         yield client
 
 
-async def test_a_background_task_that_raises_keeps_the_stored_response() -> (
-    None
-):
-    """The client saw the response, so its retry replays it."""
+async def test_a_background_task_that_raises_stores_nothing() -> None:
+    """The response is stored once the task ends, so the retry runs again."""
     # Arrange
     calls: list[int] = []
 
@@ -515,13 +513,13 @@ async def test_a_background_task_that_raises_keeps_the_stored_response() -> (
 
     # Assert
     assert first.status_code == HTTP_200_OK
-    assert second.json() == {"charged": 1}
-    assert second.headers["idempotent-replayed"] == "true"
-    assert calls == [1]
+    assert second.json() == {"charged": 2}
+    assert "idempotent-replayed" not in second.headers
+    assert calls == [1, 1]
 
 
-async def test_a_duplicate_is_replayed_while_a_background_task_runs() -> None:
-    """A duplicate never waits for the background task of the first request."""
+async def test_a_duplicate_waits_for_a_background_task_until_max_wait() -> None:
+    """A duplicate sent while the task runs gets `409` past `max_wait`."""
     # Arrange
     calls: list[int] = []
     started = asyncio.Event()
@@ -531,8 +529,7 @@ async def test_a_duplicate_is_replayed_while_a_background_task_runs() -> None:
         started.set()
         await release.wait()
 
-    # Past `max_wait`, a duplicate still waiting would get `409`.
-    app = _background_app(slow, calls, max_wait=1)
+    app = _background_app(slow, calls, max_wait=0.05)
     key = {"Idempotency-Key": "charge-1"}
 
     async with _concurrent_client(app) as client:
@@ -541,13 +538,12 @@ async def test_a_duplicate_is_replayed_while_a_background_task_runs() -> None:
 
         # Act
         second = await client.post("/charge", headers=key)
-        still_running = not release.is_set()
         release.set()
         await first
+        third = await client.post("/charge", headers=key)
 
     # Assert
-    assert still_running
-    assert second.status_code == HTTP_200_OK
-    assert second.json() == {"charged": 1}
-    assert second.headers["idempotent-replayed"] == "true"
+    assert second.status_code == HTTP_409_CONFLICT
+    assert third.json() == {"charged": 1}
+    assert third.headers["idempotent-replayed"] == "true"
     assert calls == [1]
