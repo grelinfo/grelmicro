@@ -180,7 +180,17 @@ Guaranteed:
 Not guaranteed:
 
 - A key replays only within `ttl`. After it elapses, the same key executes fresh.
-- The work itself is not made atomic. Idempotency replays the response. Pair it with a transaction when the side effect must also be once-only.
+- The work itself is not made atomic. Idempotency replays the response. Commit the transaction inside the block, before it ends. A commit that runs after the block, such as one in a FastAPI dependency, can fail after the response was stored, and every retry would replay a success for a write that never landed.
+
+```python title="fragment"
+async with idem(key) as op:
+    if op.replayed:
+        return op.result()
+    async with session.begin():
+        response = await do_charge(session, amount)
+    op.store(response)
+    return response
+```
 
 ## Configuration
 

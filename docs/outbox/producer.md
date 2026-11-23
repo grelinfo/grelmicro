@@ -118,7 +118,10 @@ from grelmicro.outbox import Outbox
 
 
 @app.post("/signup")
-async def signup(body: SignUp, session: AsyncSession = Depends(get_session)) -> None:
+async def signup(
+    body: SignUp,
+    session: AsyncSession = Depends(get_session, scope="function"),
+) -> None:
     session.add(User(email=body.email))
     await Outbox.current().publish(session, WelcomeEmail(to=body.email))
 ```
