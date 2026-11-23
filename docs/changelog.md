@@ -34,6 +34,7 @@
 * 🐛 A git install, such as `uv add "grelmicro @ git+https://github.com/grelinfo/grelmicro@main"`, reports its version, such as `0.44.3.dev58+g238f669e`, instead of `0.0.0.dev0`. ([#1348](https://github.com/grelinfo/grelmicro/pull/1348))
 
 ### Docs
+* 📝 The [outbox FastAPI examples](outbox/producer.md#fastapi) declare their transaction dependency with `scope="function"`, so the write and the message commit before the response is sent. [Idempotency](idempotency/index.md#what-is-and-is-not-guaranteed) says to commit inside the block, since a commit after it can fail once the success is stored. ([#1353](https://github.com/grelinfo/grelmicro/pull/1353))
 * 📝 [Versions and upgrades](versioning.md) says that tests passing with a release's warning filter mean none of your code is affected, and that a misspelled class name stops pytest. ([#1327](https://github.com/grelinfo/grelmicro/issues/1327))
 * 📝 From `1.0`, an Experimental feature is the one exception to "nothing breaks before `2.0`". It can break in a minor, and it always warns first. ([#1254](https://github.com/grelinfo/grelmicro/pull/1254))
 * 📝 The capability matrix gives each feature a maturity level: Experimental, Preview or Stable, with the last break and serious bug fix behind it. ([#1252](https://github.com/grelinfo/grelmicro/pull/1252))

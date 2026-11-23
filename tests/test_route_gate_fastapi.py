@@ -1015,7 +1015,11 @@ class TestAnAnonymousRoute:
             calls.served.append("signup")
             return {"signed": True}
 
-        installed(app, Cache(MemoryCacheAdapter()), IdempotentRequests())
+        installed(
+            app,
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(fingerprint_body=False),
+        )
         with TestClient(app) as client:
             first, retried = (
                 client.post("/signups", headers={"Idempotency-Key": "k-1"})
