@@ -11,7 +11,7 @@ from bisect import bisect_left
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from heapq import heappop, heappush
+from heapq import heapify, heappop, heappush
 from typing import TYPE_CHECKING, ClassVar, Self
 
 from grelmicro.clock._seam import monotonic
@@ -159,7 +159,11 @@ class MemoryJobAdapter(JobBackend):
         self._kept_ends: defaultdict[
             tuple[str, bool], builtins.list[tuple[float, int, _Row]]
         ] = defaultdict(list)
-        """When each kept job of `_kept` expires, soonest first, as a heap."""
+        """When each kept job of `_kept` expires, soonest first, as a heap.
+
+        Entries of forgotten jobs stay until the heap holds twice as many as
+        `_kept`, which then drops them all.
+        """
         self._seq = 0
 
     async def __aenter__(self) -> Self:
@@ -355,22 +359,32 @@ class MemoryJobAdapter(JobBackend):
         limit: int,
         after: str | None,
     ) -> Listed:
-        """Return the jobs of `name` that `owner` owns, newest submitted first."""
+        """Return the jobs of `name` that `owner` owns, newest submitted first.
+
+        A job a later move of the same call forgets, past its cap, is left
+        out.
+        """
         below = FIRST if after is None else read_cursor(after)
         owned = self._owned.get((name, owner), [])
         end = bisect_left(owned, below, key=_seq)
         bound = scan_limit(limit)
         scanned = owned[max(0, end - bound) : end]
-        found: builtins.list[tuple[int, JobRecord]] = []
+        found: builtins.list[_Row] = []
+        stopped = scanned[0].seq if len(scanned) == bound else None
         for row in reversed(scanned):
             if self._find(name, row.id) is None:
                 continue
             if status is None or row.status == status:
-                found.append((row.seq, row.record()))
+                found.append(row)
                 if len(found) > limit:
-                    return page_of(found, limit, None)
-        stopped = scanned[0].seq if len(scanned) == bound else None
-        return page_of(found, limit, stopped)
+                    stopped = row.seq
+                    break
+        kept = [
+            (row.seq, row.record())
+            for row in found
+            if self._rows.get(row.id) is row
+        ]
+        return page_of(kept, limit, stopped)
 
     async def reap(self, *, limit: int) -> int:
         """End jobs past a lease, `max_wait` or `max_run`, of any name."""
@@ -474,6 +488,9 @@ class MemoryJobAdapter(JobBackend):
                     heappush(ends, (row.expires_at, row.seq, row))
             while len(kept) > cap:
                 self._forget(next(iter(kept.values())))
+            if len(ends) > 2 * len(kept):
+                ends[:] = [end for end in ends if kept.get(end[2].id) is end[2]]
+                heapify(ends)
             if not kept:
                 self._kept.pop(index, None)
                 self._kept_ends.pop(index, None)
