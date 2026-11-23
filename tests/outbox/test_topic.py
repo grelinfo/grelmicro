@@ -439,3 +439,84 @@ def test_named_subclass_of_a_parametrized_generic_is_silent() -> None:
 
     router = _assert_silent(register)
     assert _topics(router) == ["PlainInt", "_Plain[int]"]
+
+
+def test_topic_assigned_after_first_use_takes_effect() -> None:
+    """A model reads `__outbox_topic__` again at each registration."""
+
+    class Refund(BaseModel):
+        amount: int
+
+    async def handle(message: Message[Refund]) -> None: ...
+
+    first = _assert_silent(lambda router: router.handler(Refund)(handle))
+    Refund.__outbox_topic__ = "billing.refund"  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
+    second = _assert_silent(lambda router: router.handler(Refund)(handle))
+    del Refund.__outbox_topic__  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
+    third = _assert_silent(lambda router: router.handler(Refund)(handle))
+
+    assert _topics(first) == ["Refund"]
+    assert _topics(second) == ["billing.refund"]
+    assert _topics(third) == ["Refund"]
+
+
+def test_parent_topic_assigned_after_first_use_takes_effect() -> None:
+    """A subclass reads the topic its parent holds at each registration."""
+
+    class Base(BaseModel):
+        __outbox_topic__ = "billing.first"
+
+    class Child(Base):
+        pass
+
+    async def handle(message: Message[Child]) -> None: ...
+
+    first = OutboxRouter()
+    second = OutboxRouter()
+    with pytest.warns(Grelmicro046Warning, match="inherits `billing.first`"):
+        first.handler(Child)(handle)
+    Base.__outbox_topic__ = "billing.second"
+    with pytest.warns(Grelmicro046Warning, match="inherits `billing.second`"):
+        second.handler(Child)(handle)
+    Child.__outbox_topic__ = "billing.second"
+    third = _assert_silent(lambda router: router.handler(Child)(handle))
+
+    assert _topics(first) == ["billing.first"]
+    assert _topics(second) == ["billing.second"]
+    assert _topics(third) == ["billing.second"]
+
+
+def test_parametrized_generic_with_its_own_topic_is_silent() -> None:
+    """A topic set on `Plain[int]` itself is its topic, and warns nothing."""
+
+    class Measure[T](BaseModel):
+        value: T
+
+    Measure[int].__outbox_topic__ = "integer-measures"  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
+
+    def register(router: OutboxRouter) -> None:
+        @router.handler(Measure[int])
+        async def handle(message: Message[Measure[int]]) -> None: ...
+
+    router = _assert_silent(register)
+    assert _topics(router) == ["integer-measures"]
+
+
+class _TopicMeta(type(BaseModel)):  # type: ignore[misc]
+    """A model metaclass that names a topic."""
+
+    __outbox_topic__ = "meta.topic"
+
+
+def test_topic_from_a_metaclass_is_silent() -> None:
+    """A topic that only the metaclass holds is the topic, and warns nothing."""
+
+    class Audited(BaseModel, metaclass=_TopicMeta):
+        entry: int
+
+    def register(router: OutboxRouter) -> None:
+        @router.handler(Audited)
+        async def handle(message: Message[Audited]) -> None: ...
+
+    router = _assert_silent(register)
+    assert _topics(router) == ["meta.topic"]

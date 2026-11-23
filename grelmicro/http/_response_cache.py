@@ -963,9 +963,31 @@ class CachedResponsesMiddleware:
         finally:
             if not decided.done():
                 decided.set_result(None)
-            if not attempt.ran:
-                holder.cancel()
-            await asyncio.wait((holder,))
+            await self._let_go(holder, attempt)
+
+    async def _let_go(
+        self, holder: asyncio.Task[_Entry], attempt: _Attempt
+    ) -> None:
+        """Wait for the key to be let go of, and log an error that ended it.
+
+        A hold the app never ran under is cancelled. Once the app ran, the
+        caller has already answered or failed, so an error the hold ends
+        in never reaches it and is logged instead. A response that is not
+        kept is no error.
+        """
+        if not attempt.ran:
+            holder.cancel()
+        await asyncio.wait((holder,))
+        if not attempt.ran or holder.cancelled():
+            return
+        error = holder.exception()
+        if error is None or isinstance(error, _NotStored):
+            return
+        self._report(
+            error,
+            "hold",
+            "response cache lost hold of this read after the handler ran",
+        )
 
     async def _folded(
         self,
