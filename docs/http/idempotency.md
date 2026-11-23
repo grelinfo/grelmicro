@@ -10,6 +10,8 @@ The [quick start](../idempotency/index.md#quick-start) reads the key and opens a
 
 Handlers stay as they are. There is no key parameter to thread through and no block to open.
 
+`fingerprint_body=True` refuses a key reused with a different body. It becomes the default in 0.46.0. See [Conflicting payloads](#conflicting-payloads).
+
 Register `IdempotentRequests()` and `micro.install(app)` adds the middleware and describes it in the OpenAPI schema. The bare form keeps a response for a day. `ttl=` says how long, and `namespace=` and `cache=` say where.
 
 The middleware itself is pure ASGI and runs in front of any ASGI app. Add it by hand beside `micro.install(app)`:
@@ -19,7 +21,9 @@ from grelmicro.http import IdempotencyMiddleware
 from grelmicro.idempotency import Idempotency
 
 app.add_middleware(
-    IdempotencyMiddleware, idempotency=Idempotency("http", ttl=3600)
+    IdempotencyMiddleware,
+    idempotency=Idempotency("http", ttl=3600),
+    fingerprint_body=True,
 )
 ```
 
@@ -88,7 +92,6 @@ same on FastAPI, Starlette and Litestar, byte for byte:
 | Sent a key over 255 characters | `400` | Longer than the schema publishes. |
 | Sent a key holding a byte outside printable ASCII | `400` | A control byte or a high byte reaches the cache as a key and travels through proxies that may rewrite it. |
 | Reused a key with a different body, under `fingerprint_body` | `422` | See [Conflicting payloads](#conflicting-payloads). |
-| Sent a body over `max_body_size`, under `fingerprint_body` | `413` | Larger than the service reads. |
 | Retried while the first request is still running | `409` | See [Duplicates in flight](#duplicates-in-flight). |
 
 Every one is a `4xx`, because every one is something the client can fix. A
@@ -353,7 +356,7 @@ retry-after: 1
 
 Past the timeout the duplicate receives that instead of holding the connection open.
 
-Every response the middleware writes itself follows the [error format](errors.md) the app registered, the `400`, `409`, `413`, and `422` alike, so a client reads the same shape here as from a rejection raised in a handler. The body below is RFC 9457, the default.
+Every response the middleware writes itself follows the [error format](errors.md) the app registered, the `400`, `409`, and `422` alike, so a client reads the same shape here as from a rejection raised in a handler. The body below is RFC 9457, the default.
 
 ## Conflicting payloads
 
@@ -363,7 +366,9 @@ Pass `fingerprint_body=True` to hash the request body and store the hash with th
 IdempotentRequests(fingerprint_body=True)
 ```
 
-Fingerprinting buffers the request body before the handler runs, so it is off by default. A request body over `max_body_size` is answered with `413`.
+The body is hashed as it streams, so memory stays the same whatever its size. `max_body_size` caps the stored response, never the request body. The part the handler leaves unread is read before the response ends. A request whose client leaves before its body ends is not stored, so its retry runs the handler.
+
+Until 0.46.0, `fingerprint_body` defaults to `False`, and a reused key replays the first response whatever the body. Left out, `IdempotentRequests` and `IdempotencyMiddleware` warn with `Grelmicro046Warning`. From 0.46.0 it defaults to `True`. Pass `fingerprint_body=True` to adopt the check now, or `False` to keep the replay. The component also reads `GREL_IDEMPOTENT_REQUESTS_FINGERPRINT_BODY`. See the [migration note](../migration.md#0-45-fingerprint-body).
 
 The draft says `422` here and Stripe answers `400`, so this is the one status the middleware lets you pick:
 
@@ -412,8 +417,8 @@ A background task runs after the response is sent, so the response is stored and
 | `key` | `None` | Build the stored key from the scope and the client key. Required for authenticated replay and multi-tenant isolation. |
 | `skip` | `None` | Predicate over the finished response. Return `True` to not store it. |
 | `require_key` | `False` | Answer `400` when a matched method arrives without the header. |
-| `fingerprint_body` | `False` | Hash the request body and answer `422` on a reused key with a different body. |
-| `max_body_size` | `1048576` | Largest body held in memory, in bytes. Caps the stored response, and the fingerprinted request. |
+| `fingerprint_body` | `False`, `True` from 0.46.0 | Hash the request body and answer `422` on a reused key with a different body. Left out, it warns until 0.46.0. |
+| `max_body_size` | `1048576` | Largest response body stored, in bytes. A larger response is sent and not stored. |
 | `max_wait` | `10.0` | Seconds a duplicate waits for an execution in flight before `409`. |
 | `include` | `()` | Paths the middleware acts on. Empty means every path. Exact match unless the pattern ends with `*`. |
 | `exclude` | `()` | Paths the middleware leaves alone, whatever `include` says. |

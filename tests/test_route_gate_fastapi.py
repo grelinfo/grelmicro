@@ -927,9 +927,9 @@ class TestNothingIsSpentOnARefusal:
         calls = Calls()
         backend = CountingCache()
         idempotent = (
-            IdempotentRequests(key=key_function)
+            IdempotentRequests(fingerprint_body=False, key=key_function)
             if key_function
-            else IdempotentRequests()
+            else IdempotentRequests(fingerprint_body=False)
         )
         app = catalog(calls, Cache(backend), idempotent)
         with TestClient(app) as client:
@@ -987,7 +987,11 @@ class TestAnAnonymousRoute:
             calls.served.append("signup")
             return {"signed": True}
 
-        installed(app, Cache(MemoryCacheAdapter()), IdempotentRequests())
+        installed(
+            app,
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(fingerprint_body=False),
+        )
         with TestClient(app) as client:
             first, retried = (
                 client.post("/signups", headers={"Idempotency-Key": "k-1"})

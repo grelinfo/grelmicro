@@ -319,7 +319,7 @@ def built(
             else CachedResponses(include=CACHED),
         ]
     if "idempotency" in components:
-        uses.append(IdempotentRequests())
+        uses.append(IdempotentRequests(fingerprint_body=False))
     Grelmicro(uses=uses).install(app)
     return app, later
 
@@ -547,7 +547,7 @@ def _cached_app(routes: list[Any]) -> Starlette:
             MemoryProvider(),
             Cache(MemoryCacheAdapter()),
             CachedResponses(include=("/r/*",)),
-            IdempotentRequests(),
+            IdempotentRequests(fingerprint_body=False),
         ]
     ).install(app)
     return app
@@ -675,7 +675,11 @@ def test_idempotent_requests_error_at_the_route_is_raised_where_it_was_handed_on
         components=(),
         calls=calls,
         ahead=(
-            IdempotentRequests(methods=["GET"], key=lambda scope, key: ""),  # noqa: ARG005
+            IdempotentRequests(
+                fingerprint_body=False,
+                methods=["GET"],
+                key=lambda scope, key: "",  # noqa: ARG005
+            ),
             Cache(MemoryCacheAdapter()),
             CachedResponses(include=CACHED),
         ),
@@ -944,7 +948,7 @@ def test_open_gate_litestar_middleware_behind_the_router_answers_there(
 
     registered: Any = {
         "cache": CachedResponses(include=("/feed",)),
-        "idempotency": IdempotentRequests(),
+        "idempotency": IdempotentRequests(fingerprint_body=False),
         "conditional": ConditionalRequests(require_precondition=("PUT",)),
     }[component]
     middleware, options = registered.asgi_middleware()

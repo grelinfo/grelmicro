@@ -211,7 +211,9 @@ def test_a_mounted_app_replays_a_write_matched_on_its_own_path(
     Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(include=("/write",), requires="process"),
+            IdempotentRequests(
+                fingerprint_body=False, include=("/write",), requires="process"
+            ),
         ]
     ).install(inner)
     outer = _under_outer_app(inner, outer_installed=outer_installed)

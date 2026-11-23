@@ -523,7 +523,6 @@ def _idempotent_micro() -> Grelmicro:
                 ttl=60,
                 require_key=True,
                 fingerprint_body=True,
-                max_body_size=64,
             ),
             ConditionalRequests(),
         ]
@@ -572,13 +571,6 @@ def _replay_answers(client: Any) -> Answers:  # noqa: ANN401
         "reused_key": _answer(
             client.post("/charge", headers=headers, json={"n": 2})
         ),
-        "body_too_large": _answer(
-            client.post(
-                "/charge",
-                headers={"Idempotency-Key": "big"},
-                json={"n": "x" * 128},
-            )
-        ),
         "stale": _answer(client.put("/carts/1", headers={"If-Match": '"2"'})),
         "unconditional": _answer(client.put("/carts/1")),
     }
@@ -590,16 +582,14 @@ EXPECTED_STATUS = {
     "no_key": 400,
     "long_key": 400,
     "reused_key": 422,
-    "body_too_large": 413,
     "stale": 412,
     "unconditional": 428,
 }
 """What each case is answered with, by the standard rather than by us.
 
-`400` for a key that is missing or malformed, `413` for a body larger than
-the service reads, `422` for a key reused with a different payload, `412`
-for a precondition that no longer holds, and `428` for a write that had to
-be conditional and was not.
+`400` for a key that is missing or malformed, `422` for a key reused with a
+different payload, `412` for a precondition that no longer holds, and `428`
+for a write that had to be conditional and was not.
 """
 
 
@@ -659,7 +649,9 @@ def _tmf_micro() -> Grelmicro:
         uses=[
             MemoryProvider(),
             ErrorResponses.tmf(),
-            IdempotentRequests(ttl=60, require_key=True),
+            IdempotentRequests(
+                fingerprint_body=False, ttl=60, require_key=True
+            ),
             ConditionalRequests(require_precondition=("PUT",)),
         ]
     )

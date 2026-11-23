@@ -247,7 +247,7 @@ def _components(*, openapi: bool = True) -> list[Any]:
         Cache(MemoryCacheAdapter()),
         ErrorResponses(),
         _limited(openapi=openapi),
-        IdempotentRequests(openapi=openapi),
+        IdempotentRequests(fingerprint_body=False, openapi=openapi),
         ConditionalRequests(require_precondition=("PUT",), openapi=openapi),
     ]
 
@@ -463,7 +463,9 @@ def test_idempotent_requests_document_openapi_adds_the_key_to_covered_writes() -
     schema = _schema()
 
     # Act
-    edited = IdempotentRequests(require_key=True)._document_openapi(schema)
+    edited = IdempotentRequests(
+        fingerprint_body=False, require_key=True
+    )._document_openapi(schema)
 
     # Assert
     create = edited["paths"]["/carts"]["post"]
@@ -618,7 +620,7 @@ def test_idempotent_requests_document_openapi_follows_the_error_format() -> (
     schema = _schema()
 
     # Act
-    edited = IdempotentRequests()._document_openapi(
+    edited = IdempotentRequests(fingerprint_body=False)._document_openapi(
         schema, errors=ErrorResponses.tmf()
     )
 
@@ -636,7 +638,8 @@ def test_idempotent_requests_document_openapi_follows_the_error_format() -> (
     [
         pytest.param(lambda: _limited(openapi=False), id="rate-limit"),
         pytest.param(
-            lambda: IdempotentRequests(openapi=False), id="idempotency"
+            lambda: IdempotentRequests(fingerprint_body=False, openapi=False),
+            id="idempotency",
         ),
         pytest.param(
             lambda: ConditionalRequests(openapi=False), id="conditional"

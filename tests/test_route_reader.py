@@ -2103,7 +2103,7 @@ def test_an_idempotent_replay_names_the_route_it_is_answered_at(
     micro = Grelmicro(
         uses=[
             MemoryProvider(),
-            IdempotentRequests(),
+            IdempotentRequests(fingerprint_body=False),
             Trace(exporter="none"),
             AccessLog(),
         ]

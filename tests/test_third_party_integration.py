@@ -317,7 +317,7 @@ def test_third_party_integration_route_with_own_checks_never_replays_across_call
             ErrorResponses(),
             MemoryProvider(),
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(),
+            IdempotentRequests(fingerprint_body=False),
         ]
     ).install(app)
     alice = {"idempotency-key": "k1", "x-api-key": "alice"}

@@ -251,7 +251,7 @@ def test_two_apps_installed_on_one_litestar_app_both_open() -> None:
 def test_a_litestar_middleware_installed_twice_wraps_once() -> None:
     """The integration adds a component's middleware once, however called."""
     app = Litestar()
-    component = IdempotentRequests()
+    component = IdempotentRequests(fingerprint_body=False)
     middleware, _ = component.asgi_middleware()
     install_middleware(app, [component])
     install_middleware(app, [component])
