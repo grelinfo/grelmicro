@@ -12,6 +12,9 @@ from grelmicro.task.memory import MemoryJobAdapter
 
 NAME = "app:job"
 
+_MOST_KEPT_ENDS = 3
+"""The most expiry entries a cap of one leaves, forgotten jobs included."""
+
 
 async def test_job_memory_backend_purge_counts_up_to_its_limit() -> None:
     """Memory has no key expiry, so `purge` forgets and counts the jobs."""
@@ -148,3 +151,46 @@ async def test_job_memory_backend_forgets_arguments_of_a_queued_job_that_ends(
         # Assert
         row = backend._rows["j"]
         assert (row.payload, row.context) == ("", {})
+
+
+async def test_job_memory_backend_cap_keeps_no_trace_of_forgotten_jobs() -> (
+    None
+):
+    """A job forgotten by its cap leaves nothing behind in the backend."""
+    # Arrange
+    clock = VirtualClock()
+    backend = MemoryJobAdapter()
+    async with clock, backend:
+        # Act
+        for index in range(50):
+            await backend.submit(
+                name=NAME,
+                job_id=f"j{index}",
+                owner=None,
+                payload="{}",
+                context={},
+                max_queued=None,
+                max_wait=None,
+                max_run=None,
+                keep=timedelta(days=1),
+                max_kept_succeeded=1,
+                max_kept_failed=None,
+                start_as="r",
+                lease=timedelta(seconds=30),
+            )
+            await backend.settle(
+                name=NAME,
+                job_id=f"j{index}",
+                runner="r",
+                status=JobStatus.SUCCEEDED,
+                error=None,
+                result='"big"',
+                progress=None,
+            )
+
+    # Assert
+    assert len(backend._rows) == 1
+    assert (
+        sum(len(ends) for ends in backend._kept_ends.values())
+        <= _MOST_KEPT_ENDS
+    )

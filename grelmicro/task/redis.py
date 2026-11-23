@@ -562,22 +562,32 @@ class RedisJobAdapter(JobBackend):
                     catch_up(key, id, queue, waiting)
                     local now_status = redis.call('HGET', key, 's')
                     if now_status and (status == '' or now_status == status) then
-                        found[#found + 1] = {seq, id, record(key)}
+                        found[#found + 1] = {seq, id}
                     end
                 end
                 below = '(' .. seq
             end
         end
-        if #found > limit or scanned < bound then
+        if #found > limit then
+            last = found[#found][1]
+        elseif scanned < bound then
             last = ''
         end
-        return {last, found}
+        local kept = {}
+        for _, entry in ipairs(found) do
+            local key = jobs .. entry[2]
+            if redis.call('EXISTS', key) == 1 then
+                kept[#kept + 1] = {entry[1], entry[2], record(key)}
+            end
+        end
+        return {last, kept}
     """
     )
     """List the owner's jobs, newest first, one more than the page holds.
 
     It reads at most `bound` members. A member whose job is gone, or no
-    longer names this index, leaves it. KEYS: deadlines, owner index, queue,
+    longer names this index, leaves it. A job a later move of the same call
+    forgets, past its cap, is left out. KEYS: deadlines, owner index, queue,
     waiting. ARGV: job key prefix, name, owner, status ('': every one), limit,
     the order to list below, bound. The reply is the order of the last member
     read when the bound stopped the walk ('': it did not), and the jobs.

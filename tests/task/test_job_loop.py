@@ -10,7 +10,7 @@ import pytest
 
 from grelmicro.clock import VirtualClock
 from grelmicro.task import JobStatus, Progress, Tasks
-from grelmicro.task._job_loop import _loops, _until, store_loop
+from grelmicro.task._job_loop import _loops, store_loop, until
 from grelmicro.task.memory import MemoryJobAdapter
 from tests.task._job_shared import share, shared
 
@@ -316,7 +316,7 @@ async def test_job_store_call_cut_by_a_stop_is_cancelled_not_timed_out() -> (
     clock = VirtualClock()
     async with clock:
         calling = asyncio.create_task(
-            _until(clock.monotonic() + 30, asyncio.Event().wait())
+            until(clock.monotonic() + 30, asyncio.Event().wait())
         )
         await _settled()
 
@@ -354,3 +354,126 @@ async def test_job_loop_first_join_that_fails_to_open_leaves_no_loop() -> None:
 
     # Assert
     assert store not in _loops
+
+
+class _GatedStore(MemoryJobAdapter):
+    """A store whose beats or claims wait for an event when a test says so."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gates: dict[str, asyncio.Event] = {}
+
+    async def beat(self, **kwargs: Any) -> Any:  # noqa: ANN401
+        gate = self.gates.get("beat")
+        if gate is not None:
+            await gate.wait()
+        return await super().beat(**kwargs)
+
+    async def claim(self, **kwargs: Any) -> Any:  # noqa: ANN401
+        gate = self.gates.get("claim")
+        if gate is not None:
+            await gate.wait()
+        return await super().claim(**kwargs)
+
+
+async def test_job_beat_answered_after_a_job_left_keeps_the_others() -> None:
+    """A beat that comes back after one job left still holds the others."""
+    # Arrange
+    clock = VirtualClock()
+    store = _GatedStore()
+    leaving, staying = Tasks(shutdown_timeout=0), Tasks()
+    gone = leaving.job(backend=store, name="gone")(_waits)
+    kept = staying.job(backend=store, name="kept")(_waits)
+    gate = asyncio.Event()
+
+    async with clock, staying:
+        await leaving.__aenter__()
+        await gone.without_owner().submit(share(gate))
+        submitted = await kept.without_owner().submit(share(gate))
+        beat = store.gates["beat"] = asyncio.Event()
+        await _advance(clock, 1)
+        await leaving.__aexit__(None, None, None)
+
+        # Act
+        beat.set()
+        del store.gates["beat"]
+        await _advance(clock, _FEW_SECONDS)
+        info = await store.get(name="kept", job_id=submitted.id, owner=None)
+        gate.set()
+
+    # Assert
+    assert info is not None
+    assert info.status is JobStatus.RUNNING
+
+
+async def test_job_claimed_after_its_job_left_ends_failed() -> None:
+    """A job a claim takes after its job left the store cannot start."""
+    # Arrange
+    clock = VirtualClock()
+    store = _GatedStore()
+    leaving, staying = Tasks(shutdown_timeout=0), Tasks()
+    leaving.job(backend=store, name="gone")(_noop)
+    staying.job(backend=store, name="kept")(_noop)
+
+    async with clock, staying:
+        await leaving.__aenter__()
+        claim = store.gates["claim"] = asyncio.Event()
+        await _advance(clock, 1)
+        job_id = await _queue_as_another_replica(store, "gone")
+        await leaving.__aexit__(None, None, None)
+
+        # Act
+        claim.set()
+        await _settled()
+        info = await store.get(name="gone", job_id=job_id, owner=None)
+
+    # Assert
+    assert info is not None
+    assert (info.status, info.error) == (JobStatus.FAILED, "Job failed")
+
+
+_BACKLOG = 250
+"""More expired jobs than one store call forgets."""
+
+
+async def test_job_sweep_goes_on_while_the_store_has_more_to_forget() -> None:
+    """A sweep forgets a backlog larger than one batch, in one pass."""
+    # Arrange
+    clock = VirtualClock()
+    store = MemoryJobAdapter()
+    tasks = Tasks()
+    tasks.job(backend=store, name="job")(_noop)
+
+    async with clock, tasks:
+        for index in range(_BACKLOG):
+            await store.submit(
+                name="job",
+                job_id=f"job-{index}",
+                owner=None,
+                payload="{}",
+                context={},
+                max_queued=None,
+                max_wait=None,
+                max_run=None,
+                keep=timedelta(seconds=1),
+                max_kept_succeeded=None,
+                max_kept_failed=None,
+                start_as="other",
+                lease=timedelta(seconds=30),
+            )
+            await store.settle(
+                name="job",
+                job_id=f"job-{index}",
+                runner="other",
+                status=JobStatus.SUCCEEDED,
+                error=None,
+                result=None,
+                progress=None,
+            )
+
+        # Act
+        await _advance(clock, _SWEEP_SECONDS)
+        left = len(store._rows)
+
+    # Assert
+    assert left == 0
