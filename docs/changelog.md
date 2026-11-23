@@ -23,6 +23,7 @@
 * 🗑️ `IdempotentRequests` and `IdempotencyMiddleware` with `fingerprint_body` left out warn with `Grelmicro046Warning`. From 0.46.0 it defaults to `True`, so a key reused with a different body gets `422` instead of the first response. Pass `fingerprint_body=True` to adopt it now, or `False` to keep the replay. ([#1349](https://github.com/grelinfo/grelmicro/pull/1349))
 
 ### Fixed
+* 🐛 `@instrument`, the outbox consumer span and the OAuth client span reach the tracer provider installed when the span starts. Before, they kept going to the first provider they met, so an app started again in the same process, such as one app per test, lost them to a provider already shut down. ([#1365](https://github.com/grelinfo/grelmicro/pull/1365))
 * 🐛 `IdempotentRequests` stores a response once its body reached the client, not after its background tasks. A duplicate sent while a background task runs gets the replay instead of waiting or `409`, and a background task that raises no longer makes the retry run the handler again. ([#1356](https://github.com/grelinfo/grelmicro/pull/1356))
 * 🐛 On FastAPI 0.164 and later, a frontend route under an included router answers its caller again instead of `401` for every request. ([#1350](https://github.com/grelinfo/grelmicro/pull/1350))
 * 🐛 On FastAPI 0.164 and later, `max_body_size` on the app or a router no longer stops `IdempotentRequests` from replaying or `CachedResponses(include=...)` from caching. ([#1350](https://github.com/grelinfo/grelmicro/pull/1350))
