@@ -88,7 +88,7 @@ def test_ttl_cache_float_ttl_refused(value: float) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         TTLCache(ttl=value)  # ty: ignore[invalid-argument-type]
 
@@ -119,7 +119,8 @@ def test_ttl_cache_config_float_ttl_refused(value: float) -> None:
     """A float or a bool TTL is refused by the config."""
     # Act / Assert
     with pytest.raises(
-        ValidationError, match="ttl must be whole seconds or a timedelta"
+        ValidationError,
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         TTLCacheConfig(ttl=value)
 
@@ -158,7 +159,7 @@ def test_cache_ttl_factory_float_ttl_refused(value: float) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         component.ttl(ttl=value)  # ty: ignore[invalid-argument-type]
 
@@ -184,7 +185,7 @@ def test_cached_ttl_not_a_duration_refused(value: object) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         cached(ttl=value)  # ty: ignore[invalid-argument-type]
 
@@ -195,7 +196,7 @@ def test_cached_stale_ttl_not_a_duration_refused(value: object) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="stale_ttl must be whole seconds or a timedelta",
+        match="stale_ttl must be an int of whole seconds or a timedelta",
     ):
         cached(ttl=WHOLE, stale_ttl=value)  # ty: ignore[invalid-argument-type]
 

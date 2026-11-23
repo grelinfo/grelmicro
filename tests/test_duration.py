@@ -62,11 +62,17 @@ def test_duration_takes_whole_seconds_or_a_timedelta(
 @pytest.mark.parametrize(
     ("raw", "message"),
     [
-        (1.5, "ttl must be whole seconds or a timedelta"),
-        (60.0, "ttl must be whole seconds or a timedelta"),
-        (True, "ttl must be whole seconds or a timedelta"),
-        (Decimal("1.5"), "ttl must be whole seconds or a timedelta"),
-        (Fraction(3, 2), "ttl must be whole seconds or a timedelta"),
+        (1.5, "ttl must be an int of whole seconds or a timedelta, got float"),
+        (60.0, "ttl must be an int of whole seconds or a timedelta, got float"),
+        (True, "ttl must be an int of whole seconds or a timedelta, got bool"),
+        (
+            Decimal("1.5"),
+            "ttl must be an int of whole seconds or a timedelta, got Decimal",
+        ),
+        (
+            Fraction(3, 2),
+            "ttl must be an int of whole seconds or a timedelta, got Fraction",
+        ),
         ("1.5", "ttl must be whole seconds or an ISO 8601 duration"),
         ("1_000", "ttl must be whole seconds or an ISO 8601 duration"),
         (" 60 ", "ttl must be whole seconds or an ISO 8601 duration"),
@@ -119,7 +125,9 @@ def test_duration_refusal_leaves_out_the_value() -> None:
 
 def test_duration_outside_a_field_names_a_duration() -> None:
     """A duration validated outside a model field is called a duration."""
-    with pytest.raises(ValidationError, match="duration must be whole"):
+    with pytest.raises(
+        ValidationError, match="duration must be an int of whole seconds"
+    ):
         TypeAdapter(Duration).validate_python(1.5)
 
 
@@ -200,10 +208,22 @@ def test_duration_check_returns_a_timedelta(
 @pytest.mark.parametrize(
     ("raw", "message"),
     [
-        (1.5, r"^stale_ttl must be whole seconds or a timedelta$"),
-        (True, r"^stale_ttl must be whole seconds or a timedelta$"),
-        ("60", r"^stale_ttl must be whole seconds or a timedelta$"),
-        ("PT0.5S", r"^stale_ttl must be whole seconds or a timedelta$"),
+        (
+            1.5,
+            r"^stale_ttl must be an int of whole seconds or a timedelta, got float$",
+        ),
+        (
+            True,
+            r"^stale_ttl must be an int of whole seconds or a timedelta, got bool$",
+        ),
+        (
+            "60",
+            r"^stale_ttl must be an int of whole seconds or a timedelta, got str$",
+        ),
+        (
+            "PT0.5S",
+            r"^stale_ttl must be an int of whole seconds or a timedelta, got str$",
+        ),
         (0, r"^stale_ttl must be greater than zero$"),
         (timedelta(0), r"^stale_ttl must be greater than zero$"),
         (10**20, r"^stale_ttl must be at most 100 years$"),
@@ -264,7 +284,10 @@ def test_duration_read_takes_text_whole_seconds_or_a_timedelta(
 @pytest.mark.parametrize(
     ("raw", "message"),
     [
-        (1.5, r"^pattern 1 in include must be whole seconds or a timedelta$"),
+        (
+            1.5,
+            r"^pattern 1 in include must be an int of whole seconds or a timedelta, got float$",
+        ),
         (
             "1.5",
             (
@@ -387,8 +410,8 @@ def test_retention_takes_zero_as_keep_nothing(raw: object) -> None:
         (-1, r"cache_ttl must not be negative"),
         (timedelta(microseconds=-1), r"cache_ttl must not be negative"),
         ("-1", r"cache_ttl must not be negative"),
-        (1.5, r"cache_ttl must be whole seconds or a timedelta"),
-        (True, r"cache_ttl must be whole seconds or a timedelta"),
+        (1.5, r"cache_ttl must be an int of whole seconds or a timedelta"),
+        (True, r"cache_ttl must be an int of whole seconds or a timedelta"),
         ("P36501D", r"cache_ttl must be at most 100 years"),
     ],
 )

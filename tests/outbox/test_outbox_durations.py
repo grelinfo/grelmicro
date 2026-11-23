@@ -122,7 +122,7 @@ def test_outbox_float_or_bool_lease_duration_refused(value: object) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="lease_duration must be whole seconds or a timedelta",
+        match="lease_duration must be an int of whole seconds or a timedelta",
     ):
         Outbox(
             MemoryOutboxAdapter(),
@@ -223,7 +223,7 @@ def test_outbox_float_keep_delivered_refused(value: float) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="keep_delivered must be whole seconds or a timedelta",
+        match="keep_delivered must be an int of whole seconds or a timedelta",
     ):
         Outbox(
             MemoryOutboxAdapter(),
@@ -427,7 +427,8 @@ async def test_outbox_purge_float_bool_or_text_older_than_refused(
 
     # Act / Assert
     with pytest.raises(
-        ValueError, match="older_than must be whole seconds or a timedelta"
+        ValueError,
+        match="older_than must be an int of whole seconds or a timedelta",
     ):
         await outbox.purge(older_than=value)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 

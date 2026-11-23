@@ -88,7 +88,8 @@ def test_router_every_float_bool_or_text_interval_refused(
 
     # Act / Assert
     with pytest.raises(
-        ValueError, match="interval must be whole seconds or a timedelta"
+        ValueError,
+        match="interval must be an int of whole seconds or a timedelta",
     ):
         router.every(interval=value)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
@@ -138,7 +139,8 @@ def test_router_cron_float_bool_or_text_misfire_grace_refused(
 
     # Act / Assert
     with pytest.raises(
-        ValueError, match="misfire_grace must be whole seconds or a timedelta"
+        ValueError,
+        match="misfire_grace must be an int of whole seconds or a timedelta",
     ):
         router.cron("* * * * *", gate="claim", misfire_grace=value)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 

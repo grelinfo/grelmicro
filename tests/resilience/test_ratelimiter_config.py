@@ -142,7 +142,9 @@ def test_bare_constructor_names_the_three_doors() -> None:
 @pytest.mark.parametrize("window", [1.5, 60.0, True])
 def test_sliding_window_refuses_a_float_window(window: float) -> None:
     """A window is whole seconds or a timedelta, never a float."""
-    with pytest.raises(ValueError, match="whole seconds or a timedelta"):
+    with pytest.raises(
+        ValueError, match="an int of whole seconds or a timedelta"
+    ):
         SlidingWindowConfig(limit=LIMIT, window=window)
 
 
