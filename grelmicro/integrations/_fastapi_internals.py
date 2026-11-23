@@ -11,6 +11,7 @@ release moved one. Without FastAPI installed, nothing here is FastAPI's.
 
 from __future__ import annotations
 
+import functools
 from itertools import chain, repeat
 from operator import attrgetter, is_
 from typing import TYPE_CHECKING, Any, Final
@@ -20,18 +21,25 @@ try:
 except ImportError:  # pragma: no cover - the reimport test walks this
     routing = None  # type: ignore[assignment]
 
+try:
+    from fastapi import _body_limit
+except ImportError:  # pragma: no cover - FastAPI before 0.164 has none
+    _body_limit = None  # type: ignore[assignment]
+
 if TYPE_CHECKING:
     from collections.abc import Callable, MutableMapping
 
     Scope = MutableMapping[str, Any]
 
 __all__ = [
+    "BODY_LIMITS",
     "FRESH_KEY",
     "ROUTERS",
     "TELEMETRY_KEY",
     "candidates",
     "context_of",
     "copy_of",
+    "dispatch_late",
     "dispatched",
     "gate_low_priority",
     "is_dispatched_as_itself",
@@ -55,6 +63,14 @@ ROUTERS: Final[tuple[type[Any], ...]] = (
     () if routing is None else (routing.APIRouter,)
 )
 """FastAPI's router class, when FastAPI is installed."""
+
+_BODY_LIMIT: Final[Any] = getattr(
+    _body_limit, "_BodyLimitExceptionMiddleware", None
+)
+BODY_LIMITS: Final[tuple[type[Any], ...]] = (
+    () if _BODY_LIMIT is None else (_BODY_LIMIT,)
+)
+"""The middleware FastAPI's `max_body_size` adds around a router, when it has one."""
 
 _ROUTE: Final[Any] = getattr(routing, "APIRoute", None)
 _WEBSOCKET_ROUTE: Final[Any] = getattr(routing, "APIWebSocketRoute", None)
@@ -415,6 +431,26 @@ def copy_of(context: Any) -> Any | None:  # noqa: ANN401
 def original_of(context: Any) -> Any:  # noqa: ANN401
     """Return the route an include's context runs as itself."""
     return context.original_route
+
+
+def dispatch_late(context: Any, route: Any) -> None:  # noqa: ANN401
+    """Make an include's context call the `handle` its route holds at each request.
+
+    FastAPI runs a context of a frontend group through the `handle` the
+    group held when the context was built, inside the include's body limit
+    when it sets one.
+    """
+    owner, app = context, getattr(context, "app", None)
+    while app is not None:
+        if getattr(app, "__self__", None) is route:
+            owner.app = functools.partial(_handle, route)
+            return
+        owner, app = app, getattr(app, "app", None)
+
+
+def _handle(route: Any, scope: Scope, receive: Any, send: Any) -> Any:  # noqa: ANN401
+    """Call the `handle` `route` holds now."""
+    return route.handle(scope, receive, send)
 
 
 def path_of(context: Any) -> str:  # noqa: ANN401
