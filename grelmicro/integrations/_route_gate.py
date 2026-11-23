@@ -121,8 +121,9 @@ _READS: Final = frozenset({"GET", "HEAD"})
 _ROUTERS: Final = (Router, *fastapi.ROUTERS)
 """The routers whose routes are read, of their framework's own class."""
 
-_PASSIVE: Final = (
+_PASSIVE: Final[tuple[type[Any], ...]] = (
     RequestBodyLimitMiddleware,
+    *fastapi.BODY_LIMITS,
     GrelmicroMiddleware,
     AccessLogMiddleware,
     CachedResponsesMiddleware,
@@ -1209,6 +1210,8 @@ class _Gating:
         held.router = router
         if new:
             route.handle = _chosen(route, held)
+        if context is not None:
+            fastapi.dispatch_late(context, route)
         owner.__dict__[_TARGET] = self._gated(
             owner.__dict__.get(_TARGET, held.handle),
             [declaration],

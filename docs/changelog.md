@@ -19,6 +19,8 @@
 * 🗑️ An outbox payload model that inherits `__outbox_topic__` from a parent warns with `Grelmicro046Warning` where a handler is registered for it or it is published. It keeps the parent's topic until 0.46.0, then takes its class name. A parametrized generic model such as `Event[int]` with no `__outbox_topic__` warns the same way, since from 0.46.0 it takes `Event`, shared by every parametrization. Set `__outbox_topic__` on the model itself to choose its topic. ([#1313](https://github.com/grelinfo/grelmicro/issues/1313))
 
 ### Fixed
+* 🐛 On FastAPI 0.164 and later, a frontend route under an included router answers its caller again instead of `401` for every request. ([#1350](https://github.com/grelinfo/grelmicro/pull/1350))
+* 🐛 On FastAPI 0.164 and later, `max_body_size` on the app or a router no longer stops `IdempotentRequests` from replaying or `CachedResponses(include=...)` from caching. ([#1350](https://github.com/grelinfo/grelmicro/pull/1350))
 * 🐛 A task that fails at start or at stop makes `async with Tasks(...)` raise its own error in an `ExceptionGroup`, not `CancelledError`. A failed start also stops the tasks already running. ([#1283](https://github.com/grelinfo/grelmicro/pull/1283))
 * 🐛 mypy and ty report an import of a name a grelmicro module does not have, such as `from grelmicro.cache import Lock`, instead of typing it as `object`. ([#1316](https://github.com/grelinfo/grelmicro/pull/1316))
 * 🐛 `micro.providers`, `micro.describe()` and `grelmicro check` list a provider passed only to a component, such as `Outbox(PostgresProvider(...))`, before the app opens. ([#1328](https://github.com/grelinfo/grelmicro/issues/1328))
