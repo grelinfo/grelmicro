@@ -1649,7 +1649,7 @@ class _NoName(type):
     """A metaclass whose `__name__` raises, so naming the type runs code."""
 
     @property
-    def __name__(cls) -> str:  # ty: ignore[invalid-property-type-override]
+    def __name__(cls) -> str:  # ty: ignore[incompatible-property-override]
         msg = "no name for you"
         raise RuntimeError(msg)
 

@@ -66,6 +66,10 @@ across replicas through the lock backend of the app's
 turns folding off. A lock backend that fails, or is missing, is reported and
 does not fail the request: the handler answers it.
 
+The wait ends when the handler's response is complete. A background task runs
+after the response is sent, so it holds up neither the caller nor the requests
+waiting for it. One that fails leaves the response stored.
+
 A request's own `Cache-Control` is not read. This answers for the resource
 rather than for one caller, so honouring `no-cache` from an unauthenticated
 caller would let anybody spend the handler at will.

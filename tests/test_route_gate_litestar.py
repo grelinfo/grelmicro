@@ -512,9 +512,9 @@ class TestNothingIsSpentOnARefusal:
         calls = Calls()
         backend = CountingCache()
         idempotent = (
-            IdempotentRequests(key=key_function)
+            IdempotentRequests(fingerprint_body=False, key=key_function)
             if key_function
-            else IdempotentRequests()
+            else IdempotentRequests(fingerprint_body=False)
         )
         app = catalog(calls, Cache(backend), idempotent)
         with TestClient(app) as client:
@@ -625,7 +625,7 @@ class TestAnAnonymousHandler:
         app = installed(
             Litestar([signup]),
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(),
+            IdempotentRequests(fingerprint_body=False),
         )
         with TestClient(app) as client:
             first, retried = (
@@ -655,7 +655,7 @@ class TestAnAnonymousHandler:
             app = installed(
                 Litestar([signup], middleware=middleware),
                 Cache(MemoryCacheAdapter()),
-                IdempotentRequests(),
+                IdempotentRequests(fingerprint_body=False),
             )
         with TestClient(app, raise_server_exceptions=False) as client:
             first, retried = (
@@ -699,7 +699,7 @@ class TestAnAnonymousHandler:
             async def __call__(
                 self, scope: Scope, receive: Receive, send: Send
             ) -> None:
-                seen.append(scope.get("route_handler").name)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+                seen.append(scope.get("route_handler").name)  # type: ignore[union-attr]  # ty: ignore[missing-union-attribute]
                 await self.app(scope, receive, send)
 
         @get("/public", opt=Anonymous(), name="public")

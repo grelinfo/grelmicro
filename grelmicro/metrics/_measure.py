@@ -179,7 +179,7 @@ def measure[**P, R](
                 finally:
                     m.exit(start, attributes)
 
-            return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+            return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-explicit-return]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:

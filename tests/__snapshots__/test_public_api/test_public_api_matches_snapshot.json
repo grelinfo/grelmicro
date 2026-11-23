@@ -344,7 +344,7 @@
       "()": "(*args, **kwargs)"
     },
     "IdempotencyMiddleware": {
-      "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, max_wait=10.0, include=(), exclude=(), reused_status=422, live=None) -> 'None'"
+      "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key=None, skip=None, require_key=False, fingerprint_body=None, max_body_size=1048576, max_wait=10.0, include=(), exclude=(), reused_status=422, live=None) -> 'None'"
     },
     "IdempotentRequests": {
       "()": "(*, ttl=None, namespace='http', cache=None, requires=None, key_header=None, replay_header=None, methods=None, key=None, skip=None, require_key=None, fingerprint_body=None, max_body_size=None, max_wait=None, include=None, exclude=None, reused_status=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",

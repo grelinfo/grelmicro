@@ -429,6 +429,27 @@ def split_tables(*, adapter: str, old: str, new: str) -> FutureChange:
     )
 
 
+DEFAULT_FINGERPRINT_BODY = FutureChange(
+    change="`IdempotentRequests(fingerprint_body=)` defaults to `True`",
+    switch_in="0.46.0",
+    keep="fingerprint_body=False",
+    adopt="fingerprint_body=True",
+)
+"""A key reused with a different body is refused by default."""
+
+
+def default_fingerprint_body(owner: str) -> FutureChange:
+    """Return `DEFAULT_FINGERPRINT_BODY` worded for `owner`.
+
+    `owner` is the class that took `fingerprint_body`, such as
+    `IdempotencyMiddleware`.
+    """
+    return replace(
+        DEFAULT_FINGERPRINT_BODY,
+        change=f"`{owner}(fingerprint_body=)` defaults to `True`",
+    )
+
+
 PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     UNKNOWN_REQUIRES,
     LONG_TABLE_NAME,
@@ -436,5 +457,6 @@ PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     SPLIT_TABLES,
     INHERITED_OUTBOX_TOPIC,
     GENERIC_OUTBOX_TOPIC,
+    DEFAULT_FINGERPRINT_BODY,
 )
 """Every behavior change, rename and removal that currently warns."""

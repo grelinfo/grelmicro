@@ -84,7 +84,7 @@ raises](#0-42-raising).
 | `ModuleNotFoundError: No module named 'grelmicro.metrics.fastapi'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ImportError: cannot import name 'CacheError' from 'grelmicro.cache'` | 0.42 | [Delete the `except CacheError:` block](#0-42-cache-error) |
 | `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to interval` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
-| `SettingsValidationError` or `ValueError`: `... must be whole seconds or a timedelta` | 0.42 | [Pass whole seconds or a `timedelta`](#0-42-durations) |
+| `SettingsValidationError` or `ValueError`: `... must be an int of whole seconds or a timedelta, got float` | 0.42 | [Pass whole seconds or a `timedelta`](#0-42-durations) |
 | `TypeError: TaskRouter.every() got an unexpected keyword argument 'seconds'` | 0.42 | [Pass `interval=`](#0-42-durations) |
 | `TypeError: ... got an unexpected keyword argument 'misfire_grace_seconds'` | 0.42 | [Pass `misfire_grace=`](#0-42-durations) |
 | `TypeError: ... got an unexpected keyword argument 'ignore_exceptions'` from a `CircuitBreaker` | 0.42 | [Pass `when=`](#0-42-when) |
@@ -147,6 +147,8 @@ raises](#0-42-raising).
 - A Postgres or SQLite lock or schedule adapter, or a SQLite read-write lock adapter, left at its default table name still uses that table, and now warns with `Grelmicro046Warning`. From 0.46.0 the default takes the `grelmicro_` prefix. [Pick the table names](#0-45-table-prefix).
 - An outbox payload model that inherits `__outbox_topic__` from a parent still takes the parent's topic, and now warns with `Grelmicro046Warning`. From 0.46.0 it takes its class name. [Set the topic on the model](#0-45-outbox-subclass-topic).
 - A parametrized generic outbox payload model such as `Event[int]`, with no `__outbox_topic__`, still takes the topic `Event[int]`, and now warns with `Grelmicro046Warning`. From 0.46.0 it takes `Event`. [Set the topic on the model](#0-45-outbox-subclass-topic).
+- `IdempotentRequests` and `IdempotencyMiddleware` with `fingerprint_body` left out still replay the first response to a key reused with a different body, and now warn with `Grelmicro046Warning`. From 0.46.0 they answer `422`. [Choose the body check](#0-45-fingerprint-body).
+- Under `fingerprint_body=True`, a request body over `max_body_size` runs the handler instead of being answered `413`. [Choose the body check](#0-45-fingerprint-body).
 
 ### Changes that raise {#0-45-raising}
 
@@ -523,6 +525,44 @@ Messages already stored keep their topic, so they still reach the parent's
 handler, in 0.45 and after the switch. A message published under the new
 topic stays pending until a handler for that topic runs, so deploy the
 handler before the model that publishes under it.
+
+### A reused key with a different body is refused in 0.46.0 {#0-45-fingerprint-body}
+
+Until 0.46.0, `fingerprint_body` defaults to `False`. A key reused with a
+different body then replays the first response, so the second request is
+never run and the client is told it succeeded. From 0.46.0 it defaults to
+`True`, and that request gets `422`, as the
+[Idempotency-Key header draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/)
+asks.
+
+Left out, `IdempotentRequests` warns with `Grelmicro046Warning` where it is
+built, and so does an `IdempotencyMiddleware` added by hand. Either value
+silences the warning.
+
+- `fingerprint_body=True` adopts the check now, so the switch in 0.46.0
+  changes nothing.
+- `fingerprint_body=False` keeps the replay, now and after 0.46.0.
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.http import IdempotentRequests
+
+# Before: warns, and answers 422 to a reused key with a new body in 0.46.0
+micro = Grelmicro(uses=[IdempotentRequests()])
+
+# After: checks the body now, the same in 0.46.0
+micro = Grelmicro(uses=[IdempotentRequests(fingerprint_body=True)])
+```
+
+`IdempotentRequestsConfig(fingerprint_body=...)` and
+`GREL_IDEMPOTENT_REQUESTS_FINGERPRINT_BODY` silence it too.
+
+The body is hashed as it streams, so the check holds no body in memory. A
+body over `max_body_size` is no longer answered `413`. That limit caps the
+stored response only. The OpenAPI schema no longer lists the `413`.
+
+A response stored before the check was on carries no hash, so a reused key
+replays it until it expires.
 
 Full list: [Unreleased in the changelog](changelog.md#unreleased)
 

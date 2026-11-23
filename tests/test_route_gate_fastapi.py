@@ -8,6 +8,7 @@ request, and the answering middleware run around the route it admitted.
 
 from __future__ import annotations
 
+import inspect
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
@@ -84,6 +85,12 @@ UNPROCESSABLE = 422
 TOO_MANY_REQUESTS = 429
 ORIGIN = "https://app.example"
 PREFLIGHT = {"origin": ORIGIN, "access-control-request-method": "GET"}
+
+needs_body_limit = pytest.mark.skipif(
+    "max_body_size" not in inspect.signature(FastAPI).parameters,
+    reason="This FastAPI release limits no request body.",
+)
+"""Skips a test on a FastAPI release without `max_body_size`."""
 
 
 def installed(app: Any, *uses: Any, **options: Any) -> Any:  # noqa: ANN401
@@ -920,9 +927,9 @@ class TestNothingIsSpentOnARefusal:
         calls = Calls()
         backend = CountingCache()
         idempotent = (
-            IdempotentRequests(key=key_function)
+            IdempotentRequests(fingerprint_body=False, key=key_function)
             if key_function
-            else IdempotentRequests()
+            else IdempotentRequests(fingerprint_body=False)
         )
         app = catalog(calls, Cache(backend), idempotent)
         with TestClient(app) as client:
@@ -980,7 +987,39 @@ class TestAnAnonymousRoute:
             calls.served.append("signup")
             return {"signed": True}
 
-        installed(app, Cache(MemoryCacheAdapter()), IdempotentRequests())
+        installed(
+            app,
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(fingerprint_body=False),
+        )
+        with TestClient(app) as client:
+            first, retried = (
+                client.post("/signups", headers={"Idempotency-Key": "k-1"})
+                for _ in range(2)
+            )
+
+            assert first.status_code == retried.status_code == CREATED
+            assert retried.headers["idempotent-replayed"] == "true"
+        assert calls.served == ["signup"]
+
+    @needs_body_limit
+    def test_a_write_under_a_body_limit_retried_with_its_key_is_replayed(
+        self,
+    ) -> None:
+        """The app's `max_body_size` checks no caller."""
+        calls = Calls()
+        app = FastAPI(openapi_url=None, max_body_size=1024)
+
+        @app.post("/signups", dependencies=[Anonymous()], status_code=CREATED)
+        async def signup() -> dict[str, bool]:
+            calls.served.append("signup")
+            return {"signed": True}
+
+        installed(
+            app,
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(fingerprint_body=False),
+        )
         with TestClient(app) as client:
             first, retried = (
                 client.post("/signups", headers={"Idempotency-Key": "k-1"})
@@ -1251,6 +1290,28 @@ class TestFrontendRoutes:
         )
         assert client.get("/site/index.html").text == "<p>app</p>"
 
+    @needs_body_limit
+    def test_one_an_include_limits_the_body_of_is_gated(
+        self, site: str
+    ) -> None:
+        """Inside the include's `max_body_size`."""
+        public = APIRouter(dependencies=[Anonymous()])
+        public.frontend("/", directory=site)
+        private = APIRouter()
+        private.frontend("/", directory=site)
+        app = FastAPI(openapi_url=None)
+        app.include_router(public, prefix="/site", max_body_size=8)
+        app.include_router(private, prefix="/admin", max_body_size=8)
+        installed(app)
+        client = TestClient(app)
+
+        assert client.get("/site/index.html").text == "<p>app</p>"
+        assert client.get("/admin/index.html").status_code == UNAUTHORIZED
+        assert (
+            client.get("/admin/index.html", headers=bearer(token())).text
+            == "<p>app</p>"
+        )
+
     def test_one_added_later_is_gated(self, site: str) -> None:
         """As it lands after every other route."""
         app = installed(FastAPI(openapi_url=None))
@@ -1481,6 +1542,36 @@ class TestDeclarations:
                 methods=frozenset({"GET"}),
                 scopes=frozenset({"me:read", "orders:read"}),
             )
+        ]
+
+    @needs_body_limit
+    def test_a_body_limit_checks_no_caller(self) -> None:
+        """`max_body_size` on the app, a route, an include, a mounted router or a mounted app."""
+        router = APIRouter()
+        router.post("/included")(listed)
+        limited = APIRouter(max_body_size=8)
+        limited.post("/")(listed)
+        sub = FastAPI(openapi_url=None, max_body_size=8)
+        sub.post("/")(listed)
+        app = FastAPI(openapi_url=None, max_body_size=8)
+        app.post("/route", max_body_size=8)(listed)
+        app.include_router(router, max_body_size=8)
+        app.mount("/router", limited)
+        app.mount("/app", sub)
+
+        assert [
+            (
+                declaration.path,
+                declaration.own_checks,
+                declaration.checked_above,
+            )
+            for declaration in route_declarations(app)
+        ] == [
+            ("/route", False, False),
+            ("/included", False, False),
+            ("/router/", False, False),
+            ("/app", False, False),
+            ("/app/", False, False),
         ]
 
     def test_a_dependency_of_the_app_is_a_check_of_its_own(self) -> None:

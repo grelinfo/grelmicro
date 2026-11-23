@@ -68,7 +68,8 @@ def test_duplicate_filter_config_float_ttl_refused(value: object) -> None:
     """A float or a bool `ttl` is refused when the config is built."""
     # Act / Assert
     with pytest.raises(
-        ValidationError, match="ttl must be whole seconds or a timedelta"
+        ValidationError,
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         DuplicateFilterConfig(ttl=value)
 
@@ -132,7 +133,7 @@ def test_duplicate_filter_float_ttl_refused(value: Any) -> None:  # noqa: ANN401
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         DuplicateFilter(ttl=value, env_load=False)
 

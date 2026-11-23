@@ -3102,7 +3102,10 @@ class TestDeclarationsElsewhere:
 
         app.include_router(public)
         micro = Grelmicro(
-            uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()]
+            uses=[
+                Cache(MemoryCacheAdapter()),
+                IdempotentRequests(fingerprint_body=False),
+            ]
         )
         micro.install(app)
 

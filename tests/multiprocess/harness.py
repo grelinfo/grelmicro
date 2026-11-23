@@ -62,7 +62,7 @@ def run_workers(
         processes = [
             # Typeshed types `get_context` as the abstract base, which does
             # not carry `Process`, but every concrete context does.
-            context.Process(target=worker, args=(barrier, results, *args))  # ty: ignore[unresolved-attribute]
+            context.Process(target=worker, args=(barrier, results, *args))  # ty: ignore[missing-attribute]
             for _ in range(count)
         ]
         for process in processes:

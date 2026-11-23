@@ -613,7 +613,7 @@ def _resolve_from_env[C: BaseModel](
         # ty cannot prove that `settings_cls` accepts the kwargs declared on
         # `config_cls` or that it returns `C`. Pydantic's runtime validation
         # enforces the contract.
-        return settings_cls(**provided)  # ty: ignore[invalid-return-type, invalid-argument-type]
+        return settings_cls(**provided)  # ty: ignore[invalid-explicit-return, invalid-argument-type]
     except ValidationError as error:
         # An aliased field is reported under its first variable, a plain
         # one under its name, so both keys lead to the same variables.

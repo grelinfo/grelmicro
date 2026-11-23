@@ -715,9 +715,10 @@ def test_describe_idempotency_matches_dependency_gate_policy(
 ) -> None:
     """Default keys bypass dependency routes; custom identity keys may replay."""
     component = IdempotentRequests(
+        fingerprint_body=False,
         key=(lambda scope, key: f"{scope['path']}:{key}")
         if key_kind == "custom"
-        else None
+        else None,
     )
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -746,9 +747,10 @@ def test_describe_idempotency_matches_nested_runtime_gates(
 ) -> None:
     """Mounted auth and nested dependency gates use runtime's path policy."""
     component = IdempotentRequests(
+        fingerprint_body=False,
         key=(lambda scope, key: f"{scope['path']}:{key}")
         if key_kind == "custom"
-        else None
+        else None,
     )
 
     async def post(_request: Any) -> JSONResponse:  # noqa: ANN401
@@ -895,7 +897,7 @@ def test_describe_idempotency_matches_authentication_boundaries(
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(),
+            IdempotentRequests(fingerprint_body=False),
         ],
         environment="development",
     )
@@ -928,7 +930,10 @@ def test_describe_idempotency_keeps_route_authentication_method_local() -> None:
         ]
     )
     micro = Grelmicro(
-        uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()],
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(fingerprint_body=False),
+        ],
         environment="development",
     )
 
@@ -948,7 +953,7 @@ def test_describe_idempotency_refreshes_dynamic_auth_topology() -> None:
         return JSONResponse({"ok": True})
 
     app = Starlette(routes=[Route("/public", post, methods=["POST"])])
-    component = IdempotentRequests()
+    component = IdempotentRequests(fingerprint_body=False)
     micro = Grelmicro(
         uses=[Cache(MemoryCacheAdapter()), component],
         environment="development",

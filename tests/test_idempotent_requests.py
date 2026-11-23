@@ -50,7 +50,7 @@ from grelmicro import (
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
-from grelmicro.errors import SettingsValidationError
+from grelmicro.errors import Grelmicro046Warning, SettingsValidationError
 from grelmicro.http import (
     CachedResponses,
     IdempotencyMiddleware,
@@ -109,7 +109,7 @@ def _charge_app(*components: Usable) -> tuple[FastAPI, Grelmicro]:
 def test_a_registered_component_replays_a_repeated_key() -> None:
     """`uses=[IdempotentRequests()]` is the whole wiring."""
     # Arrange
-    app, _micro = _charge_app(IdempotentRequests())
+    app, _micro = _charge_app(IdempotentRequests(fingerprint_body=False))
 
     # Act
     with TestClient(app) as client:
@@ -125,7 +125,9 @@ def test_a_registered_component_replays_a_repeated_key() -> None:
 def test_the_bare_form_stores_under_the_http_namespace() -> None:
     """`IdempotentRequests()` carries its own settings, and needs none."""
     # Act
-    _middleware, options = IdempotentRequests().asgi_middleware()
+    _middleware, options = IdempotentRequests(
+        fingerprint_body=False
+    ).asgi_middleware()
 
     # Assert
     assert options["idempotency"].name == "http"
@@ -199,7 +201,7 @@ def test_from_config_forwards_every_option_beside_the_config() -> None:
 
     # Act
     component = IdempotentRequests.from_config(
-        IdempotentRequestsConfig(),
+        IdempotentRequestsConfig(fingerprint_body=False),
         namespace="payments",
         ttl=30,
         cache=cache,
@@ -221,19 +223,21 @@ def test_from_config_forwards_every_option_beside_the_config() -> None:
     [
         pytest.param(
             {"GREL_IDEMPOTENT_REQUESTS_KEY_HEADER": "X-Shared-Key"},
-            lambda: IdempotentRequests(name="checkout"),
+            lambda: IdempotentRequests(fingerprint_body=False, name="checkout"),
             "X-Shared-Key",
             id="kind-wide",
         ),
         pytest.param(
             {"CHECKOUT_KEY_HEADER": "X-Checkout-Key"},
-            lambda: IdempotentRequests(env_prefix="CHECKOUT_"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, env_prefix="CHECKOUT_"
+            ),
             "X-Checkout-Key",
             id="env-prefix",
         ),
         pytest.param(
             {"GREL_IDEMPOTENT_REQUESTS_KEY_HEADER": "X-Shared-Key"},
-            lambda: IdempotentRequests(env_load=False),
+            lambda: IdempotentRequests(fingerprint_body=False, env_load=False),
             HEADER,
             id="env-load-false",
         ),
@@ -262,7 +266,9 @@ def test_a_custom_replay_header_marks_the_replay() -> None:
     """No standard names the header, so a service picks what its clients read."""
     # Arrange
     app, _micro = _charge_app(
-        IdempotentRequests(replay_header="X-Idempotent-Replayed")
+        IdempotentRequests(
+            fingerprint_body=False, replay_header="X-Idempotent-Replayed"
+        )
     )
 
     # Act
@@ -279,47 +285,69 @@ def test_a_custom_replay_header_marks_the_replay() -> None:
     "build",
     [
         pytest.param(
-            lambda: IdempotentRequests(key_header="Idempotency Key"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, key_header="Idempotency Key"
+            ),
             id="key-header-space",
         ),
         pytest.param(
-            lambda: IdempotentRequests(replay_header=""),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, replay_header=""
+            ),
             id="replay-header-empty",
         ),
         pytest.param(
-            lambda: IdempotentRequests(replay_header="Rejeu-Idempotent\xe9"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, replay_header="Rejeu-Idempotent\xe9"
+            ),
             id="non-ascii",
         ),
         pytest.param(
-            lambda: IdempotentRequests(key_header="Idempotency-Key\n"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, key_header="Idempotency-Key\n"
+            ),
             id="trailing-newline",
         ),
         pytest.param(
-            lambda: IdempotentRequests(replay_header="Content-Length"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, replay_header="Content-Length"
+            ),
             id="frames-the-response",
         ),
         pytest.param(
-            lambda: IdempotentRequests(replay_header="Content-Type"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, replay_header="Content-Type"
+            ),
             id="labels-the-response",
         ),
         pytest.param(
-            lambda: IdempotentRequests(replay_header="ETag"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, replay_header="ETag"
+            ),
             id="caches-the-response",
         ),
         pytest.param(
-            lambda: IdempotentRequests(replay_header="Retry-After"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, replay_header="Retry-After"
+            ),
             id="paces-the-client",
         ),
         pytest.param(
-            lambda: IdempotentRequests(replay_header="Content-Disposition"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, replay_header="Content-Disposition"
+            ),
             id="names-the-download",
         ),
         pytest.param(
-            lambda: IdempotentRequests(key_header=_NOT_A_STRING),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, key_header=_NOT_A_STRING
+            ),
             id="not-a-string",
         ),
         pytest.param(
-            lambda: IdempotentRequests(key_header="Content-Type"),
+            lambda: IdempotentRequests(
+                fingerprint_body=False, key_header="Content-Type"
+            ),
             id="every-request-carries-it",
         ),
     ],
@@ -344,6 +372,7 @@ def test_the_middleware_refuses_a_broken_header_name_of_its_own() -> None:
             app,
             idempotency=Idempotency("http"),
             replay_header="Idempotent Replayed",
+            fingerprint_body=False,
         )
 
 
@@ -352,9 +381,10 @@ def test_a_hand_added_middleware_defaults_to_what_the_component_defaults_to() ->
 ):
     """Both doors answer the same way when nothing is passed."""
     # Act
-    middleware = IdempotencyMiddleware(
-        FastAPI(), idempotency=Idempotency("http")
-    )
+    with pytest.warns(Grelmicro046Warning):
+        middleware = IdempotencyMiddleware(
+            FastAPI(), idempotency=Idempotency("http")
+        )
 
     # Assert
     assert middleware._live.state.config == IdempotentRequestsConfig()
@@ -378,9 +408,12 @@ def test_a_hand_added_middleware_keeps_every_option_it_is_given(
     value: Any,  # noqa: ANN401
 ) -> None:
     """What the middleware is built with is what it answers with."""
+    # Arrange
+    options: dict[str, Any] = {"fingerprint_body": False, option: value}
+
     # Act
     middleware = IdempotencyMiddleware(
-        FastAPI(), idempotency=Idempotency("http"), **{option: value}
+        FastAPI(), idempotency=Idempotency("http"), **options
     )
 
     # Assert
@@ -393,7 +426,10 @@ def test_the_replay_marker_is_the_only_value_under_its_name(
     """The marker means a replay, so a fresh response never carries it."""
     # Arrange
     micro = Grelmicro(
-        uses=[MemoryProvider(), IdempotentRequests(replay_header="X-Cache")]
+        uses=[
+            MemoryProvider(),
+            IdempotentRequests(fingerprint_body=False, replay_header="X-Cache"),
+        ]
     )
     app = FastAPI()
 
@@ -426,7 +462,7 @@ def test_a_response_without_the_marker_name_says_nothing(
 ) -> None:
     """Only a response carrying the marker's name is reported."""
     # Arrange
-    app, _micro = _charge_app(IdempotentRequests())
+    app, _micro = _charge_app(IdempotentRequests(fingerprint_body=False))
 
     # Act
     with TestClient(app) as client:
@@ -440,9 +476,13 @@ def test_a_response_without_the_marker_name_says_nothing(
 @pytest.mark.parametrize(
     "build",
     [
-        pytest.param(IdempotentRequests, id="arguments"),
         pytest.param(
-            lambda: IdempotentRequests.from_config(IdempotentRequestsConfig()),
+            lambda: IdempotentRequests(fingerprint_body=False), id="arguments"
+        ),
+        pytest.param(
+            lambda: IdempotentRequests.from_config(
+                IdempotentRequestsConfig(fingerprint_body=False)
+            ),
             id="from-config",
         ),
     ],
@@ -467,12 +507,14 @@ def test_openapi_false_keeps_one_set_of_rules_out_of_the_schema() -> None:
     # Arrange
     app, _micro = _charge_app(
         IdempotentRequests(
+            fingerprint_body=False,
             name="quiet",
             key_header="X-Quiet-Key",
             replay_header="X-Quiet-Replayed",
             openapi=False,
         ),
         IdempotentRequests(
+            fingerprint_body=False,
             name="loud",
             key_header="X-Loud-Key",
             replay_header="X-Loud-Replayed",
@@ -490,7 +532,9 @@ def test_openapi_false_keeps_one_set_of_rules_out_of_the_schema() -> None:
 def test_openapi_false_leaves_the_schema_alone() -> None:
     """A service that publishes its own schema keeps it untouched."""
     # Arrange
-    app, _micro = _charge_app(IdempotentRequests(openapi=False))
+    app, _micro = _charge_app(
+        IdempotentRequests(fingerprint_body=False, openapi=False)
+    )
 
     # Act
     operation = app.openapi()["paths"]["/charge"]["post"]
@@ -504,9 +548,14 @@ def test_registration_order_is_wrapping_order() -> None:
     """The first one registered is the outermost, and the binding is above both."""
     # Arrange
     app, _micro = _charge_app(
-        IdempotentRequests(namespace="outer", key_header="X-Outer"),
         IdempotentRequests(
-            namespace="inner", key_header="X-Inner", name="second"
+            fingerprint_body=False, namespace="outer", key_header="X-Outer"
+        ),
+        IdempotentRequests(
+            fingerprint_body=False,
+            namespace="inner",
+            key_header="X-Inner",
+            name="second",
         ),
     )
 
@@ -540,7 +589,9 @@ def test_litestar_wraps_the_middleware_inside_what_renders_errors() -> None:
     async def charge() -> dict[str, int]:
         return {"amount": 100}
 
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     app = Litestar(route_handlers=[charge])
 
     # Act
@@ -580,12 +631,14 @@ def _crashed(request: Any, exc: Exception) -> LitestarResponse[str]:  # noqa: AN
 _DECLARED_IDEMPOTENCY = DefineMiddleware(
     IdempotencyMiddleware,  # ty: ignore[invalid-argument-type]
     idempotency=Idempotency("http"),
+    fingerprint_body=False,
 )
 """The idempotency middleware as an app declares it in its own stack."""
 
 _INNER_IDEMPOTENCY = DefineMiddleware(
     IdempotencyMiddleware,  # ty: ignore[invalid-argument-type]
     idempotency=Idempotency("inner"),
+    fingerprint_body=False,
 )
 """A second idempotency middleware, under the one the app declares."""
 
@@ -620,7 +673,9 @@ def _litestar_app(
         middleware=middleware,
         exception_handlers={_DeclinedError: _declined, **(catch_all or {})},
     )
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MiddlewarePlacementWarning)
         micro.install(app)
@@ -789,7 +844,9 @@ def _starlette_app(framework: str) -> Starlette:
         else Starlette(routes=routes)
     )
     app.state.calls = calls
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
     return app
 
 
@@ -835,7 +892,9 @@ def test_litestar_replays_a_repeated_key() -> None:
     async def charge() -> dict[str, int]:
         return {"amount": 100}
 
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     app = Litestar(route_handlers=[charge])
     micro.install(app)
 
@@ -855,7 +914,7 @@ def test_install_middleware_wires_an_app_that_never_went_through_install() -> (
     """The integration hook is callable on its own, like the others."""
     # Arrange
     micro = Grelmicro(uses=[MemoryProvider()])
-    component = IdempotentRequests()
+    component = IdempotentRequests(fingerprint_body=False)
 
     async def charge(request: Request) -> JSONResponse:  # noqa: ARG001
         return JSONResponse({"amount": 100})
@@ -877,7 +936,7 @@ def test_litestar_install_middleware_alone_never_replays_a_crash() -> None:
     """Called without `install`, it still stores nothing for an unhandled exception."""
     # Arrange
     micro = Grelmicro(uses=[MemoryProvider()])
-    component = IdempotentRequests()
+    component = IdempotentRequests(fingerprint_body=False)
     calls: list[int] = []
 
     @post("/boom", status_code=200)
@@ -1056,7 +1115,9 @@ def test_litestar_wraps_the_handler_when_there_is_no_binding() -> None:
 def test_the_ttl_needs_no_pattern_object() -> None:
     """The common case sets a lifetime, not an `Idempotency`."""
     # Act
-    _middleware, options = IdempotentRequests(ttl=3600).asgi_middleware()
+    _middleware, options = IdempotentRequests(
+        fingerprint_body=False, ttl=3600
+    ).asgi_middleware()
 
     # Assert
     assert options["idempotency"].name == "http"
@@ -1066,7 +1127,9 @@ def test_the_ttl_needs_no_pattern_object() -> None:
 def test_the_store_is_reachable_for_the_code_that_needs_it() -> None:
     """The component owns the `Idempotency`, and hands it over on request."""
     # Arrange
-    component = IdempotentRequests(ttl=30, namespace="payments")
+    component = IdempotentRequests(
+        fingerprint_body=False, ttl=30, namespace="payments"
+    )
 
     # Act / Assert
     assert component.idempotency.name == "payments"
@@ -1075,7 +1138,9 @@ def test_the_store_is_reachable_for_the_code_that_needs_it() -> None:
 def test_an_excluded_path_is_never_replayed() -> None:
     """`exclude` is the same word, and the same matching, as everywhere."""
     # Arrange
-    app, _micro = _charge_app(IdempotentRequests(exclude=("/charge",)))
+    app, _micro = _charge_app(
+        IdempotentRequests(fingerprint_body=False, exclude=("/charge",))
+    )
 
     # Act
     with TestClient(app) as client:
@@ -1091,7 +1156,12 @@ def test_include_selects_a_router_by_its_prefix() -> None:
     """Grouping endpoints is what a router is for, so selection follows it."""
     # Arrange
     micro = Grelmicro(
-        uses=[MemoryProvider(), IdempotentRequests(include=("/payments/*",))]
+        uses=[
+            MemoryProvider(),
+            IdempotentRequests(
+                fingerprint_body=False, include=("/payments/*",)
+            ),
+        ]
     )
     app = FastAPI()
     payments = APIRouter(prefix="/payments")
@@ -1126,7 +1196,9 @@ def test_exclude_carves_a_route_out_of_an_included_router() -> None:
         uses=[
             MemoryProvider(),
             IdempotentRequests(
-                include=("/payments/*",), exclude=("/payments/webhook",)
+                fingerprint_body=False,
+                include=("/payments/*",),
+                exclude=("/payments/webhook",),
             ),
         ]
     )
@@ -1182,7 +1254,9 @@ def test_a_replay_never_skips_the_app_authentication() -> None:
     the order that would break this if the placement were wrong.
     """
     # Arrange
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     app = FastAPI()
     calls = 0
 
@@ -1224,9 +1298,10 @@ def test_an_identity_aware_key_makes_private_requests_idempotent() -> None:
         uses=[
             MemoryProvider(),
             IdempotentRequests(
+                fingerprint_body=False,
                 key=lambda scope, key: (
                     f"verified-user\x1f{scope['path']}\x1f{key}"
-                )
+                ),
             ),
         ]
     )
@@ -1262,7 +1337,9 @@ def test_an_identity_aware_key_makes_private_requests_idempotent() -> None:
 def test_grelmicro_middleware_stays_outside_and_the_rest_inside() -> None:
     """The binding wraps everything, and ours sit closest to the handler."""
     # Arrange
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     app = FastAPI()
     app.add_middleware(_RequireToken)
 
@@ -1303,7 +1380,9 @@ def test_litestar_warns_when_the_wrap_sits_outside_app_middleware() -> None:
         return {"amount": 100}  # pragma: no cover
 
     app = Litestar(route_handlers=[charge], middleware=[Auth()])
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
 
     # Act / Assert
     with pytest.warns(MiddlewarePlacementWarning, match="Litestar"):
@@ -1324,10 +1403,13 @@ def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:
             DefineMiddleware(
                 IdempotencyMiddleware,  # ty: ignore[invalid-argument-type]
                 idempotency=Idempotency("http"),
+                fingerprint_body=False,
             )
         ],
     )
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
 
     # Act
     micro.install(app)
@@ -1365,14 +1447,20 @@ def test_idempotency_middleware_hostile_key_is_named_not_printed() -> None:
 def test_a_hand_added_middleware_is_not_added_twice() -> None:
     """An app that wired it itself placed it where it wanted."""
     # Arrange
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     app = FastAPI()
 
     @app.post("/charge")
     async def charge() -> dict[str, int]:
         return {"amount": 100}
 
-    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        fingerprint_body=False,
+    )
 
     # Act
     micro.install(app)
@@ -1391,7 +1479,9 @@ async def test_a_key_holding_bytes_a_header_cannot_carry_is_refused() -> None:
     or a hand-rolled client does not.
     """
     # Arrange
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     reached: list[int] = []
 
     async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
@@ -1405,7 +1495,9 @@ async def test_a_key_holding_bytes_a_header_cannot_carry_is_refused() -> None:
         )
         await send({"type": "http.response.body", "body": b""})
 
-    middleware, options = IdempotentRequests().asgi_middleware()
+    middleware, options = IdempotentRequests(
+        fingerprint_body=False
+    ).asgi_middleware()
     wrapped = middleware(app, **options)
     sent: list[dict[str, Any]] = []
 
@@ -1454,9 +1546,11 @@ def test_installing_after_the_app_started_says_so() -> None:
 
     # Act / Assert
     with pytest.raises(RuntimeError, match="after an application has started"):
-        install_middleware(app, [IdempotentRequests()])
+        install_middleware(app, [IdempotentRequests(fingerprint_body=False)])
     with pytest.raises(RuntimeError, match="after an application has started"):
-        Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+        Grelmicro(
+            uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+        ).install(app)
 
 
 def test_installing_twice_wires_one_of_each() -> None:
@@ -1466,7 +1560,9 @@ def test_installing_twice_wires_one_of_each() -> None:
     idempotency layers store, capture and answer twice.
     """
     # Arrange
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     app = FastAPI()
 
     @app.post("/charge")
@@ -1492,7 +1588,9 @@ def test_installing_twice_on_litestar_wires_one_of_each() -> None:
     async def charge() -> dict[str, int]:
         return {"amount": 100}  # pragma: no cover
 
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     app = Litestar(route_handlers=[charge])
 
     # Act
@@ -1527,7 +1625,9 @@ def test_litestar_stays_under_the_error_layer_with_cors_configured() -> None:
         msg = "kaboom"
         raise RuntimeError(msg)
 
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     app = Litestar(
         route_handlers=[boom],
         cors_config=CORSConfig(allow_origins=["*"]),
@@ -1559,7 +1659,9 @@ def test_a_parameter_a_mount_and_its_route_both_name_is_served() -> None:
     async def charge() -> dict[str, int]:
         return {"amount": 100}
 
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
 
     # Act
     with TestClient(app) as client:
@@ -1576,6 +1678,7 @@ def test_idempotency_middleware_key_function_builds_the_stored_key() -> None:
         FastAPI(),
         idempotency=Idempotency("custom"),
         key=lambda scope, key: f"{scope['path']}\x1f{key}",
+        fingerprint_body=False,
     )
     scope: Scope = {"type": "http", "method": "POST", "path": "/charge"}
 
@@ -1593,7 +1696,7 @@ def test_idempotent_requests_key_function_reaches_the_middleware() -> None:
     def tenant_key(scope: Scope, key: str) -> str:
         return f"{scope['path']}\x1f{key}"
 
-    component = IdempotentRequests(key=tenant_key)
+    component = IdempotentRequests(fingerprint_body=False, key=tenant_key)
 
     # Act
     _middleware, options = component.asgi_middleware()
@@ -1606,7 +1709,8 @@ def test_idempotent_requests_key_function_reaches_the_middleware() -> None:
     "build",
     [
         pytest.param(
-            lambda legacy: IdempotentRequests(**legacy), id="component"
+            lambda legacy: IdempotentRequests(fingerprint_body=False, **legacy),
+            id="component",
         ),
         pytest.param(
             lambda legacy: IdempotencyMiddleware(
@@ -1640,16 +1744,22 @@ def test_idempotency_key_function_error_names_the_key_parameter() -> None:
 @pytest.mark.parametrize(
     "build",
     [
-        pytest.param(lambda key: IdempotentRequests(key=key), id="component"),
+        pytest.param(
+            lambda key: IdempotentRequests(fingerprint_body=False, key=key),
+            id="component",
+        ),
         pytest.param(
             lambda key: IdempotentRequests.from_config(
-                IdempotentRequestsConfig(), key=key
+                IdempotentRequestsConfig(fingerprint_body=False), key=key
             ),
             id="from_config",
         ),
         pytest.param(
             lambda key: IdempotencyMiddleware(
-                FastAPI(), idempotency=Idempotency("custom"), key=key
+                FastAPI(),
+                idempotency=Idempotency("custom"),
+                key=key,
+                fingerprint_body=False,
             ),
             id="middleware",
         ),
@@ -1690,7 +1800,9 @@ def _starlette_caller_app(**route: Any) -> Starlette:  # noqa: ANN401
     app = Starlette(
         routes=[Route("/whoami", _starlette_caller, methods=["POST"], **route)]
     )
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
     return app
 
 
@@ -1751,7 +1863,9 @@ def _litestar_caller_app(**handler: Any) -> Litestar:  # noqa: ANN401
         return {"caller": request.headers.get("x-api-key")}
 
     app = Litestar(route_handlers=[whoami])
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
     return app
 
 
@@ -1769,7 +1883,9 @@ def _litestar_dependent_app() -> Litestar:
         return {"caller": caller}
 
     app = Litestar(route_handlers=[whoami])
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
     return app
 
 
@@ -1858,7 +1974,9 @@ def _authenticated_app(
     app = Litestar(
         route_handlers=[whoami], middleware=middleware, logging_config=None
     )
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MiddlewarePlacementWarning)
         micro.install(app)
@@ -1951,7 +2069,9 @@ def test_idempotent_requests_litestar_unused_dependency_stays_replayable() -> (
     app = Litestar(
         route_handlers=[whoami], dependencies={"caller": Provide(_caller_of)}
     )
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
 
     # Act
     with LitestarTestClient(app=app) as client:
@@ -1980,7 +2100,9 @@ def test_idempotent_requests_litestar_mount_never_replays_across_callers() -> (
     """A guarded mount runs its guard on every path under it, so each caller runs."""
     # Arrange
     app = Litestar(route_handlers=[_caller_files])
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
 
     # Act
     with LitestarTestClient(app=app) as client:
@@ -2008,7 +2130,9 @@ def test_idempotent_requests_litestar_path_parameter_never_replays_across_caller
         return {"caller": request.headers.get("x-api-key"), "name": name}
 
     app = Litestar(route_handlers=[files])
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
 
     # Act
     with LitestarTestClient(app=app) as client:
@@ -2061,7 +2185,9 @@ def test_idempotent_requests_starlette_mount_middleware_never_replays_across_cal
             )
         ]
     )
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
 
     # Act
     with TestClient(app) as client:
@@ -2091,7 +2217,9 @@ def test_idempotent_requests_mounted_app_middleware_never_replays_across_callers
     )
     sub.add_route("/whoami", _starlette_caller, methods=["POST"])
     app = Starlette(routes=[Mount("/api", app=sub)])
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
 
     # Act
     with TestClient(app) as client:
@@ -2118,7 +2246,9 @@ def test_idempotent_requests_starlette_router_middleware_never_replays_across_ca
         middleware=[Middleware(_CallerCheck)],
     )
     app = Starlette(routes=[Mount("/m", app=router)])
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
 
     # Act
     with TestClient(app) as client:
@@ -2197,7 +2327,9 @@ def test_idempotent_requests_mounted_app_of_another_framework_never_replays_acro
     """An app the walk cannot read checks its callers after the replay decision."""
     # Arrange
     app, path = build()
-    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(fingerprint_body=False)]
+    ).install(app)
     client = (
         LitestarTestClient(app=app)
         if isinstance(app, Litestar)
@@ -2234,7 +2366,7 @@ def test_idempotent_requests_cached_route_under_checked_mount_never_replays_acro
             MemoryProvider(),
             Cache(MemoryCacheAdapter()),
             CachedResponses(),
-            IdempotentRequests(methods=["GET", "POST"]),
+            IdempotentRequests(fingerprint_body=False, methods=["GET", "POST"]),
         ]
     ).install(app)
 

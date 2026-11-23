@@ -85,7 +85,8 @@ def test_idempotency_config_float_ttl_refused(value: float) -> None:
     """A float or a bool TTL is refused when the config is built."""
     # Act / Assert
     with pytest.raises(
-        ValidationError, match="ttl must be whole seconds or a timedelta"
+        ValidationError,
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         IdempotencyConfig(ttl=value)
 
@@ -96,7 +97,7 @@ def test_idempotency_float_ttl_refused(value: float) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         Idempotency("charge", ttl=value, env_load=False)  # ty: ignore[invalid-argument-type]
 
@@ -134,9 +135,9 @@ def test_idempotent_requests_float_ttl_refused(value: float) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
-        IdempotentRequests(ttl=value, env_load=False)  # ty: ignore[invalid-argument-type]
+        IdempotentRequests(fingerprint_body=False, ttl=value, env_load=False)  # ty: ignore[invalid-argument-type]
 
 
 def test_idempotent_requests_env_load_reads_the_ttl_from_environment(
@@ -148,7 +149,7 @@ def test_idempotent_requests_env_load_reads_the_ttl_from_environment(
     monkeypatch.setenv("GREL_IDEMPOTENCY_HTTP_TTL", "PT0.5S")
 
     # Act
-    component = IdempotentRequests(env_load=True)
+    component = IdempotentRequests(fingerprint_body=False, env_load=True)
 
     # Assert
     assert component.idempotency.config.ttl == timedelta(milliseconds=500)
@@ -163,7 +164,7 @@ def test_idempotent_requests_env_load_false_ignores_the_ttl_in_environment(
     monkeypatch.setenv("GREL_IDEMPOTENCY_HTTP_TTL", "PT0.5S")
 
     # Act
-    component = IdempotentRequests(env_load=False)
+    component = IdempotentRequests(fingerprint_body=False, env_load=False)
 
     # Assert
     assert component.idempotency.config.ttl == timedelta(days=1)
@@ -178,7 +179,9 @@ def test_idempotent_requests_from_config_ignores_the_ttl_in_environment(
     monkeypatch.setenv("GREL_IDEMPOTENCY_HTTP_TTL", "PT0.5S")
 
     # Act
-    component = IdempotentRequests.from_config(IdempotentRequestsConfig())
+    component = IdempotentRequests.from_config(
+        IdempotentRequestsConfig(fingerprint_body=False)
+    )
 
     # Assert
     assert component.idempotency.config.ttl == timedelta(days=1)
@@ -225,7 +228,8 @@ def test_cached_responses_config_float_ttl_refused(value: float) -> None:
     """A float or a bool TTL is refused when the config is built."""
     # Act / Assert
     with pytest.raises(
-        ValidationError, match="ttl must be whole seconds or a timedelta"
+        ValidationError,
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         CachedResponsesConfig(ttl=value)
 
@@ -238,7 +242,7 @@ def test_cached_responses_config_float_per_path_ttl_refused(
     # Act / Assert
     with pytest.raises(
         ValidationError,
-        match="pattern 2 in include must be whole seconds or a timedelta",
+        match="pattern 2 in include must be an int of whole seconds or a timedelta",
     ):
         CachedResponsesConfig(include={"/a": 1, "/secret/*": value})
 
@@ -276,7 +280,7 @@ def test_cached_responses_float_ttl_refused(value: float) -> None:
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="ttl must be whole seconds or a timedelta",
+        match="ttl must be an int of whole seconds or a timedelta",
     ):
         CachedResponses(ttl=value, env_load=False)  # ty: ignore[invalid-argument-type]
 

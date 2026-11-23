@@ -216,6 +216,7 @@ def idempotency(**options: Any) -> tuple[type, dict[str, Any]]:  # noqa: ANN401
     """Return the idempotency middleware added by hand."""
     return IdempotencyMiddleware, {
         "idempotency": Idempotency("http", cache=_store()),
+        "fingerprint_body": False,
         **options,
     }
 
@@ -492,12 +493,13 @@ def test_idempotency_middleware_defined_on_litestar_replays_behind_its_authentic
             DefineMiddleware(
                 IdempotencyMiddleware,  # ty: ignore[invalid-argument-type]
                 idempotency=Idempotency("http"),
+                fingerprint_body=False,
             ),
         ],
     )
     uses: list[Any] = [MemoryProvider()]
     if registered:
-        uses.append(IdempotentRequests())
+        uses.append(IdempotentRequests(fingerprint_body=False))
     Grelmicro(uses=uses).install(app)
     headers = {HEADER: "k", "X-API-Key": "expected"}
 

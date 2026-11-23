@@ -66,7 +66,7 @@ def test_coordination_component_float_lease_refused(
 ) -> None:
     """A float or a bool lease is refused by the component."""
     with pytest.raises(
-        SettingsValidationError, match="whole seconds or a timedelta"
+        SettingsValidationError, match="an int of whole seconds or a timedelta"
     ):
         component("cart", **{field: value}, env_load=False)
 
@@ -77,7 +77,9 @@ def test_coordination_config_float_lease_refused(
     config: type, field: str, value: float
 ) -> None:
     """A float or a bool lease is refused by the config."""
-    with pytest.raises(ValidationError, match="whole seconds or a timedelta"):
+    with pytest.raises(
+        ValidationError, match="an int of whole seconds or a timedelta"
+    ):
         config(**{field: value})
 
 

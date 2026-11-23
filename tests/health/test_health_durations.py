@@ -78,7 +78,8 @@ def test_health_checks_config_float_cache_ttl_refused(value: object) -> None:
     """A float or a bool `cache_ttl` is refused when the config is built."""
     # Act / Assert
     with pytest.raises(
-        ValidationError, match="cache_ttl must be whole seconds or a timedelta"
+        ValidationError,
+        match="cache_ttl must be an int of whole seconds or a timedelta",
     ):
         HealthChecksConfig(cache_ttl=value)  # ty: ignore[invalid-argument-type]
 
@@ -148,7 +149,7 @@ def test_health_checks_float_cache_ttl_refused(value: Any) -> None:  # noqa: ANN
     # Act / Assert
     with pytest.raises(
         SettingsValidationError,
-        match="cache_ttl must be whole seconds or a timedelta",
+        match="cache_ttl must be an int of whole seconds or a timedelta",
     ):
         HealthChecks(cache_ttl=value, env_load=False)
 

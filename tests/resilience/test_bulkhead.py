@@ -681,8 +681,8 @@ async def test_uses_keeps_an_error_from_a_borrow_already_open() -> None:
     """An open Provider rules out ordering, so the item's own error stands."""
     provider = _BorrowedProvider()
     adapter = _RefusingAdapter()
-    adapter._provider = provider  # ty: ignore[unresolved-attribute]
-    adapter._owns_provider = False  # ty: ignore[unresolved-attribute]
+    adapter._provider = provider  # ty: ignore[missing-attribute]
+    adapter._owns_provider = False  # ty: ignore[missing-attribute]
     bulkhead = Bulkhead("open-borrow", uses=[Cache(adapter, name="scoped")])
 
     # The app opens `provider` before anything enters the bulkhead.
@@ -696,11 +696,11 @@ async def test_uses_keeps_an_error_from_a_sibling_owned_borrow() -> None:
     """A Provider a sibling in the list owns is open, so the item speaks."""
     monkeyed = _RefusingAdapter()
     owning = _BorrowedProvider()
-    monkeyed._provider = owning  # ty: ignore[unresolved-attribute]
-    monkeyed._owns_provider = False  # ty: ignore[unresolved-attribute]
+    monkeyed._provider = owning  # ty: ignore[missing-attribute]
+    monkeyed._owns_provider = False  # ty: ignore[missing-attribute]
     holder = MemoryCacheAdapter()
-    holder._provider = owning  # ty: ignore[unresolved-attribute]
-    holder._owns_provider = True  # ty: ignore[unresolved-attribute]
+    holder._provider = owning  # ty: ignore[missing-attribute]
+    holder._owns_provider = True  # ty: ignore[missing-attribute]
 
     bulkhead = Bulkhead(
         "sibling",
@@ -2663,8 +2663,8 @@ class _BorrowedProvider(Provider):
         self, *, eager: bool = False, **_: object
     ) -> MemoryCacheAdapter:
         adapter = _EagerAdapter() if eager else MemoryCacheAdapter()
-        adapter._provider = self  # ty: ignore[unresolved-attribute]
-        adapter._owns_provider = False  # ty: ignore[unresolved-attribute]
+        adapter._provider = self  # ty: ignore[missing-attribute]
+        adapter._owns_provider = False  # ty: ignore[missing-attribute]
         return adapter
 
 
@@ -2712,7 +2712,7 @@ class _EagerAdapter(MemoryCacheAdapter):
     """A borrowing adapter that reads the provider client as it opens."""
 
     async def __aenter__(self) -> Self:
-        provider = self._provider  # ty: ignore[unresolved-attribute]
+        provider = self._provider  # ty: ignore[missing-attribute]
         if not provider.log:
             msg = "provider is not open"
             raise OutOfContextError(msg)

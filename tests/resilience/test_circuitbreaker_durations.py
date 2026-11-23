@@ -62,7 +62,7 @@ def test_circuit_breaker_float_or_bool_reset_timeout_refused(
     """A float or a bool reset timeout is refused by the factory."""
     # Act / Assert
     with pytest.raises(
-        SettingsValidationError, match="whole seconds or a timedelta"
+        SettingsValidationError, match="an int of whole seconds or a timedelta"
     ):
         CircuitBreaker.consecutive_count(
             "cart",
@@ -77,7 +77,9 @@ def test_consecutive_count_config_float_or_bool_reset_timeout_refused(
 ) -> None:
     """A float or a bool reset timeout is refused by the config."""
     # Act / Assert
-    with pytest.raises(ValidationError, match="whole seconds or a timedelta"):
+    with pytest.raises(
+        ValidationError, match="an int of whole seconds or a timedelta"
+    ):
         ConsecutiveCountConfig(reset_timeout=value)
 
 

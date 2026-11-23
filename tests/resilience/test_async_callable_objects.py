@@ -115,7 +115,7 @@ async def test_an_async_callable_object_is_accepted(build: object) -> None:
     """None of them refuses a callable that is async through `__call__`."""
     flaky = _Flaky()
 
-    wrapped = build()(flaky)  # type: ignore[operator]  # ty: ignore[call-non-callable]
+    wrapped = build()(flaky)  # type: ignore[operator]  # ty: ignore[not-callable]
     with pytest.raises(ValueError, match="boom"):
         await wrapped()
 
@@ -138,4 +138,4 @@ def test_a_sync_callable_object_is_still_refused(build: object) -> None:
     these refuses sync code for a reason of its own.
     """
     with pytest.raises(TypeError):
-        build()(_Sync())  # type: ignore[operator]  # ty: ignore[call-non-callable]
+        build()(_Sync())  # type: ignore[operator]  # ty: ignore[not-callable]

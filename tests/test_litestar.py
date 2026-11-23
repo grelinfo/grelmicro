@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from litestar import Litestar, asgi, get, post, put
+from httpx import ASGITransport, AsyncClient
+from litestar import Litestar, Response, asgi, get, post, put
+from litestar.background_tasks import BackgroundTask
 from litestar.config.cors import CORSConfig
 from litestar.exceptions import HTTPException
 from litestar.middleware import DefineMiddleware
@@ -211,7 +214,9 @@ def test_a_mounted_app_replays_a_write_matched_on_its_own_path(
     Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(include=("/write",), requires="process"),
+            IdempotentRequests(
+                fingerprint_body=False, include=("/write",), requires="process"
+            ),
         ]
     ).install(inner)
     outer = _under_outer_app(inner, outer_installed=outer_installed)
@@ -446,3 +451,103 @@ def test_a_mounted_app_requires_a_precondition_matched_on_its_own_path(
         response = client.put("/in/doc")
 
     assert response.status_code == HTTP_428_PRECONDITION_REQUIRED
+
+
+def _background_app(
+    task: Callable[[], Awaitable[None]],
+    calls: list[int],
+    *,
+    max_wait: float = 10,
+) -> Litestar:
+    """Return an installed app whose handler answers, then runs `task`."""
+
+    @post("/charge", status_code=HTTP_200_OK)
+    async def charge() -> Response[dict[str, int]]:
+        calls.append(1)
+        return Response(
+            {"charged": len(calls)}, background=BackgroundTask(task)
+        )
+
+    app = Litestar([charge])
+    Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(
+                fingerprint_body=False, max_wait=max_wait, requires="process"
+            ),
+        ]
+    ).install(app)
+    return app
+
+
+@asynccontextmanager
+async def _concurrent_client(app: Litestar) -> AsyncGenerator[AsyncClient]:
+    """Yield a client whose requests run side by side on this event loop."""
+    transport = ASGITransport(
+        app=app,  # ty: ignore[invalid-argument-type]
+        raise_app_exceptions=False,
+    )
+    async with (
+        app.lifespan(),
+        AsyncClient(transport=transport, base_url="http://test") as client,
+    ):
+        yield client
+
+
+async def test_a_background_task_that_raises_keeps_the_stored_response() -> (
+    None
+):
+    """The client saw the response, so its retry replays it."""
+    # Arrange
+    calls: list[int] = []
+
+    async def failing() -> None:
+        msg = "background failure"
+        raise RuntimeError(msg)
+
+    app = _background_app(failing, calls)
+    key = {"Idempotency-Key": "charge-1"}
+
+    # Act
+    async with _concurrent_client(app) as client:
+        first = await client.post("/charge", headers=key)
+        second = await client.post("/charge", headers=key)
+
+    # Assert
+    assert first.status_code == HTTP_200_OK
+    assert second.json() == {"charged": 1}
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == [1]
+
+
+async def test_a_duplicate_is_replayed_while_a_background_task_runs() -> None:
+    """A duplicate never waits for the background task of the first request."""
+    # Arrange
+    calls: list[int] = []
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow() -> None:
+        started.set()
+        await release.wait()
+
+    # Past `max_wait`, a duplicate still waiting would get `409`.
+    app = _background_app(slow, calls, max_wait=1)
+    key = {"Idempotency-Key": "charge-1"}
+
+    async with _concurrent_client(app) as client:
+        first = asyncio.create_task(client.post("/charge", headers=key))
+        await started.wait()
+
+        # Act
+        second = await client.post("/charge", headers=key)
+        still_running = not release.is_set()
+        release.set()
+        await first
+
+    # Assert
+    assert still_running
+    assert second.status_code == HTTP_200_OK
+    assert second.json() == {"charged": 1}
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == [1]
