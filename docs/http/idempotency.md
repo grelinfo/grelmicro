@@ -399,7 +399,9 @@ Each response the middleware adds points at a `ProblemDetail` component, so a ge
 
 ## Background tasks
 
-A background task runs after the response is sent, so the response is stored and replayable while the task is still working. A replay can land before the original request's background work finishes. Put anything a retry must not repeat in the handler, not in a background task.
+A background task runs after the response is sent, so the response is stored and replayable while the task is still working. A replay can land before the original request's background work finishes. A background task that raises does not drop the stored response, so a retry still replays it. Put anything a retry must not repeat in the handler, not in a background task.
+
+A FastAPI dependency that commits a transaction needs `Depends(get_session, scope="function")`. With the default scope it commits after the response is sent, and after the response is stored. A commit that fails there leaves a stored success for a write that never landed.
 
 ## Parameters
 

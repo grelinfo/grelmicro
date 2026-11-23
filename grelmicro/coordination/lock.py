@@ -712,11 +712,21 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             LockReleaseError: If the lock cannot be released due to an error on the backend.
 
         """
-        token = generate_task_token(self._config.worker)
-        # The release runs to its end even when the task is cancelled.
-        released = await run_to_completion(
-            self._release(token, self._running_task())
+        await self._release_held(
+            generate_task_token(self._config.worker), self._running_task()
         )
+
+    async def _release_held(
+        self, token: str, task: asyncio.Task[object]
+    ) -> None:
+        """Release what `task` acquired under `token`, from whichever task runs this.
+
+        Raises:
+            LockNotOwnedError: If `token` does not hold the lock.
+            LockReleaseError: If the lock cannot be released due to an error on the backend.
+        """
+        # The release runs to its end even when the task is cancelled.
+        released = await run_to_completion(self._release(token, task))
         if not released:
             raise LockNotOwnedError(name=self._name)
 
