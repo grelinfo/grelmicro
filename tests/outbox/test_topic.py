@@ -7,6 +7,7 @@ import warnings
 from typing import TYPE_CHECKING, Annotated, Any
 
 import pytest
+from opentelemetry import trace
 from pydantic import BaseModel, Field
 
 from grelmicro.errors import Grelmicro046Warning
@@ -39,6 +40,17 @@ class Event[T](BaseModel):
     __outbox_topic__ = "events.generic"
 
     value: T
+
+
+@pytest.fixture
+def no_tracer_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave no global tracer provider while the test publishes.
+
+    An SDK `TracerProvider.get_tracer` calls `warnings.filterwarnings`, which
+    clears every warning registry, so a line that warned warns again. A
+    provider another test left global would reach it on the first publish.
+    """
+    monkeypatch.setattr(trace, "_TRACER_PROVIDER", None)
 
 
 def _inherited(name: str) -> str:
@@ -90,6 +102,7 @@ def test_subclass_inheriting_a_topic_warns_at_the_handler_line() -> None:
     assert _topics(router) == ["billing.order_placed"]
 
 
+@pytest.mark.usefixtures("no_tracer_provider")
 async def test_published_subclass_warns_once_and_keeps_the_parent_topic() -> (
     None
 ):
@@ -394,6 +407,7 @@ def test_parametrized_generic_named_after_itself_warns() -> None:
     assert _topics(router) == ["_Plain[int]"]
 
 
+@pytest.mark.usefixtures("no_tracer_provider")
 async def test_published_parametrized_generic_warns_once_per_line() -> None:
     """A published `Plain[int]` warns once per caller line, at each line."""
     async with Outbox(MemoryOutboxAdapter()) as outbox:
