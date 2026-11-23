@@ -906,6 +906,11 @@ class IdempotencyMiddleware:
 
         Takes the snapshot `__call__` read rather than reading its own, so
         one request answers from one configuration throughout.
+
+        A response is stored, and its key released, once its last body
+        chunk reached the client. A framework runs background tasks after
+        that inside the app call, so a duplicate is replayed while they
+        run, and one that raises leaves the stored response in place.
         """
         config = state.config
         block = self._block(storage_key, config.max_wait, hashed)
@@ -913,6 +918,7 @@ class IdempotencyMiddleware:
         if operation is None:
             return
 
+        release = _Release(block)
         try:
             if operation.replayed:
                 # Read by a middleware of this kind running above this one,
@@ -925,28 +931,55 @@ class IdempotencyMiddleware:
                     replay_header=state.replay_header,
                 )
             else:
-                capture, request = self._exchange(
-                    receive, send, state, scope, hashed
+                await self._run(
+                    scope, receive, send, state, hashed, operation, release
                 )
-                unhandled: Unhandled | None = scope.get(UNHANDLED_KEY)
-                if unhandled is None:
-                    unhandled = scope[UNHANDLED_KEY] = Unhandled()
-                authentication = _authentication_snapshot(scope)
-                await self.app(scope, request, capture)
-                self._report_collision(
-                    config.replay_header, replaced=capture.replaced
-                )
-                if (
-                    capture.stored is not None
-                    and not unhandled.raised
-                    and not self._caller_set_behind(authentication, scope)
-                ):
-                    _store(operation, capture.stored, request)
         except BaseException as exc:
-            await block.__aexit__(type(exc), exc, exc.__traceback__)
+            await release(exc)
             raise
         else:
-            await block.__aexit__(None, None, None)
+            await release()
+
+    async def _run(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        state: _State,
+        hashed: _HashedRequest | None,
+        operation: Operation[_Entry],
+        release: _Release,
+    ) -> None:
+        """Run the app, storing its response once the last chunk went out."""
+        unhandled: Unhandled | None = scope.get(UNHANDLED_KEY)
+        if unhandled is None:
+            unhandled = scope[UNHANDLED_KEY] = Unhandled()
+        authentication = _authentication_snapshot(scope)
+
+        async def finish() -> None:
+            """Store the response when it may be, then release the key.
+
+            Runs at the last body chunk, or when the app returns without
+            sending it.
+            """
+            if release.done:
+                return
+            if (
+                capture.stored is not None
+                and not unhandled.raised
+                and not self._caller_set_behind(authentication, scope)
+            ):
+                _store(operation, capture.stored, request)
+            await release()
+
+        capture, request = self._exchange(
+            receive, send, state, scope, hashed, finish
+        )
+        await self.app(scope, request, capture)
+        self._report_collision(
+            state.config.replay_header, replaced=capture.replaced
+        )
+        await finish()
 
     def _block(
         self, storage_key: str, max_wait: float, hashed: _HashedRequest | None
@@ -965,11 +998,12 @@ class IdempotencyMiddleware:
         state: _State,
         scope: Scope,
         hashed: _HashedRequest | None,
+        on_answered: Callable[[], Awaitable[None]],
     ) -> tuple[_ResponseCapture, _WatchedRequest | _HashedRequest]:
         """Return the send copying the response and the receive the app reads.
 
         With `hashed`, the request body is read whole before the response
-        ends.
+        ends. `on_answered` runs once the last body chunk was forwarded.
         """
         if hashed is None:
             capture = _ResponseCapture(
@@ -978,6 +1012,7 @@ class IdempotencyMiddleware:
                 self._skip,
                 state.replay_header,
                 scope,
+                on_answered=on_answered,
             )
             return capture, _WatchedRequest(receive, capture)
         return _HashingCapture(
@@ -987,6 +1022,7 @@ class IdempotencyMiddleware:
             state.replay_header,
             scope,
             hashed,
+            on_answered=on_answered,
         ), hashed
 
     def _caller_set_behind(
@@ -1036,6 +1072,32 @@ class IdempotencyMiddleware:
         if self._key_function is not None:
             return _checked_key(self._key_function(scope, key), key)
         return _default_storage_key(scope, key)
+
+
+class _Release:
+    """Leave an idempotency block once, whichever path reaches it first.
+
+    A fresh response leaves it at its last body chunk, so what the app
+    runs after that, such as a background task, neither holds the key nor
+    undoes the stored response.
+    """
+
+    __slots__ = ("_block", "done")
+
+    def __init__(self, block: _Block[Any]) -> None:
+        """Leave `block` on the first call."""
+        self._block = block
+        self.done = False
+
+    async def __call__(self, exc: BaseException | None = None) -> None:
+        """Leave the block, raising `exc` into it when given."""
+        if self.done:
+            return
+        self.done = True
+        if exc is None:
+            await self._block.__aexit__(None, None, None)
+        else:
+            await self._block.__aexit__(type(exc), exc, exc.__traceback__)
 
 
 async def _enter(
@@ -1194,6 +1256,7 @@ class _ResponseCapture:
     Each chunk reaches the client as the handler produces it, so storing
     a response adds no latency. `stored` stays None until the final body
     message arrives, so a response torn off midway is never replayed.
+    `on_answered` runs once that final message was forwarded.
     """
 
     def __init__(
@@ -1203,9 +1266,12 @@ class _ResponseCapture:
         skip: Callable[[StoredResponse], bool] | None = None,
         replay_header: bytes = b"",
         scope: Scope | None = None,
+        *,
+        on_answered: Callable[[], Awaitable[None]],
     ) -> None:
         """Initialize the capture around the downstream `send`."""
         self._send = send
+        self._on_answered = on_answered
         self._max_body_size = max_body_size
         self._skip = skip
         self._replay_header = replay_header
@@ -1227,6 +1293,8 @@ class _ResponseCapture:
             self._body(message)
             self.answered = not message.get("more_body", False)
         await self._send(message)
+        if self.answered:
+            await self._on_answered()
 
     def _start(self, message: Message) -> None:
         """Record the status and headers, and decide whether to store."""
@@ -1439,9 +1507,18 @@ class _HashingCapture(_ResponseCapture):
         replay_header: bytes,
         scope: Scope,
         request: _HashedRequest,
+        *,
+        on_answered: Callable[[], Awaitable[None]],
     ) -> None:
         """Initialize the capture, reading `request` before the response ends."""
-        super().__init__(send, max_body_size, skip, replay_header, scope)
+        super().__init__(
+            send,
+            max_body_size,
+            skip,
+            replay_header,
+            scope,
+            on_answered=on_answered,
+        )
         self._request = request
 
     async def __call__(self, message: Message) -> None:
@@ -1454,6 +1531,8 @@ class _HashingCapture(_ResponseCapture):
         if self.answered and self.stored is not None:
             await self._request.drain()
         await self._send(message)
+        if self.answered:
+            await self._on_answered()
 
 
 async def _send_stored(

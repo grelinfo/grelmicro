@@ -23,6 +23,7 @@
 * 🗑️ `IdempotentRequests` and `IdempotencyMiddleware` with `fingerprint_body` left out warn with `Grelmicro046Warning`. From 0.46.0 it defaults to `True`, so a key reused with a different body gets `422` instead of the first response. Pass `fingerprint_body=True` to adopt it now, or `False` to keep the replay. ([#1349](https://github.com/grelinfo/grelmicro/pull/1349))
 
 ### Fixed
+* 🐛 `IdempotentRequests` stores a response once its body reached the client, not after its background tasks. A duplicate sent while a background task runs gets the replay instead of waiting or `409`, and a background task that raises no longer makes the retry run the handler again. ([#1356](https://github.com/grelinfo/grelmicro/pull/1356))
 * 🐛 On FastAPI 0.164 and later, a frontend route under an included router answers its caller again instead of `401` for every request. ([#1350](https://github.com/grelinfo/grelmicro/pull/1350))
 * 🐛 On FastAPI 0.164 and later, `max_body_size` on the app or a router no longer stops `IdempotentRequests` from replaying or `CachedResponses(include=...)` from caching. ([#1350](https://github.com/grelinfo/grelmicro/pull/1350))
 * 🐛 A task that fails at start or at stop makes `async with Tasks(...)` raise its own error in an `ExceptionGroup`, not `CancelledError`. A failed start also stops the tasks already running. ([#1283](https://github.com/grelinfo/grelmicro/pull/1283))

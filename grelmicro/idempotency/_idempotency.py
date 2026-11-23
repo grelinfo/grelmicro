@@ -10,6 +10,7 @@ from typing import (
     Any,
     ClassVar,
     Generic,
+    NamedTuple,
     Self,
     TypeVar,
     cast,
@@ -122,6 +123,14 @@ class Operation(Generic[T]):
         self._has_store = True
 
 
+class _Held(NamedTuple):
+    """A distributed lock this block holds, with what releases it."""
+
+    lock: Lock
+    token: str
+    task: asyncio.Task[object]
+
+
 class _Block(Generic[T]):
     """Async context manager driving one `Idempotency` key.
 
@@ -153,7 +162,7 @@ class _Block(Generic[T]):
         self._streamed = streamed
         self._operation: Operation[T] | None = None
         self._local_lock: Any = None
-        self._distributed_lock: Lock | None = None
+        self._distributed_lock: _Held | None = None
 
     def _cache_miss(self, error: _AmbientMissError) -> _AmbientMissError:
         """Return the cache resolution miss, reworded for this idempotency."""
@@ -253,8 +262,14 @@ class _Block(Generic[T]):
                                 self._idempotency._scoped(self._key)  # noqa: SLF001
                             )
                         )
-                        await lock.acquire()
-                        self._distributed_lock = lock
+                        handle = await lock.acquire()
+                        self._distributed_lock = _Held(
+                            lock,
+                            handle.token,
+                            cast(
+                                "asyncio.Task[object]", asyncio.current_task()
+                            ),
+                        )
                         replay = await self._idempotency._replay(  # noqa: SLF001
                             self._key, self._fingerprint
                         )
@@ -304,11 +319,13 @@ class _Block(Generic[T]):
 
         The in-process release runs even when the distributed release
         fails or is cancelled, so a key never stays locked for the life of
-        the process.
+        the process. Either is released from whichever task runs this,
+        such as the one sending the last chunk of a response.
         """
         try:
-            if self._distributed_lock is not None:
-                await self._distributed_lock.release()
+            held = self._distributed_lock
+            if held is not None:
+                await held.lock._release_held(held.token, held.task)  # noqa: SLF001
                 self._distributed_lock = None
         finally:
             if self._local_lock is not None:

@@ -34,7 +34,7 @@ from starlette.authentication import (
     AuthenticationBackend,
     SimpleUser,
 )
-from starlette.background import BackgroundTasks
+from starlette.background import BackgroundTask, BackgroundTasks
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.base import (
@@ -71,6 +71,7 @@ from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyKeyFunctionError,
 )
+from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
@@ -3075,6 +3076,267 @@ async def test_middleware_duplicate_in_flight_times_out_with_conflict() -> None:
     assert second.headers["retry-after"] == "1"
     assert second.headers["content-type"] == "application/problem+json"
     assert second.json()["type"].endswith("#idempotency-in-flight")
+
+
+def _background_app(
+    framework: str,
+    task: Callable[[], Awaitable[None]],
+    calls: list[int],
+    **options: Any,  # noqa: ANN401
+) -> Starlette:
+    """Return an installed app whose handler answers, then runs `task`.
+
+    The task runs as the framework's own background task, after the
+    response body was sent.
+    """
+    if framework == "fastapi":
+        app = FastAPI()
+
+        @app.post("/charge")
+        async def charge(background_tasks: BackgroundTasks) -> dict[str, int]:
+            calls.append(1)
+            background_tasks.add_task(task)
+            return {"charged": len(calls)}
+
+    else:
+
+        async def starlette_charge(request: Request) -> JSONResponse:  # noqa: ARG001
+            calls.append(1)
+            return JSONResponse(
+                {"charged": len(calls)}, background=BackgroundTask(task)
+            )
+
+        app = Starlette(
+            routes=[Route("/charge", starlette_charge, methods=["POST"])]
+        )
+    _register_idempotency(app, **options)
+    return app
+
+
+@pytest.mark.parametrize("framework", ["starlette", "fastapi"])
+def test_a_background_task_that_raises_keeps_the_stored_response(
+    framework: str,
+) -> None:
+    """The client saw the response, so its retry replays it."""
+    # Arrange
+    calls: list[int] = []
+
+    async def failing() -> None:
+        msg = "background failure"
+        raise RuntimeError(msg)
+
+    app = _background_app(framework, failing, calls)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        first = client.post("/charge", headers=KEY)
+        second = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert first.status_code == HTTP_200_OK
+    assert second.json() == {"charged": 1}
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == [1]
+
+
+@pytest.mark.parametrize("framework", ["starlette", "fastapi"])
+async def test_a_duplicate_is_replayed_while_a_background_task_runs(
+    framework: str,
+) -> None:
+    """A duplicate never waits for the background task of the first request."""
+    # Arrange
+    calls: list[int] = []
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow() -> None:
+        started.set()
+        await release.wait()
+
+    # Past `max_wait`, a duplicate still waiting would get `409`.
+    app = _background_app(framework, slow, calls, max_wait=1)
+    from httpx import ASGITransport, AsyncClient  # noqa: PLC0415
+
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client,
+    ):
+        first = asyncio.create_task(client.post("/charge", headers=KEY))
+        await started.wait()
+
+        # Act
+        second = await client.post("/charge", headers=KEY)
+        still_running = not release.is_set()
+        release.set()
+        await first
+
+    # Assert
+    assert still_running
+    assert second.status_code == HTTP_200_OK
+    assert second.json() == {"charged": 1}
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == [1]
+
+
+async def test_middleware_exception_after_the_last_chunk_keeps_the_response() -> (
+    None
+):
+    """What raises once the response ended propagates, and the retry replays."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    calls: list[int] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG001
+        calls.append(1)
+        await send(dict(_START))
+        await send({"type": "http.response.body", "body": b"{}"})
+        msg = "background failure"
+        raise RuntimeError(msg)
+
+    middleware = IdempotencyMiddleware(
+        app, idempotency=Idempotency("http", ttl=60), fingerprint_body=False
+    )
+
+    # Act
+    async with micro:
+        with pytest.raises(RuntimeError, match="background failure"):
+            await _drive(middleware, [])
+        retry = await _drive(middleware, [])
+
+    # Assert
+    assert dict(retry[0]["headers"])[b"idempotent-replayed"] == b"true"
+    assert retry[1]["body"] == b"{}"
+    assert calls == [1]
+
+
+async def test_middleware_exception_before_the_last_chunk_releases_the_key() -> (
+    None
+):
+    """A response that raised midway stores nothing and frees the key at once."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    calls: list[int] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG001
+        calls.append(1)
+        await send(dict(_START))
+        if len(calls) == 1:
+            await send(
+                {"type": "http.response.body", "body": b"{", "more_body": True}
+            )
+            msg = "handler failure"
+            raise RuntimeError(msg)
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    # A key left locked would answer the retry with `409` past `max_wait`.
+    middleware = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=False,
+        max_wait=1,
+    )
+
+    # Act
+    async with micro:
+        with pytest.raises(RuntimeError, match="handler failure"):
+            await _drive(middleware, [])
+        retry = await _drive(middleware, [])
+
+    # Assert
+    assert retry[0]["status"] == HTTP_200_OK
+    assert b"idempotent-replayed" not in dict(retry[0]["headers"])
+    assert calls == [1, 1]
+
+
+@pytest.mark.parametrize(
+    ("complete", "calls_after_retry"),
+    [
+        pytest.param(True, [1], id="after the last chunk"),
+        pytest.param(False, [1, 1], id="before the last chunk"),
+    ],
+)
+async def test_middleware_cancelled_request_releases_the_key(
+    complete: bool,  # noqa: FBT001
+    calls_after_retry: list[int],
+) -> None:
+    """A cancelled request keeps a response it completed, and frees the key."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    calls: list[int] = []
+    sent = asyncio.Event()
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG001
+        calls.append(1)
+        await send(dict(_START))
+        if len(calls) > 1:
+            await send({"type": "http.response.body", "body": b"{}"})
+            return
+        await send(
+            {"type": "http.response.body", "body": b"{}", "more_body": False}
+            if complete
+            else {"type": "http.response.body", "body": b"{", "more_body": True}
+        )
+        sent.set()
+        await asyncio.Event().wait()
+
+    # A key left locked would answer the retry with `409` past `max_wait`.
+    middleware = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=False,
+        max_wait=1,
+    )
+
+    # Act
+    async with micro:
+        first = asyncio.create_task(_drive(middleware, []))
+        await sent.wait()
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        retry = await _drive(middleware, [])
+
+    # Assert
+    assert retry[0]["status"] == HTTP_200_OK
+    assert calls == calls_after_retry
+
+
+async def test_middleware_last_chunk_sent_from_another_task_releases_the_lock() -> (
+    None
+):
+    """A lock backend is released by the task that took it.
+
+    A response can send its body from a task of its own, as a Starlette
+    streaming response does.
+    """
+    # Arrange
+    micro = Grelmicro(uses=[MemoryProvider()])
+    calls: list[int] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:  # noqa: ARG001
+        calls.append(1)
+        await send(dict(_START))
+
+        async def last_chunk() -> None:
+            await send({"type": "http.response.body", "body": b"{}"})
+
+        await asyncio.create_task(last_chunk())
+
+    middleware = IdempotencyMiddleware(
+        app, idempotency=Idempotency("http", ttl=60), fingerprint_body=False
+    )
+
+    # Act
+    async with micro:
+        first = await _drive(middleware, [])
+        retry = await _drive(middleware, [])
+
+    # Assert
+    assert first[0]["status"] == HTTP_200_OK
+    assert dict(retry[0]["headers"])[b"idempotent-replayed"] == b"true"
+    assert calls == [1]
 
 
 def _document(app: FastAPI, **options: Any) -> None:  # noqa: ANN401
