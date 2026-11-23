@@ -49,7 +49,7 @@ Include a router in the constructor with `Outbox(postgres, routers=[...])`, or l
 
 A router never changes a topic. The topic comes from the payload model or the topic string, so the producer publishes with `outbox.publish` and never needs to know which router handles the message. Set `__outbox_topic__` on the model to give it a namespaced topic such as `billing.order_placed`. Set it on each model you publish, a subclass included. A subclass that inherits it from a parent warns with `Grelmicro046Warning` and keeps the parent's topic until 0.46.0, then takes its class name. See the [0.45 migration note](../migration.md#0-45-outbox-subclass-topic). A parametrized generic model such as `Event[int]` takes the topic set on `Event`. With none, it takes `Event[int]` and warns, since from 0.46.0 every parametrization takes `Event`.
 
-A router can be included in several outboxes, for example in each app an app factory builds. Including an `Outbox`, a router in itself, or a router an outbox already holds raises `OutboxRouterError`. Two handlers on the same topic raise `HandlerAlreadyRegisteredError` when the second one joins an outbox, and the error names both functions.
+A router can be included in several outboxes, for example in each app an app factory builds. Including an `Outbox`, a router in itself, or a router an outbox already holds raises `OutboxRouterError`. Two handlers on the same topic raise `HandlerAlreadyRegisteredError` as soon as the second one joins a router or outbox that holds the first, and the error names both functions.
 
 A router can be included and a handler added after the outbox started. The relay claims the new topic on its next poll. A router that is never included handles nothing, and its messages stay pending.
 
