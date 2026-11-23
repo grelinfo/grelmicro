@@ -1402,7 +1402,7 @@ class _HashedRequest:
             if message["type"] == "http.request":
                 self._hash.update(message.get("body", b""))
                 self._whole = not message.get("more_body", False)
-            elif message["type"] == "http.disconnect":
+            else:
                 self.torn = True
         return message
 

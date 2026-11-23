@@ -2063,6 +2063,41 @@ def test_middleware_streaming_response_is_replayed(
     assert calls == {"count": 1}
 
 
+def test_middleware_fingerprinted_streaming_response_is_replayed(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+) -> None:
+    """A chunked response to a fingerprinted body is stored whole and replayed."""
+    # Arrange
+    client, calls = client_factory(fingerprint_body=True)
+    # Act
+    first = client.post("/stream", headers=KEY, content=b"{}")
+    second = client.post("/stream", headers=KEY, content=b"{}")
+    changed = client.post("/stream", headers=KEY, content=b'{"a":1}')
+    # Assert
+    assert first.text == "one two"
+    assert second.text == "one two"
+    assert second.headers["idempotent-replayed"] == "true"
+    assert changed.status_code == HTTP_422_UNPROCESSABLE_CONTENT
+    assert calls == {"count": 1}
+
+
+def test_middleware_fingerprinted_chunked_response_over_the_size_limit_is_not_stored(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+) -> None:
+    """A fingerprinted body whose chunked response is too large runs every time."""
+    # Arrange
+    client, calls = client_factory(
+        fingerprint_body=True, max_body_size=len("one ")
+    )
+    # Act
+    first = client.post("/stream", headers=KEY, content=b"{}")
+    second = client.post("/stream", headers=KEY, content=b"{}")
+    # Assert
+    assert first.text == "one two"
+    assert second.text == "one two"
+    assert calls == {"count": 2}
+
+
 def test_middleware_added_after_install_still_resolves_the_cache() -> None:
     """Adding the middleware after `install` replays as adding it before does."""
     # Arrange
