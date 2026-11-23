@@ -47,14 +47,14 @@ def unknown() -> None:
 
 
 def log_format_spellings() -> None:
-    """Annotate a format in the documented spelling or in uppercase."""
+    """Annotate a format in the documented spelling."""
     documented: LogFormat = "json"
-    uppercase: LogFormat = "JSON"
     configure(format=documented)
-    configure(format=uppercase)
 
 
 def log_format_unknown() -> None:
-    """Refuse a format name in neither spelling."""
+    """Refuse a format name in another case."""
+    uppercase: LogFormat = "JSON"  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     mixed: LogFormat = "Json"  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    configure(format=uppercase)
     configure(format=mixed)

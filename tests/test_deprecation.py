@@ -268,6 +268,14 @@ def test_no_pending_entry_outlives_its_release() -> None:
     assert stale(PENDING, current) == []
 
 
+def test_nothing_pending_is_due_in_0_45() -> None:
+    """0.45.0 switched every change 0.44 warned about, so none is pending."""
+    assert stale(PENDING, "0.45.0") == []
+    assert all(
+        not issubclass(entry.category, Grelmicro045Warning) for entry in PENDING
+    )
+
+
 @pytest.mark.parametrize(
     ("version", "expected"),
     [
@@ -333,3 +341,21 @@ def test_moved_load_refuses_a_name_the_module_never_served() -> None:
         match=r"module 'example\.facade' has no attribute 'missing'",
     ):
         MOVED.load("missing")
+
+
+def test_moved_message_names_the_module_to_import_from() -> None:
+    """A name with a public home says where to import it from."""
+    assert MOVED.message_for("Grelmicro045Warning") == (
+        "`Grelmicro045Warning` moves out of `example.facade` in 0.45.0. "
+        "Import it from `grelmicro.errors` instead."
+    )
+
+
+def test_moved_message_says_a_private_home_is_private() -> None:
+    """A name with no public home says so and names where it lives."""
+    moved = replace(MOVED, homes={"spend": "grelmicro.http._ratelimit"})
+
+    assert moved.message_for("spend") == (
+        "`spend` moves out of `example.facade` in 0.45.0. "
+        "It is private and lives in `grelmicro.http._ratelimit`."
+    )

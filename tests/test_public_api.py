@@ -60,8 +60,6 @@ import pytest
 from syrupy.extensions.json import JSONSnapshotExtension
 
 import grelmicro
-from grelmicro._deprecation import ENV_LOAD_DEFAULT_WARNING
-from grelmicro.errors import GrelmicroFutureWarning
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -283,14 +281,8 @@ def _symbol_surface(obj: object) -> dict[str, str] | None:
 
 
 def _export(module: ModuleType, symbol: str) -> Any:  # noqa: ANN401
-    """Return `module.symbol`, or None when it does not resolve.
-
-    A name in `__all__` that a coming release removes warns on access, and
-    stays on the public surface until then, so its warning is ignored here.
-    """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GrelmicroFutureWarning)
-        return getattr(module, symbol, None)
+    """Return `module.symbol`, or None when it does not resolve."""
+    return getattr(module, symbol, None)
 
 
 def build_public_api() -> dict[str, dict[str, Any]]:
@@ -610,31 +602,14 @@ def test_every_documented_module_is_snapshotted() -> None:
     )
 
 
-_STAR_IMPORT_WARNINGS: dict[str, set[str]] = {
-    "grelmicro": {ENV_LOAD_DEFAULT_WARNING.message},
-}
-"""The warnings a star import emits, by module.
-
-A name in `__all__` that a coming release removes warns on access, so a star
-import warns for it at the importing line, as on any other read. Every other
-module stays silent.
-"""
-
-
 @pytest.mark.parametrize("module_name", PUBLIC_MODULES)
-def test_star_import_warns_only_for_names_due_for_removal(
-    module_name: str,
-) -> None:
-    """A star import binds `__all__` and warns only for the names due for removal."""
+def test_star_import_emits_no_warning(module_name: str) -> None:
+    """A star import binds every name in `__all__` and warns for none."""
     namespace: dict[str, object] = {}
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         exec(f"from {module_name} import *", namespace)  # noqa: S102
 
-    assert {str(warning.message) for warning in caught} == (
-        _STAR_IMPORT_WARNINGS.get(module_name, set())
-    )
-    assert {warning.filename for warning in caught} <= {"<string>"}
     assert set(importlib.import_module(module_name).__all__) <= set(namespace)
 
 

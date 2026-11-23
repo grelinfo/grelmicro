@@ -19,9 +19,7 @@ from typing import (
     Literal,
     Self,
     cast,
-    overload,
 )
-from warnings import deprecated
 
 from pydantic import BaseModel, PositiveFloat, field_validator
 from typing_extensions import Doc
@@ -104,22 +102,12 @@ _PROVIDER_CHECKS: tuple[ProviderChecks, ...] = ("off", "report", "require")
 """Every `ProviderChecks` mode, in the order a refusal lists them."""
 
 
-def _resolve_provider_checks(
-    provider_checks: ProviderChecks | None,
-) -> ProviderChecks:
+def _resolve_provider_checks(provider_checks: ProviderChecks) -> ProviderChecks:
     """Return the `provider_checks=` mode, matched in any case.
-
-    `None` reads as `"report"` and warns with `Grelmicro045Warning` at the
-    caller of `HealthChecks` or `HealthChecks.from_config`.
 
     Raises:
         SettingsValidationError: If `provider_checks` names no mode.
     """
-    if provider_checks is None:
-        from grelmicro._deprecation import PROVIDER_CHECKS_NONE  # noqa: PLC0415
-
-        PROVIDER_CHECKS_NONE.warn(stacklevel=3)
-        return "report"
     spelled = match_case(ProviderChecks, provider_checks)
     if spelled not in _PROVIDER_CHECKS:
         msg = f"provider_checks= must be one of {', '.join(_PROVIDER_CHECKS)}"
@@ -245,38 +233,6 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
 
     kind: ClassVar[str] = "health"
 
-    @overload
-    def __init__(
-        self,
-        *,
-        name: str = "default",
-        timeout: PositiveFloat | None = None,
-        cache_ttl: int | timedelta | None = None,
-        liveness: Liveness | None = None,
-        provider_checks: ProviderChecks = "report",
-        env_prefix: str | None = None,
-        env_load: bool | None = None,
-    ) -> None: ...
-
-    @overload
-    @deprecated(
-        "`provider_checks=None` is removed in 0.45.0. "
-        'Use `provider_checks="off"` to register no provider checks, '
-        'or omit the argument for `"report"` instead.',
-        category=None,
-    )
-    def __init__(
-        self,
-        *,
-        name: str = "default",
-        timeout: PositiveFloat | None = None,
-        cache_ttl: int | timedelta | None = None,
-        liveness: Liveness | None = None,
-        provider_checks: None,
-        env_prefix: str | None = None,
-        env_load: bool | None = None,
-    ) -> None: ...
-
     def __init__(
         self,
         *,
@@ -332,7 +288,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             ),
         ] = None,
         provider_checks: Annotated[
-            ProviderChecks | None,
+            ProviderChecks,
             Doc(
                 """
                 Which check to register for each `Provider` active on the
@@ -343,9 +299,6 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 fails `/readyz`, and needs an active app on startup. `"off"`
                 registers none. A Provider already added with `add_provider`
                 keeps that registration.
-
-                `None` reads as `"report"` and warns with
-                `Grelmicro045Warning`. It is removed in 0.45.0.
                 """
             ),
         ] = "report",
@@ -398,34 +351,6 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         # matching every other reconfigurable component.
         self._track_reconfigure(resolved_env_prefix)
 
-    @overload
-    @classmethod
-    def from_config(
-        cls,
-        config: HealthChecksConfig,
-        *,
-        name: str = "default",
-        provider_checks: ProviderChecks = "report",
-        liveness: Liveness | None = None,
-    ) -> Self: ...
-
-    @overload
-    @classmethod
-    @deprecated(
-        "`provider_checks=None` is removed in 0.45.0. "
-        'Use `provider_checks="off"` to register no provider checks, '
-        'or omit the argument for `"report"` instead.',
-        category=None,
-    )
-    def from_config(
-        cls,
-        config: HealthChecksConfig,
-        *,
-        name: str = "default",
-        provider_checks: None,
-        liveness: Liveness | None = None,
-    ) -> Self: ...
-
     @classmethod
     def from_config(
         cls,
@@ -449,12 +374,10 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             Doc("Registration name. Defaults to `'default'`."),
         ] = "default",
         provider_checks: Annotated[
-            ProviderChecks | None,
+            ProviderChecks,
             Doc(
                 "Which check to register for each active `Provider` on "
-                'startup, as in `HealthChecks`. Defaults to `"report"`. '
-                '`None` reads as `"report"` and warns with '
-                "`Grelmicro045Warning`. It is removed in 0.45.0."
+                'startup, as in `HealthChecks`. Defaults to `"report"`.'
             ),
         ] = "report",
         liveness: Annotated[

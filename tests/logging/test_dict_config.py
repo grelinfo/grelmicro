@@ -88,7 +88,7 @@ def test_every_server_logger_reaches_the_root_handler(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A line from any application server renders like an application line."""
-    _apply(dict_config_with(LogConfig(format="LOGFMT")))
+    _apply(dict_config_with(LogConfig(format="logfmt")))
 
     for name in _SERVERS:
         logging.getLogger(name).info("server line")
@@ -106,7 +106,7 @@ def test_the_uvicorn_access_record_keeps_its_fields(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Uvicorn carries the request in arguments, so it gets its own formatter."""
-    _apply(dict_config_with(LogConfig(format="JSON")))
+    _apply(dict_config_with(LogConfig(format="json")))
 
     logging.getLogger(_UVICORN_ACCESS).info(_ACCESS_MESSAGE, *_ACCESS_ARGS)
 
@@ -123,7 +123,7 @@ def test_the_ansi_copy_uvicorn_attaches_is_dropped(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Uvicorn logs `color_message`, which renders as escapes in a field."""
-    _apply(dict_config_with(LogConfig(format="JSON")))
+    _apply(dict_config_with(LogConfig(format="json")))
 
     logging.getLogger("uvicorn.error").info(
         "Started server process [%d]",
@@ -168,7 +168,7 @@ def test_a_server_may_turn_colors_on_or_off(
     use_colors: bool,
 ) -> None:
     """Uvicorn writes `use_colors` into both formatters before applying."""
-    document = dict_config_with(LogConfig(format="TEXT"))
+    document = dict_config_with(LogConfig(format="text"))
     for options in document["formatters"].values():  # type: ignore[union-attr]
         options["use_colors"] = use_colors
     _apply(document)
@@ -183,7 +183,7 @@ def test_colors_never_reach_a_machine_read_format(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A JSON field holding an escape sequence would not parse."""
-    document = dict_config_with(LogConfig(format="JSON"))
+    document = dict_config_with(LogConfig(format="json"))
     for options in document["formatters"].values():  # type: ignore[union-attr]
         options["use_colors"] = True
     _apply(document)
@@ -280,7 +280,7 @@ def test_caller_reads_the_same_on_a_server_record(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """`caller_enabled` is one rule, and uvicorn is not an exception to it."""
-    _apply(dict_config_with(LogConfig(format="JSON", caller_enabled=True)))
+    _apply(dict_config_with(LogConfig(format="json", caller_enabled=True)))
 
     logging.getLogger("uvicorn.error").info("startup")
     logging.getLogger("myapp").info("app")
@@ -302,7 +302,7 @@ def test_the_environment_is_read_when_it_is_asked_for(
 
     document = dict_config(env_load=True)
 
-    assert document["formatters"]["default"]["config"]["format"] == "LOGFMT"
+    assert document["formatters"]["default"]["config"]["format"] == "logfmt"
 
 
 def test_each_entry_carries_its_own_settings() -> None:
@@ -341,7 +341,7 @@ def test_a_document_built_from_what_configure_returned_agrees_with_it(
 ) -> None:
     """`configure()` keyword arguments never reach the environment."""
     config = configure(
-        format="LOGFMT",
+        format="logfmt",
         level="DEBUG",
         otel_enabled=False,
     )
@@ -438,10 +438,10 @@ def test_the_uvicorn_formatter_reads_the_environment_when_asked(
 
 
 def test_auto_is_carried_as_auto() -> None:
-    """The format `AUTO` names is the one the rendering process decides."""
-    document = dict_config_with(LogConfig(format="AUTO"))
+    """The format `auto` names is the one the rendering process decides."""
+    document = dict_config_with(LogConfig(format="auto"))
 
-    assert document["formatters"]["default"]["config"]["format"] == "AUTO"
+    assert document["formatters"]["default"]["config"]["format"] == "auto"
 
 
 @pytest.mark.usefixtures("_restore_logging", "_no_queue", "reset_backend")
@@ -465,10 +465,10 @@ def test_a_document_applied_last_wins_over_configure(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """`uvicorn.run(app, ...)` builds its `Config` after the module ran."""
-    configure(format="LOGFMT", otel_enabled=False)
+    configure(format="logfmt", otel_enabled=False)
     capsys.readouterr()
 
-    _apply(dict_config_with(LogConfig(format="JSON")))
+    _apply(dict_config_with(LogConfig(format="json")))
     logging.getLogger("myapp").info("the document decided")
 
     assert json.loads(capsys.readouterr().out)["msg"] == "the document decided"
