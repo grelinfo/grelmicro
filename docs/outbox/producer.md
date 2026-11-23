@@ -80,7 +80,8 @@ Use a per-request session or connection dependency and hand it to `publish`. The
 
     @app.post("/signup")
     async def signup(
-        body: SignUp, session: AsyncSession = Depends(get_session)
+        body: SignUp,
+        session: AsyncSession = Depends(get_session, scope="function"),
     ) -> None:
         session.add(User(email=body.email))
         await outbox.publish(session, WelcomeEmail(to=body.email))
@@ -95,7 +96,8 @@ Use a per-request session or connection dependency and hand it to `publish`. The
 
     @app.post("/signup")
     async def signup(
-        body: SignUp, conn: asyncpg.Connection = Depends(get_conn)
+        body: SignUp,
+        conn: asyncpg.Connection = Depends(get_conn, scope="function"),
     ) -> None:
         user_id = await conn.fetchval(
             "INSERT INTO users (email) VALUES ($1) RETURNING id", body.email
@@ -103,7 +105,9 @@ Use a per-request session or connection dependency and hand it to `publish`. The
         await outbox.publish(conn, WelcomeEmail(to=body.email, user_id=user_id))
     ```
 
-The session dependency opens one transaction per request, so the `User` row and the `WelcomeEmail` message commit together or roll back together.
+The dependency opens one transaction per request, so the `User` row and the `WelcomeEmail` message commit together or roll back together.
+
+`scope="function"` commits when the handler returns, before the response is sent. A failed commit then answers `500`. Without it, FastAPI closes the dependency after the response, so the client can read a success for a write that never committed.
 
 ## Resolving the outbox
 
