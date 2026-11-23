@@ -3179,6 +3179,125 @@ def test_a_response_lost_after_a_fold_that_never_kept_it_is_released() -> None:
     assert sent == [HTTP_404_NOT_FOUND, b"gone"]
 
 
+def test_a_handler_that_raises_under_a_lock_that_fails_raises_its_own_error() -> (
+    None
+):
+    """The lock failing on its way out never hides why the handler failed."""
+
+    # Arrange
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        msg = "the handler broke"
+        raise RuntimeError(msg)
+
+    async def scenario() -> None:
+        middleware = CachedResponsesMiddleware(
+            app, cache=_cache(), include={"/reads": TTL}
+        )
+        middleware._cache._stampede = _LosingGuard()  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        await middleware(_read_scope(), _receive, _nowhere)
+
+    # Act / Assert
+    with pytest.raises(RuntimeError, match="the handler broke"):
+        anyio.run(scenario)
+
+
+def test_a_miss_cancelled_in_the_handler_lets_go_of_the_key() -> None:
+    """The next caller runs the handler instead of waiting on the key."""
+    # Arrange
+    calls = 0
+    entered = anyio.Event()
+    answered: list[Any] = []
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await anyio.sleep_forever()
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        answered.append(message.get("status", message.get("body")))
+
+    middleware = CachedResponsesMiddleware(
+        app, cache=_cache(), include={"/reads": TTL}
+    )
+
+    async def scenario() -> None:
+        async with anyio.create_task_group() as tasks:
+            tasks.start_soon(middleware, _read_scope(), _receive, _nowhere)
+            await entered.wait()
+            tasks.cancel_scope.cancel()
+        with anyio.fail_after(1):
+            await middleware(_read_scope(), _receive, send)
+
+    # Act
+    anyio.run(scenario)
+
+    # Assert
+    assert answered == [HTTP_200_OK, b"ok"]
+    assert calls == TWICE
+    assert not middleware._holding
+
+
+def test_a_caller_cancelled_while_waiting_on_the_key_stops_waiting() -> None:
+    """Its hold on the key ends with it, and the caller in front still stores."""
+    # Arrange
+    calls = 0
+    entered = anyio.Event()
+    release = anyio.Event()
+    holding: list[int] = []
+    answered: list[Any] = []
+    waiting: list[anyio.CancelScope] = []
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        nonlocal calls
+        calls += 1
+        entered.set()
+        await release.wait()
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        answered.append(message.get("status", message.get("body")))
+
+    middleware = CachedResponsesMiddleware(
+        app, cache=_cache(), include={"/reads": TTL}
+    )
+
+    async def waiter() -> None:
+        with anyio.CancelScope() as scope:
+            waiting.append(scope)
+            await middleware(_read_scope(), _receive, _nowhere)
+
+    async def scenario() -> None:
+        async with anyio.create_task_group() as tasks:
+            tasks.start_soon(middleware, _read_scope(), _receive, _nowhere)
+            await entered.wait()
+            tasks.start_soon(waiter)
+            await anyio.wait_all_tasks_blocked()
+            holding.append(len(middleware._holding))
+            waiting[0].cancel()
+            await anyio.wait_all_tasks_blocked()
+            holding.append(len(middleware._holding))
+            release.set()
+        await middleware(_read_scope(), _receive, send)
+
+    # Act
+    anyio.run(scenario)
+
+    # Assert
+    assert holding == [TWICE, 1]
+    assert answered[0] == HTTP_200_OK
+    assert calls == 1
+    assert not middleware._holding
+
+
 def test_a_stored_response_says_what_the_key_reads() -> None:
     """A CDN in front of this must not hand one caller's copy to another."""
     # Arrange
