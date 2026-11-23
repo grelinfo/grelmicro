@@ -1,10 +1,9 @@
 [project]
 name = "grelmicro"
-version = "0.0.0.dev0"
 description = "Async-first Python toolkit for microservices, with tasks, coordination, resilience, caching and observability"
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
-dynamic = ["readme"]
+dynamic = ["readme", "version"]
 keywords = [
     "microservice",
     "asyncio",
@@ -252,8 +251,31 @@ mutation = [
 ]
 
 [build-system]
-requires = ["hatchling>=1.32.4,<2", "hatch-fancy-pypi-readme>=25.1.0,<26"]
+requires = [
+    "hatchling>=1.32.4,<2",
+    "hatch-fancy-pypi-readme>=25.1.0,<26",
+    "hatch-vcs>=0.5,<1",
+    "setuptools-scm>=10,<11",
+]
 build-backend = "hatchling.build"
+
+# The version comes from the nearest release tag, such as `0.44.2`, so a build
+# of a later commit reads `0.44.3.devN+g<commit>`. Other tags (`core-*`,
+# `docs-*`) are ignored. A build outside git falls back to `0.0.0.dev0`, and
+# a shallow clone without tags reads `0.0.0.dev1+g<commit>`. A release build
+# sets its version through `SETUPTOOLS_SCM_PRETEND_VERSION`.
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0.dev0"
+
+[tool.hatch.version.raw-options]
+tag_regex = '^(?P<version>\d+\.\d+\.\d+)$'
+
+[tool.hatch.version.raw-options.scm.git]
+describe_command = [
+    "git", "describe", "--dirty", "--tags", "--long",
+    "--match", "[0-9]*.[0-9]*.[0-9]*",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["grelmicro"]
@@ -288,6 +310,8 @@ grelmicro-core = { path = "rust/grelmicro-core" }
 
 [tool.uv]
 exclude-newer = "3 days"
+# Rebuild the local install when a commit or tag changes its version.
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
 # multidict 7.2.0 breaks Litestar's `Headers` (aio-libs/multidict#1824). This
 # keeps it out of development resolutions and never reaches the built
 # distribution.

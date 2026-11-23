@@ -148,10 +148,29 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: false
-      - name: Set Package Version
-        run: uv version -- "$RELEASE_VERSION"
       - name: Build Package
+        # The version otherwise comes from the release tag, which a dry run
+        # builds before it exists.
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ env.RELEASE_VERSION }}
         run: uv build
+      - name: Verify Package Version
+        # Stops a build that missed the release version, such as a
+        # `0.0.0.devN` one, before anything reaches PyPI.
+        shell: bash
+        run: |
+          expected=("dist/grelmicro-$RELEASE_VERSION.tar.gz" "dist/grelmicro-$RELEASE_VERSION-py3-none-any.whl")
+          found=(dist/*)
+          for file in "${expected[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Expected $file, found ${found[*]}." >&2
+              exit 1
+            fi
+          done
+          if [ "${#found[@]}" -ne "${#expected[@]}" ]; then
+            echo "Expected only ${expected[*]}, found ${found[*]}." >&2
+            exit 1
+          fi
       - name: Verify Wheel Installs
         run: uv run --no-project -- pip install dist/*.whl
       - name: Upload Distributions

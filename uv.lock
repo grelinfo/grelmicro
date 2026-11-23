@@ -715,7 +715,6 @@ wheels = [
 
 [[package]]
 name = "grelmicro"
-version = "0.0.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "fast-depends" },
@@ -868,7 +867,7 @@ requires-dist = [
     { name = "uvloop", marker = "platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32' and extra == 'standard'", specifier = ">=0.23.0" },
     { name = "valkey", marker = "extra == 'valkey'", specifier = ">=6" },
 ]
-provides-extras = ["standard", "fastapi", "starlette", "litestar", "faststream", "postgres", "redis", "sqlite", "kubernetes", "opentelemetry", "instrumentation", "jwt", "structlog", "valkey", "yaml"]
+provides-extras = ["fastapi", "faststream", "instrumentation", "jwt", "kubernetes", "litestar", "opentelemetry", "postgres", "redis", "sqlite", "standard", "starlette", "structlog", "valkey", "yaml"]
 
 [package.metadata.requires-dev]
 dev = [
