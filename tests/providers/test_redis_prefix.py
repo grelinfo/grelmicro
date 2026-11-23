@@ -75,12 +75,12 @@ def _keys(store: str, provider: RedisProvider, prefix: str = "") -> list[str]:
 
 def _rate_key(adapter: RedisRateLimiterAdapter) -> list[str]:
     strategy = adapter.bind(TokenBucketConfig(capacity=1, refill_rate=1.0))
-    return [f"{strategy._key_prefix}k"]  # ty: ignore[unresolved-attribute]
+    return [f"{strategy._key_prefix}k"]  # ty: ignore[missing-attribute]
 
 
 def _breaker_key(adapter: RedisCircuitBreakerAdapter) -> list[str]:
     strategy = adapter.bind(name="pay", config=ConsecutiveCountConfig())
-    return [strategy._key]  # ty: ignore[unresolved-attribute]
+    return [strategy._key]  # ty: ignore[missing-attribute]
 
 
 _SAMPLE_KEYS: dict[type, Callable[[Any], list[str]]] = {

@@ -111,7 +111,7 @@ def test_shield_decorator_bare_form_raises_type_error() -> None:
     """`@shield` without a profile is refused, because `when=` is required."""
     # Act / Assert
     with pytest.raises(TypeError):
-        shield(_sample)  # type: ignore[operator]  # ty: ignore[call-non-callable]
+        shield(_sample)  # type: ignore[operator]  # ty: ignore[not-callable]
 
 
 @pytest.mark.parametrize("profile", ["api", "internal", "slow"])

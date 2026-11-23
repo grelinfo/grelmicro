@@ -1291,7 +1291,7 @@ def test_a_type_that_refuses_to_be_placed_is_still_a_type_error() -> None:
         """A metaclass whose classes refuse to say where they come from."""
 
         @property
-        def __module__(cls) -> str:  # ty: ignore[invalid-property-type-override]
+        def __module__(cls) -> str:  # ty: ignore[incompatible-property-override]
             msg = "no module"
             raise RuntimeError(msg)
 
@@ -1309,7 +1309,7 @@ def test_an_interrupt_while_placing_a_type_is_never_swallowed() -> None:
         """A metaclass that interrupts while being placed."""
 
         @property
-        def __module__(cls) -> str:  # ty: ignore[invalid-property-type-override]
+        def __module__(cls) -> str:  # ty: ignore[incompatible-property-override]
             raise KeyboardInterrupt
 
     class Hostile(metaclass=Interrupting):
@@ -1365,7 +1365,7 @@ def test_a_decorated_callable_object_keeps_its_name() -> None:
 
     stack = Stack("recs", patterns=[a_retry()])
 
-    assert stack(Client()).__qualname__ == "Client"  # ty: ignore[unresolved-attribute]
+    assert stack(Client()).__qualname__ == "Client"  # ty: ignore[missing-attribute]
 
 
 def test_reading_the_registration_mark_never_raises() -> None:

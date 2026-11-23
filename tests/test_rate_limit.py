@@ -1425,7 +1425,7 @@ def test_a_rejection_carrying_header_pairs_is_answered() -> None:
     @app.get("/boom")
     async def boom() -> dict[str, int]:
         error = RateLimitExceededError(key="one", retry_after=1.0)
-        error.headers = [("x-mine", "yes")]  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        error.headers = [("x-mine", "yes")]  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
         raise error
 
     # Act

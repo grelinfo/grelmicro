@@ -735,7 +735,7 @@ def spend(
                 error = RateLimitExceededError(
                     key=key, retry_after=result.retry_after
                 )
-                error.headers = _stated(seen, legacy=legacy_headers)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+                error.headers = _stated(seen, legacy=legacy_headers)  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
                 raise error
         return _stated(seen, legacy=legacy_headers)
 
