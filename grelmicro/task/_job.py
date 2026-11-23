@@ -347,8 +347,8 @@ class Job[**P](Task):
 
     def __init__(  # noqa: PLR0913
         self,
-        function: Callable[..., object],
         *,
+        function: Callable[..., object],
         name: str | None = None,
         max_concurrent: int = 1,
         max_queued: int | None = None,

@@ -57,6 +57,21 @@ RateLimiterComponent(redis, name="api")
 Most apps register one component per kind, so the default name keeps the common
 case silent. Name a second instance only when two of the same kind coexist.
 
+## Tasks come from a decorator, every argument keyword-only
+
+A task wraps a function, such as an interval task, a cron task, or a `Job`.
+User code builds it with a decorator: `@tasks.interval(...)`, `@tasks.cron(...)`
+or `@tasks.job(...)`. The decorator's `name=` is optional and defaults to the
+function's `module:qualname`. The task class takes the same arguments, all
+keyword-only, with `function=` in place of the decorated function:
+
+```python
+@tasks.job(name="invoice")
+async def invoice(progress: Progress, order_id: str) -> None: ...
+
+Job(name="invoice", function=invoice_body)
+```
+
 ## Components take the bare capability name
 
 A component is named after the capability it wires, not after its role:

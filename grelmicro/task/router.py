@@ -600,8 +600,8 @@ class TaskRouter:
             function: Callable[Concatenate[Progress, P], object],
         ) -> Job[P]:
             job: Job[P] = Job(
-                function,
                 name=name,
+                function=function,
                 max_concurrent=max_concurrent,
                 max_queued=max_queued,
                 max_wait=max_wait,

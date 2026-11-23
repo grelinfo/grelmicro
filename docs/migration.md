@@ -2123,8 +2123,8 @@ The changelog lists the warning under **Deprecated** in the release that adds
 it, and the switch under **Breaking** in the release that makes it. Each
 breaking release has a note on this page.
 
-To catch every announced change in your test suite, promote the warning to an
-error:
+To fail your tests on each announced change they run, promote the warning to
+an error:
 
 ```toml
 [tool.pytest.ini_options]
