@@ -34,6 +34,7 @@
 * 🐛 `CachedResponses` answers a read it stores as soon as the handler's body is complete, so a background task no longer delays the caller or the requests waiting for the same response. A background task that fails no longer turns the handler's `200` into a `500`, and the response stays stored. ([#1355](https://github.com/grelinfo/grelmicro/pull/1355))
 
 ### Docs
+* 📝 The [outbox FastAPI examples](outbox/producer.md#fastapi) declare their transaction dependency with `scope="function"`, so the write and the message commit before the response is sent. [Idempotency](idempotency/index.md#what-is-and-is-not-guaranteed) says to commit inside the block, since a commit after it can fail once the success is stored. ([#1353](https://github.com/grelinfo/grelmicro/pull/1353))
 * 📝 [Versions and upgrades](versioning.md) says that tests passing with a release's warning filter mean none of your code is affected, and that a misspelled class name stops pytest. ([#1327](https://github.com/grelinfo/grelmicro/issues/1327))
 * 📝 From `1.0`, an Experimental feature is the one exception to "nothing breaks before `2.0`". It can break in a minor, and it always warns first. ([#1254](https://github.com/grelinfo/grelmicro/pull/1254))
 * 📝 The capability matrix gives each feature a maturity level: Experimental, Preview or Stable, with the last break and serious bug fix behind it. ([#1252](https://github.com/grelinfo/grelmicro/pull/1252))
