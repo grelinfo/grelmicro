@@ -51,6 +51,7 @@ from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
     HTTP_409_CONFLICT,
+    HTTP_413_CONTENT_TOO_LARGE,
     HTTP_422_UNPROCESSABLE_CONTENT,
     HTTP_502_BAD_GATEWAY,
 )
@@ -1948,7 +1949,7 @@ def test_middleware_reused_key_with_new_body_conflicts(
 def test_middleware_reused_key_with_same_body_replays(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:
-    """The hashed body reaches the handler and the same payload replays."""
+    """The buffered body reaches the handler and the same payload replays."""
     # Arrange
     client, calls = client_factory(fingerprint_body=True)
     # Act
@@ -1976,35 +1977,19 @@ def test_middleware_empty_body_is_fingerprinted(
     assert calls == {"count": 1}
 
 
-def test_middleware_body_over_the_size_limit_is_fingerprinted(
+def test_middleware_oversized_body_rejected_when_fingerprinting(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:
-    """A body over max_body_size runs, and a changed one is refused."""
+    """A body too large to hash is a 413 rather than an unbounded buffer."""
     # Arrange
     client, calls = client_factory(fingerprint_body=True, max_body_size=16)
     # Act
-    first = client.post("/charge", headers=KEY, content=b"x" * 64)
-    changed = client.post("/charge", headers=KEY, content=b"y" * 64)
+    response = client.post("/charge", headers=KEY, content=b"x" * 64)
     # Assert
-    assert first.status_code == HTTP_200_OK
-    assert changed.status_code == HTTP_422_UNPROCESSABLE_CONTENT
-    assert changed.json()["type"].endswith("#idempotency-key-reused")
-    assert calls == {"count": 1}
-
-
-def test_middleware_body_over_the_size_limit_replays(
-    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
-) -> None:
-    """The same body over max_body_size replays the stored response."""
-    # Arrange
-    client, calls = client_factory(fingerprint_body=True, max_body_size=16)
-    # Act
-    client.post("/charge", headers=KEY, content=b"x" * 64)
-    second = client.post("/charge", headers=KEY, content=b"x" * 64)
-    # Assert
-    assert second.headers["idempotent-replayed"] == "true"
-    assert second.json() == {"call": 1}
-    assert calls == {"count": 1}
+    assert response.status_code == HTTP_413_CONTENT_TOO_LARGE
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["type"].endswith("#request-body-too-large")
+    assert calls == {"count": 0}
 
 
 def test_middleware_body_at_the_size_limit_is_fingerprinted(
@@ -2330,7 +2315,7 @@ def _chunk(body: bytes, *, more_body: bool) -> Message:
 
 
 async def test_middleware_hashes_a_chunked_request_body() -> None:
-    """A multi-chunk body reaches the handler whole while it is hashed."""
+    """A multi-chunk body is buffered whole and replayed to the handler."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     seen: list[bytes] = []
@@ -2378,7 +2363,7 @@ async def test_middleware_hashes_a_chunked_request_body() -> None:
 
 
 async def test_middleware_disconnect_before_body_is_not_fingerprinted() -> None:
-    """A truncated body is never hashed as if it were whole, nor stored."""
+    """A truncated body is never hashed as if it were whole."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
 
@@ -2407,9 +2392,9 @@ async def test_middleware_disconnect_before_body_is_not_fingerprinted() -> None:
         retry = await _drive(middleware, [_chunk(b"{}", more_body=False)])
     # Assert
     assert sent[0]["status"] == HTTP_200_OK
-    # Nothing was stored, so the retry runs the handler.
+    # No fingerprint was stored, so a body on the retry is no payload change.
     assert retry[0]["status"] == HTTP_200_OK
-    assert b"idempotent-replayed" not in dict(retry[0]["headers"])
+    assert (b"idempotent-replayed", b"true") in retry[0]["headers"]
 
 
 async def test_middleware_request_message_without_a_body_is_fingerprinted() -> (
@@ -2432,10 +2417,10 @@ async def test_middleware_request_message_without_a_body_is_fingerprinted() -> (
     assert calls == [1]
 
 
-async def test_middleware_chunked_request_over_the_size_limit_is_stored() -> (
+async def test_middleware_chunked_request_over_the_size_limit_is_refused() -> (
     None
 ):
-    """The size limit caps the stored response, never the request body."""
+    """The limit counts every chunk, not only the largest one."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
@@ -2445,18 +2430,18 @@ async def test_middleware_chunked_request_over_the_size_limit_is_stored() -> (
         fingerprint_body=True,
         max_body_size=16,
     )
-    body = [
-        _chunk(b"x" * 10, more_body=True),
-        _chunk(b"x" * 10, more_body=False),
-    ]
     # Act
     async with micro:
-        sent = await _drive(middleware, body)
-        retry = await _drive(middleware, body)
+        sent = await _drive(
+            middleware,
+            [
+                _chunk(b"x" * 10, more_body=True),
+                _chunk(b"x" * 10, more_body=False),
+            ],
+        )
     # Assert
-    assert sent[0]["status"] == HTTP_200_OK
-    assert (b"idempotent-replayed", b"true") in retry[0]["headers"]
-    assert calls == [1]
+    assert sent[0]["status"] == HTTP_413_CONTENT_TOO_LARGE
+    assert calls == []
 
 
 async def test_middleware_unread_body_is_hashed_whole() -> None:
@@ -2523,55 +2508,6 @@ async def test_middleware_partly_read_body_is_hashed_whole() -> None:
     assert calls == [1]
 
 
-async def test_middleware_client_left_mid_unread_body_is_not_stored(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """A body cut short is never stored, even when the handler never read it."""
-    # Arrange
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
-    middleware = IdempotencyMiddleware(
-        app,
-        idempotency=Idempotency("http", ttl=60),
-        fingerprint_body=True,
-    )
-    # Act
-    async with micro:
-        with caplog.at_level(logging.WARNING, logger="grelmicro.http"):
-            await _drive(
-                middleware,
-                [_chunk(b"one ", more_body=True), {"type": "http.disconnect"}],
-            )
-        retry = await _drive(middleware, [_chunk(b"one two", more_body=False)])
-    # Assert
-    assert retry[0]["status"] == HTTP_200_OK
-    assert b"idempotent-replayed" not in dict(retry[0]["headers"])
-    assert calls == [1, 1]
-    assert "client left" in caplog.text
-
-
-async def test_middleware_client_left_while_a_replay_reads_its_body() -> None:
-    """A duplicate whose body is cut short is sent nothing."""
-    # Arrange
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-    app, calls = _sending(_START, {"type": "http.response.body", "body": b"{}"})
-    middleware = IdempotencyMiddleware(
-        app,
-        idempotency=Idempotency("http", ttl=60),
-        fingerprint_body=True,
-    )
-    # Act
-    async with micro:
-        await _drive(middleware, [_chunk(b"one two", more_body=False)])
-        torn = await _drive(
-            middleware,
-            [_chunk(b"one ", more_body=True), {"type": "http.disconnect"}],
-        )
-    # Assert
-    assert torn == []
-    assert calls == [1]
-
-
 async def test_middleware_fingerprint_matches_a_whole_body_hash() -> None:
     """A fingerprint stored as the SHA-256 of the whole body compares equal.
 
@@ -2608,7 +2544,7 @@ async def test_middleware_fingerprint_matches_a_whole_body_hash() -> None:
     assert calls == []
 
 
-async def _streamed_fingerprint(chunks: list[bytes], reads: int) -> None:
+async def _whole_body_fingerprint(chunks: list[bytes], reads: int) -> None:
     """Store a response for `chunks`, read `reads` at a time by the handler.
 
     Raises:
@@ -2653,11 +2589,11 @@ async def _streamed_fingerprint(chunks: list[bytes], reads: int) -> None:
     reads=st.integers(min_value=0, max_value=8),
 )
 @settings(max_examples=200, deadline=None)
-def test_middleware_streamed_fingerprint_is_the_whole_body_hash(
+def test_middleware_fingerprint_is_the_whole_body_hash(
     chunks: list[bytes], reads: int
 ) -> None:
     """Any split of any body, read in part or not at all, hashes as the whole."""
-    asyncio.run(_streamed_fingerprint(chunks, reads))
+    asyncio.run(_whole_body_fingerprint(chunks, reads))
 
 
 async def test_middleware_change_in_a_later_request_chunk_conflicts() -> None:
@@ -3114,10 +3050,10 @@ def _background_app(
 
 
 @pytest.mark.parametrize("framework", ["starlette", "fastapi"])
-def test_a_background_task_that_raises_keeps_the_stored_response(
+def test_a_background_task_that_raises_stores_nothing(
     framework: str,
 ) -> None:
-    """The client saw the response, so its retry replays it."""
+    """The response is stored once the task ends, so the retry runs again."""
     # Arrange
     calls: list[int] = []
 
@@ -3134,16 +3070,16 @@ def test_a_background_task_that_raises_keeps_the_stored_response(
 
     # Assert
     assert first.status_code == HTTP_200_OK
-    assert second.json() == {"charged": 1}
-    assert second.headers["idempotent-replayed"] == "true"
-    assert calls == [1]
+    assert second.json() == {"charged": 2}
+    assert "idempotent-replayed" not in second.headers
+    assert calls == [1, 1]
 
 
 @pytest.mark.parametrize("framework", ["starlette", "fastapi"])
-async def test_a_duplicate_is_replayed_while_a_background_task_runs(
+async def test_a_duplicate_waits_for_a_background_task_until_max_wait(
     framework: str,
 ) -> None:
-    """A duplicate never waits for the background task of the first request."""
+    """A duplicate sent while the task runs gets `409` past `max_wait`."""
     # Arrange
     calls: list[int] = []
     started = asyncio.Event()
@@ -3153,8 +3089,7 @@ async def test_a_duplicate_is_replayed_while_a_background_task_runs(
         started.set()
         await release.wait()
 
-    # Past `max_wait`, a duplicate still waiting would get `409`.
-    app = _background_app(framework, slow, calls, max_wait=1)
+    app = _background_app(framework, slow, calls, max_wait=0.05)
     from httpx import ASGITransport, AsyncClient  # noqa: PLC0415
 
     async with (
@@ -3168,22 +3103,22 @@ async def test_a_duplicate_is_replayed_while_a_background_task_runs(
 
         # Act
         second = await client.post("/charge", headers=KEY)
-        still_running = not release.is_set()
         release.set()
         await first
+        third = await client.post("/charge", headers=KEY)
 
     # Assert
-    assert still_running
-    assert second.status_code == HTTP_200_OK
-    assert second.json() == {"charged": 1}
-    assert second.headers["idempotent-replayed"] == "true"
+    assert second.status_code == HTTP_409_CONFLICT
+    assert second.json()["type"].endswith("#idempotency-in-flight")
+    assert third.json() == {"charged": 1}
+    assert third.headers["idempotent-replayed"] == "true"
     assert calls == [1]
 
 
-async def test_middleware_exception_after_the_last_chunk_keeps_the_response() -> (
+async def test_middleware_exception_after_the_last_chunk_stores_nothing() -> (
     None
 ):
-    """What raises once the response ended propagates, and the retry replays."""
+    """What raises once the response ended propagates, and the retry runs again."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     calls: list[int] = []
@@ -3192,11 +3127,16 @@ async def test_middleware_exception_after_the_last_chunk_keeps_the_response() ->
         calls.append(1)
         await send(dict(_START))
         await send({"type": "http.response.body", "body": b"{}"})
-        msg = "background failure"
-        raise RuntimeError(msg)
+        if len(calls) == 1:
+            msg = "background failure"
+            raise RuntimeError(msg)
 
+    # A key left locked would answer the retry with `409` past `max_wait`.
     middleware = IdempotencyMiddleware(
-        app, idempotency=Idempotency("http", ttl=60), fingerprint_body=False
+        app,
+        idempotency=Idempotency("http", ttl=60),
+        fingerprint_body=False,
+        max_wait=1,
     )
 
     # Act
@@ -3206,9 +3146,9 @@ async def test_middleware_exception_after_the_last_chunk_keeps_the_response() ->
         retry = await _drive(middleware, [])
 
     # Assert
-    assert dict(retry[0]["headers"])[b"idempotent-replayed"] == b"true"
-    assert retry[1]["body"] == b"{}"
-    assert calls == [1]
+    assert retry[0]["status"] == HTTP_200_OK
+    assert b"idempotent-replayed" not in dict(retry[0]["headers"])
+    assert calls == [1, 1]
 
 
 async def test_middleware_exception_before_the_last_chunk_releases_the_key() -> (
@@ -3251,17 +3191,16 @@ async def test_middleware_exception_before_the_last_chunk_releases_the_key() -> 
 
 
 @pytest.mark.parametrize(
-    ("complete", "calls_after_retry"),
+    "complete",
     [
-        pytest.param(True, [1], id="after the last chunk"),
-        pytest.param(False, [1, 1], id="before the last chunk"),
+        pytest.param(True, id="after the last chunk"),
+        pytest.param(False, id="before the last chunk"),
     ],
 )
 async def test_middleware_cancelled_request_releases_the_key(
     complete: bool,  # noqa: FBT001
-    calls_after_retry: list[int],
 ) -> None:
-    """A cancelled request keeps a response it completed, and frees the key."""
+    """A cancelled request stores nothing and frees the key."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     calls: list[int] = []
@@ -3300,7 +3239,8 @@ async def test_middleware_cancelled_request_releases_the_key(
 
     # Assert
     assert retry[0]["status"] == HTTP_200_OK
-    assert calls == calls_after_retry
+    assert b"idempotent-replayed" not in dict(retry[0]["headers"])
+    assert calls == [1, 1]
 
 
 async def test_middleware_last_chunk_sent_from_another_task_releases_the_lock() -> (
@@ -3375,8 +3315,7 @@ def test_idempotent_requests_openapi_adds_the_header_and_responses() -> None:
     assert ("Idempotency-Key", "header") in [
         (p["name"], p["in"]) for p in operation["parameters"]
     ]
-    assert {"400", "409", "422"} <= set(operation["responses"])
-    assert "413" not in operation["responses"]
+    assert {"400", "409", "413", "422"} <= set(operation["responses"])
 
 
 def test_idempotent_requests_openapi_keeps_a_declaration_of_its_own() -> None:

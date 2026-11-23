@@ -10,7 +10,6 @@ from typing import (
     Any,
     ClassVar,
     Generic,
-    NamedTuple,
     Self,
     TypeVar,
     cast,
@@ -123,14 +122,6 @@ class Operation(Generic[T]):
         self._has_store = True
 
 
-class _Held(NamedTuple):
-    """A distributed lock this block holds, with what releases it."""
-
-    lock: Lock
-    token: str
-    task: asyncio.Task[object]
-
-
 class _Block(Generic[T]):
     """Async context manager driving one `Idempotency` key.
 
@@ -147,22 +138,15 @@ class _Block(Generic[T]):
         key: str,
         fingerprint: str | None,
         max_wait: float | None = None,
-        streamed: Callable[[], Awaitable[str]] | None = None,
     ) -> None:
-        """Initialize the block.
-
-        `streamed` returns the fingerprint once it can be computed. It is
-        awaited only to compare with a stored fingerprint and to store one,
-        and it replaces `fingerprint`.
-        """
+        """Initialize the block."""
         self._idempotency = idempotency
         self._key = key
         self._fingerprint = fingerprint
         self._max_wait = max_wait
-        self._streamed = streamed
         self._operation: Operation[T] | None = None
         self._local_lock: Any = None
-        self._distributed_lock: _Held | None = None
+        self._distributed_lock: Lock | None = None
 
     def _cache_miss(self, error: _AmbientMissError) -> _AmbientMissError:
         """Return the cache resolution miss, reworded for this idempotency."""
@@ -193,40 +177,6 @@ class _Block(Generic[T]):
             IdempotencyWaitTimeoutError: `max_wait` elapsed while an
                 execution already in flight held the single-flight lock.
         """
-        replay = await self._lookup()
-        if replay is _SENTINEL:
-            _emit.incr(
-                "grelmicro.idempotency.operations",
-                {
-                    "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
-                    "grelmicro.outcome": "execute",
-                },
-                unit="{operation}",
-            )
-            self._operation = Operation(replayed=False, response=None)
-            return self._operation
-        if self._streamed is not None:
-            # Outside the wait and the locks: the fingerprint may take as
-            # long as the payload takes to arrive.
-            await self._idempotency._check_fingerprint(  # noqa: SLF001
-                self._key, self._streamed
-            )
-        _emit.incr(
-            "grelmicro.idempotency.operations",
-            {
-                "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
-                "grelmicro.outcome": "replay",
-            },
-            unit="{operation}",
-        )
-        self._operation = Operation(replayed=True, response=replay)
-        return self._operation
-
-    async def _lookup(self) -> Any:  # noqa: ANN401
-        """Return the stored response, or hold the locks and return the sentinel.
-
-        A stored response is returned with every lock released.
-        """
         try:
             replay = await self._idempotency._replay(  # noqa: SLF001
                 self._key, self._fingerprint
@@ -237,7 +187,16 @@ class _Block(Generic[T]):
         except _AmbientMissError as error:
             raise self._cache_miss(error) from None
         if replay is not _SENTINEL:
-            return replay
+            _emit.incr(
+                "grelmicro.idempotency.operations",
+                {
+                    "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
+                    "grelmicro.outcome": "replay",
+                },
+                unit="{operation}",
+            )
+            self._operation = Operation(replayed=True, response=replay)
+            return self._operation
 
         guard = self._idempotency._guard  # noqa: SLF001
         try:
@@ -251,7 +210,18 @@ class _Block(Generic[T]):
                     if replay is not _SENTINEL:
                         self._local_lock.release()
                         self._local_lock = None
-                        return replay
+                        _emit.incr(
+                            "grelmicro.idempotency.operations",
+                            {
+                                "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
+                                "grelmicro.outcome": "replay",
+                            },
+                            unit="{operation}",
+                        )
+                        self._operation = Operation(
+                            replayed=True, response=replay
+                        )
+                        return self._operation
 
                     if _has_lock_backend():
                         # Bound to the block only once held, so a failed or
@@ -262,20 +232,25 @@ class _Block(Generic[T]):
                                 self._idempotency._scoped(self._key)  # noqa: SLF001
                             )
                         )
-                        handle = await lock.acquire()
-                        self._distributed_lock = _Held(
-                            lock,
-                            handle.token,
-                            cast(
-                                "asyncio.Task[object]", asyncio.current_task()
-                            ),
-                        )
+                        await lock.acquire()
+                        self._distributed_lock = lock
                         replay = await self._idempotency._replay(  # noqa: SLF001
                             self._key, self._fingerprint
                         )
                         if replay is not _SENTINEL:
                             await self._release()
-                            return replay
+                            _emit.incr(
+                                "grelmicro.idempotency.operations",
+                                {
+                                    "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
+                                    "grelmicro.outcome": "replay",
+                                },
+                                unit="{operation}",
+                            )
+                            self._operation = Operation(
+                                replayed=True, response=replay
+                            )
+                            return self._operation
                 except BaseException:
                     await self._release()
                     raise
@@ -287,7 +262,17 @@ class _Block(Generic[T]):
                     timeout=cast("float", self._max_wait),
                 ) from None
             raise
-        return _SENTINEL
+
+        _emit.incr(
+            "grelmicro.idempotency.operations",
+            {
+                "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
+                "grelmicro.outcome": "execute",
+            },
+            unit="{operation}",
+        )
+        self._operation = Operation(replayed=False, response=None)
+        return self._operation
 
     async def __aexit__(
         self,
@@ -307,9 +292,7 @@ class _Block(Generic[T]):
                 await self._idempotency._persist(  # noqa: SLF001
                     self._key,
                     cast("T", operation._stored),  # noqa: SLF001
-                    self._fingerprint
-                    if self._streamed is None
-                    else await self._streamed(),
+                    self._fingerprint,
                 )
         finally:
             await self._release()
@@ -319,13 +302,11 @@ class _Block(Generic[T]):
 
         The in-process release runs even when the distributed release
         fails or is cancelled, so a key never stays locked for the life of
-        the process. Either is released from whichever task runs this,
-        such as the one sending the last chunk of a response.
+        the process.
         """
         try:
-            held = self._distributed_lock
-            if held is not None:
-                await held.lock._release_held(held.token, held.task)  # noqa: SLF001
+            if self._distributed_lock is not None:
+                await self._distributed_lock.release()
                 self._distributed_lock = None
         finally:
             if self._local_lock is not None:
@@ -699,19 +680,6 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             max_wait,
         )
 
-    def _streamed(
-        self,
-        key: str,
-        fingerprint: Callable[[], Awaitable[str]],
-        max_wait: float | None,
-    ) -> _Block[T]:
-        """Open an idempotent block whose fingerprint is computed on demand.
-
-        `fingerprint` is awaited at most to compare a replay and to store
-        a response, never before the block knows which one it is.
-        """
-        return _Block(self, key, None, max_wait, fingerprint)
-
     async def run(
         self,
         key: Annotated[
@@ -796,23 +764,6 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             if saved is not None and saved.decode() != fingerprint:
                 raise IdempotencyConflictError(name=self._name, key=key)
         return stored
-
-    async def _check_fingerprint(
-        self, key: str, fingerprint: Callable[[], Awaitable[str]]
-    ) -> None:
-        """Compare a stored fingerprint with one computed only when needed.
-
-        `fingerprint` is awaited only when a fingerprint is stored.
-
-        Raises:
-            IdempotencyConflictError: If the two fingerprints differ.
-        """
-        backend = self._get_cache()._get_backend()  # noqa: SLF001
-        saved = await backend.get(
-            key=f"{_CACHE_PREFIX}:{self._scoped(key)}{_FINGERPRINT_SUFFIX}"
-        )
-        if saved is not None and saved.decode() != await fingerprint():
-            raise IdempotencyConflictError(name=self._name, key=key)
 
     async def _persist(
         self, key: str, response: T, fingerprint: str | None
