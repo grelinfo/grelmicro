@@ -42,16 +42,17 @@ settles, and never shrinks.
 
 Each release that switches has its own warning class, such as
 `Grelmicro045Warning` for `0.45.0`. Turn it into an error in your tests to find
-every line to change before you upgrade:
+the lines to change before you upgrade:
 
 ```toml
 [tool.pytest.ini_options]
 filterwarnings = ["error::grelmicro.Grelmicro045Warning"]
 ```
 
-If your tests pass with this filter, none of your code uses a behavior that
-changes in that release. A misspelled class name stops pytest with an error,
-so a passing run means the filter is active.
+The filter catches the affected behavior your tests run, and only that. Make
+your tests start the app, open its providers and load its configuration. Do not
+ignore this warning class anywhere else. A misspelled class name stops pytest
+with an error, so a passing run means the filter is active.
 
 ## Python versions
 

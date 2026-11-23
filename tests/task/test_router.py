@@ -1,5 +1,6 @@
 """Test Task Router."""
 
+import inspect
 import re
 from datetime import timedelta
 from functools import partial
@@ -11,7 +12,9 @@ from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.task import TaskRouter
+from grelmicro.task._cron import CronTask
 from grelmicro.task._interval import IntervalTask
+from grelmicro.task._job import Job
 from grelmicro.task.errors import FunctionTypeError, TaskAddOperationError
 from tests.task.samples import EventTask, SimpleClass, test1, test2, test3
 
@@ -28,6 +31,20 @@ def test_router_init() -> None:
     # Assert
     assert router.tasks == []
     assert router_with_task.tasks == [custom_task]
+
+
+@pytest.mark.parametrize("task_class", [IntervalTask, CronTask, Job])
+def test_a_task_class_takes_every_argument_by_keyword(task_class: type) -> None:
+    """A task class takes `function=` and `name=` like its decorator does."""
+    # Arrange
+    parameters = inspect.signature(task_class).parameters.values()
+
+    # Act
+    positional = [p.name for p in parameters if p.kind != p.KEYWORD_ONLY]
+
+    # Assert
+    assert positional == []
+    assert {"function", "name"} <= {p.name for p in parameters}
 
 
 def test_router_add_task() -> None:

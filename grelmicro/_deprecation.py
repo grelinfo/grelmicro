@@ -358,7 +358,8 @@ def long_table_name(
         adopt=f"{argument}=",
         remedy="Until then Postgres cuts the names the adapter builds from "
         "it, such as its indexes and functions, at 63 bytes, so one can be "
-        "left out or replace another with no error. "
+        "left out or replace another with no error. A table name takes only "
+        "ASCII letters, digits and underscores, one byte each. "
         f"Pass a `{argument}` of {longest} characters or fewer.",
     )
 
