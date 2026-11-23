@@ -227,15 +227,39 @@ def test_late_handler_refused_by_one_outbox_joins_none() -> None:
 def test_router_reached_twice_in_one_outbox_raises() -> None:
     """A router under one outbox through two routers is refused."""
     shared = OutboxRouter()
-    tree = OutboxRouter(
-        routers=[OutboxRouter(routers=[shared]), OutboxRouter(routers=[shared])]
+    outbox = Outbox(
+        MemoryOutboxAdapter(), routers=[OutboxRouter(routers=[shared])]
     )
+
+    with pytest.raises(OutboxRouterError, match="already included"):
+        outbox.include_router(OutboxRouter(routers=[shared]))
+
+
+def test_router_reached_twice_in_one_detached_tree_raises() -> None:
+    """A router under one detached router through two routers is refused."""
+    shared = OutboxRouter()
+
+    with pytest.raises(OutboxRouterError, match="already included"):
+        OutboxRouter(
+            routers=[
+                OutboxRouter(routers=[shared]),
+                OutboxRouter(routers=[shared]),
+            ]
+        )
+
+
+def test_router_reached_twice_by_a_later_include_raises() -> None:
+    """Including a router a detached tree already holds below it is refused."""
+    shared = OutboxRouter()
+    tree = OutboxRouter(routers=[OutboxRouter(routers=[shared])])
+
+    with pytest.raises(OutboxRouterError, match="already included"):
+        tree.include_router(OutboxRouter(routers=[shared]))
 
     @shared.handler("job")
     async def handle(message: Message[object]) -> None: ...
 
-    with pytest.raises(OutboxRouterError, match="already included"):
-        Outbox(MemoryOutboxAdapter(), routers=[tree])
+    assert [entry.topic for entry in tree._entries()] == ["job"]
 
 
 def test_router_included_twice_in_one_outbox_raises() -> None:
