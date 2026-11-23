@@ -572,7 +572,7 @@ IdempotentRequests(fingerprint_body=True, exclude=("/uploads/*",))
 A response stored before the check was on carries no hash, so a reused key
 replays it until it expires.
 
-Full list: [Unreleased in the changelog](changelog.md#unreleased)
+Full list: [0.45.0 in the changelog](changelog.md#0450-2026-11-24)
 
 ## 0.44
 

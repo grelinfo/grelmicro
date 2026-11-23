@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.45.0 - 2026-11-24
 
 ### Breaking
 * 💥 `LogConfig.format` reads back in lowercase, such as `"json"`, and defaults to `"auto"`. Input still matches in any case. `LogFormat` no longer lists the uppercase spellings. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
