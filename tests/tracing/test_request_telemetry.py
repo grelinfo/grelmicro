@@ -26,7 +26,7 @@ from litestar.testing import TestClient as LitestarTestClient
 from litestar.types import Receive as LitestarReceive
 from litestar.types import Scope as LitestarScope
 from litestar.types import Send as LitestarSend
-from opentelemetry import baggage, propagate
+from opentelemetry import baggage, propagate, trace
 from opentelemetry import context as otel_context
 from opentelemetry.propagators.textmap import (
     Getter,
@@ -1228,9 +1228,14 @@ def test_starlette_raw_request_matches_fastapi(
 
 
 @pytest.mark.parametrize("framework", ["starlette", "litestar"])
-def test_request_telemetry_two_grelmicros_record_once(framework: str) -> None:
+def test_request_telemetry_two_grelmicros_record_once(
+    framework: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A second `Grelmicro` does not record the request a second time."""
     # Arrange
+    # Litestar closes the apps in the order it opened them, so the second
+    # puts back the provider of the first, already shut down.
+    monkeypatch.setattr(trace, "_TRACER_PROVIDER", trace._TRACER_PROVIDER)
     first = Grelmicro(uses=[_trace()])
     second = Grelmicro(uses=[_trace()], allow_multiple=True)
     app = _PARITY_APPS[framework]()

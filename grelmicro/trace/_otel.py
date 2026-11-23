@@ -13,11 +13,12 @@ from functools import cache
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 if TYPE_CHECKING:
-    from opentelemetry.trace import Span, StatusCode, Tracer
+    from opentelemetry.trace import Span, StatusCode, Tracer, TracerProvider
 
     class _OTelTrace(Protocol):
         def get_tracer(self, instrumenting_module_name: str) -> Tracer: ...
         def get_current_span(self) -> Span: ...
+        def get_tracer_provider(self) -> TracerProvider: ...
 
 
 class OTel(NamedTuple):
@@ -43,6 +44,32 @@ def get() -> OTel | None:
     except ImportError:
         return None
     return OTel(trace, StatusCode)
+
+
+class GlobalTracer:
+    """A tracer of the global tracer provider, fetched again when it changes.
+
+    `get` returns a tracer of the provider installed at that moment, so spans
+    reach the provider that replaced an earlier one. The tracer is kept
+    until the global provider changes.
+    """
+
+    __slots__ = ("_bound", "_name", "_trace")
+
+    def __init__(self, trace: _OTelTrace, name: str) -> None:
+        """Bind the `opentelemetry.trace` module and the tracer's name."""
+        self._trace = trace
+        self._name = name
+        self._bound: tuple[TracerProvider, Tracer] | None = None
+
+    def get(self) -> Tracer:
+        """Return a tracer of the global provider installed now."""
+        provider = self._trace.get_tracer_provider()
+        bound = self._bound
+        if bound is None or bound[0] is not provider:
+            bound = (provider, provider.get_tracer(self._name))
+            self._bound = bound
+        return bound[1]
 
 
 def exceptions_on_spans() -> bool:

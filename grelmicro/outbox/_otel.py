@@ -22,14 +22,16 @@ if TYPE_CHECKING:
 def _otel() -> Any:  # noqa: ANN401
     """Return `(propagate, trace, tracer)`, or None when OTel is absent.
 
-    The tracer is a proxy that resolves the global provider at span creation,
-    so building it once here is safe and keeps the delivery path cheap.
+    The tracer follows the global provider, so a span reaches the provider
+    installed when it starts.
     """
     try:
         from opentelemetry import propagate, trace  # noqa: PLC0415
     except ImportError:  # pragma: no cover
         return None
-    return propagate, trace, trace.get_tracer("grelmicro.outbox")
+    from grelmicro.trace._otel import GlobalTracer  # noqa: PLC0415
+
+    return propagate, trace, GlobalTracer(trace, "grelmicro.outbox")
 
 
 def inject_trace_context(headers: dict[str, Any]) -> None:
@@ -60,7 +62,7 @@ def consumer_span(
         return
     propagate, trace, tracer = handles
     context = propagate.extract(headers)
-    with tracer.start_as_current_span(
+    with tracer.get().start_as_current_span(
         f"process {topic}",
         context=context,
         kind=trace.SpanKind.CONSUMER,
