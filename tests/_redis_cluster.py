@@ -28,7 +28,7 @@ from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.valkey import ValkeyProvider
 from tests._containers import CONTAINER_LOG_TIMEOUT
 
-REDIS_IMAGE = "redis:8"
+REDIS_IMAGE = "redis:8.12"
 VALKEY_IMAGE = "valkey/valkey:8.1"
 
 NODES = 3
@@ -44,7 +44,13 @@ _PORT_RANGE = (20000, 65535 - _BUS_OFFSET)
 """Host ports to draw from, low enough that each bus port stays valid."""
 
 _ATTEMPTS = 5
-"""Times to draw new ports when another process took one first."""
+"""Times to start a cluster when a port was taken or the container exited."""
+
+_REDIS_OPTIONS = " --cluster-bus-port-protected-mode no"
+"""Lets a Redis 8.12 or later node serve its cluster bus without TLS.
+
+The bus ports are never published from the container.
+"""
 
 _SCRIPT = """\
 set -e
@@ -54,11 +60,18 @@ for port in "$@"; do
     --cluster-config-file /data/$port/nodes.conf \
     --cluster-announce-ip 127.0.0.1 --cluster-announce-port $port \
     --cluster-announce-bus-port $((port + {bus})) \
-    --dir /data/$port --appendonly no --save "" --daemonize yes
+    --dir /data/$port --appendonly no --save "" --daemonize yes{options}
 done
-sleep 1
+for port in "$@"; do
+  until {cli} -p $port ping >/dev/null 2>&1; do sleep 0.1; done
+done
 nodes=""; for port in "$@"; do nodes="$nodes 127.0.0.1:$port"; done
 yes yes | {cli} --cluster create $nodes --cluster-replicas 0
+for port in "$@"; do
+  until {cli} -p $port cluster info | grep -q cluster_state:ok; do
+    sleep 0.1
+  done
+done
 echo "{ready}"
 tail -f /dev/null
 """
@@ -96,6 +109,7 @@ def _container(image: str, ports: list[int]) -> DockerContainer:
     script = _SCRIPT.format(
         server="valkey-server" if valkey else "redis-server",
         cli="valkey-cli" if valkey else "redis-cli",
+        options="" if valkey else _REDIS_OPTIONS,
         bus=_BUS_OFFSET,
         ready=READY,
     )
@@ -114,25 +128,26 @@ def start_cluster(image: str, scheme: str) -> Generator[str]:
     """Start a three-node cluster, and yield its URL with `scheme`.
 
     Ports are drawn again when the container cannot bind one, since another
-    worker may take a port between the probe and the start.
+    worker may take a port between the probe and the start. A container that
+    exits before the cluster is ready is started again too.
     """
     for attempt in range(_ATTEMPTS):
         ports = free_ports(NODES)
         container = _container(image, ports)
         try:
             container.start()
-        except APIError:
-            container.stop()
-            if attempt == _ATTEMPTS - 1:
-                raise
-            continue
-        try:
             wait_for_logs(
                 container,
                 READY,
                 timeout=CONTAINER_LOG_TIMEOUT,
                 raise_on_exit=True,
             )
+        except APIError, RuntimeError:
+            container.stop()
+            if attempt == _ATTEMPTS - 1:
+                raise
+            continue
+        try:
             yield f"{scheme}://127.0.0.1:{ports[0]}"
         finally:
             container.stop()
