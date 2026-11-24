@@ -17,6 +17,7 @@ from typing_extensions import Doc
 from grelmicro._duration import MICROSECOND, MILLISECOND, round_up
 from grelmicro.providers.redis import RedisProvider, kind_prefix
 from grelmicro.task._protocol import (
+    CLAIM_CATCH_UP,
     FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
@@ -356,11 +357,14 @@ class RedisJobAdapter(JobBackend):
         + """
         local jobs, runner, lease = ARGV[1], ARGV[2], tonumber(ARGV[3])
         local claimed = {}
+        local skipped = 0
         for index = 1, (#KEYS - 1) / 2 do
             local queue, waiting = KEYS[2 * index], KEYS[2 * index + 1]
             local free = tonumber(ARGV[3 + index])
             local taken = 0
-            while taken < free do
+            while taken < free and skipped < """
+        + str(CLAIM_CATCH_UP)
+        + """ do
                 local head = redis.call('ZRANGE', queue, 0, 0)
                 if #head == 0 then
                     break
@@ -370,14 +374,17 @@ class RedisJobAdapter(JobBackend):
                 if redis.call('HGET', key, 's') ~= 'queued' then
                     redis.call('ZREM', queue, id)
                     redis.call('ZREM', waiting, id)
-                elseif not catch_up(key, id, queue, waiting) then
+                    skipped = skipped + 1
+                elseif catch_up(key, id, queue, waiting) then
+                    skipped = skipped + 1
+                else
                     redis.call('ZREM', queue, id)
                     redis.call('ZREM', waiting, id)
                     redis.call('HDEL', key, 'sb')
                     start_running(key, id, runner, lease)
                     redis.call('HINCRBY', key, 'v', 1)
                     claimed[#claimed + 1] = {
-                        id, record(key), redis.call('HMGET', key, 'p', 'x')
+                        id, record(key), redis.call('HMGET', key, 'p', 'x', 'mr')
                     }
                     taken = taken + 1
                 end
@@ -388,8 +395,11 @@ class RedisJobAdapter(JobBackend):
     )
     """Claim queued jobs, oldest first per name.
 
-    KEYS: deadlines, then queue and waiting of each name. ARGV: job key
-    prefix, runner, lease in us, then the free slots of each name.
+    It drops at most `CLAIM_CATCH_UP` heads that cannot start, such as jobs
+    past their `max_wait`, and the sweep ends the rest. KEYS: deadlines,
+    then queue and waiting of each name. ARGV: job key prefix, runner, lease
+    in us, then the free slots of each name. Each claimed job comes with its
+    payload, context and `max_run` in us (none: no limit).
     """
 
     _LUA_BEAT = (
@@ -557,7 +567,7 @@ class RedisJobAdapter(JobBackend):
                 local key = jobs .. id
                 local stored = redis.call('HMGET', key, 'n', 'o', 'ok')
                 if stored[3] ~= own then
-                    redis.call('ZREM', own, id)
+                    unindex(own, id)
                 elseif stored[1] == name and stored[2] == owner then
                     catch_up(key, id, queue, waiting)
                     local now_status = redis.call('HGET', key, 's')
@@ -600,7 +610,6 @@ class RedisJobAdapter(JobBackend):
             'ZRANGEBYSCORE', expiries, '-inf', us(math.floor(now / 1000)),
             'LIMIT', 0, tonumber(ARGV[1])
         )
-        local purged = 0
         for _, entry in ipairs(due) do
             redis.call('ZREM', expiries, entry)
             local colon = string.find(entry, ':', 1, true)
@@ -609,17 +618,16 @@ class RedisJobAdapter(JobBackend):
             local index = string.sub(entry, colon + size + 1)
             local job = redis.call('HMGET', base .. 'id:' .. id, 'ok', 'kk')
             if job[1] ~= index and job[2] ~= index then
-                purged = purged + redis.call('ZREM', index, id)
                 unindex(index, id)
             end
         end
-        return purged
+        return #due
     """
     )
     """Take expired jobs out of their owner and kept indexes, up to a limit.
 
     A job with the same id that the same index holds since stays. KEYS:
-    deadlines. ARGV: limit. The reply is how many entries it took out.
+    deadlines. ARGV: limit. The reply is how many due entries it handled.
     """
 
     _LUA_REAP = (
@@ -843,8 +851,13 @@ class RedisJobAdapter(JobBackend):
                 _record(_text(job_id), fields),
                 payload=_text(payload),
                 context=json.loads(_text(context)),
+                max_run=(
+                    None
+                    if max_run is None
+                    else timedelta(microseconds=int(_text(max_run)))
+                ),
             )
-            for job_id, fields, (payload, context) in reply
+            for job_id, fields, (payload, context, max_run) in reply
         ]
 
     async def beat(
@@ -978,7 +991,7 @@ class RedisJobAdapter(JobBackend):
 
         Redis expires an ended job on its own once `keep` has passed. This
         takes up to `limit` such jobs out of their owner and kept indexes,
-        and returns how many index entries it took out.
+        and returns how many index entries it handled.
         """
         return int(
             await self._lua_purge(

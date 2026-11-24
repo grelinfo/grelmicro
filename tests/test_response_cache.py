@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import sys
@@ -3229,6 +3230,72 @@ def test_a_lock_that_fails_after_the_handler_raised_is_reported(
     [record] = records_of(caplog, "grelmicro.http.cache")
     assert isinstance(record.exc_info, tuple)
     assert isinstance(record.exc_info[1], ConnectionError)
+
+
+class _SlowLosingLock:
+    """A lock that fails on its way out, once `gate` opens."""
+
+    def __init__(self, gate: anyio.Event) -> None:
+        """Wait on `gate` before failing."""
+        self._gate = gate
+
+    async def __aenter__(self) -> None:
+        """Take it."""
+
+    async def __aexit__(self, *args: object) -> None:
+        """Wait for the gate, then refuse to give it back."""
+        await self._gate.wait()
+        msg = "the lease is gone"
+        raise ConnectionError(msg)
+
+
+class _SlowLosingGuard:
+    """A stampede guard whose lock fails late on its way out."""
+
+    def __init__(self, gate: anyio.Event) -> None:
+        """Hand every lock the same `gate`."""
+        self._gate = gate
+
+    async def get_lock(self, key: str) -> _SlowLosingLock:  # noqa: ARG002
+        """Return a lock that raises once the gate opens."""
+        return _SlowLosingLock(self._gate)
+
+
+def test_a_lock_that_fails_after_the_request_was_cancelled_is_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The lock failing after the caller is gone is logged once, not dropped."""
+    # Arrange
+    entered = anyio.Event()
+    gate = anyio.Event()
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        entered.set()
+        await anyio.sleep_forever()
+
+    middleware = CachedResponsesMiddleware(
+        app, cache=_cache(), include={"/reads": TTL}
+    )
+    middleware._cache._stampede = _SlowLosingGuard(gate)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+    async def scenario() -> None:
+        async with anyio.create_task_group() as tasks:
+            tasks.start_soon(middleware, _read_scope(), _receive, _nowhere)
+            await entered.wait()
+            tasks.cancel_scope.cancel()
+        holders = set(middleware._holding)
+        gate.set()
+        await asyncio.wait(holders)
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="grelmicro.http.cache"):
+        anyio.run(scenario)
+
+    # Assert
+    [record] = records_of(caplog, "grelmicro.http.cache")
+    assert isinstance(record.exc_info, tuple)
+    assert isinstance(record.exc_info[1], ConnectionError)
+    assert not middleware._holding
 
 
 def test_a_hold_that_fails_after_the_response_went_out_is_reported(

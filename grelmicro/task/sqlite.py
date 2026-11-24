@@ -20,6 +20,7 @@ from grelmicro.coordination.sqlite import _immediate
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.task._protocol import (
+    CLAIM_CATCH_UP,
     FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
@@ -237,7 +238,19 @@ class SQLiteJobAdapter(JobBackend):
         ),
         "catch_up_queue": _CATCH_UP.replace(
             "{returning}", f"RETURNING {_ENDED}"
-        ).replace("{where}", "name = :name AND status = 'queued'"),
+        )
+        .replace(
+            "{where}",
+            """seq IN (
+                SELECT seq FROM {table_name}
+                WHERE name = :name
+                  AND status = 'queued'
+                  AND due_at <= :now
+                ORDER BY seq
+                LIMIT {catch_up}
+            )""",
+        )
+        .replace("{catch_up}", str(CLAIM_CATCH_UP)),
         # The unary plus keeps the owner index out, so the due index finds
         # the few overdue jobs instead of every job the owner has.
         "catch_up_owner": _CATCH_UP.replace(
@@ -297,7 +310,9 @@ class SQLiteJobAdapter(JobBackend):
         """,
         "count_queued": """
             SELECT count(*) FROM {table_name}
-            WHERE name = :name AND status = 'queued';
+            WHERE name = :name
+              AND status = 'queued'
+              AND (due_at IS NULL OR due_at > :now);
         """,
         "insert": """
             INSERT INTO {table_name} (
@@ -324,11 +339,13 @@ class SQLiteJobAdapter(JobBackend):
                 version = version + 1
             WHERE seq IN (
                 SELECT seq FROM {table_name}
-                WHERE name = :name AND status = 'queued'
+                WHERE name = :name
+                  AND status = 'queued'
+                  AND (due_at IS NULL OR due_at > :now)
                 ORDER BY seq
                 LIMIT :free
             )
-            RETURNING seq, {record}, payload, context;
+            RETURNING seq, {record}, payload, context, max_run_ms;
         """,
         "beat": """
             UPDATE {table_name} SET
@@ -501,7 +518,9 @@ class SQLiteJobAdapter(JobBackend):
                 )
                 return Submitted(stored.record, started=started)
             await self._end(conn, "catch_up_queue", now, name=name)
-            [queued] = await self._fetch(conn, "count_queued", name=name)
+            [queued] = await self._fetch(
+                conn, "count_queued", name=name, now=now
+            )
             runner = None if queued else start_as
             if (
                 runner is None
@@ -573,6 +592,7 @@ class SQLiteJobAdapter(JobBackend):
                         _record(row[1:]),
                         payload=row[13],
                         context=json.loads(row[14]),
+                        max_run=_duration(row[15]),
                     )
                     for row in rows
                 ]
@@ -928,3 +948,8 @@ def _record(row: Sequence[Any]) -> JobRecord:
         started_at=_time(row[10]),
         finished_at=_time(row[11]),
     )
+
+
+def _duration(stored: int | None) -> timedelta | None:
+    """Read a stored count of milliseconds as a duration, `None` for no limit."""
+    return None if stored is None else timedelta(milliseconds=stored)

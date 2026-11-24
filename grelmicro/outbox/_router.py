@@ -132,7 +132,8 @@ class OutboxRouter:
         Raises:
             OutboxRouterError: If `router` is an `Outbox`, is this router
                 or one that includes it, is already included in this router,
-                or is already in an `Outbox` this router is included in.
+                or is already under a router or `Outbox` this router is
+                included in.
             HandlerAlreadyRegisteredError: If a topic of `router` is
                 already taken in this router, or where this router is
                 included. Nothing of `router` is included then.
@@ -162,13 +163,15 @@ class OutboxRouter:
                 msg = "A router cannot include itself or a router including it"
                 raise OutboxRouterError(msg)
         tops = self._tops()
-        roots = [top for top in tops if top._owned_registry() is not None]  # noqa: SLF001
-        for root in roots:
-            held = {id(node) for node in root._subtree()}  # noqa: SLF001
+        for top in tops:
+            held = {id(node) for node in top._subtree()}  # noqa: SLF001
             for router in routers:
                 for node in router._subtree():  # noqa: SLF001
                     if id(node) in held:
-                        msg = "This router is already included in this outbox"
+                        msg = (
+                            "This router is already included under the same "
+                            "router or outbox"
+                        )
                         raise OutboxRouterError(msg)
                     held.add(id(node))
         entries = [
@@ -199,12 +202,8 @@ class OutboxRouter:
         """
         tops: list[OutboxRouter] = []
         pending: list[OutboxRouter] = [self]
-        seen: set[int] = set()
         while pending:
             node = pending.pop()
-            if id(node) in seen:
-                continue
-            seen.add(id(node))
             parents = list(node._parents)  # noqa: SLF001
             if not parents or node._owned_registry() is not None:  # noqa: SLF001
                 tops.append(node)

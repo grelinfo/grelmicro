@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, ClassVar, Self
 
 from grelmicro.clock._seam import monotonic
 from grelmicro.task._protocol import (
+    CLAIM_CATCH_UP,
     FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
@@ -207,15 +208,11 @@ class MemoryJobAdapter(JobBackend):
         if job_id in self._rows:
             return Submitted(None, started=False)
         queued = self._queued[name]
+        live = 0
         if max_queued is not None or start_as is not None:
-            for waiting in list(queued):
-                self._catch_up(waiting)
-        runner = None if queued else start_as
-        if (
-            runner is None
-            and max_queued is not None
-            and len(queued) >= max_queued
-        ):
+            live = self._live(queued)
+        runner = None if live else start_as
+        if runner is None and max_queued is not None and live >= max_queued:
             return Submitted(None, started=False)
         self._seq += 1
         row = _Row(
@@ -250,19 +247,27 @@ class MemoryJobAdapter(JobBackend):
         runner: str,
         lease: timedelta,
     ) -> builtins.list[Claimed]:
-        """Claim queued jobs up to each name's slots, oldest first per name."""
+        """Claim queued jobs up to each name's slots, oldest first per name.
+
+        It ends at most `CLAIM_CATCH_UP` queued jobs past their `max_wait`,
+        and the sweep ends the rest.
+        """
         claimed: builtins.list[Claimed] = []
+        ended = 0
         for name, free in slots.items():
             queued = self._queued[name]
             taken = 0
-            while queued and taken < free:
+            while queued and taken < free and ended < CLAIM_CATCH_UP:
                 row = queued[0]
                 if self._catch_up(row):
+                    ended += 1
                     continue
                 queued.popleft()
                 _start(row, runner, lease)
                 row.version += 1
-                claimed.append(Claimed(row.record(), row.payload, row.context))
+                claimed.append(
+                    Claimed(row.record(), row.payload, row.context, row.max_run)
+                )
                 taken += 1
         return claimed
 
@@ -406,6 +411,22 @@ class MemoryJobAdapter(JobBackend):
                 self._forget(row)
                 purged += 1
         return purged
+
+    def _live(self, queued: deque[_Row]) -> int:
+        """Return how many jobs of `queued` are within their `max_wait`.
+
+        It ends at most `CLAIM_CATCH_UP` of the others, oldest first, and
+        the sweep ends the rest.
+        """
+        now = monotonic()
+        live = ended = 0
+        for row in list(queued):
+            if row.start_by is None or row.start_by > now:
+                live += 1
+            elif ended < CLAIM_CATCH_UP:
+                self._catch_up(row)
+                ended += 1
+        return live
 
     def _held(self, name: str, job_id: str, runner: str) -> _Row | None:
         """Return the running job `job_id` when `runner` holds it."""

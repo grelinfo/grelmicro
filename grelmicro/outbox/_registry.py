@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
+
 from grelmicro._wrapping import named
 from grelmicro.outbox._codec import decode_payload
 from grelmicro.outbox._message import Message
@@ -34,8 +36,11 @@ def derive_topic(target: type[Any] | str) -> str:
         return target
     if not isinstance(target, type):
         return getattr(target, "__outbox_topic__", target.__name__)
+    read = (
+        type.__getattribute__ if type(target) in _PLAIN_METACLASSES else getattr
+    )
     try:
-        topic: str = _class_attribute(target, "__outbox_topic__")
+        topic: str = read(target, "__outbox_topic__")
     except AttributeError:
         topic = target.__name__
         change = _named_change(target)
@@ -48,8 +53,10 @@ def derive_topic(target: type[Any] | str) -> str:
     return topic
 
 
-_class_attribute = type.__getattribute__
-"""Read a class attribute, skipping the metaclass `__getattr__` of Pydantic."""
+_PLAIN_METACLASSES = (type, type(BaseModel))
+"""Metaclasses whose `__outbox_topic__` reads the same through
+`type.__getattribute__` as through `getattr`. Any other metaclass reads it
+through `getattr`."""
 
 
 def _origin(model: type[Any]) -> type[Any]:

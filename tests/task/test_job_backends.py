@@ -19,6 +19,7 @@ from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.providers.valkey import ValkeyProvider
 from grelmicro.task import JobStatus
 from grelmicro.task._protocol import (
+    CLAIM_CATCH_UP,
     JOB_LOST,
     JOB_NOT_STARTED,
     JOB_TIMED_OUT,
@@ -1062,6 +1063,96 @@ async def test_job_backend_claim_skips_a_job_past_max_wait(
     # Assert
     assert claimed == [fresh.id]
     assert (await _read(store, expired.id)).status is JobStatus.FAILED
+
+
+async def test_job_backend_claim_behind_many_expired_jobs_starts_the_next(
+    store: _Store,
+) -> None:
+    """A job behind more expired jobs than one claim ends starts by the next."""
+    # Arrange
+    expired = [
+        await store.submit(max_wait=store.ticks(60))
+        for _ in range(CLAIM_CATCH_UP + 1)
+    ]
+    fresh = await store.submit(max_wait=None)
+    await store.elapse(60 + MARGIN)
+
+    # Act
+    claimed = await _claim(store, limit=1) or await _claim(store, limit=1)
+
+    # Assert
+    assert claimed == [fresh.id]
+    assert (await _read(store, expired[-1].id)).status is JobStatus.FAILED
+
+
+async def test_job_backend_claim_ends_at_most_its_catch_up_limit(
+    store: _Store,
+) -> None:
+    """A claim ends at most `CLAIM_CATCH_UP` expired jobs, oldest first.
+
+    The sweep ends the rest.
+    """
+    # Arrange
+    expired = [
+        await store.submit(max_wait=store.ticks(60))
+        for _ in range(CLAIM_CATCH_UP + 1)
+    ]
+    await store.elapse(60 + MARGIN)
+
+    # Act
+    await _claim(store, limit=1)
+    await store.elapse(MARGIN)
+    reaped = await store.backend.reap(limit=10 * CLAIM_CATCH_UP)
+
+    # Assert
+    assert reaped == 1
+    first, last = (
+        await _read(store, expired[0].id),
+        await _read(store, expired[-1].id),
+    )
+    assert first.finished_at is not None
+    assert last.finished_at is not None
+    assert first.finished_at < last.finished_at
+
+
+async def test_job_backend_submit_ends_at_most_its_catch_up_limit(
+    store: _Store,
+) -> None:
+    """A submit under `max_queued` ends at most `CLAIM_CATCH_UP` expired jobs.
+
+    Expired jobs never take a place in the queue, and the sweep ends the
+    ones the submit left.
+    """
+    # Arrange
+    for _ in range(CLAIM_CATCH_UP + 1):
+        await store.submit(max_wait=store.ticks(60))
+    await store.elapse(60 + MARGIN)
+
+    # Act
+    await store.submit(max_queued=1)
+    reaped = await store.backend.reap(limit=10 * CLAIM_CATCH_UP)
+
+    # Assert
+    assert reaped >= 1
+
+
+@pytest.mark.parametrize("ticks", [None, 7])
+async def test_job_backend_claim_gives_the_max_run_stored_with_the_job(
+    store: _Store, ticks: int | None
+) -> None:
+    """A claim gives the `max_run` stored at submit, whoever claims it."""
+    # Arrange
+    max_run = None if ticks is None else store.ticks(ticks)
+    record = await store.submit(max_run=max_run)
+
+    # Act
+    [claimed] = await store.backend.claim(
+        slots={NAME: 1}, runner="r", lease=store.lease
+    )
+
+    # Assert
+    assert claimed.record.id == record.id
+    assert claimed.max_run == max_run
 
 
 async def test_job_backend_max_wait_none_never_expires(store: _Store) -> None:
