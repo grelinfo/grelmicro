@@ -520,3 +520,48 @@ def test_topic_from_a_metaclass_is_silent() -> None:
 
     router = _assert_silent(register)
     assert _topics(router) == ["meta.topic"]
+
+
+class _PropertyTopicMeta(type(BaseModel)):  # type: ignore[misc]
+    """A model metaclass that names a topic with a property."""
+
+    @property
+    def __outbox_topic__(cls) -> str:
+        return f"meta.{cls.__name__}"
+
+
+class _GetattrTopicMeta(type(BaseModel)):  # type: ignore[misc]
+    """A model metaclass that names a topic in `__getattr__`."""
+
+    def __getattr__(cls, name: str) -> object:
+        if name == "__outbox_topic__":
+            return f"meta.{cls.__name__}"
+        return super().__getattr__(name)  # ty: ignore[missing-attribute]
+
+
+class _GetattributeTopicMeta(type(BaseModel)):  # type: ignore[misc]
+    """A model metaclass that names a topic in `__getattribute__`."""
+
+    def __getattribute__(cls, name: str) -> object:
+        if name == "__outbox_topic__":
+            return f"meta.{type.__getattribute__(cls, '__name__')}"
+        return super().__getattribute__(name)
+
+
+@pytest.mark.parametrize(
+    "metaclass",
+    [_PropertyTopicMeta, _GetattrTopicMeta, _GetattributeTopicMeta],
+    ids=["property", "getattr", "getattribute"],
+)
+def test_topic_computed_by_a_metaclass_is_silent(metaclass: type) -> None:
+    """A topic the metaclass computes is the topic, and warns nothing."""
+
+    class Audited(BaseModel, metaclass=metaclass):
+        entry: int
+
+    def register(router: OutboxRouter) -> None:
+        @router.handler(Audited)
+        async def handle(message: Message[Audited]) -> None: ...
+
+    router = _assert_silent(register)
+    assert _topics(router) == ["meta.Audited"]
