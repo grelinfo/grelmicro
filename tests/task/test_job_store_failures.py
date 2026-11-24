@@ -17,7 +17,7 @@ from grelmicro.clock import VirtualClock
 from grelmicro.task import Job, JobInfo, JobStatus, Progress, Tasks
 from grelmicro.task._job import _info
 from grelmicro.task._job_loop import LEASE
-from grelmicro.task._protocol import Settled
+from grelmicro.task._protocol import JOB_LOST, Settled
 from grelmicro.task.errors import JobRefusedError
 from grelmicro.task.memory import MemoryJobAdapter
 from tests.task._job_shared import share, shared
@@ -866,3 +866,140 @@ async def test_job_store_out_stops_a_sync_body_at_max_run() -> None:
 
     # Assert
     assert seen == ["stopped"]
+
+
+class _LateStartStore(MemoryJobAdapter):
+    """A store that starts a submitted job at once, but answers on a gate."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gate = asyncio.Event()
+
+    async def submit(self, **kwargs: Any) -> Any:  # noqa: ANN401
+        answer = await super().submit(**kwargs)
+        await self.gate.wait()
+        return answer
+
+
+async def _notes_start(_progress: Progress, seen: str) -> None:
+    """Note in `seen` that the body ran."""
+    shared(seen).append("started")
+
+
+@pytest.mark.parametrize(
+    "late", [_LEASE_SECONDS, _PAST_THE_LEASE], ids=["at", "past"]
+)
+async def test_job_start_answered_after_its_lease_never_runs_the_body(
+    late: int,
+) -> None:
+    """A start the store answers a lease late ends lost, the body never runs."""
+    # Arrange
+    clock = VirtualClock()
+    store = _LateStartStore()
+    tasks = Tasks()
+    job = tasks.job(name="import", backend=store)(_notes_start)
+    seen: list[str] = []
+
+    async with clock:
+        async with tasks:
+            pending = asyncio.ensure_future(
+                job.without_owner().submit(share(seen))
+            )
+            await _settled()
+            await clock.advance(late)
+            await _settled()
+
+            # Act
+            store.gate.set()
+            submitted = await pending
+            await _advance(clock, _FEW_BEATS)
+            running = job._running
+
+        info = await _read(store, submitted.id)
+
+    # Assert
+    assert seen == []
+    assert running == 0
+    assert (info.status, info.error) == (JobStatus.FAILED, JOB_LOST)
+
+
+class _KeepsItsOwnMaxRun(_FlakyStore):
+    """A store holding each job with the `max_run` another replica gave it.
+
+    It never starts a job at submit, so every job goes through a claim.
+    """
+
+    async def submit(self, **kwargs: Any) -> Any:  # noqa: ANN401
+        kwargs["max_run"] = timedelta(seconds=5)
+        kwargs["start_as"] = None
+        return await super().submit(**kwargs)
+
+
+async def test_job_store_out_stops_a_body_at_the_max_run_stored_with_it() -> (
+    None
+):
+    """A replica with no `max_run` still stops a body at the job's own."""
+    # Arrange
+    clock = VirtualClock()
+    store = _KeepsItsOwnMaxRun()
+    tasks = Tasks()
+    job = tasks.job(name="import", backend=store)(_records_cancel)
+    gate = asyncio.Event()
+    seen: list[str] = []
+
+    async with clock, tasks:
+        await job.without_owner().submit(share(gate), share(seen))
+        await _advance(clock, 1)
+        assert job._runs
+        store.failing.add("beat")
+
+        # Act
+        await _advance(clock, 6)
+        stopped = list(seen)
+        store.failing.clear()
+        await _advance(clock, _FEW_BEATS)
+
+    # Assert
+    assert stopped == ["cancelled"]
+
+
+async def _cleans_up_until_stopped(_progress: Progress, seen: str) -> None:
+    """Catch the first cancel, then clean up until cancelled again."""
+    try:
+        await asyncio.Event().wait()
+    except asyncio.CancelledError:
+        shared(seen).append("cancelled")
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            shared(seen).append("cleanup cancelled")
+            raise
+        raise
+
+
+async def test_job_lost_lease_stops_a_body_still_cleaning_up_after_a_cancel() -> (
+    None
+):
+    """A cancelled body that keeps running is stopped again once lost."""
+    # Arrange
+    clock = VirtualClock()
+    store = _FlakyStore()
+    tasks = Tasks()
+    job = tasks.job(name="import", backend=store)(_cleans_up_until_stopped)
+    seen: list[str] = []
+
+    async with clock, tasks:
+        view = job.without_owner()
+        submitted = await view.submit(share(seen))
+        await _settled()
+        await view.cancel(submitted.id)
+        await _settled()
+        store.failing.add("beat")
+
+        # Act
+        await _advance(clock, _PAST_THE_LEASE)
+        stopped = list(seen)
+        store.failing.clear()
+
+    # Assert
+    assert stopped == ["cancelled", "cleanup cancelled"]

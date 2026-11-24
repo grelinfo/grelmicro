@@ -22,6 +22,7 @@ from grelmicro.providers.postgres import (
     _longest_table_name,
 )
 from grelmicro.task._protocol import (
+    CLAIM_CATCH_UP,
     FIRST,
     JOB_LOST,
     JOB_NOT_STARTED,
@@ -255,16 +256,20 @@ class PostgresJobAdapter(JobBackend):
         ),
         "catch_up_queue": _CATCH_UP.replace(
             "{returning}", f"RETURNING {_ENDED}"
-        ).replace(
+        )
+        .replace(
             "{where}",
             """id = ANY(ARRAY(
                 SELECT id FROM {table_name}
                 WHERE name = $4::text
                   AND status = 'queued'
                   AND due_at <= $1::timestamptz
+                ORDER BY seq
+                LIMIT {catch_up}
                 FOR UPDATE SKIP LOCKED
             ))""",
-        ),
+        )
+        .replace("{catch_up}", str(CLAIM_CATCH_UP)),
         "lock_owner": """
             SELECT 1 FROM {table_name}
             WHERE name = $1::text
@@ -391,7 +396,7 @@ class PostgresJobAdapter(JobBackend):
                 LIMIT $5::bigint
                 FOR UPDATE SKIP LOCKED
             ))
-            RETURNING seq, {record}, payload, context;
+            RETURNING seq, {record}, payload, context, max_run_us;
         """,
         "beat": """
             UPDATE {table_name} SET
@@ -645,6 +650,7 @@ class PostgresJobAdapter(JobBackend):
                         _record(tuple(row)[1:]),
                         payload=row[13],
                         context=json.loads(row[14]),
+                        max_run=_duration(row[15]),
                     )
                     for row in sorted(rows, key=lambda r: r[0])
                 ]
@@ -1065,3 +1071,8 @@ def _record(row: Sequence[Any]) -> JobRecord:
         started_at=row[10],
         finished_at=row[11],
     )
+
+
+def _duration(stored: int | None) -> timedelta | None:
+    """Read a stored count of microseconds as a duration, `None` for no limit."""
+    return None if stored is None else timedelta(microseconds=stored)

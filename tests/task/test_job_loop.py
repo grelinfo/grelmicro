@@ -1,6 +1,8 @@
 """Test the one store loop a replica runs for all its jobs."""
 
 import asyncio
+import itertools
+import time
 from collections import Counter
 from datetime import timedelta
 from types import TracebackType
@@ -477,3 +479,47 @@ async def test_job_sweep_goes_on_while_the_store_has_more_to_forget() -> None:
 
     # Assert
     assert left == 0
+
+
+class _FullBatches(MemoryJobAdapter):
+    """A store whose `reap` comes back full a few times, noting each turn."""
+
+    def __init__(self, turns: list[int]) -> None:
+        super().__init__()
+        self.turns = turns
+        self.full = 3
+        self.seen: list[int] = []
+
+    async def reap(self, *, limit: int) -> int:
+        self.seen.append(len(self.turns))
+        if self.full:
+            self.full -= 1
+            return limit
+        return 0
+
+
+async def test_job_sweep_lets_other_tasks_run_between_batches() -> None:
+    """A sweep of many batches gives the other tasks a turn after each one."""
+    # Arrange
+    turns: list[int] = []
+    store = _FullBatches(turns)
+    loop = store_loop(store, opens=False)
+
+    async def _take_turns() -> None:
+        while True:
+            turns.append(1)
+            await asyncio.sleep(0)
+
+    other = asyncio.create_task(_take_turns())
+    await asyncio.sleep(0)
+
+    # Act
+    try:
+        await loop._sweep(time.monotonic() + 60)
+    finally:
+        other.cancel()
+        _loops.pop(store, None)
+
+    # Assert
+    assert len(store.seen) == 4  # noqa: PLR2004
+    assert all(a < b for a, b in itertools.pairwise(store.seen))

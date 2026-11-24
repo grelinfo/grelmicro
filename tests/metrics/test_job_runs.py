@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import threading
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -465,4 +466,99 @@ async def test_job_raised_past_its_lease_counts_lost(
                 "error.type": "job_lost",
             },
         )
+    ]
+
+
+class _SlowClockStore(MemoryJobAdapter):
+    """A store whose clock runs behind the replica's.
+
+    It keeps each job with a long `max_run`, but a claim hands out a short
+    one, so the replica's timer stops the body before the store would.
+    """
+
+    async def submit(self, **kwargs: Any) -> Any:  # noqa: ANN401
+        kwargs["max_run"] = timedelta(seconds=100)
+        kwargs["start_as"] = None
+        return await super().submit(**kwargs)
+
+    async def claim(self, **kwargs: Any) -> Any:  # noqa: ANN401
+        return [
+            dataclasses.replace(job, max_run=timedelta(seconds=5))
+            for job in await super().claim(**kwargs)
+        ]
+
+
+async def test_job_stopped_by_its_own_timer_ends_failed_and_counts_timed_out(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """A body the replica stops at `max_run` ends `failed`, not `cancelled`."""
+    # Arrange
+    clock = VirtualClock()
+    store = _SlowClockStore()
+    tasks = Tasks()
+    job = tasks.job(name="import", backend=store)(_hang)
+
+    async with clock, tasks:
+        submitted = await job.without_owner().submit()
+        # Act
+        for _ in range(8):
+            await clock.advance(1)
+            for _ in range(5):
+                await asyncio.sleep(0)
+        info = await job.without_owner().get(submitted.id)
+
+    # Assert
+    assert info is not None
+    assert (info.status, info.error) == (
+        JobStatus.FAILED,
+        "Job not finished in time",
+    )
+    assert metrics_reader.points("grelmicro.task.runs") == [
+        (
+            1,
+            {
+                "grelmicro.task.name": "import",
+                "grelmicro.outcome": "error",
+                "error.type": "job_timed_out",
+            },
+        )
+    ]
+
+
+class _FirstEndFails(MemoryJobAdapter):
+    """A store whose first end write fails."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fails = 1
+
+    async def settle(self, **kwargs: Any) -> Settled:  # noqa: ANN401
+        if self.fails:
+            self.fails -= 1
+            msg = "store down"
+            raise ConnectionError(msg)
+        return await super().settle(**kwargs)
+
+
+async def test_job_end_cut_by_a_forced_stop_counts_once_as_it_ended(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """An end written again at a forced stop counts the run once, by that end."""
+    # Arrange
+    store = _FirstEndFails()
+    tasks = Tasks(shutdown_timeout=0)
+    job = tasks.job(name="import", backend=store)(_work)
+
+    # Act
+    async with tasks:
+        submitted = await job.without_owner().submit(False)  # noqa: FBT003
+        for _ in range(10):
+            await asyncio.sleep(0)
+
+    # Assert
+    record = await store.get(name="import", job_id=submitted.id, owner=None)
+    assert record is not None
+    assert record.status is JobStatus.SUCCEEDED
+    assert metrics_reader.points("grelmicro.task.runs") == [
+        (1, {"grelmicro.task.name": "import", "grelmicro.outcome": "success"})
     ]
