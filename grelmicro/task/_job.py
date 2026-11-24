@@ -107,6 +107,9 @@ _JSON: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 _FAILED = JOB_FAILED
 """The error a caller sees for any exception but a `JobError`."""
 
+_CANCEL = "cancel"
+"""Why a body is asked to stop when a caller cancels its job."""
+
 
 class JobInfo(BaseModel, frozen=True):
     """A read-only snapshot of one job.
@@ -199,9 +202,11 @@ class _Run:
         "outcome",
         "sending",
         "started",
+        "stopped_for",
         "task",
         "timer",
         "total",
+        "uncounted",
         "written",
     )
 
@@ -216,6 +221,10 @@ class _Run:
         self.ended_by: str | None = None
         """The error the store ended the job with, once a beat or settle said."""
         self.started = False
+        self.stopped_for: set[str] = set()
+        """Each reason the body was asked to stop for."""
+        self.uncounted: tuple[datetime, FireResult] | None = None
+        """When the body started and how it ran, until the run is counted."""
         self.outcome: _Outcome | None = None
         self.task: asyncio.Task[None] | None = None
         self.timer: asyncio.Task[None] | None = None
@@ -576,7 +585,13 @@ class Job[**P](Task):
         for run in list(self._runs.values()):
             if run.outcome is None:
                 run.end(JobStatus.CANCELLED, None, None)
-            await self._end_in_store(run, give_up_at=give_up_at, retry=False)
+            settled = False
+            try:
+                settled = await self._end_in_store(
+                    run, give_up_at=give_up_at, retry=False
+                )
+            finally:
+                self._count(run, settled=settled)
 
     def _beats(self) -> list[Beat]:
         """Return one entry per running job, with counts the store lacks."""
@@ -594,21 +609,25 @@ class Job[**P](Task):
             run.counts_written()
         else:
             run.ended_by = reply.error or JOB_LOST
-        if not reply.held or reply.cancel_requested:
-            self._ask_to_stop(run)
+            self._ask_to_stop(run, run.ended_by)
+        if reply.cancel_requested:
+            self._ask_to_stop(run, _CANCEL)
 
     def _stop_runs(self) -> None:
-        """Ask every job this replica runs to stop."""
+        """Ask every job this replica runs to stop, as lost."""
         for run in self._runs.values():
-            self._ask_to_stop(run)
+            self._ask_to_stop(run, JOB_LOST)
 
-    def _ask_to_stop(self, run: _Run) -> None:
+    def _ask_to_stop(self, run: _Run, reason: str) -> None:
         """Flag `run`, and cancel its task when its body can be interrupted.
 
-        A run that already ended is left to write its end.
+        Each new `reason` cancels the task again, so a body that caught the
+        cancel of a request is still stopped at its `max_run` or when its
+        lease is lost. A run that already ended is left to write its end.
         """
-        if run.cancel_requested:
+        if reason in run.stopped_for:
             return
+        run.stopped_for.add(reason)
         run.cancel_requested = True
         if (
             self._interruptible
@@ -651,23 +670,24 @@ class Job[**P](Task):
         )
         self._runs[run.id] = run
         run.task.add_done_callback(self._release)
-        if self._max_run is not None:
+        if job.max_run is not None:
             timer = asyncio.create_task(
-                self._time_out(run, self._max_run),
+                self._time_out(run, job.max_run),
                 context=self._context.copy(),
             )
             run.timer = timer
             run.task.add_done_callback(lambda _: timer.cancel())
 
     async def _time_out(self, run: _Run, max_run: timedelta) -> None:
-        """Stop `run` at `max_run` after it started here, as the store does.
+        """Stop `run` at the `max_run` stored with the job, as the store does.
 
-        The store started the job earlier, so its own `max_run` has passed
-        by then. This stops the body also while the store is out of reach.
+        The time counts from the store's answer. The store started the job
+        earlier, so its own `max_run` has passed by then. This stops the
+        body also while the store is out of reach.
         """
         await sleep(max_run.total_seconds())
         run.ended_by = run.ended_by or JOB_TIMED_OUT
-        self._ask_to_stop(run)
+        self._ask_to_stop(run, JOB_TIMED_OUT)
 
     def _release(self, _task: asyncio.Task[None]) -> None:
         """Free the slot of a job task that ended, started or not."""
@@ -727,7 +747,7 @@ class Job[**P](Task):
             return None
         run = self._runs.get(job_id)
         if run is not None:
-            self._ask_to_stop(run)
+            self._ask_to_stop(run, _CANCEL)
         return _info(record)
 
     async def _list(
@@ -782,6 +802,7 @@ class Job[**P](Task):
         started = False
         self._submitting += 1
         self._no_submits.clear()
+        asked_at = monotonic()
         try:
             submitted = await self._backend.submit(
                 name=self._name,
@@ -814,8 +835,37 @@ class Job[**P](Task):
                 raise JobRefusedError(
                     name=self._name, reason="the tasks are shutting down"
                 )
-            self._start(group, Claimed(submitted.record, payload, context))
+            await self._start_submitted(
+                group,
+                loop,
+                Claimed(submitted.record, payload, context, self._max_run),
+                asked_at,
+            )
         return _info(submitted.record)
+
+    async def _start_submitted(
+        self,
+        group: asyncio.TaskGroup,
+        loop: JobStoreLoop,
+        job: Claimed,
+        asked_at: float,
+    ) -> None:
+        """Start a job its submit started, in the slot the submit took.
+
+        A start the store answered a lease or more after `asked_at` may be
+        past its lease already, so the body never runs and the job ends
+        `failed` as lost.
+        """
+        if monotonic() - asked_at < LEASE.total_seconds():
+            self._start(group, job)
+            return
+        self._running -= 1
+        loop.wake()
+        logger.warning(
+            "Job lost, its store answered the start after its lease: %s",
+            self._name,
+        )
+        await loop._fail(job, JOB_LOST)  # noqa: SLF001
 
     async def _get(self, job_id: str, owner: str | None) -> JobInfo | None:
         """Return the job `job_id` when `owner` owns it, else `None`."""
@@ -919,8 +969,9 @@ class Job[**P](Task):
         A job asked to stop before its first step ends `cancelled` and never
         calls the body. Arguments that cannot be loaded, whatever loading
         raises, end the job `failed`, and so does a body that returns anything
-        but JSON. A body that returns while its task is being
-        cancelled ends `cancelled`. One that raises a `BaseException` other
+        but JSON. A body stopped by a cancel, or that returns while its task
+        is being cancelled, ends `cancelled`, or `failed` as not finished in
+        time when its `max_run` stopped it. One that raises a `BaseException` other
         than a cancel ends `failed`, the exception propagates, and this
         replica claims nothing more. The run is counted once the store has
         its end. A job the store ended itself, past its lease or `max_run`,
@@ -963,7 +1014,7 @@ class Job[**P](Task):
         except asyncio.CancelledError:
             if not run.ended and stopped is not None:
                 await self._end_and_count(
-                    run, record.started_at, stopped, JobStatus.CANCELLED
+                    run, record.started_at, stopped, *_stop_end(run)
                 )
             raise
         except BaseException as error:
@@ -980,7 +1031,7 @@ class Job[**P](Task):
     ) -> None:
         """End a job whose body returned or raised an `Exception`."""
         if _cancelling():
-            await self._end_and_count(run, started_at, ran, JobStatus.CANCELLED)
+            await self._end_and_count(run, started_at, ran, *_stop_end(run))
         elif ran.error is not None:
             name_error(ran.error)
             if not all_of(ran.error, (JobError,)):
@@ -1012,22 +1063,48 @@ class Job[**P](Task):
     ) -> None:
         """End a job whose body ran, then count the run by the store's answer.
 
-        A run the store refused counts as an error of why the store ended
-        it. A run the store took counts as the body ended: a success, the
-        body's error, or no run for a cancel or a `BaseException`.
+        An end write cut by a forced stop leaves the run to the job's stop,
+        which writes its end once more and counts it then.
         """
-        settled = False
-        try:
-            settled = await self._settle(run, status, error, result)
-        finally:
-            if not settled:
-                self._fire.count(started_at, ran, error_type=run.lost()[1])
-            elif status is JobStatus.CANCELLED or (
-                status is JobStatus.FAILED and ran.error is None
-            ):
-                self._fire.count(started_at, ran, run=False)
-            else:
-                self._fire.count(started_at, ran)
+        run.uncounted = (started_at, ran)
+        settled = await self._settle(run, status, error, result)
+        self._count(run, settled=settled)
+
+    def _count(self, run: _Run, *, settled: bool) -> None:
+        """Count a run whose body ran, once, by the store's answer.
+
+        A run the store refused counts as an error of why the store ended
+        it. A run past its `max_run` counts as `job_timed_out`. Any other
+        run the store took counts as the body ended: a success, the body's
+        error, or no run for a cancel or a `BaseException`.
+        """
+        if run.uncounted is None:
+            return
+        started_at, ran = run.uncounted
+        run.uncounted = None
+        assert run.outcome is not None  # noqa: S101
+        status, error = run.outcome.status, run.outcome.error
+        if not settled:
+            self._fire.count(started_at, ran, error_type=run.lost()[1])
+        elif error == JOB_TIMED_OUT:
+            self._fire.count(started_at, ran, error_type="job_timed_out")
+        elif status is JobStatus.CANCELLED or (
+            status is JobStatus.FAILED and ran.error is None
+        ):
+            self._fire.count(started_at, ran, run=False)
+        else:
+            self._fire.count(started_at, ran)
+
+
+def _stop_end(run: _Run) -> tuple[EndStatus, str | None]:
+    """Return how a body that stopped on a cancel ends.
+
+    A body stopped past its `max_run` ends `failed` as not finished in
+    time. Any other ends `cancelled`.
+    """
+    if run.ended_by == JOB_TIMED_OUT:
+        return JobStatus.FAILED, JOB_TIMED_OUT
+    return JobStatus.CANCELLED, None
 
 
 def _not_running(call: str) -> OutOfContextError:

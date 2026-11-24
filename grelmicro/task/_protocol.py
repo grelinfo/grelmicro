@@ -142,6 +142,10 @@ class Claimed:
     record: Annotated[JobRecord, Doc("The job, now `running`.")]
     payload: Annotated[str, Doc("The arguments, as opaque JSON.")]
     context: Annotated[Mapping[str, str], Doc("The text stored at submit.")]
+    max_run: Annotated[
+        timedelta | None,
+        Doc("The `max_run` stored with the job, or `None` for no limit."),
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +206,12 @@ class Settled(NamedTuple):
 
 FIRST = 2**63 - 1
 """The order a first page starts below, past any job a store holds."""
+
+CLAIM_CATCH_UP = 100
+"""How many queued jobs past their `max_wait` one `claim` or `submit` ends.
+
+The sweep ends the rest.
+"""
 
 _DIGITS = re.compile(r"[1-9][0-9]{0,18}")
 """An order, as the cursor holds it."""

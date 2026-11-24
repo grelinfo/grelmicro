@@ -470,7 +470,7 @@ async def test_job_redis_purge_keeps_a_new_job_with_the_same_id(
     purged = await backend.purge(limit=100)
 
     # Assert
-    assert purged == 0
+    assert purged == 1
     assert await _owned(backend) == 1
     assert await _due(backend) == 0
 
@@ -510,6 +510,31 @@ async def test_job_redis_list_drops_a_member_whose_job_is_gone(
     # Assert
     assert [record.id for record in listed.records] == ["kept"]
     assert await _owned(backend) == 1
+
+
+@pytest.mark.integration
+async def test_job_redis_list_drops_the_expiry_entry_of_a_gone_job(
+    backend: RedisJobAdapter,
+) -> None:
+    """A member a list drops takes its expiry entry along.
+
+    The sweep goes on while a `purge` comes back full, so no expired entry
+    is left behind once it stops.
+    """
+    # Arrange
+    await _cancel_many(backend, 30, timedelta(milliseconds=5))
+    await asyncio.sleep(0.05)
+    await backend.list(
+        name=NAME, owner=OWNER, status=None, limit=10, after=None
+    )
+
+    # Act
+    while await backend.purge(limit=10) == 10:  # noqa: PLR2004
+        pass
+
+    # Assert
+    assert await _owned(backend) == 0
+    assert await _due(backend) == 0
 
 
 async def _kept_index(backend: RedisJobAdapter) -> int:

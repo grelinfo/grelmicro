@@ -225,7 +225,8 @@ class JobStoreLoop:
         """End jobs past their lease or wait, and forget expired ones.
 
         Each step goes on in batches of `_SWEEP_LIMIT` while a batch comes
-        back full. A sweep still running at `deadline` is cut.
+        back full, and lets the other tasks run between two batches. A sweep
+        still running at `deadline` is cut.
         """
         try:
             for step in (self._backend.reap, self._backend.purge):
@@ -233,6 +234,7 @@ class JobStoreLoop:
                 while full:
                     done = await until(deadline, step(limit=_SWEEP_LIMIT))
                     full = done == _SWEEP_LIMIT
+                    await asyncio.sleep(0)
         except Exception:
             logger.warning("Job store sweep failed", exc_info=True)
 
@@ -317,8 +319,8 @@ class JobStoreLoop:
             for job in unstarted:
                 await self._fail(job)
 
-    async def _fail(self, job: Claimed) -> None:
-        """End a claimed job that could not start as `failed`.
+    async def _fail(self, job: Claimed, error: str = JOB_FAILED) -> None:
+        """End a claimed job that could not start as `failed` with `error`.
 
         A store that does not take it leaves the job to end when its lease
         runs out.
@@ -331,7 +333,7 @@ class JobStoreLoop:
                     job_id=job.record.id,
                     runner=self.runner,
                     status=JobStatus.FAILED,
-                    error=JOB_FAILED,
+                    error=error,
                     result=None,
                     progress=None,
                 ),

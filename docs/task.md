@@ -599,9 +599,10 @@ async def import_rows(progress: Progress, upload_id: str) -> None: ...
 ```
 
 Past `max_run`, the job reads `failed` with the error
-`"Job not finished in time"`, from any replica. The replica running the body
-stops it at `max_run` after it started there, even while the store is out of
-reach. An async body then gets `asyncio.CancelledError` at its next `await`. A sync body stops at its next
+`"Job not finished in time"`, from any replica. Each job keeps the `max_run` it
+was submitted with, so a replica with another `max_run` still runs it by the
+job's own. The replica running the body stops it at that `max_run` after it
+started there, even while the store is out of reach. An async body then gets `asyncio.CancelledError` at its next `await`. A sync body stops at its next
 `checkpoint()`, `advance()` or `total` update, and keeps its slot until its
 thread returns. A sync body that calls none of them cannot be stopped.
 

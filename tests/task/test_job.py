@@ -1421,6 +1421,48 @@ async def test_job_max_run_cancels_an_async_body_and_reads_failed() -> None:
     assert not gate.is_set()
 
 
+async def _cleans_up_until_stopped(_progress: Progress, seen: str) -> None:
+    """Catch the first cancel, then clean up until cancelled again."""
+    try:
+        await asyncio.Event().wait()
+    except asyncio.CancelledError:
+        shared(seen).append("cancelled")
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            shared(seen).append("cleanup cancelled")
+            raise
+        raise
+
+
+async def test_job_max_run_stops_a_body_still_cleaning_up_after_a_cancel() -> (
+    None
+):
+    """A cancelled body that keeps running is stopped again at `max_run`."""
+    # Arrange
+    clock = VirtualClock()
+    tasks = Tasks()
+    job = tasks.job(max_run=5)(_cleans_up_until_stopped)
+    seen: list[str] = []
+
+    async with clock, tasks:
+        view = job.without_owner()
+        submitted = await view.submit(share(seen))
+        await _statuses(job, [submitted.id])
+        await view.cancel(submitted.id)
+        await _advance_in_steps(clock, 1)
+
+        # Act
+        await _advance_in_steps(clock, 6)
+        settled = await view.get(submitted.id)
+
+    # Assert
+    assert seen == ["cancelled", "cleanup cancelled"]
+    assert settled is not None
+    assert settled.status is JobStatus.FAILED
+    assert settled.error == "Job not finished in time"
+
+
 async def test_job_max_run_none_lets_a_body_run_on() -> None:
     """With no `max_run`, a body runs as long as its beats arrive."""
     # Arrange
