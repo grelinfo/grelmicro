@@ -11,7 +11,6 @@ from collections import OrderedDict, abc
 # Imported at runtime, not under `TYPE_CHECKING`: it appears in a config
 # field's annotation, which pydantic resolves from module globals.
 from collections.abc import Mapping
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
 from logging import getLogger
@@ -935,10 +934,7 @@ class CachedResponsesMiddleware:
         def settled(task: asyncio.Task[_Entry]) -> None:
             self._holding.discard(task)
             running.set()
-            # Retrieved so a hold that ended in an error the caller
-            # already answered for is not reported as never retrieved.
-            with suppress(asyncio.CancelledError):
-                task.exception()
+            self._settled(task, attempt)
 
         capture = _ResponseCapture(
             send, max_body_size=state.config.max_body_size, decide=decide
@@ -968,20 +964,25 @@ class CachedResponsesMiddleware:
     async def _let_go(
         self, holder: asyncio.Task[_Entry], attempt: _Attempt
     ) -> None:
-        """Wait for the key to be let go of, and log an error that ended it.
+        """Wait for the key to be let go of.
 
-        A hold the app never ran under is cancelled. Once the app ran, the
-        caller has already answered or failed, so an error the hold ends
-        in never reaches it and is logged instead. A response that is not
-        kept is no error.
+        A hold the app never ran under is cancelled.
         """
         if not attempt.ran:
             holder.cancel()
         await asyncio.wait((holder,))
-        if not attempt.ran or holder.cancelled():
+
+    def _settled(self, holder: asyncio.Task[_Entry], attempt: _Attempt) -> None:
+        """Log an error the hold ended in, once the app ran under it.
+
+        The caller has already answered or failed by then, so the error
+        never reaches it. It is logged even when the caller was cancelled
+        before the hold ended. A response that is not kept is no error.
+        """
+        if holder.cancelled():
             return
         error = holder.exception()
-        if error is None or isinstance(error, _NotStored):
+        if not attempt.ran or error is None or isinstance(error, _NotStored):
             return
         self._report(
             error,
