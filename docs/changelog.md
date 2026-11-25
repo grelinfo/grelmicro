@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+* 💥 `CircuitBreaker` raises `TypeError` where it decorates an async generator function. Each call to one already raised `EventLoopDeadlockError`. Wrap the function that consumes it, or the call inside the body. ([#1359](https://github.com/grelinfo/grelmicro/issues/1359))
+
+### Deprecated
+* 🗑️ `Retry`, `@retry`, `Fallback` and `@fallback` warn with `Grelmicro047Warning` where they decorate a generator function, sync or async. So does `CircuitBreaker` on a sync generator function. They protect nothing around it, because its body runs while it is iterated. From 0.47.0 they raise `TypeError`. Wrap the function that consumes it, or the call inside the body. ([#1359](https://github.com/grelinfo/grelmicro/issues/1359))
+
 ## 0.45.0 - 2026-11-24
 
 ### Breaking

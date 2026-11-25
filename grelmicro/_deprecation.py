@@ -16,9 +16,11 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
+from grelmicro._wrapping import named
 from grelmicro.errors import (
     Grelmicro045Warning,
     Grelmicro046Warning,
+    Grelmicro047Warning,
     GrelmicroFutureWarning,
 )
 
@@ -27,7 +29,11 @@ _PACKAGE_DIR = f"{Path(__file__).parent}{os.sep}"
 
 RELEASE_WARNINGS: dict[str, type[GrelmicroFutureWarning]] = {
     category.switch_in: category
-    for category in (Grelmicro045Warning, Grelmicro046Warning)
+    for category in (
+        Grelmicro045Warning,
+        Grelmicro046Warning,
+        Grelmicro047Warning,
+    )
 }
 """The `GrelmicroFutureWarning` subclass of each switching release, by release."""
 
@@ -451,6 +457,37 @@ def default_fingerprint_body(owner: str) -> FutureChange:
     )
 
 
+GENERATOR_FUNCTION = FutureChange(
+    change="`Retry`, `Fallback` and `CircuitBreaker` refuse a generator "
+    "function with `TypeError`",
+    switch_in="0.47.0",
+    keep=None,
+    adopt="Retry(...)(consumer)",
+    remedy="Wrap the function that consumes it, or the call inside the body.",
+)
+"""A generator function passed to `Retry` or `Fallback` is refused.
+
+So is a sync one passed to `CircuitBreaker`.
+"""
+
+
+def generator_function(function: object, by: str) -> FutureChange:
+    """Return `GENERATOR_FUNCTION` worded for `function` and the decorator `by`.
+
+    `by` is the decorator as it reads in the message, such as
+    `"Retry 'db'"` or `"@fallback"`.
+    """
+    return replace(
+        GENERATOR_FUNCTION,
+        change=f"{by} refuses the generator function {named(function)} "
+        "with `TypeError`",
+        remedy="A generator runs its body while it is iterated and not "
+        f"when it is called, so {by} only wraps building the generator "
+        "and protects nothing. Wrap the function that consumes it, or the "
+        "call inside the body.",
+    )
+
+
 PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     UNKNOWN_REQUIRES,
     LONG_TABLE_NAME,
@@ -459,5 +496,6 @@ PENDING: tuple[FutureChange | Rename | Removal | Moved, ...] = (
     INHERITED_OUTBOX_TOPIC,
     GENERIC_OUTBOX_TOPIC,
     DEFAULT_FINGERPRINT_BODY,
+    GENERATOR_FUNCTION,
 )
 """Every behavior change, rename and removal that currently warns."""

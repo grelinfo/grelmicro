@@ -34,7 +34,7 @@ from grelmicro._config import (
     warn_ignored_env,
 )
 from grelmicro._json import json_loads
-from grelmicro._wrapping import refuse_registered
+from grelmicro._wrapping import refuse_registered, warn_generator
 from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience._match import Matcher
 from grelmicro.resilience._outcome import Outcome
@@ -399,11 +399,15 @@ class Fallback(Reconfigurable[FallbackConfig]):
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
         """Decorate ``fn`` so each call runs through this fallback policy.
 
+        A generator function warns with `Grelmicro047Warning`, and is
+        refused with `TypeError` from 0.47.0.
+
         Raises:
             TypeError: If a registrar already holds `fn`, so this would
                 wrap direct calls alone.
         """
         refuse_registered(fn, f"Fallback {self._name!r}")
+        warn_generator(fn, f"Fallback {self._name!r}")
         return self._wrap(fn)
 
     def _wrap(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
@@ -464,6 +468,7 @@ def fallback(
 
     def wrap(fn: F) -> F:
         refuse_registered(fn, "@fallback")
+        warn_generator(fn, "@fallback")
         if is_async_callable(fn):
 
             @functools.wraps(fn)

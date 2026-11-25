@@ -73,7 +73,7 @@ Decorate a function and every call consumes tokens before it runs:
 
 A throttled call raises `RateLimitExceededError` as soon as the budget is spent. Pass `max_wait` to wait for tokens instead, up to that many seconds. The decorator never waits without a budget, because a wait with no bound sits above the deadline of everything below it. Call `wait` yourself when that is what you want.
 
-The decorator is async only, and a `key_template` that names a parameter the function does not take is refused where it is written.
+The decorator is async only, and a `key_template` that names a parameter the function does not take is refused where it is written. A generator function raises `TypeError` where it is decorated, because its body runs while it is iterated.
 
 Calling `limiter(...)` returns a `RateLimiterBinding`, which decorates and which [`Stack(patterns=[...])`](composition.md#stack) accepts.
 

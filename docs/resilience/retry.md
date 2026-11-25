@@ -18,7 +18,7 @@ Decorate an async or sync function. Pass `when=` to say which outcomes should re
 --8<-- "resilience/retry.py"
 ```
 
-The decorator auto-detects whether it wraps an async or sync function.
+The decorator auto-detects whether it wraps an async or sync function. A generator function warns with `Grelmicro047Warning`, because its body runs while it is iterated and nothing protects it. From 0.47.0 it raises `TypeError`.
 
 For inline retries that span multiple statements, use the block form:
 

@@ -135,6 +135,67 @@ raises](#0-42-raising).
 | `AttributeError: module 'grelmicro.integrations.fastapi' has no attribute 'RateLimiter'`, or the same for another name from `grelmicro.integrations.starlette` or `grelmicro.integrations.litestar` | 0.45 | [Import it from its home](#0-45-moved-names) |
 | `ImportError: cannot import name 'AdmissionError' from 'grelmicro.security.bans'`, or `'GrelmicroError' from 'grelmicro.security.jwt'` | 0.45 | [Import it from `grelmicro.errors`](#0-45-moved-names) |
 | An `ExceptionGroup` escapes `async with Tasks(...)` where `CancelledError` did, when a task fails at start or at stop | 0.45 | [Catch the task's own error](#0-45-task-errors) |
+| `TypeError: CircuitBreaker '...' does not wrap ..., because a generator runs its body while it is iterated`, on an async generator function | 0.46 | [Wrap the consumer](#0-46-generator-functions) |
+| `Grelmicro047Warning` from `Retry`, `@retry`, `Fallback` or `@fallback` on a generator function, or from `CircuitBreaker` on a sync one | 0.46 | [Wrap the consumer](#0-46-generator-functions) |
+
+## 0.46
+
+### Changes that do not raise {#0-46-silent}
+
+- `Retry`, `@retry`, `Fallback` and `@fallback` on a generator function, and `CircuitBreaker` on a sync one, still wrap it and protect nothing, and now warn with `Grelmicro047Warning`. From 0.47.0 they raise `TypeError`. [Wrap the consumer](#0-46-generator-functions).
+
+### Changes that raise {#0-46-raising}
+
+- `CircuitBreaker` on an async generator function raises `TypeError` where it is decorated. [Wrap the consumer](#0-46-generator-functions).
+
+### A generator function is refused by every resilience pattern {#0-46-generator-functions}
+
+A generator function runs its body while it is iterated, not when it is
+called. A pattern around the call wraps building the generator and nothing
+else. `Bulkhead`, `Timeout`, `RateLimiter`, `Shield` and `Stack` already
+refused one. `CircuitBreaker` now refuses an async generator function too,
+with `TypeError` at the decorator. Each call to one already raised
+`EventLoopDeadlockError`.
+
+`Retry`, `@retry`, `Fallback` and `@fallback` still wrap a generator
+function, and so does `CircuitBreaker` with a sync one. Each warns with
+`Grelmicro047Warning` at the decorator. A failure while the generator is
+iterated is never retried, never falls back and never counts against the
+circuit. From 0.47.0 they raise `TypeError`.
+
+Wrap the function that consumes the generator, or the call inside its body:
+
+```python
+from collections.abc import AsyncIterator
+
+from grelmicro.resilience import retry
+
+
+async def fetch_page(page: int) -> list[str]:
+    return [f"row {page}"]
+
+
+# Before: warns, and a failing page is never retried
+@retry(when=ConnectionError)
+async def rows_before() -> AsyncIterator[str]:
+    for page in range(3):
+        for row in await fetch_page(page):
+            yield row
+
+
+# After: each page is retried, and the same in 0.47.0
+@retry(when=ConnectionError)
+async def fetch_page_with_retry(page: int) -> list[str]:
+    return await fetch_page(page)
+
+
+async def rows_after() -> AsyncIterator[str]:
+    for page in range(3):
+        for row in await fetch_page_with_retry(page):
+            yield row
+```
+
+Full list: [Unreleased in the changelog](changelog.md#unreleased)
 
 ## 0.45
 

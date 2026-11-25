@@ -35,3 +35,4 @@ through. It reports a wiring mistake, and no fallback value stands in for one.
         - GrelmicroFutureWarning
         - Grelmicro045Warning
         - Grelmicro046Warning
+        - Grelmicro047Warning

@@ -30,7 +30,13 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._guards import is_subclass
-from grelmicro._wrapping import refuse_registered
+from grelmicro._wrapping import (
+    generator_message,
+    is_async_generator,
+    is_generator,
+    refuse_registered,
+    warn_generator,
+)
 from grelmicro.clock import monotonic
 from grelmicro.metrics import _emit
 from grelmicro.resilience._match import matches_raised_type
@@ -589,14 +595,23 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
     ) -> Callable[..., Any] | Self:
         """Return a decorator that protects a function with the circuit breaker.
 
+        A sync generator function warns with `Grelmicro047Warning`, and is
+        refused with `TypeError` from 0.47.0.
+
         Raises:
-            TypeError: If a registrar already holds `func`, so this
-                would wrap direct calls alone.
+            TypeError: If `func` is an async generator function, or a
+                registrar already holds it, so this would wrap direct
+                calls alone.
         """
         if func is None:
             return self
 
-        refuse_registered(func, f"CircuitBreaker {self._name!r}")
+        by = f"CircuitBreaker {self._name!r}"
+        refuse_registered(func, by)
+        if is_generator(func):
+            if is_async_generator(func):
+                raise TypeError(generator_message(func, by))
+            warn_generator(func, by)
         return self._wrap(func)
 
     def _wrap(self, func: Callable[..., Any]) -> Callable[..., Any]:
