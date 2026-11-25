@@ -251,11 +251,15 @@ class SQLiteJobAdapter(JobBackend):
             )""",
         )
         .replace("{catch_up}", str(CLAIM_CATCH_UP)),
-        # The unary plus keeps the owner index out, so the due index finds
-        # the few overdue jobs instead of every job the owner has.
         "catch_up_owner": _CATCH_UP.replace(
             "{returning}", f"RETURNING {_ENDED}"
-        ).replace("{where}", "+name = :name AND +owner = :owner"),
+        ).replace(
+            "{where}",
+            """name = :name
+              AND owner = :owner
+              AND seq >= :floor
+              AND seq < :below""",
+        ),
         "scan": """
             SELECT count(*), min(seq) FROM (
                 SELECT seq FROM {table_name}
@@ -736,18 +740,27 @@ class SQLiteJobAdapter(JobBackend):
     ) -> Listed:
         """Return the jobs of `name` that `owner` owns, newest submitted first.
 
-        The owner's jobs that are past a lease, `max_wait` or `max_run` end
-        first, in the same transaction.
+        The jobs among the entries the page reads that are past a lease,
+        `max_wait` or `max_run` end first, in the same transaction. The
+        sweep ends the owner's other overdue jobs.
         """
         below = FIRST if after is None else read_cursor(after)
+        bound = scan_limit(limit)
         async with self._transaction() as (conn, now):
-            await self._end(conn, "catch_up_owner", now, name=name, owner=owner)
-            bound = scan_limit(limit)
             scanned, floor = await self._fetch(
                 conn, "scan", name=name, owner=owner, below=below, bound=bound
             )
             if not scanned:
                 return Listed([], None)
+            await self._end(
+                conn,
+                "catch_up_owner",
+                now,
+                name=name,
+                owner=owner,
+                floor=floor,
+                below=below,
+            )
             async with conn.execute(
                 self._sql["list"],
                 {

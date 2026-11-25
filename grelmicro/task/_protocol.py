@@ -460,8 +460,10 @@ class JobBackend(Protocol):
 
         A job never lists as `running` past its lease or its `max_run`, or
         `queued` past its `max_wait`: the call makes that move first, as
-        `get` does, and `status` keeps the jobs by their status after it. A
-        job past its retention is not listed. A job with no owner is never
+        `get` does, and `status` keeps the jobs by their status after it. It
+        makes that move only on the entries it reads, and leaves the owner's
+        other overdue jobs to the sweep. A job past its retention is not
+        listed. A job with no owner is never
         listed.
 
         Pages follow submission order. `next` names a place in that order,

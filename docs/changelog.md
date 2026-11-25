@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+* 🐛 Listing one owner's jobs on Postgres or SQLite ends only the overdue jobs on the page it reads and leaves the rest to the sweep, so a large backlog no longer makes one long transaction. A Postgres list no longer shows a job as `running` past its lease or `max_run`. ([#1370](https://github.com/grelinfo/grelmicro/issues/1370))
 * 🐛 The `Grelmicro046Warning` of a Postgres or SQLite lock, read-write lock or schedule store left at its default table name reports the line that built the store, such as `Grelmicro(uses=[...])`, instead of a line in Python's `contextlib`. A warning filter for your own module now matches it. So does the warning that the old and the new table both exist. ([#1383](https://github.com/grelinfo/grelmicro/issues/1383))
 * 🐛 `Bulkhead`, `Timeout`, `RateLimiter`, `Shield` and `Stack` refuse a generator function with a `TypeError` that says why: its body runs while it is iterated, so they would only wrap building the generator. Before, all but `Stack` said they only decorate async functions. ([#1380](https://github.com/grelinfo/grelmicro/pull/1380))
 

@@ -543,6 +543,55 @@ async def test_job_postgres_submit_after_a_lock_wait_reads_the_clock_again(
     assert submitted.record.status is JobStatus.QUEUED
 
 
+@pytest.mark.integration
+async def test_job_postgres_list_never_shows_a_held_overdue_job_as_running(
+    provider: PostgresProvider, table_name: str
+) -> None:
+    """A job that came due while another move held it lists `failed`.
+
+    The list waits for that move, then ends the job.
+    """
+    async with provider.job_backend(table_name=table_name) as backend:
+        # Arrange
+        owned = {"owner": "alice", "start_as": "r"}
+        await backend.submit(
+            **_submit_args("early", lease=timedelta(milliseconds=50), **owned)
+        )
+        await backend.submit(
+            **_submit_args("late", lease=timedelta(seconds=1), **owned)
+        )
+        await asyncio.sleep(0.2)
+        async with (
+            provider.client.acquire() as first,
+            provider.client.acquire() as second,
+        ):
+            holds = []
+            for conn, job_id in ((first, "early"), (second, "late")):
+                hold = conn.transaction()
+                await hold.start()
+                await conn.execute(
+                    f"SELECT 1 FROM {table_name} WHERE id = $1 FOR UPDATE;",  # noqa: S608
+                    job_id,
+                )
+                holds.append(hold)
+            listing = asyncio.create_task(
+                backend.list(
+                    name=NAME, owner="alice", status=None, limit=10, after=None
+                )
+            )
+            await asyncio.sleep(1.2)
+
+            # Act
+            await holds[0].commit()
+            await asyncio.sleep(0.3)
+            await holds[1].commit()
+            listed = await listing
+
+    # Assert
+    statuses = {record.id: record.status for record in listed.records}
+    assert statuses == {"early": JobStatus.FAILED, "late": JobStatus.FAILED}
+
+
 def test_job_postgres_refuses_a_table_name_that_cuts_an_index_name() -> None:
     """Postgres cuts names at 63 bytes, so a longer index name would collide."""
     # Arrange
