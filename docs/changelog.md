@@ -3,7 +3,7 @@
 ## 0.45.0 - 2026-11-24
 
 ### Breaking
-* 💥 grelmicro needs pydantic-settings 2.16.3, which no longer reads a secret file that links outside `secrets_dir`. ([#PR](https://github.com/grelinfo/grelmicro/pull/PR))
+* 💥 grelmicro needs pydantic-settings 2.16.3, which no longer reads a secret file that links outside `secrets_dir`. ([#1378](https://github.com/grelinfo/grelmicro/pull/1378))
 * 💥 `LogConfig.format` reads back in lowercase, such as `"json"`, and defaults to `"auto"`. Input still matches in any case. `LogFormat` no longer lists the uppercase spellings. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
 * 💥 `gate-backend` fails `grelmicro check` and `micro.describe()` in `staging` and `production`. The running app is not affected. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
 * 💥 `HealthChecks(provider_checks=None)` and `HealthChecks.from_config(provider_checks=None)` raise `SettingsValidationError`. Pass `provider_checks="off"` to register no provider checks, or omit the argument for `"report"`. ([#1195](https://github.com/grelinfo/grelmicro/issues/1195))
