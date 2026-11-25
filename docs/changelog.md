@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Breaking
+* 💥 `@cached` checks `key_template=` and `tags=` at decoration time, as `@limiter` does. A template that no call could render raises `ValueError` there, with a message that says what to write. That covers a positional field such as `{0}`, a name the function does not take, an unmatched brace, and an unknown conversion such as `!z`. A name the function does not take used to raise `KeyError` on each call. `@limiter` now refuses an unknown conversion where it is written too. ([#1358](https://github.com/grelinfo/grelmicro/issues/1358))
+
 ### Fixed
 * 🐛 The `Grelmicro046Warning` of a Postgres or SQLite lock, read-write lock or schedule store left at its default table name reports the line that built the store, such as `Grelmicro(uses=[...])`, instead of a line in Python's `contextlib`. A warning filter for your own module now matches it. So does the warning that the old and the new table both exist. ([#1383](https://github.com/grelinfo/grelmicro/issues/1383))
 * 🐛 `Bulkhead`, `Timeout`, `RateLimiter`, `Shield` and `Stack` refuse a generator function with a `TypeError` that says why: its body runs while it is iterated, so they would only wrap building the generator. Before, all but `Stack` said they only decorate async functions. ([#1380](https://github.com/grelinfo/grelmicro/pull/1380))

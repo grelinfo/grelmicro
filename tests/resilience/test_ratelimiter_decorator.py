@@ -359,6 +359,31 @@ def test_a_positional_template_field_is_refused(template: str) -> None:
             return user_id
 
 
+def test_a_nested_positional_field_names_the_whole_template() -> None:
+    """The refusal quotes the template as written, not the format spec."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+
+    with pytest.raises(
+        ValueError,
+        match=r"^Rate limiter key template 'user:\{user_id:\{0\}\}' reads",
+    ):
+        limiter(key_template="user:{user_id:{0}}")
+
+
+def test_an_unknown_template_conversion_is_refused() -> None:
+    """Only `!r`, `!s` and `!a` convert a field."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"^Rate limiter key template 'user:\{user_id!z\}' converts "
+            r"user_id with !z\. Use !r, !s or !a\.$"
+        ),
+    ):
+        limiter(key_template="user:{user_id!z}")
+
+
 @pytest.mark.parametrize("cost", [0, -1], ids=["zero", "negative"])
 def test_a_cost_below_one_is_refused(cost: int) -> None:
     """A cost is a number of tokens, refused where it is written."""

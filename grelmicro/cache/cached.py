@@ -41,7 +41,12 @@ from grelmicro._async import (
     run_in_thread,
 )
 from grelmicro._duration import check_duration
-from grelmicro._key_checks import KeyFunction, check_key_choice
+from grelmicro._key_checks import (
+    KeyFunction,
+    check_key_choice,
+    check_template_parameters,
+    template_fields,
+)
 from grelmicro._wrapping import refuse_registered
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache._stampede import (
@@ -426,8 +431,9 @@ def cached(  # noqa: PLR0913, C901
             with no placeholders keys every call under the same string.
             Use it instead of the default argument-repr key when you want
             a stable, readable key. A template fully determines the key,
-            so `typed` does not apply. Passing both `key` and
-            `key_template` raises `TypeError`.
+            so `typed` does not apply. A template names only parameters
+            the decorated function has, and decorating checks it.
+            Passing both `key` and `key_template` raises `TypeError`.
             """,
         ),
     ] = None,
@@ -511,7 +517,8 @@ def cached(  # noqa: PLR0913, C901
             ``tags=["users", "user:{user_id}"]`` tags the entry with
             both ``users`` and ``user:42`` for a call with
             ``user_id=42``. Literal tags with no placeholders pass
-            through unchanged. Invalidate every entry sharing a tag at
+            through unchanged. Decorating checks every tag like a
+            `key_template`. Invalidate every entry sharing a tag at
             once with ``cache.delete_tags(...)``.
             """,
         ),
@@ -554,6 +561,10 @@ def cached(  # noqa: PLR0913, C901
             ``None``, if ``lock`` reaches past the process with ``ttl=``,
             if ``early`` is outside ``[0, 1)``, or if ``ttl`` or
             ``stale_ttl`` is a float, not positive, or over 100 years.
+        ValueError: If a ``key_template`` or tag cannot be read, reads a
+            positional field, converts a field with anything but ``!r``,
+            ``!s`` or ``!a``, or names a parameter the decorated function
+            does not take.
 
     Returns:
         A decorator that caches function results.
@@ -626,10 +637,11 @@ def cached(  # noqa: PLR0913, C901
             )
             raise TypeError(msg)
         fold = _declared_fold(func, scope)
-        tag_spec = _TagSpec(tags, inspect.signature(func) if tags else None)
+        signature = _checked_signature(func, key_template, tags)
+        tag_spec = _TagSpec(tags, signature if tags else None)
         resolved_key_function = key
         if key_template is not None and "{" in key_template:
-            key_spec = _TagSpec((key_template,), inspect.signature(func))
+            key_spec = _TagSpec((key_template,), signature)
 
             def resolved_key_function(
                 _func: Callable[..., Any],
@@ -687,6 +699,33 @@ def cached(  # noqa: PLR0913, C901
         return wrapper
 
     return decorator
+
+
+def _checked_signature(
+    func: Callable[..., Any],
+    key_template: str | None,
+    tags: Sequence[str],
+) -> inspect.Signature | None:
+    """Return the signature of `func` once its templates are checked.
+
+    Returns `None` when there is no template to render. A key template
+    with no `{` is a literal key and is not read.
+
+    Raises:
+        ValueError: If a template cannot be read, reads a positional
+            field, converts a field with anything but `!r`, `!s` or
+            `!a`, or names a parameter `func` does not take.
+    """
+    templates = [(tag, "Cache tag template") for tag in tags]
+    if key_template is not None and "{" in key_template:
+        templates.insert(0, (key_template, "Cache key template"))
+    if not templates:
+        return None
+    signature = inspect.signature(func)
+    for template, label in templates:
+        fields = template_fields(template, label)
+        check_template_parameters(template, fields, func, signature, label)
+    return signature
 
 
 def _declared_fold(
