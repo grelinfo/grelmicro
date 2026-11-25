@@ -29,6 +29,7 @@ from grelmicro._environment import (
     record,
     required_scope,
 )
+from grelmicro._wrapping import named
 from grelmicro.cache._stampede import (
     IN_PROCESS_LOCK,
     AsyncStampedeGuard,
@@ -63,6 +64,9 @@ _FINGERPRINT_SUFFIX = "\x1ffp"
 
 _FINGERPRINT_MARGIN = timedelta(seconds=1)
 """How much longer the fingerprint is kept than the response it guards."""
+
+_METHOD_DESCRIPTORS = (classmethod, staticmethod, property)
+"""Method wrappers that `@idem` can receive in a class body, callable or not."""
 
 
 class Operation(Generic[T]):
@@ -672,7 +676,21 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
 
         Use as an async context manager. The yielded `Operation` carries
         `replayed`, `result()`, and `store(...)`.
+
+        Raises:
+            TypeError: If `key` is a function, a method descriptor or any
+                other callable, such as when `@idem` decorates a function.
+                Use `@idempotent(idem, key=...)` instead.
         """
+        if callable(key) or isinstance(key, _METHOD_DESCRIPTORS):
+            msg = (
+                f"Idempotency({self._name!r}) is not a decorator, so "
+                f"`@idem` would replace `{named(key)}` with a block that "
+                "fails when called. Decorate the function with "
+                "`@idempotent(idem, key=...)`, or open the block inside it "
+                "with `async with idem(key) as op:`."
+            )
+            raise TypeError(msg)
         return _Block(
             self,
             key,

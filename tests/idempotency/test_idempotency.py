@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from datetime import timedelta
 from time import monotonic_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 from grelmicro import Grelmicro
 from grelmicro._config import reconfigurable_instances, reconfigure_all
@@ -43,6 +44,11 @@ EXPECTED_CALLS_2 = 2
 class _Response(BaseModel):
     id: int
     ok: bool
+
+
+class _CallableObject:
+    def __call__(self) -> None:
+        pass
 
 
 @pytest.fixture
@@ -493,6 +499,89 @@ class TestDecorator:
         await charge(amount=100, idempotency_key="k1")
         with pytest.raises(IdempotencyConflictError):
             await charge(amount=200, idempotency_key="k1")
+
+
+class TestDecoratorRefusal:
+    """Test that an `Idempotency` refuses to decorate a function."""
+
+    async def test_async_function_raises_when_decorating(
+        self, cache: TTLCache
+    ) -> None:
+        """`@idem` on an async function raises `TypeError` that names the fix."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+
+        with pytest.raises(TypeError) as exc_info:
+
+            @idem  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            async def charge() -> None:
+                pass
+
+        message = str(exc_info.value)
+        assert "Idempotency('charge')" in message
+        assert "<locals>.charge` with a block" in message
+        assert "@idempotent(idem, key=...)" in message
+        assert "async with idem(key) as op:" in message
+
+    def test_sync_function_raises_when_decorating(
+        self, cache: TTLCache
+    ) -> None:
+        """`@idem` on a sync function raises `TypeError` that names the fix."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+
+        with pytest.raises(TypeError, match=r"@idempotent\(idem, key=\.\.\.\)"):
+
+            @idem  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            def charge() -> None:
+                pass
+
+    def test_method_raises_when_decorating(self, cache: TTLCache) -> None:
+        """`@idem` on a method in a class body raises `TypeError`."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+
+        with pytest.raises(TypeError, match=r"Service\.charge"):
+
+            class Service:
+                @idem  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                async def charge(self) -> None:
+                    pass
+
+    @pytest.mark.parametrize(
+        "wrap",
+        [
+            pytest.param(classmethod, id="classmethod"),
+            pytest.param(staticmethod, id="staticmethod"),
+            pytest.param(property, id="property"),
+        ],
+    )
+    def test_method_descriptor_raises_when_decorating(
+        self, cache: TTLCache, wrap: Callable[[Any], object]
+    ) -> None:
+        """`@idem` above a method descriptor raises `TypeError`."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+
+        async def charge(owner: object) -> None:
+            pass
+
+        with pytest.raises(TypeError, match=r"@idempotent\(idem, key=\.\.\.\)"):
+            idem(wrap(charge))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    @pytest.mark.parametrize(
+        "target",
+        [
+            pytest.param(lambda: None, id="lambda"),
+            pytest.param(functools.partial(print, "x"), id="partial"),
+            pytest.param(_CallableObject(), id="callable-object"),
+            pytest.param(_CallableObject, id="class"),
+        ],
+    )
+    def test_other_callable_raises_when_decorating(
+        self, cache: TTLCache, target: object
+    ) -> None:
+        """An `Idempotency` called with any callable raises `TypeError`."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+
+        with pytest.raises(TypeError, match=r"async with idem\(key\) as op:"):
+            idem(target)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 # ---------------------------------------------------------------------------
