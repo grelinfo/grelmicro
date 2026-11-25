@@ -8,7 +8,6 @@ import inspect
 import logging
 import math
 from dataclasses import dataclass
-from string import Formatter
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -31,7 +30,12 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._guards import is_instance
-from grelmicro._key_checks import KeyFunction, check_key_choice
+from grelmicro._key_checks import (
+    KeyFunction,
+    check_key_choice,
+    check_template_parameters,
+    template_fields,
+)
 from grelmicro._wrapping import named, refuse_generator, refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
@@ -784,7 +788,9 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
                 the decorated function is a generator function or is
                 not async.
             ValueError: If `max_wait` is negative, or a `key_template`
-                names a parameter the function does not have.
+                cannot be read, reads a positional field, converts a
+                field with anything but `!r`, `!s` or `!a`, or names a
+                parameter the function does not have.
         """
         if is_instance(fn, str):
             msg = (
@@ -850,32 +856,8 @@ _DEFAULT_KEY = "default"
 """Bucket a call is metered under when no key is given."""
 
 
-def _template_fields(template: str) -> list[str]:
-    """Return the parameter names a key template reads.
-
-    Raises:
-        ValueError: If the template cannot be read, or reads a
-            positional field, which names no parameter.
-    """
-    try:
-        parsed = list(Formatter().parse(template))
-    except ValueError as error:
-        msg = f"Rate limiter key template {template!r} cannot be read: {error}."
-        raise ValueError(msg) from None
-    fields = []
-    for _, field, spec, _ in parsed:
-        if field is not None:
-            fields.append(field.split(".")[0].split("[")[0])
-        if spec:
-            fields.extend(_template_fields(spec))
-    if any(name == "" or name.isdigit() for name in fields):
-        msg = (
-            f"Rate limiter key template {template!r} reads a "
-            "positional field. Name the parameter instead, as in "
-            '"user:{user_id}".'
-        )
-        raise ValueError(msg)
-    return fields
+_LABEL = "Rate limiter key template"
+"""Opens every message about a rate limiter key template."""
 
 
 class RateLimiterBinding:
@@ -919,8 +901,9 @@ class RateLimiterBinding:
             TypeError: If `key` is a string, if both `key` and
                 `key_template` are passed, or `max_wait` is `None`.
             ValueError: If `cost` is below 1, `max_wait` is negative
-                or not finite, or `key_template` reads a positional
-                field.
+                or not finite, or `key_template` cannot be read, reads
+                a positional field, or converts a field with anything
+                but `!r`, `!s` or `!a`.
         """
         check_key_choice(key, key_template)
         if not is_instance(cost, int) or is_instance(cost, bool):
@@ -964,7 +947,7 @@ class RateLimiterBinding:
         self._limiter = limiter
         self._key_template = key_template
         self._fields = (
-            _template_fields(key_template)
+            template_fields(key_template, _LABEL)
             if key_template is not None and "{" in key_template
             else ()
         )
@@ -1052,14 +1035,7 @@ class RateLimiterBinding:
             constant = template.format_map({}) if "{" in template else template
             return lambda _args, _kwargs: constant
         signature = inspect.signature(fn)
-        unknown = sorted(set(self._fields) - set(signature.parameters))
-        if unknown:
-            names = ", ".join(unknown)
-            msg = (
-                f"Rate limiter key template {template!r} names "
-                f"{names}, which {named(fn)} does not take."
-            )
-            raise ValueError(msg)
+        check_template_parameters(template, self._fields, fn, signature, _LABEL)
 
         name = named(fn)
 

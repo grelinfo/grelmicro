@@ -38,7 +38,7 @@ async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 ```
 
-Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. For a fully dynamic key, pass a `key=` function instead. It receives `(func, args, kwargs)` and returns the key. A string passed to `key=` raises `TypeError`, and so does passing both `key` and `key_template`. A custom key fully determines the lookup, so `typed=` has no effect when `key=` or `key_template=` is set.
+Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. A template that names a parameter the function does not take, or a positional field like `{0}`, raises `ValueError` at decoration time. For a fully dynamic key, pass a `key=` function instead. It receives `(func, args, kwargs)` and returns the key. A string passed to `key=` raises `TypeError`, and so does passing both `key` and `key_template`. A custom key fully determines the lookup, so `typed=` has no effect when `key=` or `key_template=` is set.
 
 ```python title="fragment"
 @cached(cache, key=lambda func, args, kwargs: f"user:{args[0]}")
@@ -55,7 +55,7 @@ async def get_user(user_id: int) -> User:
 
 ## Tags
 
-Each tag is a template filled in from the call's arguments, so one decorator tags every entry with both a shared tag and a per-call tag:
+Each tag is a template filled in from the call's arguments, so one decorator tags every entry with both a shared tag and a per-call tag. Each tag is checked at decoration time, like `key_template=`:
 
 ```python title="fragment"
 @cached(cache, tags=["users", "user:{user_id}"])
