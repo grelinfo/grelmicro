@@ -213,8 +213,8 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         self, fn: Callable[P, Awaitable[R]], /
     ) -> Callable[P, Awaitable[R]]:
         """Wrap `fn` without the guard, for composing inside a `Stack`."""
-        refuse_generator(fn, f"Timeout {self._name!r}")
         if not is_async_callable(fn):
+            refuse_generator(fn, f"Timeout {self._name!r}")
             msg = (
                 "Timeout only decorates async functions. asyncio cannot "
                 f"cancel sync code, got {fn!r}."

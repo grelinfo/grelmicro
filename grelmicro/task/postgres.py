@@ -308,7 +308,7 @@ class PostgresJobAdapter(JobBackend):
             );
         """,
         "scan": """
-            SELECT count(*), min(seq) FROM (
+            SELECT count(*), min(seq), max(seq) FROM (
                 SELECT seq FROM {table_name}
                 WHERE name = $1::text AND owner = $2::text AND seq < $3::bigint
                 ORDER BY seq DESC
@@ -832,19 +832,19 @@ class PostgresJobAdapter(JobBackend):
         below = FIRST if after is None else read_cursor(after)
         bound = scan_limit(limit)
         async with self._transaction() as (conn, began):
-            scanned, floor = await conn.fetchrow(
+            scanned, floor, top = await conn.fetchrow(
                 self._sql["scan"], name, owner, below, bound
             )
             if not scanned:
                 return Listed([], None)
-            window = (name, owner, floor, below)
+            window = (name, owner, floor, top + 1)
             ended, now = await self._catch_up_owner(conn, began, window)
             await self._trim(conn, now, ended)
             rows = await conn.fetch(
                 self._sql["list"],
                 name,
                 owner,
-                below,
+                top + 1,
                 now,
                 None if status is None else status.value,
                 limit + 1,
@@ -944,8 +944,9 @@ class PostgresJobAdapter(JobBackend):
     ) -> tuple[builtins.list[tuple[Any, ...]], datetime]:
         """End the overdue jobs of one owner's page, and return them.
 
-        `window` is the job name, the owner, and the lowest and the bound
-        order of the entries the page reads. It locks the jobs of `window`
+        `window` is the job name, the owner, the lowest order of the entries
+        the page reads, and one past the highest. A job submitted since is
+        outside it. It locks the jobs of `window`
         past a deadline at `began` in id order, as `beat` does, then reads
         the clock again, so each end follows the move it waited for. When a
         job came due since and another move holds it, it undoes its ends and

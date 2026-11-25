@@ -592,6 +592,57 @@ async def test_job_postgres_list_never_shows_a_held_overdue_job_as_running(
     assert statuses == {"early": JobStatus.FAILED, "late": JobStatus.FAILED}
 
 
+async def test_job_postgres_list_reads_only_the_jobs_it_scanned(
+    provider: PostgresProvider, table_name: str
+) -> None:
+    """A job submitted while a list waits is neither ended nor shown by it.
+
+    A later list shows it, past its `max_wait`, as `failed`.
+    """
+    async with provider.job_backend(table_name=table_name) as backend:
+        # Arrange
+        owned = {"owner": "alice", "start_as": "r"}
+        await backend.submit(
+            **_submit_args("held", lease=timedelta(milliseconds=50), **owned)
+        )
+        await asyncio.sleep(0.2)
+        async with provider.client.acquire() as conn:
+            hold = conn.transaction()
+            await hold.start()
+            await conn.execute(
+                f"SELECT 1 FROM {table_name} WHERE id = $1 FOR UPDATE;",  # noqa: S608
+                "held",
+            )
+            listing = asyncio.create_task(
+                backend.list(
+                    name=NAME, owner="alice", status=None, limit=10, after=None
+                )
+            )
+            await asyncio.sleep(0.3)
+            await backend.submit(
+                **_submit_args(
+                    "newer",
+                    owner="alice",
+                    max_wait=timedelta(milliseconds=50),
+                )
+            )
+            await asyncio.sleep(0.2)
+
+            # Act
+            await hold.commit()
+            listed = await listing
+        later = await backend.list(
+            name=NAME, owner="alice", status=None, limit=10, after=None
+        )
+
+    # Assert
+    assert [record.id for record in listed.records] == ["held"]
+    assert {record.id: record.status for record in later.records} == {
+        "newer": JobStatus.FAILED,
+        "held": JobStatus.FAILED,
+    }
+
+
 def test_job_postgres_refuses_a_table_name_that_cuts_an_index_name() -> None:
     """Postgres cuts names at 63 bytes, so a longer index name would collide."""
     # Arrange

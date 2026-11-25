@@ -822,8 +822,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self, fn: Callable[P, Awaitable[R]], /
     ) -> Callable[P, Awaitable[R]]:
         """Wrap `fn` without the guard, for composing inside a `Stack`."""
-        refuse_generator(fn, f"Bulkhead {self._name!r}")
         if not is_async_callable(fn):
+            refuse_generator(fn, f"Bulkhead {self._name!r}")
             msg = (
                 "Bulkhead only decorates async functions. Use "
                 f"`bulkhead.to_thread(...)` for blocking work, got {fn!r}."

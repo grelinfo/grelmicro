@@ -601,9 +601,9 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         Raises:
             TypeError: If `fn` is a generator function or is not async.
         """
-        if is_generator(fn):
-            raise TypeError(generator_message(fn, f"Shield {self._name!r}"))
         if not is_async_callable(fn):
+            if is_generator(fn):
+                raise TypeError(generator_message(fn, f"Shield {self._name!r}"))
             msg = (
                 "Shield.run requires an async callable. "
                 f"Got {fn!r}. Wrap sync code in asyncio.to_thread(...)."
@@ -626,8 +626,8 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                 direct calls alone.
         """
         refuse_registered(fn, f"Shield {self._name!r}")
-        refuse_generator(fn, f"Shield {self._name!r}")
         if not is_async_callable(fn):
+            refuse_generator(fn, f"Shield {self._name!r}")
             msg = (
                 "Shield only decorates async functions. "
                 f"Got {fn!r}. Wrap sync code in asyncio.to_thread(...)."
