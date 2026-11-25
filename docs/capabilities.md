@@ -1,6 +1,6 @@
 # Capability matrix
 
-Find your feature and read its level. Levels are as of 2026-11-24. Nothing is Stable yet.
+Find your feature and read its level. Levels are as of 2026-11-25. Nothing is Stable yet.
 
 | Level | What it means | How it gets there |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ A level does not say whether replicas share state. See [the backend check](deplo
     | `TaskLock` | 0.45.0 | 0.42.5 | |
     | `LeaderElection` | 0.45.0 | 0.42.0 | |
     | `@tasks.cron` | 0.45.0 | 0.45.0 | SQL default table name changes in 0.46.0 |
-    | `Job` | None | None | |
+    | `Job` | None | 0.45.1 | |
     | `TTLCache` | 0.42.0 | 0.42.0 | |
     | `Idempotency` | 0.42.0 | 0.44.2 | |
     | `Outbox` | 0.42.0 | 0.42.5 | A payload subclass takes its class name as its topic in 0.46.0 |

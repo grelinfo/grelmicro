@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.45.1 - 2026-11-25
 
 ### Fixed
 * 🐛 Listing one owner's jobs on Postgres or SQLite ends only the overdue jobs on the page it reads and leaves the rest to the sweep, so a large backlog no longer makes one long transaction. A Postgres list no longer shows a job as `running` past its lease or `max_run`. ([#1370](https://github.com/grelinfo/grelmicro/issues/1370))
