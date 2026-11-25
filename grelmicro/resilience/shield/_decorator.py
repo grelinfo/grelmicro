@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
-from grelmicro._wrapping import refuse_generator, refuse_registered
+from grelmicro._wrapping import refuse_registered
 from grelmicro.metrics._naming import callable_name
 
 if TYPE_CHECKING:
@@ -73,7 +73,6 @@ def _build_profile_decorator(
             )
 
             refuse_registered(fn, f"@shield.{profile}")
-            refuse_generator(fn, f"@shield.{profile}")
             shield_name = name or callable_name(fn)
             factory_method = getattr(Shield, profile)
             instance: Shield = factory_method(

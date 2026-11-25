@@ -131,8 +131,7 @@ class FutureChange:
             site.filename,
             site.lineno,
             module=site.module,
-            registry=site.module_globals.setdefault("__warningregistry__", {}),
-            module_globals=site.module_globals,
+            registry=site.registry,
         )
 
 

@@ -52,7 +52,8 @@ class CallSite(NamedTuple):
     filename: str
     lineno: int
     module: str
-    module_globals: dict[str, Any]
+    registry: dict[Any, Any]
+    """The once-per-line warning registry of the module at that line."""
 
 
 def default_name_site(table_name: str) -> CallSite | None:
@@ -74,7 +75,7 @@ def default_name_site(table_name: str) -> CallSite | None:
         frame.f_code.co_filename,
         frame.f_lineno,
         module_globals.get("__name__", "<unknown>"),
-        module_globals,
+        module_globals.setdefault("__warningregistry__", {}),
     )
 
 

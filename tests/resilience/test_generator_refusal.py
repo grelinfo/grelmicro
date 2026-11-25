@@ -6,6 +6,9 @@ nothing else. The patterns that refuse one share one guard and one
 message.
 """
 
+import asyncio
+import inspect
+import types
 from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Any
 
@@ -16,6 +19,7 @@ from grelmicro._wrapping import (
     is_generator,
     refuse_generator,
 )
+from grelmicro.metrics._naming import callable_name
 from grelmicro.resilience import (
     Bulkhead,
     MemoryRateLimiterAdapter,
@@ -72,6 +76,10 @@ def _limiter() -> RateLimiter:
     )
 
 
+_BUILT_SHIELD = "built shield"
+"""Stands for the `Shield` a `@shield.*` decorator builds, named after the function."""
+
+
 def _refusing() -> list[tuple[str, str, Callable[[Any], Any]]]:
     """Return every pattern that refuses a generator function.
 
@@ -93,13 +101,13 @@ def _refusing() -> list[tuple[str, str, Callable[[Any], Any]]]:
             _limiter()(key_template="k"),
         ),
         ("Shield", "Shield 'sh'", Shield.api("sh", when=TimeoutError)),
-        ("@shield.api", "@shield.api", shield.api(when=TimeoutError)),
+        ("@shield.api", _BUILT_SHIELD, shield.api(when=TimeoutError)),
         (
             "@shield.internal",
-            "@shield.internal",
+            _BUILT_SHIELD,
             shield.internal(when=TimeoutError),
         ),
-        ("@shield.slow", "@shield.slow", shield.slow(when=TimeoutError)),
+        ("@shield.slow", _BUILT_SHIELD, shield.slow(when=TimeoutError)),
     ]
 
 
@@ -121,6 +129,9 @@ def test_every_refusing_pattern_names_the_generator(
     target: Callable[..., Any],
 ) -> None:
     """The refusal opens with the pattern and explains the generator."""
+    if by == _BUILT_SHIELD:
+        by = f"Shield {callable_name(target)!r}"
+
     with pytest.raises(TypeError) as caught:
         apply(target)
 
@@ -209,3 +220,41 @@ def test_every_spelling_of_a_generator_is_detected(
     """A plain function and a callable object read the same."""
     assert is_generator(target)
     assert kind
+
+
+_ASYNC_ONLY = [entry for entry in _refusing() if entry[0] != "Stack"]
+"""The patterns that refuse a function only when it is not async.
+
+`Stack` refuses every generator function, marked as a coroutine or not.
+"""
+
+
+@inspect.markcoroutinefunction
+@types.coroutine
+def marked_coroutine() -> Iterator[Any]:
+    """Await once, from a generator marked as a coroutine function."""
+    yield from asyncio.sleep(0).__await__()
+
+
+@pytest.mark.parametrize(
+    ("label", "by", "apply"),
+    _ASYNC_ONLY,
+    ids=[label for label, _, _ in _ASYNC_ONLY],
+)
+def test_every_pattern_still_takes_a_generator_marked_as_a_coroutine(
+    label: str, by: str, apply: Callable[[Any], Any]
+) -> None:
+    """A generator marked as a coroutine function is async, so it is wrapped."""
+    assert callable(apply(marked_coroutine))
+
+    assert label
+    assert by
+
+
+async def test_shield_run_still_takes_a_generator_marked_as_a_coroutine() -> (
+    None
+):
+    """`Shield.run` awaits a generator marked as a coroutine function."""
+    sh = Shield.api("sh", when=TimeoutError)
+
+    assert await sh.run(marked_coroutine) is None  # ty: ignore[invalid-argument-type]

@@ -1,5 +1,6 @@
 """A default table name that takes the `grelmicro_` prefix warns until 0.46.0."""
 
+import gc
 import inspect
 import re
 import sqlite3
@@ -725,3 +726,24 @@ async def test_a_provider_filled_store_warns_at_the_line_that_listed_it(
     assert {(warning.filename, warning.lineno) for warning in caught} == {
         (__file__, listed)
     }
+
+
+def test_a_store_keeps_no_reference_to_the_namespace_that_built_it(
+    tmp_path: Path,
+) -> None:
+    """The kept line holds the module's warning registry, not its globals."""
+    # Arrange
+    namespace: dict[str, Any] = {
+        "__name__": "built_in_a_namespace",
+        "SQLiteLockAdapter": SQLiteLockAdapter,
+        "provider": SQLiteProvider(tmp_path / "app.db"),
+    }
+
+    # Act
+    exec("store = SQLiteLockAdapter(provider=provider)", namespace)  # noqa: S102
+    site = namespace["store"]._default_site
+
+    # Assert
+    assert site.module == "built_in_a_namespace"
+    assert site.registry is namespace["__warningregistry__"]
+    assert all(referent is not namespace for referent in gc.get_referents(site))

@@ -1114,8 +1114,8 @@ class RateLimiterBinding:
                 not.
         """
         refuse_registered(fn, f"RateLimiter {self._limiter.name!r}")
-        refuse_generator(fn, f"RateLimiter {self._limiter.name!r}")
         if not is_async_callable(fn):
+            refuse_generator(fn, f"RateLimiter {self._limiter.name!r}")
             msg = (
                 "RateLimiter only decorates async functions. Consuming "
                 "tokens reaches the backend, and waiting for them "
