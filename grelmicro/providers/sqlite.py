@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Doc
 
 from grelmicro._config import any_case
-from grelmicro._unset import DefaultTableName
+from grelmicro._unset import CallSite, DefaultTableName
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
 from grelmicro.providers._table_names import resolve_table_names
@@ -539,16 +539,20 @@ _SQL_TABLE_EXISTS = (
 
 
 async def _warn_split_tables(
-    conn: aiosqlite.Connection, table_name: str, *, adapter: str
+    conn: aiosqlite.Connection,
+    table_name: str,
+    *,
+    adapter: str,
+    at: CallSite | None,
 ) -> None:
     """Warn when `table_name` is a default and its 0.46.0 table exists too.
 
     Run it while holding the provider's connection lock, after the table is
     created. `adapter` is the class that took `table_name`. The warning
-    reports the first line outside grelmicro. A name passed in checks and
-    warns nothing.
+    reports the line `at`, kept when the adapter was built. A name passed in
+    checks and warns nothing.
     """
-    if not isinstance(table_name, DefaultTableName):
+    if not isinstance(table_name, DefaultTableName) or at is None:
         return
     async with conn.execute(_SQL_TABLE_EXISTS, (table_name.becomes,)) as cursor:
         exists = await cursor.fetchone()
@@ -558,4 +562,4 @@ async def _warn_split_tables(
 
     split_tables(
         adapter=adapter, old=str(table_name), new=table_name.becomes
-    ).warn(outside=True)
+    ).warn_at(at)

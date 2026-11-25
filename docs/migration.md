@@ -409,6 +409,11 @@ provider builds follows it, and either value silences the warning.
 - `"prefixed"` adopts the new names now, so the switch in 0.46.0 changes
   nothing. Each adapter starts on an empty table.
 
+A provider listed on its own builds a lock and a schedule store even when
+the app uses neither, so the warning shows up anyway. With nothing stored
+in them, `"prefixed"` loses nothing. The warning reports the line that
+listed the provider, such as `Grelmicro(uses=[...])`.
+
 ```python
 from grelmicro import Grelmicro
 from grelmicro.providers.postgres import PostgresProvider
