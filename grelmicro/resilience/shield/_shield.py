@@ -24,7 +24,12 @@ from grelmicro._config import (
     refuse_retired_env,
     warn_ignored_env,
 )
-from grelmicro._wrapping import refuse_registered
+from grelmicro._wrapping import (
+    generator_message,
+    is_generator,
+    refuse_generator,
+    refuse_registered,
+)
 from grelmicro.clock import monotonic, sleep
 from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
@@ -591,7 +596,13 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         *args: Any,  # noqa: ANN401
         **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
-        """Run `fn(*args, **kwargs)` through this Shield instance."""
+        """Run `fn(*args, **kwargs)` through this Shield instance.
+
+        Raises:
+            TypeError: If `fn` is a generator function or is not async.
+        """
+        if is_generator(fn):
+            raise TypeError(generator_message(fn, f"Shield {self._name!r}"))
         if not is_async_callable(fn):
             msg = (
                 "Shield.run requires an async callable. "
@@ -610,10 +621,12 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         """Decorate `fn` so each call runs through this Shield.
 
         Raises:
-            TypeError: If `fn` is not async, or a registrar already
-                holds it, so this would wrap direct calls alone.
+            TypeError: If `fn` is a generator function or is not async,
+                or a registrar already holds it, so this would wrap
+                direct calls alone.
         """
         refuse_registered(fn, f"Shield {self._name!r}")
+        refuse_generator(fn, f"Shield {self._name!r}")
         if not is_async_callable(fn):
             msg = (
                 "Shield only decorates async functions. "

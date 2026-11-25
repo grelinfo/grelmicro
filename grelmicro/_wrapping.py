@@ -6,13 +6,28 @@ call. Refusing that order is the same check in every decorator, and a
 check pasted once per decorator is one the next decorator forgets.
 
 The order the guard names is the one the composition docs give.
+
+A generator function runs its body while it is iterated, so a decorator
+that wraps the call wraps building the generator and nothing else. The
+resilience patterns refuse one with the same check and the same message.
 """
 
 from __future__ import annotations
 
+from inspect import (
+    CO_ASYNC_GENERATOR,
+    CO_GENERATOR,
+    isasyncgenfunction,
+    isgeneratorfunction,
+)
+from types import FunctionType
+
 from grelmicro._markers import registration_of
 
-__all__ = ["named", "refuse_registered"]
+__all__ = ["is_generator", "named", "refuse_generator", "refuse_registered"]
+
+_GENERATOR_FLAGS = CO_ASYNC_GENERATOR | CO_GENERATOR
+"""Code flags of a function whose body runs while it is iterated."""
 
 
 def named(function: object) -> str:
@@ -23,6 +38,49 @@ def named(function: object) -> str:
         raise
     except BaseException:  # noqa: BLE001
         return "<unnameable>"
+
+
+def is_generator(function: object) -> bool:
+    """Return whether calling `function` builds a generator instead of running.
+
+    A plain function answers from its own code flags, which is the check
+    `Stack.run` pays on every call. A method, a partial and a callable
+    object whose `__call__` is a generator answer too.
+    """
+    if type(function) is FunctionType:
+        return bool(function.__code__.co_flags & _GENERATOR_FLAGS)
+    if isasyncgenfunction(function) or isgeneratorfunction(function):
+        return True
+    call = getattr(type(function), "__call__", None)  # noqa: B004
+    return call is not None and (
+        isasyncgenfunction(call) or isgeneratorfunction(call)
+    )
+
+
+def generator_message(function: object, by: str) -> str:
+    """Return the message that refuses a generator `function`."""
+    return (
+        f"{by} does not wrap {named(function)}, because a generator runs "
+        "its body while it is iterated and not when it is called, so "
+        f"{by} would only wrap building the generator. Wrap the function "
+        "that consumes it, or the call inside the body."
+    )
+
+
+def refuse_generator(function: object, by: str) -> None:
+    """Refuse a generator function, whose body no wrapper around the call reaches.
+
+    Args:
+        function: The function about to be wrapped.
+        by: What is wrapping it, as it reads in the message, for
+            example `"Retry 'db'"` or `"@shield.api"`.
+
+    Raises:
+        TypeError: If `function` is a generator or async generator
+            function, or a callable object whose `__call__` is one.
+    """
+    if is_generator(function):
+        raise TypeError(generator_message(function, by))
 
 
 def refuse_registered(function: object, by: str) -> None:
