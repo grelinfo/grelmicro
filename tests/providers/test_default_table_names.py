@@ -2,9 +2,10 @@
 
 import inspect
 import re
+import sqlite3
 import warnings
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -696,3 +697,31 @@ async def test_postgres_opening_the_old_default_alone_warns_once(
         assert not await provider.client.fetchval(
             "SELECT to_regclass($1) IS NOT NULL", new
         )
+
+
+async def test_a_provider_filled_store_warns_at_the_line_that_listed_it(
+    tmp_path: Path,
+) -> None:
+    """Both warnings of a store opened at startup report the app's own line."""
+    # Arrange
+    database = tmp_path / "app.db"
+    with closing(sqlite3.connect(database)) as conn:
+        conn.execute("CREATE TABLE grelmicro_locks (name TEXT)")
+    provider = SQLiteProvider(database)
+    with _future_warnings() as built:
+        micro = Grelmicro(uses=[provider])
+    frame = inspect.currentframe()
+    assert frame is not None
+    listed = frame.f_lineno - 3
+
+    # Act
+    with _future_warnings() as caught:
+        async with micro:
+            pass
+
+    # Assert
+    assert built == []
+    assert any("may be split" in str(warning.message) for warning in caught)
+    assert {(warning.filename, warning.lineno) for warning in caught} == {
+        (__file__, listed)
+    }

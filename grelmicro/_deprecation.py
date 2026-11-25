@@ -16,6 +16,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
+from grelmicro._unset import CallSite
 from grelmicro.errors import (
     Grelmicro045Warning,
     Grelmicro046Warning,
@@ -116,6 +117,23 @@ class FutureChange:
             )
             return
         warnings.warn(self.message, self.category, stacklevel=stacklevel + 1)
+
+    def warn_at(self, site: CallSite) -> None:
+        """Emit a `category` warning with `message`, reported at `site`.
+
+        For a change found after the caller's code has left the stack, such
+        as a store that opens at startup. The warning filters and the
+        once-per-line registry of the module at `site` apply.
+        """
+        warnings.warn_explicit(
+            self.message,
+            self.category,
+            site.filename,
+            site.lineno,
+            module=site.module,
+            registry=site.module_globals.setdefault("__warningregistry__", {}),
+            module_globals=site.module_globals,
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

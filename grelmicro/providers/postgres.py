@@ -26,7 +26,7 @@ from grelmicro._config import (
     settings_sources,
 )
 from grelmicro._redact import redact_url
-from grelmicro._unset import DefaultTableName
+from grelmicro._unset import CallSite, DefaultTableName
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
 from grelmicro.providers._sqlalchemy import EnginePool, validate_engine
@@ -828,16 +828,16 @@ _SQL_SPLIT_TABLES = (
 
 
 async def _warn_split_tables(
-    conn: Connection, table_name: str, *, adapter: str
+    conn: Connection, table_name: str, *, adapter: str, at: CallSite | None
 ) -> None:
     """Warn when `table_name` is a default and its 0.46.0 table exists too.
 
     Run it on the connection of the setup transaction, after the table is
     created. `adapter` is the class that took `table_name`. The warning names
-    both tables with their schema and reports the first line outside
-    grelmicro. A name passed in checks and warns nothing.
+    both tables with their schema and reports the line `at`, kept when the
+    adapter was built. A name passed in checks and warns nothing.
     """
-    if not isinstance(table_name, DefaultTableName):
+    if not isinstance(table_name, DefaultTableName) or at is None:
         return
     row = await conn.fetchrow(
         _SQL_SPLIT_TABLES, str(table_name), table_name.becomes
@@ -848,4 +848,4 @@ async def _warn_split_tables(
 
     split_tables(
         adapter=adapter, old=row[0] or str(table_name), new=row[1]
-    ).warn(outside=True)
+    ).warn_at(at)

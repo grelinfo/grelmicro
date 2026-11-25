@@ -12,7 +12,11 @@ from asyncpg.exceptions import LockNotAvailableError
 from typing_extensions import Doc
 
 from grelmicro._duration import microseconds
-from grelmicro._unset import DefaultTableName, warn_default_table_name
+from grelmicro._unset import (
+    DefaultTableName,
+    default_name_site,
+    warn_default_table_name,
+)
 from grelmicro.coordination._protocol import (
     LeaderElectionBackend,
     LeaderRecord,
@@ -205,6 +209,7 @@ class PostgresLockAdapter(LockBackend):
         table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._table_name = table_name
+        self._default_site = default_name_site(table_name)
         self._acquire_sql = self._SQL_ACQUIRE_OR_EXTEND.format(
             table_name=table_name
         )
@@ -225,7 +230,11 @@ class PostgresLockAdapter(LockBackend):
 
     async def __aenter__(self) -> Self:
         """Open the adapter and its provider when owned."""
-        warn_default_table_name(self._table_name, adapter="PostgresLockAdapter")
+        warn_default_table_name(
+            self._table_name,
+            adapter="PostgresLockAdapter",
+            at=self._default_site,
+        )
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
@@ -259,7 +268,10 @@ class PostgresLockAdapter(LockBackend):
                 ),
             )
             await _warn_split_tables(
-                conn, self._table_name, adapter="PostgresLockAdapter"
+                conn,
+                self._table_name,
+                adapter="PostgresLockAdapter",
+                at=self._default_site,
             )
             try:
                 async with conn.transaction():
@@ -878,6 +890,7 @@ class PostgresScheduleAdapter(ScheduleBackend):
         table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._table_name = table_name
+        self._default_site = default_name_site(table_name)
         self._claim_sql = self._SQL_CLAIM.format(table_name=table_name)
         self._last_fired_sql = self._SQL_LAST_FIRED.format(
             table_name=table_name
@@ -897,7 +910,9 @@ class PostgresScheduleAdapter(ScheduleBackend):
     async def __aenter__(self) -> Self:
         """Open the adapter and its provider when owned."""
         warn_default_table_name(
-            self._table_name, adapter="PostgresScheduleAdapter"
+            self._table_name,
+            adapter="PostgresScheduleAdapter",
+            at=self._default_site,
         )
         if self._owns_provider:
             await self._provider.__aenter__()
@@ -925,7 +940,10 @@ class PostgresScheduleAdapter(ScheduleBackend):
                 ),
             )
             await _warn_split_tables(
-                conn, self._table_name, adapter="PostgresScheduleAdapter"
+                conn,
+                self._table_name,
+                adapter="PostgresScheduleAdapter",
+                at=self._default_site,
             )
 
     async def __aexit__(

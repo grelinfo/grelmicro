@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro._duration import MILLISECOND, round_up
-from grelmicro._unset import DefaultTableName, warn_default_table_name
+from grelmicro._unset import (
+    DefaultTableName,
+    default_name_site,
+    warn_default_table_name,
+)
 from grelmicro.coordination._protocol import (
     LeaderElectionBackend,
     LeaderRecord,
@@ -223,6 +227,7 @@ class SQLiteLockAdapter(LockBackend):
         table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._table_name = table_name
+        self._default_site = default_name_site(table_name)
         self._sql = {
             key: template.format(table_name=table_name, **_TIME_SQL)
             for key, template in {
@@ -246,7 +251,9 @@ class SQLiteLockAdapter(LockBackend):
 
     async def __aenter__(self) -> Self:
         """Open the adapter and its provider when owned."""
-        warn_default_table_name(self._table_name, adapter="SQLiteLockAdapter")
+        warn_default_table_name(
+            self._table_name, adapter="SQLiteLockAdapter", at=self._default_site
+        )
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
@@ -260,6 +267,7 @@ class SQLiteLockAdapter(LockBackend):
                 self._provider.client,
                 self._table_name,
                 adapter="SQLiteLockAdapter",
+                at=self._default_site,
             )
         return self
 
@@ -487,6 +495,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
         table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._table_name = table_name
+        self._default_site = default_name_site(table_name)
         self._sql = {
             key: template.format(table_name=table_name, **_TIME_SQL)
             for key, template in {
@@ -517,7 +526,9 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
     async def __aenter__(self) -> Self:
         """Open the adapter and its provider when owned."""
         warn_default_table_name(
-            self._table_name, adapter="SQLiteReadWriteLockAdapter"
+            self._table_name,
+            adapter="SQLiteReadWriteLockAdapter",
+            at=self._default_site,
         )
         if self._owns_provider:
             await self._provider.__aenter__()
@@ -531,6 +542,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
                 self._provider.client,
                 self._table_name,
                 adapter="SQLiteReadWriteLockAdapter",
+                at=self._default_site,
             )
         return self
 
@@ -784,6 +796,7 @@ class SQLiteScheduleAdapter(ScheduleBackend):
         table_name = resolve_table_name(table_name, self._provider.table_names)
         self._env_prefix = env_prefix
         self._table_name = table_name
+        self._default_site = default_name_site(table_name)
         self._claim_sql = self._SQL_CLAIM.format(table_name=table_name)
         self._last_fired_sql = self._SQL_LAST_FIRED.format(
             table_name=table_name
@@ -803,7 +816,9 @@ class SQLiteScheduleAdapter(ScheduleBackend):
     async def __aenter__(self) -> Self:
         """Open the adapter and its provider when owned."""
         warn_default_table_name(
-            self._table_name, adapter="SQLiteScheduleAdapter"
+            self._table_name,
+            adapter="SQLiteScheduleAdapter",
+            at=self._default_site,
         )
         if self._owns_provider:
             await self._provider.__aenter__()
@@ -818,6 +833,7 @@ class SQLiteScheduleAdapter(ScheduleBackend):
                 self._provider.client,
                 self._table_name,
                 adapter="SQLiteScheduleAdapter",
+                at=self._default_site,
             )
         return self
 
