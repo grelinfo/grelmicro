@@ -4,21 +4,20 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Awaitable, Callable
-from inspect import (
-    CO_ASYNC_GENERATOR,
-    CO_GENERATOR,
-    isasyncgenfunction,
-    iscoroutinefunction,
-    isgeneratorfunction,
-)
-from types import FunctionType
+from inspect import iscoroutinefunction
 from typing import TYPE_CHECKING, Annotated, Any, overload
 
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
 from grelmicro._guards import is_class, is_instance, name_of
-from grelmicro._wrapping import named, refuse_registered
+from grelmicro._wrapping import (
+    generator_message,
+    is_generator,
+    named,
+    refuse_generator,
+    refuse_registered,
+)
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.resilience.errors import CircuitBreakerError
@@ -236,44 +235,6 @@ async def _invoke(
     return await target(*args, **kwargs)
 
 
-_GENERATOR_FLAGS = CO_ASYNC_GENERATOR | CO_GENERATOR
-"""Code flags of a function whose body runs while it is iterated."""
-
-
-def _is_generator(fn: object) -> bool:
-    """Return whether calling `fn` builds a generator instead of running.
-
-    A plain function answers from its own code flags, which is the
-    check `Stack.run` pays on every call.
-    """
-    if type(fn) is FunctionType:
-        return bool(fn.__code__.co_flags & _GENERATOR_FLAGS)
-    if isasyncgenfunction(fn) or isgeneratorfunction(fn):
-        return True
-    call = getattr(type(fn), "__call__", None)  # noqa: B004
-    return call is not None and (
-        isasyncgenfunction(call) or isgeneratorfunction(call)
-    )
-
-
-def _refuse_generator(fn: object, name: str) -> None:
-    """Refuse a generator function, whose body no pattern would wrap.
-
-    Raises:
-        TypeError: If `fn` is a generator or async generator function.
-    """
-    if not _is_generator(fn):
-        return
-    msg = (
-        f"Stack {name!r} does not wrap {named(fn)}, because a "
-        "generator runs its body while it is iterated and not when it "
-        "is called, so every pattern would wrap building the generator "
-        "and nothing else. Wrap the function that consumes it, or the "
-        "call inside the body."
-    )
-    raise TypeError(msg)
-
-
 def _name_of_pattern(item: Pattern) -> str:
     """Return the name a pattern was built with."""
     inner = item.limiter if isinstance(item, RateLimiterBinding) else item
@@ -485,7 +446,7 @@ class Stack:
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
-        _refuse_generator(fn, self._name)
+        refuse_generator(fn, f"Stack {self._name!r}")
         refuse_registered(fn, f"Stack {self._name!r}")
         if is_async_callable(fn):
             return functools.wraps(fn)(self._build_async(fn))
@@ -527,7 +488,8 @@ class Stack:
         A function a registrar holds is accepted here, because this
         form wraps the call it is making rather than the registration.
         """
-        _refuse_generator(fn, self._name)
+        if is_generator(fn):
+            raise TypeError(generator_message(fn, f"Stack {self._name!r}"))
         if not is_async_callable(fn):
             blocking = self._async_only()
             makes = "make" if len(blocking) > 1 else "makes"

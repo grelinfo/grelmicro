@@ -32,7 +32,7 @@ from grelmicro._config import (
 )
 from grelmicro._guards import is_instance
 from grelmicro._key_checks import KeyFunction, check_key_choice
-from grelmicro._wrapping import named, refuse_registered
+from grelmicro._wrapping import named, refuse_generator, refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.metrics import _emit
@@ -781,7 +781,8 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         Raises:
             TypeError: If the key is passed positionally, if `key` is a
                 string, if both `key` and `key_template` are passed, or
-                the decorated function is not async.
+                the decorated function is a generator function or is
+                not async.
             ValueError: If `max_wait` is negative, or a `key_template`
                 names a parameter the function does not have.
         """
@@ -1107,12 +1108,13 @@ class RateLimiterBinding:
         """Decorate `fn` so each call consumes tokens first.
 
         Raises:
-            TypeError: If `fn` is not async, or a registrar already
-                holds it.
+            TypeError: If `fn` is a generator function or is not async,
+                or a registrar already holds it.
             ValueError: If a `key_template` names a parameter `fn` has
                 not.
         """
         refuse_registered(fn, f"RateLimiter {self._limiter.name!r}")
+        refuse_generator(fn, f"RateLimiter {self._limiter.name!r}")
         if not is_async_callable(fn):
             msg = (
                 "RateLimiter only decorates async functions. Consuming "

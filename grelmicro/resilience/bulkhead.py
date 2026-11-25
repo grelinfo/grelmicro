@@ -40,7 +40,7 @@ from grelmicro._environment import (
     report_unmet_requirements,
     unmet_requirements,
 )
-from grelmicro._wrapping import refuse_registered
+from grelmicro._wrapping import refuse_generator, refuse_registered
 from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.providers._base import Provider
@@ -811,8 +811,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         """Decorate ``fn`` so each call runs under this bulkhead.
 
         Raises:
-            TypeError: If `fn` is not async, or a registrar already
-                holds it, so this would wrap direct calls alone.
+            TypeError: If `fn` is a generator function or is not async,
+                or a registrar already holds it, so this would wrap
+                direct calls alone.
         """
         refuse_registered(fn, f"Bulkhead {self._name!r}")
         return self._wrap(fn)
@@ -821,6 +822,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self, fn: Callable[P, Awaitable[R]], /
     ) -> Callable[P, Awaitable[R]]:
         """Wrap `fn` without the guard, for composing inside a `Stack`."""
+        refuse_generator(fn, f"Bulkhead {self._name!r}")
         if not is_async_callable(fn):
             msg = (
                 "Bulkhead only decorates async functions. Use "
