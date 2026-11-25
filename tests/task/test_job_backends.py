@@ -2024,6 +2024,38 @@ async def test_job_backend_list_shows_a_job_past_max_run_as_failed(
     assert read.error == JOB_TIMED_OUT
 
 
+async def test_job_backend_list_ends_only_the_overdue_jobs_its_page_reads(
+    store: _Store,
+) -> None:
+    """A list ends no overdue job past the entries it reads.
+
+    The sweep ends the rest.
+    """
+    # Arrange
+    limit = 1
+    expired = [
+        await store.submit(max_wait=store.ticks(60))
+        for _ in range(scan_limit(limit) + 1)
+    ]
+    await store.elapse(60 + MARGIN)
+
+    # Act
+    listed = await _list(store, limit=limit)
+    await store.elapse(MARGIN)
+    reaped = await store.backend.reap(limit=10 * scan_limit(limit))
+
+    # Assert
+    [newest] = listed.records
+    assert newest.id == expired[-1].id
+    assert newest.status is JobStatus.FAILED
+    assert reaped >= 1
+    oldest = await _read(store, expired[0].id)
+    assert oldest.error == JOB_NOT_STARTED
+    assert newest.finished_at is not None
+    assert oldest.finished_at is not None
+    assert newest.finished_at < oldest.finished_at
+
+
 async def test_job_backend_list_with_a_lapsed_keep_zero_job_lists_nothing(
     store: _Store,
 ) -> None:

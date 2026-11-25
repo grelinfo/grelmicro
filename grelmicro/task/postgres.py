@@ -274,8 +274,10 @@ class PostgresJobAdapter(JobBackend):
             SELECT 1 FROM {table_name}
             WHERE name = $1::text
               AND owner = $2::text
+              AND seq >= $3::bigint
+              AND seq < $4::bigint
               AND status IN ('queued', 'running')
-              AND due_at <= $3::timestamptz
+              AND due_at <= $5::timestamptz
             ORDER BY id
             FOR UPDATE;
         """,
@@ -287,11 +289,24 @@ class PostgresJobAdapter(JobBackend):
                 SELECT id FROM {table_name}
                 WHERE name = $4::text
                   AND owner = $6::text
+                  AND seq >= $7::bigint
+                  AND seq < $8::bigint
                   AND status IN ('queued', 'running')
                   AND due_at <= $1::timestamptz
                 FOR UPDATE SKIP LOCKED
             ))""",
         ),
+        "overdue_owner": """
+            SELECT EXISTS (
+                SELECT 1 FROM {table_name}
+                WHERE name = $1::text
+                  AND owner = $2::text
+                  AND seq >= $3::bigint
+                  AND seq < $4::bigint
+                  AND status IN ('queued', 'running')
+                  AND due_at <= $5::timestamptz
+            );
+        """,
         "scan": """
             SELECT count(*), min(seq) FROM (
                 SELECT seq FROM {table_name}
@@ -810,32 +825,21 @@ class PostgresJobAdapter(JobBackend):
     ) -> Listed:
         """Return the jobs of `name` that `owner` owns, newest submitted first.
 
-        The owner's jobs past a lease, `max_wait` or `max_run` end first, in
-        the same transaction. It locks them in id order, as `beat` does,
-        then reads the clock again, so each end follows the move it waited
-        for. A job that came due since, and that another move holds, is
-        left to that move.
+        The jobs among the entries the page reads that are past a lease,
+        `max_wait` or `max_run` end first, in the same transaction. The
+        sweep ends the owner's other overdue jobs.
         """
         below = FIRST if after is None else read_cursor(after)
+        bound = scan_limit(limit)
         async with self._transaction() as (conn, began):
-            await conn.execute(self._sql["lock_owner"], name, owner, began)
-            now = await conn.fetchval(self._sql["now"])
-            ended = await conn.fetch(
-                self._sql["catch_up_owner"],
-                now,
-                JOB_LOST,
-                JOB_NOT_STARTED,
-                name,
-                JOB_TIMED_OUT,
-                owner,
-            )
-            await self._trim(conn, now, [tuple(row) for row in ended])
-            bound = scan_limit(limit)
             scanned, floor = await conn.fetchrow(
                 self._sql["scan"], name, owner, below, bound
             )
             if not scanned:
                 return Listed([], None)
+            window = (name, owner, floor, below)
+            ended, now = await self._catch_up_owner(conn, began, window)
+            await self._trim(conn, now, ended)
             rows = await conn.fetch(
                 self._sql["list"],
                 name,
@@ -931,6 +935,50 @@ class PostgresJobAdapter(JobBackend):
             JOB_TIMED_OUT,
         )
         return [tuple(row) for row in rows]
+
+    async def _catch_up_owner(
+        self,
+        conn: Connection,
+        began: datetime,
+        window: tuple[str, str, int, int],
+    ) -> tuple[builtins.list[tuple[Any, ...]], datetime]:
+        """End the overdue jobs of one owner's page, and return them.
+
+        `window` is the job name, the owner, and the lowest and the bound
+        order of the entries the page reads. It locks the jobs of `window`
+        past a deadline at `began` in id order, as `beat` does, then reads
+        the clock again, so each end follows the move it waited for. When a
+        job came due since and another move holds it, it undoes its ends and
+        starts over at the new time, so it waits for that move too.
+
+        Returns the jobs it ended, for `_trim`, and the time it ended them.
+        """
+        name, owner, floor, below = window
+        while True:
+            attempt = conn.transaction()
+            await attempt.start()
+            await conn.execute(
+                self._sql["lock_owner"], name, owner, floor, below, began
+            )
+            now = await conn.fetchval(self._sql["now"])
+            ended = await conn.fetch(
+                self._sql["catch_up_owner"],
+                now,
+                JOB_LOST,
+                JOB_NOT_STARTED,
+                name,
+                JOB_TIMED_OUT,
+                owner,
+                floor,
+                below,
+            )
+            if not await conn.fetchval(
+                self._sql["overdue_owner"], name, owner, floor, below, now
+            ):
+                await attempt.commit()
+                return [tuple(row) for row in ended], now
+            await attempt.rollback()
+            began = now
 
     async def _trim(
         self,
