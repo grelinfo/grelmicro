@@ -6,7 +6,10 @@ nothing else. The patterns that refuse one share one guard and one
 message. `Retry` and `Fallback` warn until 0.47.0, then refuse.
 """
 
+import asyncio
+import inspect
 import re
+import types
 import warnings
 from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Any
@@ -23,7 +26,7 @@ from grelmicro._wrapping import (
     is_generator,
     refuse_generator,
 )
-from grelmicro.errors import Grelmicro047Warning
+from grelmicro.errors import Grelmicro047Warning, GrelmicroFutureWarning
 from grelmicro.resilience import (
     Bulkhead,
     CircuitBreaker,
@@ -394,3 +397,33 @@ def test_a_stack_with_retry_refuses_rather_than_warns() -> None:
         warnings.simplefilter("error")
         with pytest.raises(TypeError, match=re.escape("Stack 's' does not")):
             stack(async_gen)
+
+
+@inspect.markcoroutinefunction
+@types.coroutine
+def marked_coroutine() -> Iterator[Any]:
+    """Await once, from a generator marked as a coroutine function."""
+    yield from asyncio.sleep(0).__await__()
+
+
+@pytest.mark.parametrize(
+    ("label", "by", "apply"),
+    [
+        *_warning(),
+        (
+            "CircuitBreaker",
+            "CircuitBreaker 'cb'",
+            CircuitBreaker("cb", backend=MemoryCircuitBreakerAdapter()),
+        ),
+    ],
+)
+def test_a_generator_marked_as_a_coroutine_is_wrapped_silently(
+    label: str, by: str, apply: Callable[[Any], Any]
+) -> None:
+    """A generator marked as a coroutine function is async, so it neither warns nor is refused."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", GrelmicroFutureWarning)
+        assert callable(apply(marked_coroutine))
+
+    assert label
+    assert by

@@ -608,7 +608,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
 
         by = f"CircuitBreaker {self._name!r}"
         refuse_registered(func, by)
-        if is_generator(func):
+        if is_generator(func) and not is_async_callable(func):
             if is_async_generator(func):
                 raise TypeError(generator_message(func, by))
             warn_generator(func, by)

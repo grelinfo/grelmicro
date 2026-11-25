@@ -22,6 +22,7 @@ from inspect import (
 )
 from types import FunctionType
 
+from grelmicro._async import is_async_callable
 from grelmicro._markers import registration_of
 
 __all__ = [
@@ -112,8 +113,11 @@ def warn_generator(function: object, by: str) -> None:
         function: The function about to be wrapped.
         by: What is wrapping it, as it reads in the message, for
             example `"Retry 'db'"` or `"@fallback"`.
+
+    A generator marked as a coroutine function is async, so it warns
+    nothing.
     """
-    if is_generator(function):
+    if is_generator(function) and not is_async_callable(function):
         from grelmicro._deprecation import generator_function  # noqa: PLC0415
 
         generator_function(function, by).warn(outside=True)
