@@ -16,7 +16,7 @@ A **Fallback** policy returns a safe value when a call fails. Use it to degrade 
 --8<-- "resilience/fallback.py"
 ```
 
-The decorator works on async and sync functions. It auto-detects which kind it wraps.
+The decorator works on async and sync functions. It auto-detects which kind it wraps. A generator function warns with `Grelmicro047Warning`, because its body runs while it is iterated and nothing protects it. From 0.47.0 it raises `TypeError`.
 
 Use `factory=` instead of `default=` when the fallback value should be computed from the exception or read from a cache:
 

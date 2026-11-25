@@ -20,7 +20,7 @@ The error carries the deadline it enforced, so a caller reading `exc.timeout` kn
 --8<-- "resilience/timeout.py"
 ```
 
-The policy works as an async context manager and as a decorator on async functions. Sync functions are not supported (asyncio cannot cancel sync code).
+The policy works as an async context manager and as a decorator on async functions. Sync functions are not supported (asyncio cannot cancel sync code). A generator function raises `TypeError` where it is decorated, because its body runs while it is iterated.
 
 ```python
 --8<-- "resilience/timeout_decorator.py"

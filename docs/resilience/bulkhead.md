@@ -12,7 +12,7 @@ A **Bulkhead** caps how many calls run at once. Rate limiting bounds requests pe
 
 ## Usage
 
-`Bulkhead` works as an async context manager and as a decorator on async functions. When the limit is reached, a caller waits up to `max_wait` seconds for a permit, then is rejected with `BulkheadFullError`.
+`Bulkhead` works as an async context manager and as a decorator on async functions. When the limit is reached, a caller waits up to `max_wait` seconds for a permit, then is rejected with `BulkheadFullError`. A generator function raises `TypeError` where it is decorated, because its body runs while it is iterated.
 
 ```python
 --8<-- "resilience/bulkhead.py"

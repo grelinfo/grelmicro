@@ -24,7 +24,14 @@ from types import FunctionType
 
 from grelmicro._markers import registration_of
 
-__all__ = ["is_generator", "named", "refuse_generator", "refuse_registered"]
+__all__ = [
+    "is_async_generator",
+    "is_generator",
+    "named",
+    "refuse_generator",
+    "refuse_registered",
+    "warn_generator",
+]
 
 _GENERATOR_FLAGS = CO_ASYNC_GENERATOR | CO_GENERATOR
 """Code flags of a function whose body runs while it is iterated."""
@@ -57,6 +64,17 @@ def is_generator(function: object) -> bool:
     )
 
 
+def is_async_generator(function: object) -> bool:
+    """Return whether calling `function` builds an async generator.
+
+    A method, a partial and a callable object whose `__call__` is an
+    async generator function answer too.
+    """
+    return isasyncgenfunction(function) or isasyncgenfunction(
+        getattr(type(function), "__call__", None)  # noqa: B004
+    )
+
+
 def generator_message(function: object, by: str) -> str:
     """Return the message that refuses a generator `function`."""
     return (
@@ -81,6 +99,24 @@ def refuse_generator(function: object, by: str) -> None:
     """
     if is_generator(function):
         raise TypeError(generator_message(function, by))
+
+
+def warn_generator(function: object, by: str) -> None:
+    """Warn that a generator `function` is refused from 0.47.0.
+
+    For a decorator that still wraps a generator function until then. The
+    warning is a `Grelmicro047Warning` at the first line outside grelmicro,
+    which is the line that applied the decorator.
+
+    Args:
+        function: The function about to be wrapped.
+        by: What is wrapping it, as it reads in the message, for
+            example `"Retry 'db'"` or `"@fallback"`.
+    """
+    if is_generator(function):
+        from grelmicro._deprecation import generator_function  # noqa: PLC0415
+
+        generator_function(function, by).warn(outside=True)
 
 
 def refuse_registered(function: object, by: str) -> None:

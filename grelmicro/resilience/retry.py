@@ -36,7 +36,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
-from grelmicro._wrapping import refuse_registered
+from grelmicro._wrapping import refuse_registered, warn_generator
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.metrics import _emit
@@ -746,11 +746,15 @@ class Retry(Reconfigurable[RetryConfig]):
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
         """Decorate ``fn`` so each call runs through this retry policy.
 
+        A generator function warns with `Grelmicro047Warning`, and is
+        refused with `TypeError` from 0.47.0.
+
         Raises:
             TypeError: If a registrar already holds `fn`, so this would
                 wrap direct calls alone.
         """
         refuse_registered(fn, f"Retry {self._name!r}")
+        warn_generator(fn, f"Retry {self._name!r}")
         return self._wrap(fn)
 
     def _wrap(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
@@ -799,6 +803,7 @@ def _decorator(
 
     def wrap(fn: F) -> F:
         refuse_registered(fn, "@retry")
+        warn_generator(fn, "@retry")
         if is_async_callable(fn):
 
             @functools.wraps(fn)

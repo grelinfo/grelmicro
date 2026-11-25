@@ -18,6 +18,8 @@ Wrap the protected call with `async with cb:` or decorate an async function with
 --8<-- "resilience/circuitbreaker.py"
 ```
 
+An async generator function raises `TypeError` where it is decorated, because its body runs while it is iterated. A sync generator function warns with `Grelmicro047Warning`, and raises `TypeError` from 0.47.0.
+
 !!! warning "Thread safety"
     The Circuit Breaker is not thread-safe. The async API (`async with cb:` or `@cb` on `async def`) is the default. From a synchronous handler running in a worker thread (for example a sync route in your web framework), use `with cb.from_thread:` or apply `@cb` to a sync function. The adapter dispatches state changes onto the parent event loop captured by the backend, so calls stay serialized. See [Sync from thread](../architecture/sync-from-thread.md).
 

@@ -21,7 +21,7 @@ Decorate an async function, tell Shield with `when=` which errors mean "the depe
 
 `when=` is required. It takes the same forms as [`Retry`](retry.md): an exception class, a tuple of classes, a predicate on the exception, or a [`Match`](retry.md#filtering-outcomes-with-match).
 
-Shield is **async-only**. Use it on coroutine functions.
+Shield is **async-only**. Use it on coroutine functions. A generator function raises `TypeError` where it is decorated, because its body runs while it is iterated.
 
 ## Choose a profile
 
