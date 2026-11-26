@@ -1,6 +1,6 @@
 # Capability matrix
 
-Find your feature and read its level. Levels are as of 2026-11-25. Nothing is Stable yet.
+Find your feature and read its level. Levels are as of 2026-11-26. Nothing is Stable yet.
 
 | Level | What it means | How it gets there |
 | --- | --- | --- |
