@@ -6,11 +6,14 @@ app-level provider pass. FastAPI request spans are in `test_fastapi_telemetry.py
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 import pytest
 from fastapi import FastAPI
 from litestar import Litestar
+from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
 from starlette.applications import Starlette
 
@@ -202,7 +205,12 @@ class _FakeInstrumentor:
         self.uninstrumented = False
         self.raise_on_instrument = False
 
-    def instrument(self, *, tracer_provider: object | None = None) -> None:
+    def instrument(
+        self,
+        *,
+        tracer_provider: object | None = None,
+        **_kwargs: object,
+    ) -> None:
         if self.raise_on_instrument:
             msg = "boom"
             raise RuntimeError(msg)
@@ -215,7 +223,7 @@ class _FakeInstrumentor:
 class _FakeEntryPoint:
     """Stand-in for an `opentelemetry_instrumentor` entry point."""
 
-    def __init__(self, name: str, instance: _FakeInstrumentor) -> None:
+    def __init__(self, name: str, instance: object) -> None:
         self.name = name
         self._instance = instance
 
@@ -313,6 +321,41 @@ def test_instrument_libraries_swallows_errors(
     assert instances["httpx"].tracer_provider is not None
     assert len(out) == 1
     assert "Failed to auto-instrument library" in caplog.text
+
+
+class _MissingLibraryInstrumentor(BaseInstrumentor):
+    """An instrumentor whose library is not installed."""
+
+    def instrumentation_dependencies(self) -> Collection[str]:
+        return ("grelmicro-not-a-real-package >= 1.0",)
+
+    def _instrument(self, **_kwargs: object) -> None:
+        msg = "never instrumented"
+        raise AssertionError(msg)
+
+    def _uninstrument(self, **_kwargs: object) -> None:
+        msg = "never instrumented"
+        raise AssertionError(msg)
+
+
+def test_instrument_libraries_skips_a_library_that_is_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An instrumentor whose library is missing is skipped with no warning or error."""
+    entries = {
+        "missing": _FakeEntryPoint("missing", _MissingLibraryInstrumentor())
+    }
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    caplog.set_level("DEBUG")
+
+    out = instrument_libraries(object(), directive=True, exclude=set())
+    uninstrument_libraries(out)
+
+    assert out == []
+    assert [
+        record for record in caplog.records if record.levelno >= logging.WARNING
+    ] == []
 
 
 def test_uninstrument_libraries_swallows_errors(
