@@ -873,6 +873,49 @@ def test_instrument_libraries_leaves_an_instrumentor_the_app_attached(
         instrumentor.uninstrument()
 
 
+class _AlreadyAttachedOverride(BaseInstrumentor):
+    """A subclass the app attached whose `instrument` calls the inherited one."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def instrumentation_dependencies(self) -> Collection[str]:
+        return ()
+
+    def instrument(self, *, tracer_provider: object | None = None) -> None:  # type: ignore[override]  # ty: ignore[incompatible-method-override]
+        self.calls += 1
+        super().instrument(tracer_provider=tracer_provider)
+
+    def _instrument(self, **_kwargs: object) -> None:
+        pass
+
+    def _uninstrument(self, **_kwargs: object) -> None:
+        pass
+
+
+def test_instrument_libraries_leaves_an_overridden_instrumentor_the_app_attached(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A subclass with its own `instrument` that the app attached stays attached."""
+    instrumentor = _AlreadyAttachedOverride()
+    instrumentor.instrument()
+    try:
+        entries = {"theirs": _FakeEntryPoint("theirs", instrumentor)}
+        monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+        caplog.set_level("WARNING")
+
+        out = instrument_libraries(object(), directive=True, exclude=set())
+        uninstrument_libraries(out)
+
+        assert out == []
+        assert instrumentor.calls == 1
+        assert instrumentor.is_instrumented_by_opentelemetry
+        assert "already instrumented" not in caplog.text
+    finally:
+        instrumentor.uninstrument()
+
+
 class _EitherOrInstrumentor(BaseInstrumentor):
     """An instrumentor that needs any one of several packages."""
 

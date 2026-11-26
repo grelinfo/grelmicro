@@ -296,6 +296,8 @@ class _NoConflictError(Exception):
 class _Probe(NamedTuple):
     """What the sweep knows of the OpenTelemetry instrumentation package."""
 
+    base_class: type | None
+    """`BaseInstrumentor`, or `None` when it could not be imported."""
     base_instrument: object
     """`BaseInstrumentor.instrument`, or `None` when it could not be imported."""
     conflict_error: type[_NoConflictError]
@@ -319,11 +321,12 @@ def _probe_instrumentation() -> _Probe:
         )
     except ModuleNotFoundError as error:
         return _Probe(
-            None, _NoConflictError, absent=error.name == _INSTRUMENTATION
+            None, None, _NoConflictError, absent=error.name == _INSTRUMENTATION
         )
     except Exception:  # noqa: BLE001  # any failure falls back to the plain call
-        return _Probe(None, _NoConflictError, absent=False)
+        return _Probe(None, None, _NoConflictError, absent=False)
     return _Probe(
+        BaseInstrumentor,
         BaseInstrumentor.instrument,
         cast("type[_NoConflictError]", DependencyConflictError),
         absent=False,
@@ -361,10 +364,24 @@ def _attach(
 ) -> bool:
     """Attach `instrumentor` to `tracer_provider` and return whether it attached.
 
-    An instrumentor that inherits `BaseInstrumentor.instrument` is checked
-    for its packages first. Any other is called as it is.
+    A `BaseInstrumentor` the app already instrumented is left to the app.
+    One that inherits `BaseInstrumentor.instrument` is checked for its
+    packages first. Any other is called as it is.
     """
     try:
+        if (
+            probe.base_class is not None
+            and isinstance(instrumentor, probe.base_class)
+            and getattr(
+                instrumentor, "_is_instrumented_by_opentelemetry", False
+            )
+            is True
+        ):
+            _logger.debug(
+                "Skipped library '%s', which the app already instrumented",
+                name,
+            )
+            return False
         inherited = (
             probe.base_instrument is not None
             and getattr(instrumentor.instrument, "__func__", None)
@@ -388,11 +405,6 @@ def _attach_inherited(
     probe: _Probe,
 ) -> bool:
     """Attach a `BaseInstrumentor` whose packages are installed."""
-    if instrumentor.is_instrumented_by_opentelemetry:
-        _logger.debug(
-            "Skipped library '%s', which the app already instrumented", name
-        )
-        return False
     try:
         instrumentor.instrument(
             tracer_provider=tracer_provider,
