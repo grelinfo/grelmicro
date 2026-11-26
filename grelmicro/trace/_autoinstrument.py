@@ -239,7 +239,9 @@ def instrument_libraries(
     client) is traced without a grelmicro-managed provider. `exclude` skips a
     library a registered provider already instruments per client and the
     framework integrations own (FastAPI). A conflicting pair (SQLAlchemy and
-    asyncpg) is reduced to one to avoid duplicate spans.
+    asyncpg) is reduced to one to avoid duplicate spans. An instrumentor whose
+    instrumented package is not installed, or not at a version it supports, is
+    skipped with a debug log.
 
     Returns the instrumentor instances attached, for later `uninstrument`.
     """
@@ -261,11 +263,25 @@ def instrument_libraries(
                 keep,
                 keep,
             )
+    from opentelemetry.instrumentation.dependencies import (  # noqa: PLC0415
+        DependencyConflictError,
+    )
+
     instrumented: list[Any] = []
     for name in sorted(selected):
         try:
             instrumentor = entries[name].load()()
-            instrumentor.instrument(tracer_provider=tracer_provider)
+            instrumentor.instrument(
+                tracer_provider=tracer_provider,
+                raise_exception_on_conflict=True,
+            )
+        except DependencyConflictError:
+            _logger.debug(
+                "Skipped library '%s', whose instrumented package is not "
+                "installed",
+                name,
+            )
+            continue
         except Exception:
             _logger.warning(
                 "Failed to auto-instrument library '%s'", name, exc_info=True
