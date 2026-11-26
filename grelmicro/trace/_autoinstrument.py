@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from grelmicro.providers._base import Provider
@@ -240,9 +240,11 @@ def instrument_libraries(
     library a registered provider already instruments per client and the
     framework integrations own (FastAPI). A conflicting pair (SQLAlchemy and
     asyncpg) is reduced to one to avoid duplicate spans. An instrumentor whose
-    instrumented package is not installed is skipped with a debug log. One
-    whose package is installed at a version it does not support is skipped
-    with an error that names both versions.
+    instrumented package is not installed, or that needs a missing package to
+    load, is skipped with a debug log. One whose package is installed at a
+    version it does not support is skipped with an error that names both
+    versions. An instrumentor with its own `instrument` is called with the
+    tracer provider alone.
 
     Returns the instrumentor instances attached, for later `uninstrument`.
     """
@@ -264,25 +266,35 @@ def instrument_libraries(
                 keep,
                 keep,
             )
-    from opentelemetry.instrumentation.dependencies import (  # noqa: PLC0415
-        DependencyConflictError,
-    )
-    from opentelemetry.instrumentation.instrumentor import (  # type: ignore[attr-defined]  # noqa: PLC0415
-        BaseInstrumentor,
-    )
-
+    base_instrument, conflict_error = _conflict_aware()
     instrumented: list[Any] = []
     for name in sorted(selected):
         try:
             instrumentor = entries[name].load()()
-            if isinstance(instrumentor, BaseInstrumentor):
+        except ModuleNotFoundError:
+            _logger.debug(
+                "Skipped library '%s', whose instrumentor needs a package that "
+                "is not installed",
+                name,
+            )
+            continue
+        except Exception:
+            _logger.warning(
+                "Failed to auto-instrument library '%s'", name, exc_info=True
+            )
+            continue
+        try:
+            if (
+                getattr(type(instrumentor), "instrument", None)
+                is base_instrument
+            ):
                 instrumentor.instrument(
                     tracer_provider=tracer_provider,
                     raise_exception_on_conflict=True,
                 )
             else:
                 instrumentor.instrument(tracer_provider=tracer_provider)
-        except DependencyConflictError as error:
+        except conflict_error as error:
             conflict = error.conflict
             if conflict.found or getattr(conflict, "found_any", None):
                 _logger.error(  # noqa: TRY400  # the message says it all
@@ -302,6 +314,33 @@ def instrument_libraries(
             continue
         instrumented.append(instrumentor)
     return instrumented
+
+
+class _NoConflictError(Exception):
+    """Never raised. Stands for the conflict error when OpenTelemetry has none."""
+
+    conflict: Any
+
+
+def _conflict_aware() -> tuple[object, type[_NoConflictError]]:
+    """Return `BaseInstrumentor.instrument` and the conflict error it raises.
+
+    Without the OpenTelemetry instrumentation package, no instrumentor can
+    inherit `instrument` from it, so every instrumentor is called with the
+    tracer provider alone.
+    """
+    try:
+        from opentelemetry.instrumentation.dependencies import (  # noqa: PLC0415
+            DependencyConflictError,
+        )
+        from opentelemetry.instrumentation.instrumentor import (  # type: ignore[attr-defined]  # noqa: PLC0415
+            BaseInstrumentor,
+        )
+    except ImportError:
+        return None, _NoConflictError
+    return BaseInstrumentor.instrument, cast(
+        "type[_NoConflictError]", DependencyConflictError
+    )
 
 
 def uninstrument_libraries(instrumentors: Sequence[Any]) -> None:
