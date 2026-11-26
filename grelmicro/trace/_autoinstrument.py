@@ -240,8 +240,9 @@ def instrument_libraries(
     library a registered provider already instruments per client and the
     framework integrations own (FastAPI). A conflicting pair (SQLAlchemy and
     asyncpg) is reduced to one to avoid duplicate spans. An instrumentor whose
-    instrumented package is not installed, or not at a version it supports, is
-    skipped with a debug log.
+    instrumented package is not installed is skipped with a debug log. One
+    whose package is installed at a version it does not support is skipped
+    with an error that names both versions.
 
     Returns the instrumentor instances attached, for later `uninstrument`.
     """
@@ -266,21 +267,33 @@ def instrument_libraries(
     from opentelemetry.instrumentation.dependencies import (  # noqa: PLC0415
         DependencyConflictError,
     )
+    from opentelemetry.instrumentation.instrumentor import (  # type: ignore[attr-defined]  # noqa: PLC0415
+        BaseInstrumentor,
+    )
 
     instrumented: list[Any] = []
     for name in sorted(selected):
         try:
             instrumentor = entries[name].load()()
-            instrumentor.instrument(
-                tracer_provider=tracer_provider,
-                raise_exception_on_conflict=True,
-            )
-        except DependencyConflictError:
-            _logger.debug(
-                "Skipped library '%s', whose instrumented package is not "
-                "installed",
-                name,
-            )
+            if isinstance(instrumentor, BaseInstrumentor):
+                instrumentor.instrument(
+                    tracer_provider=tracer_provider,
+                    raise_exception_on_conflict=True,
+                )
+            else:
+                instrumentor.instrument(tracer_provider=tracer_provider)
+        except DependencyConflictError as error:
+            conflict = error.conflict
+            if conflict.found or getattr(conflict, "found_any", None):
+                _logger.error(  # noqa: TRY400  # the message says it all
+                    "Library '%s' is not instrumented: %s", name, conflict
+                )
+            else:
+                _logger.debug(
+                    "Skipped library '%s', whose instrumented package is not "
+                    "installed",
+                    name,
+                )
             continue
         except Exception:
             _logger.warning(
