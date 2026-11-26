@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.45.2 - 2026-11-26
 
 ### Fixed
 * 🐛 `Trace(instrument=True)` skips a library instrumentor whose package is not installed, instead of logging an ERROR at every start. An app on `RedisProvider` without valkey-py no longer logs `ValkeyInstrumentor only instruments "valkey >= 6.0.0"`. ([#1393](https://github.com/grelinfo/grelmicro/issues/1393))
