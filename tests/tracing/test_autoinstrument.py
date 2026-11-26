@@ -7,12 +7,17 @@ app-level provider pass. FastAPI request spans are in `test_fastapi_telemetry.py
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 import pytest
 from fastapi import FastAPI
 from litestar import Litestar
+from opentelemetry.instrumentation.dependencies import (
+    DependencyConflict,
+    DependencyConflictError,
+)
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
 from starlette.applications import Starlette
@@ -351,6 +356,10 @@ def test_instrument_libraries_skips_a_library_that_is_not_installed(
     assert [
         record for record in caplog.records if record.levelno >= logging.WARNING
     ] == []
+    assert any(
+        "Skipped library 'missing'" in record.getMessage()
+        for record in records_of(caplog, "grelmicro")
+    )
 
 
 class _OldVersionInstrumentor(BaseInstrumentor):
@@ -385,6 +394,216 @@ def test_instrument_libraries_names_an_installed_package_at_an_unsupported_versi
     ]
     assert len(errors) == 1
     assert "pytest < 1.0" in errors[0].getMessage()
+    assert f"pytest {pytest.__version__}" in errors[0].getMessage()
+
+
+class _RecordingBaseInstrumentor(BaseInstrumentor):
+    """An instrumentor whose package is installed, recording its calls."""
+
+    def __init__(self) -> None:
+        self.instrumented_with: dict[str, object] | None = None
+        self.fail = False
+
+    def instrumentation_dependencies(self) -> Collection[str]:
+        return ("pytest",)
+
+    def _instrument(self, **kwargs: object) -> None:
+        if self.fail:
+            msg = "boom"
+            raise RuntimeError(msg)
+        self.instrumented_with = kwargs
+
+    def _uninstrument(self, **_kwargs: object) -> None:
+        self.instrumented_with = None
+
+
+class _NarrowBaseInstrumentor(BaseInstrumentor):
+    """A subclass that overrides `instrument` with a narrower signature."""
+
+    def __init__(self) -> None:
+        self.tracer_provider: object | None = None
+
+    def instrumentation_dependencies(self) -> Collection[str]:
+        return ()
+
+    def instrument(self, *, tracer_provider: object | None = None) -> None:  # type: ignore[override]  # ty: ignore[incompatible-method-override]
+        self.tracer_provider = tracer_provider
+
+    def _instrument(self, **_kwargs: object) -> None:
+        pass
+
+    def _uninstrument(self, **_kwargs: object) -> None:
+        pass
+
+
+class _ConflictingInstrumentor:
+    """An instrumentor that reports a conflict on its required packages."""
+
+    def __init__(self, conflict: DependencyConflict) -> None:
+        self.conflict = conflict
+
+    def instrument(self, *, tracer_provider: object | None = None) -> None:  # noqa: ARG002
+        raise DependencyConflictError(self.conflict)
+
+    def uninstrument(self) -> None:
+        msg = "never instrumented"
+        raise AssertionError(msg)
+
+
+class _BrokenEntryPoint:
+    """An entry point whose module needs a package that is not installed."""
+
+    name = "broken"
+
+    def load(self) -> object:
+        msg = "No module named 'not_installed'"
+        raise ModuleNotFoundError(msg, name="not_installed")
+
+
+def _warnings_and_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> list[logging.LogRecord]:
+    """Return the captured grelmicro records at warning or above."""
+    return [
+        record
+        for record in records_of(caplog, "grelmicro")
+        if record.levelno >= logging.WARNING
+    ]
+
+
+def test_instrument_libraries_instruments_a_compatible_base_instrumentor(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An instrumentor whose package is installed is attached to the provider."""
+    instrumentor = _RecordingBaseInstrumentor()
+    entries = {"ok": _FakeEntryPoint("ok", instrumentor)}
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    provider = object()
+
+    out = instrument_libraries(provider, directive=True, exclude=set())
+
+    assert out == [instrumentor]
+    assert instrumentor.instrumented_with == {"tracer_provider": provider}
+    assert _warnings_and_errors(caplog) == []
+    uninstrument_libraries(out)
+
+
+def test_instrument_libraries_keeps_the_call_of_an_overridden_instrument(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A subclass with its own `instrument` is called as in 0.45.1."""
+    instrumentor = _NarrowBaseInstrumentor()
+    entries = {"narrow": _FakeEntryPoint("narrow", instrumentor)}
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    provider = object()
+
+    out = instrument_libraries(provider, directive=True, exclude=set())
+
+    assert out == [instrumentor]
+    assert instrumentor.tracer_provider is provider
+    assert _warnings_and_errors(caplog) == []
+
+
+def test_instrument_libraries_goes_on_after_a_base_instrumentor_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failing instrumentor warns, and the others are still attached."""
+    failing = _RecordingBaseInstrumentor()
+    failing.fail = True
+    working = _FakeInstrumentor()
+    entries = {
+        "failing": _FakeEntryPoint("failing", failing),
+        "working": _FakeEntryPoint("working", working),
+    }
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    caplog.set_level("WARNING")
+
+    out = instrument_libraries(object(), directive=True, exclude=set())
+
+    assert out == [working]
+    assert "Failed to auto-instrument library 'failing'" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("conflict", "level"),
+    [
+        (DependencyConflict(required_any=["a >= 2", "b >= 2"]), logging.DEBUG),
+        (
+            DependencyConflict(
+                required_any=["a >= 2", "b >= 2"], found_any=["a==1.0"]
+            ),
+            logging.ERROR,
+        ),
+    ],
+    ids=["none-installed", "only-an-old-one-installed"],
+)
+def test_instrument_libraries_reads_an_either_or_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    conflict: DependencyConflict,
+    level: int,
+) -> None:
+    """None of the packages installed is quiet, an old one installed is an error."""
+    entries = {
+        "either": _FakeEntryPoint("either", _ConflictingInstrumentor(conflict))
+    }
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    caplog.set_level("DEBUG")
+
+    out = instrument_libraries(object(), directive=True, exclude=set())
+
+    assert out == []
+    levels = [
+        record.levelno
+        for record in records_of(caplog, "grelmicro")
+        if "either" in record.getMessage()
+    ]
+    assert levels == [level]
+
+
+def test_instrument_libraries_skips_an_entry_point_whose_module_cannot_load(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An instrumentor that needs a missing package to load is skipped quietly."""
+    working = _FakeInstrumentor()
+    entries = {
+        "broken": _BrokenEntryPoint(),
+        "working": _FakeEntryPoint("working", working),
+    }
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    caplog.set_level("DEBUG")
+
+    out = instrument_libraries(object(), directive=True, exclude=set())
+
+    assert out == [working]
+    assert _warnings_and_errors(caplog) == []
+
+
+def test_instrument_libraries_runs_without_the_instrumentation_package(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """With no OpenTelemetry instrumentation package, the sweep still runs."""
+    monkeypatch.setitem(
+        sys.modules, "opentelemetry.instrumentation.dependencies", None
+    )
+    monkeypatch.setitem(
+        sys.modules, "opentelemetry.instrumentation.instrumentor", None
+    )
+    working = _FakeInstrumentor()
+    entries = {"working": _FakeEntryPoint("working", working)}
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    provider = object()
+
+    out = instrument_libraries(provider, directive=True, exclude=set())
+
+    assert out == [working]
+    assert working.tracer_provider is provider
+    assert _warnings_and_errors(caplog) == []
 
 
 def test_uninstrument_libraries_swallows_errors(
@@ -548,3 +767,28 @@ async def test_app_with_trace_no_providers() -> None:
     """A `Trace` with no providers enters cleanly."""
     async with Grelmicro(uses=[_none_trace()]):
         pass
+
+
+class _FailingEntryPoint:
+    """An entry point whose module fails to load for another reason."""
+
+    name = "failing"
+
+    def load(self) -> object:
+        msg = "boom"
+        raise RuntimeError(msg)
+
+
+def test_instrument_libraries_warns_on_an_entry_point_that_fails_to_load(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A module that fails to load for a reason other than a missing package warns."""
+    entries = {"failing": _FailingEntryPoint()}
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    caplog.set_level("WARNING")
+
+    out = instrument_libraries(object(), directive=True, exclude=set())
+
+    assert out == []
+    assert "Failed to auto-instrument library 'failing'" in caplog.text
