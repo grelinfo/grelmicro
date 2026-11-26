@@ -487,3 +487,14 @@ def test_summary_names_every_failure() -> None:
     assert ready is False
     assert "NOT READY" in text
     assert "- 2. Bad: broken" in text
+
+
+def test_load_pending_runs_a_deprecation_file_that_reads_its_own_path() -> None:
+    """The file of a release runs with `__file__` set, as an imported module does."""
+    source = (
+        "from pathlib import Path\n"
+        "_PACKAGE_DIR = Path(__file__).parent\n"
+        "PENDING = ('one',)\n"
+    )
+
+    assert release_audit._load_pending(source) == ("one",)
