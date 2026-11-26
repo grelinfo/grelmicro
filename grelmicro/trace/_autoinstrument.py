@@ -240,8 +240,9 @@ def instrument_libraries(
     library a registered provider already instruments per client and the
     framework integrations own (FastAPI). A conflicting pair (SQLAlchemy and
     asyncpg) is reduced to one to avoid duplicate spans. An instrumentor whose
-    instrumented package is not installed, or that needs a missing package to
-    load, is skipped with a debug log. One whose package is installed at a
+    instrumented package is not installed, that needs the OpenTelemetry
+    instrumentation package when it is missing, or that the app already
+    instrumented, is skipped with a debug log. One whose package is installed at a
     version it does not support is skipped with an error that names both
     versions. An instrumentor with its own `instrument` is called with the
     tracer provider alone.
@@ -266,54 +267,86 @@ def instrument_libraries(
                 keep,
                 keep,
             )
+    if not selected:
+        return []
     base_instrument, conflict_error = _conflict_aware()
     instrumented: list[Any] = []
     for name in sorted(selected):
-        try:
-            instrumentor = entries[name].load()()
-        except ModuleNotFoundError:
+        instrumentor = _load(name, entries[name], base_instrument)
+        if instrumentor is not None and _attach(
+            name, instrumentor, tracer_provider, base_instrument, conflict_error
+        ):
+            instrumented.append(instrumentor)
+    return instrumented
+
+
+def _load(name: str, entry: Any, base_instrument: object) -> Any:  # noqa: ANN401
+    """Return the instrumentor `entry` names, or `None` when it cannot load."""
+    try:
+        return entry.load()()
+    except ModuleNotFoundError as error:
+        if base_instrument is None and _is_instrumentation(error.name):
             _logger.debug(
-                "Skipped library '%s', whose instrumentor needs a package that "
-                "is not installed",
+                "Skipped library '%s', whose instrumentor needs the "
+                "OpenTelemetry instrumentation package",
                 name,
             )
-            continue
-        except Exception:
-            _logger.warning(
-                "Failed to auto-instrument library '%s'", name, exc_info=True
+            return None
+        _logger.warning(
+            "Failed to auto-instrument library '%s'", name, exc_info=True
+        )
+        return None
+    except Exception:
+        _logger.warning(
+            "Failed to auto-instrument library '%s'", name, exc_info=True
+        )
+        return None
+
+
+def _attach(
+    name: str,
+    instrumentor: Any,  # noqa: ANN401
+    tracer_provider: Any,  # noqa: ANN401
+    base_instrument: object,
+    conflict_error: type[_NoConflictError],
+) -> bool:
+    """Attach `instrumentor` to `tracer_provider` and return whether it attached."""
+    if getattr(instrumentor, "is_instrumented_by_opentelemetry", False) is True:
+        _logger.debug(
+            "Skipped library '%s', which the app already instrumented", name
+        )
+        return False
+    try:
+        if (
+            base_instrument is not None
+            and getattr(instrumentor.instrument, "__func__", None)
+            is base_instrument
+        ):
+            instrumentor.instrument(
+                tracer_provider=tracer_provider,
+                raise_exception_on_conflict=True,
             )
-            continue
-        try:
-            if (
-                getattr(type(instrumentor), "instrument", None)
-                is base_instrument
-            ):
-                instrumentor.instrument(
-                    tracer_provider=tracer_provider,
-                    raise_exception_on_conflict=True,
-                )
-            else:
-                instrumentor.instrument(tracer_provider=tracer_provider)
-        except conflict_error as error:
-            conflict = error.conflict
-            if conflict.found or getattr(conflict, "found_any", None):
-                _logger.error(  # noqa: TRY400  # the message says it all
-                    "Library '%s' is not instrumented: %s", name, conflict
-                )
-            else:
-                _logger.debug(
-                    "Skipped library '%s', whose instrumented package is not "
-                    "installed",
-                    name,
-                )
-            continue
-        except Exception:
-            _logger.warning(
-                "Failed to auto-instrument library '%s'", name, exc_info=True
+        else:
+            instrumentor.instrument(tracer_provider=tracer_provider)
+    except conflict_error as error:
+        conflict = error.conflict
+        if conflict.found or getattr(conflict, "found_any", None):
+            _logger.error(  # noqa: TRY400  # the message says it all
+                "Library '%s' is not instrumented: %s", name, conflict
             )
-            continue
-        instrumented.append(instrumentor)
-    return instrumented
+        else:
+            _logger.debug(
+                "Skipped library '%s', whose instrumented package is not "
+                "installed",
+                name,
+            )
+        return False
+    except Exception:
+        _logger.warning(
+            "Failed to auto-instrument library '%s'", name, exc_info=True
+        )
+        return False
+    return True
 
 
 class _NoConflictError(Exception):
@@ -336,10 +369,18 @@ def _conflict_aware() -> tuple[object, type[_NoConflictError]]:
         from opentelemetry.instrumentation.instrumentor import (  # type: ignore[attr-defined]  # noqa: PLC0415
             BaseInstrumentor,
         )
-    except ImportError:
+    except Exception:  # noqa: BLE001  # any failure falls back to the plain call
         return None, _NoConflictError
     return BaseInstrumentor.instrument, cast(
         "type[_NoConflictError]", DependencyConflictError
+    )
+
+
+def _is_instrumentation(module: str | None) -> bool:
+    """Return whether `module` is the OpenTelemetry instrumentation package."""
+    package = "opentelemetry.instrumentation"
+    return module is not None and (
+        module == package or module.startswith(f"{package}.")
     )
 
 

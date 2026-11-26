@@ -7,6 +7,7 @@ app-level provider pass. FastAPI request spans are in `test_fastapi_telemetry.py
 from __future__ import annotations
 
 import logging
+import subprocess
 import sys
 from collections.abc import Collection
 from typing import TYPE_CHECKING
@@ -17,6 +18,7 @@ from litestar import Litestar
 from opentelemetry.instrumentation.dependencies import (
     DependencyConflict,
     DependencyConflictError,
+    get_dependency_conflicts,
 )
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
@@ -455,9 +457,12 @@ class _BrokenEntryPoint:
 
     name = "broken"
 
+    def __init__(self, missing: str = "not_installed") -> None:
+        self.missing = missing
+
     def load(self) -> object:
-        msg = "No module named 'not_installed'"
-        raise ModuleNotFoundError(msg, name="not_installed")
+        msg = f"No module named '{self.missing}'"
+        raise ModuleNotFoundError(msg, name=self.missing)
 
 
 def _warnings_and_errors(
@@ -564,14 +569,27 @@ def test_instrument_libraries_reads_an_either_or_conflict(
     assert levels == [level]
 
 
-def test_instrument_libraries_skips_an_entry_point_whose_module_cannot_load(
+def _without_the_instrumentation_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Make the OpenTelemetry instrumentation modules unimportable."""
+    monkeypatch.setitem(
+        sys.modules, "opentelemetry.instrumentation.dependencies", None
+    )
+    monkeypatch.setitem(
+        sys.modules, "opentelemetry.instrumentation.instrumentor", None
+    )
+
+
+def test_instrument_libraries_skips_an_entry_point_that_needs_the_instrumentation_package(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An instrumentor that needs a missing package to load is skipped quietly."""
+    """Without the instrumentation package, an instrumentor needing it is skipped quietly."""
+    _without_the_instrumentation_package(monkeypatch)
     working = _FakeInstrumentor()
     entries = {
-        "broken": _BrokenEntryPoint(),
+        "broken": _BrokenEntryPoint("opentelemetry.instrumentation"),
         "working": _FakeEntryPoint("working", working),
     }
     monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
@@ -581,6 +599,308 @@ def test_instrument_libraries_skips_an_entry_point_whose_module_cannot_load(
 
     assert out == [working]
     assert _warnings_and_errors(caplog) == []
+    assert "Skipped library 'broken'" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("missing", "package_installed"),
+    [
+        ("not_installed", True),
+        ("not_installed", False),
+        ("opentelemetry.instrumentation.not_installed", True),
+    ],
+    ids=[
+        "other-package",
+        "other-package-without-instrumentation",
+        "a-submodule",
+    ],
+)
+def test_instrument_libraries_warns_on_an_entry_point_whose_module_misses_another_package(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    missing: str,
+    *,
+    package_installed: bool,
+) -> None:
+    """A load error that is not the missing instrumentation package warns as in 0.45.1."""
+    if not package_installed:
+        _without_the_instrumentation_package(monkeypatch)
+    working = _FakeInstrumentor()
+    entries = {
+        "broken": _BrokenEntryPoint(missing),
+        "working": _FakeEntryPoint("working", working),
+    }
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    caplog.set_level("WARNING")
+
+    out = instrument_libraries(object(), directive=True, exclude=set())
+
+    assert out == [working]
+    assert "Failed to auto-instrument library 'broken'" in caplog.text
+
+
+class _InstanceInstrumentor:
+    """An instrumentor whose narrow `instrument` is set on the instance."""
+
+    def __init__(self) -> None:
+        self.tracer_provider: object | None = None
+
+        def instrument(*, tracer_provider: object | None = None) -> None:
+            self.tracer_provider = tracer_provider
+
+        self.instrument = instrument
+
+    def uninstrument(self) -> None:
+        pass
+
+
+class _ShadowedBaseInstrumentor(BaseInstrumentor):
+    """A `BaseInstrumentor` whose narrow `instrument` is set on the instance."""
+
+    def __init__(self) -> None:
+        self.tracer_provider: object | None = None
+
+        def instrument(*, tracer_provider: object | None = None) -> None:
+            self.tracer_provider = tracer_provider
+
+        self.instrument = instrument  # ty: ignore[invalid-assignment]
+
+    def instrumentation_dependencies(self) -> Collection[str]:
+        return ()
+
+    def _instrument(self, **_kwargs: object) -> None:
+        pass
+
+    def _uninstrument(self, **_kwargs: object) -> None:
+        pass
+
+
+@pytest.mark.parametrize("package_installed", [True, False])
+def test_instrument_libraries_keeps_the_call_of_an_instance_instrument(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    *,
+    package_installed: bool,
+) -> None:
+    """An `instrument` set on the instance is called as in 0.45.1."""
+    if not package_installed:
+        _without_the_instrumentation_package(monkeypatch)
+    instrumentor = _InstanceInstrumentor()
+    entries = {"own": _FakeEntryPoint("own", instrumentor)}
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    provider = object()
+
+    out = instrument_libraries(provider, directive=True, exclude=set())
+
+    assert out == [instrumentor]
+    assert instrumentor.tracer_provider is provider
+    assert _warnings_and_errors(caplog) == []
+
+
+def test_instrument_libraries_keeps_the_call_of_a_shadowed_base_instrument(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A `BaseInstrumentor` with its own `instrument` on the instance is called as in 0.45.1."""
+    instrumentor = _ShadowedBaseInstrumentor()
+    entries = {"shadowed": _FakeEntryPoint("shadowed", instrumentor)}
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    provider = object()
+
+    out = instrument_libraries(provider, directive=True, exclude=set())
+
+    assert out == [instrumentor]
+    assert instrumentor.tracer_provider is provider
+    assert _warnings_and_errors(caplog) == []
+
+
+class _RaisingFinder:
+    """An import finder for which the dependency module fails to import."""
+
+    def find_spec(self, fullname: str, *_args: object) -> None:
+        if fullname == "opentelemetry.instrumentation.dependencies":
+            msg = "boom"
+            raise RuntimeError(msg)
+
+
+def test_instrument_libraries_runs_when_the_instrumentation_package_fails_to_import(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An instrumentation package that raises on import does not stop the sweep."""
+    monkeypatch.delitem(
+        sys.modules, "opentelemetry.instrumentation.dependencies"
+    )
+    monkeypatch.setattr(sys, "meta_path", [_RaisingFinder(), *sys.meta_path])
+    working = _FakeInstrumentor()
+    entries = {"working": _FakeEntryPoint("working", working)}
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    provider = object()
+
+    out = instrument_libraries(provider, directive=True, exclude=set())
+
+    assert out == [working]
+    assert working.tracer_provider is provider
+    assert _warnings_and_errors(caplog) == []
+
+
+def test_instrument_libraries_checks_nothing_when_nothing_is_selected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no instrumentor selected, the instrumentation package is not imported."""
+
+    def _fail() -> None:
+        msg = "imported"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(ai, "_conflict_aware", _fail)
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", dict)
+
+    assert instrument_libraries(object(), directive=True, exclude=set()) == []
+
+
+class _AlreadyAttachedInstrumentor(BaseInstrumentor):
+    """An instrumentor the app attached before grelmicro starts."""
+
+    def instrumentation_dependencies(self) -> Collection[str]:
+        return ()
+
+    def _instrument(self, **_kwargs: object) -> None:
+        pass
+
+    def _uninstrument(self, **_kwargs: object) -> None:
+        pass
+
+
+def test_instrument_libraries_leaves_an_instrumentor_the_app_attached(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An instrumentor already attached is not claimed, so shutdown leaves it attached."""
+    instrumentor = _AlreadyAttachedInstrumentor()
+    instrumentor.instrument()
+    try:
+        entries = {"theirs": _FakeEntryPoint("theirs", instrumentor)}
+        monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+        caplog.set_level("WARNING")
+
+        out = instrument_libraries(object(), directive=True, exclude=set())
+        uninstrument_libraries(out)
+
+        assert out == []
+        assert instrumentor.is_instrumented_by_opentelemetry
+        assert "already instrumented" not in caplog.text
+    finally:
+        instrumentor.uninstrument()
+
+
+class _EitherOrInstrumentor(BaseInstrumentor):
+    """An instrumentor that needs any one of several packages."""
+
+    def __init__(self, required_any: Collection[str] = ()) -> None:
+        self.required_any = required_any
+        self.attached = False
+
+    def instrumentation_dependencies(self) -> Collection[str]:
+        return ()
+
+    def _check_dependency_conflicts(self) -> DependencyConflict | None:
+        return get_dependency_conflicts([], self.required_any)
+
+    def _instrument(self, **_kwargs: object) -> None:
+        self.attached = True
+
+    def _uninstrument(self, **_kwargs: object) -> None:
+        self.attached = False
+
+
+@pytest.mark.parametrize(
+    ("required_any", "level", "attached"),
+    [
+        (
+            ["not-installed-a >= 1", "not-installed-b >= 1"],
+            logging.DEBUG,
+            False,
+        ),
+        (["not-installed-a >= 1", "pytest < 1.0"], logging.ERROR, False),
+        (["not-installed-a >= 1", "pytest >= 1.0"], None, True),
+    ],
+    ids=[
+        "none-installed",
+        "an-old-one-installed",
+        "a-compatible-one-installed",
+    ],
+)
+def test_instrument_libraries_checks_the_either_or_packages_of_a_base_instrumentor(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    required_any: list[str],
+    level: int | None,
+    *,
+    attached: bool,
+) -> None:
+    """The inherited either-or check skips quietly, errors, or attaches."""
+    instrumentor = _EitherOrInstrumentor(required_any)
+    entries = {"either": _FakeEntryPoint("either", instrumentor)}
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    caplog.set_level("DEBUG")
+
+    out = instrument_libraries(object(), directive=True, exclude=set())
+    try:
+        assert instrumentor.attached is attached
+        assert out == ([instrumentor] if attached else [])
+        levels = [
+            record.levelno
+            for record in records_of(caplog, "grelmicro")
+            if "either" in record.getMessage()
+        ]
+        assert levels == ([] if level is None else [level])
+    finally:
+        uninstrument_libraries(out)
+
+
+_STARTUP_WITHOUT_INSTRUMENTATION = """
+import importlib.abc
+import logging
+import sys
+
+
+class _Block(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, *_args):
+        if fullname == "opentelemetry.instrumentation" or fullname.startswith(
+            "opentelemetry.instrumentation."
+        ):
+            raise ModuleNotFoundError(f"No module named {fullname!r}", name=fullname)
+
+
+sys.meta_path.insert(0, _Block())
+records = []
+handler = logging.Handler(logging.WARNING)
+handler.emit = records.append
+logging.getLogger("grelmicro").addHandler(handler)
+
+from opentelemetry.sdk.trace import TracerProvider
+
+from grelmicro.trace._autoinstrument import instrument_libraries
+
+out = instrument_libraries(TracerProvider(), True, exclude=set())
+assert out == [], out
+assert records == [], [record.getMessage() for record in records]
+"""
+
+
+def test_instrument_libraries_starts_quietly_without_the_instrumentation_package() -> (
+    None
+):
+    """In a fresh interpreter without the package, the real sweep logs nothing."""
+    result = subprocess.run(  # noqa: S603  # runs this interpreter on a fixed script
+        [sys.executable, "-c", _STARTUP_WITHOUT_INSTRUMENTATION],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_instrument_libraries_runs_without_the_instrumentation_package(
@@ -588,12 +908,7 @@ def test_instrument_libraries_runs_without_the_instrumentation_package(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """With no OpenTelemetry instrumentation package, the sweep still runs."""
-    monkeypatch.setitem(
-        sys.modules, "opentelemetry.instrumentation.dependencies", None
-    )
-    monkeypatch.setitem(
-        sys.modules, "opentelemetry.instrumentation.instrumentor", None
-    )
+    _without_the_instrumentation_package(monkeypatch)
     working = _FakeInstrumentor()
     entries = {"working": _FakeEntryPoint("working", working)}
     monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
