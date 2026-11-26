@@ -780,6 +780,7 @@ def _load_pending(source: str | None) -> tuple[Entry, ...] | None:
         return ()
     name = "_release_audit_previous_deprecation"
     module = types.ModuleType(name)
+    module.__file__ = str(ROOT / DEPRECATION)
     sys.modules[name] = module
     try:
         exec(compile(source, DEPRECATION, "exec"), module.__dict__)  # noqa: S102
