@@ -205,12 +205,7 @@ class _FakeInstrumentor:
         self.uninstrumented = False
         self.raise_on_instrument = False
 
-    def instrument(
-        self,
-        *,
-        tracer_provider: object | None = None,
-        **_kwargs: object,
-    ) -> None:
+    def instrument(self, *, tracer_provider: object | None = None) -> None:
         if self.raise_on_instrument:
             msg = "boom"
             raise RuntimeError(msg)
@@ -356,6 +351,40 @@ def test_instrument_libraries_skips_a_library_that_is_not_installed(
     assert [
         record for record in caplog.records if record.levelno >= logging.WARNING
     ] == []
+
+
+class _OldVersionInstrumentor(BaseInstrumentor):
+    """An instrumentor whose package is installed at a version it does not support."""
+
+    def instrumentation_dependencies(self) -> Collection[str]:
+        return ("pytest < 1.0",)
+
+    def _instrument(self, **_kwargs: object) -> None:
+        msg = "never instrumented"
+        raise AssertionError(msg)
+
+    def _uninstrument(self, **_kwargs: object) -> None:
+        msg = "never instrumented"
+        raise AssertionError(msg)
+
+
+def test_instrument_libraries_names_an_installed_package_at_an_unsupported_version(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A package at a version the instrumentor does not support logs an error."""
+    entries = {"old": _FakeEntryPoint("old", _OldVersionInstrumentor())}
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    caplog.set_level("DEBUG")
+
+    out = instrument_libraries(object(), directive=True, exclude=set())
+
+    assert out == []
+    errors = [
+        r for r in records_of(caplog, "grelmicro") if r.levelno == logging.ERROR
+    ]
+    assert len(errors) == 1
+    assert "pytest < 1.0" in errors[0].getMessage()
 
 
 def test_uninstrument_libraries_swallows_errors(
